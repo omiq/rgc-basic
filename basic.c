@@ -1,14 +1,9 @@
 /*
- *   ____   _____ _____  ____            _      
- *  |  _ \ / ____|  __ \|  _ \          (_)     
- *  | |_) | (___ | |  | | |_) | __ _ ___ _  ___ 
- *  |  _ < \___ \| |  | |  _ < / _` / __| |/ __|
- *  | |_) |____) | |__| | |_) | (_| \__ \ | (__ 
- *  |____/|_____/|_____/|____/ \__,_|___/_|\___|
- *                                               
- * 
- * Tiny BASIC-like interpreter targeting CBM BASIC v2 style programs.
+ * BASIC interpreter targeting CBM BASIC v2 style programs.
  * Copyright (C) 2024  Davepl with various AI assists
+ *
+ * Based on the original by David Plummer:
+ * https://github.com/davepl/pdpsrc/tree/main/bsd/basic
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -124,6 +119,25 @@ static int gosub_top = 0;
 static struct for_frame for_stack[MAX_FOR];
 static int for_top = 0;
 
+/* User-defined functions created with DEF FN. */
+#define MAX_USER_FUNCS 32
+
+struct user_func {
+    char name[8];           /* Function name, e.g. "FNY" (uppercased) */
+    char param_name[8];     /* Parameter variable name, e.g. "X" (uppercased) */
+    int param_is_string;    /* Non-zero if parameter is string type */
+    char *body;             /* Duplicated expression text after '=' */
+};
+
+static struct user_func user_funcs[MAX_USER_FUNCS];
+static int user_func_count = 0;
+
+/* DATA/READ support */
+#define MAX_DATA_ITEMS 256
+static struct value data_items[MAX_DATA_ITEMS];
+static int data_count = 0;
+static int data_index = 0;
+
 static int current_line = 0;
 static char *statement_pos = NULL;
 static int halted = 0;
@@ -145,9 +159,13 @@ static struct value make_num(double v);
 static struct value make_str(const char *s);
 static struct var *find_or_create_var(char name1, char name2, int is_string, int want_array, int array_size);
 static struct value eval_function(const char *name, char **p);
+static int user_func_lookup(const char *name);
+static void collect_data_from_program(void);
+static void statement_read(char **p);
 static void print_value(struct value *v);
 static void print_spaces(int count);
 static void statement_sleep(char **p);
+static void statement_def(char **p);
 static void do_sleep_ticks(double ticks);
 static int function_lookup(const char *name, int len);
 
@@ -168,13 +186,24 @@ enum func_code {
     FN_CHR = 13,
     FN_ASC = 14,
     FN_VAL = 15,
-    FN_TAB = 16
+    FN_TAB = 16,
+    FN_SPC = 17
 };
 
 /* Report an error and halt further execution. */
 static void runtime_error(const char *msg)
 {
-    fprintf(stderr, "Error: %s\n", msg);
+    int line_no;
+    line_no = 0;
+    if (current_line >= 0 && current_line < line_count &&
+        program_lines[current_line] != NULL) {
+        line_no = program_lines[current_line]->number;
+    }
+    if (line_no > 0) {
+        fprintf(stderr, "Error on line %d: %s\n", line_no, msg);
+    } else {
+        fprintf(stderr, "Error: %s\n", msg);
+    }
     halted = 1;
 }
 
@@ -325,6 +354,235 @@ static void print_spaces(int count)
     }
 }
 
+/* Parse a DEF FN user-defined function definition. */
+static void statement_def(char **p)
+{
+    char namebuf[8];
+    char param_buf[8];
+    int i;
+    int idx;
+    struct user_func *uf;
+    char *body_start;
+
+    skip_spaces(p);
+    if (!isalpha((unsigned char)**p)) {
+        runtime_error("Expected function name after DEF");
+        return;
+    }
+    /* Read function name (e.g. FNY) and uppercase it */
+    read_identifier(p, namebuf, sizeof(namebuf));
+    for (i = 0; namebuf[i]; i++) {
+        namebuf[i] = (char)toupper((unsigned char)namebuf[i]);
+    }
+
+    /* Require that the function name begins with FN, per classic BASIC. */
+    if (!(namebuf[0] == 'F' && namebuf[1] == 'N')) {
+        runtime_error("Function name must start with FN");
+        return;
+    }
+
+    skip_spaces(p);
+    if (**p != '(') {
+        runtime_error("DEF FN requires parameter list");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    if (!isalpha((unsigned char)**p)) {
+        runtime_error("Expected parameter name");
+        return;
+    }
+    read_identifier(p, param_buf, sizeof(param_buf));
+    for (i = 0; param_buf[i]; i++) {
+        param_buf[i] = (char)toupper((unsigned char)param_buf[i]);
+    }
+    skip_spaces(p);
+    if (**p != ')') {
+        runtime_error("Missing ')' in DEF FN");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    if (**p != '=') {
+        runtime_error("DEF FN missing '='");
+        return;
+    }
+    (*p)++;
+    body_start = *p;
+    while (*body_start == ' ' || *body_start == '\t') {
+        body_start++;
+    }
+    if (*body_start == '\0') {
+        runtime_error("Empty function body in DEF FN");
+        return;
+    }
+
+    /* Find or create function entry */
+    idx = user_func_lookup(namebuf);
+    if (idx < 0) {
+        if (user_func_count >= MAX_USER_FUNCS) {
+            runtime_error("Function table full");
+            return;
+        }
+        idx = user_func_count++;
+    }
+    uf = &user_funcs[idx];
+    if (uf->body) {
+        free(uf->body);
+    }
+    strncpy(uf->name, namebuf, sizeof(uf->name) - 1);
+    uf->name[sizeof(uf->name) - 1] = '\0';
+    strncpy(uf->param_name, param_buf, sizeof(uf->param_name) - 1);
+    uf->param_name[sizeof(uf->param_name) - 1] = '\0';
+    uf->param_is_string = (param_buf[strlen(param_buf) - 1] == '$');
+    uf->body = dupstr_local(body_start);
+
+    /* DEF FN is a complete statement; skip to end of line. */
+    *p += strlen(*p);
+}
+
+/* READ statement: READ A, B$, ... pulls from DATA pool */
+static void statement_read(char **p)
+{
+    for (;;) {
+        struct value *vp;
+        int is_array;
+        int is_string;
+
+        skip_spaces(p);
+        if (**p == '\0' || **p == ':') {
+            break;
+        }
+        if (!isalpha((unsigned char)**p)) {
+            runtime_error("Expected variable in READ");
+            return;
+        }
+        vp = get_var_reference(p, &is_array, &is_string);
+        if (!vp) {
+            return;
+        }
+        if (data_index >= data_count) {
+            runtime_error("Out of DATA");
+            return;
+        }
+        {
+            struct value src = data_items[data_index++];
+            if (is_string) {
+                if (src.type != VAL_STR) {
+                    char buf[64];
+                    sprintf(buf, "%g", src.num);
+                    *vp = make_str(buf);
+                } else {
+                    *vp = src;
+                }
+            } else {
+                if (src.type != VAL_NUM) {
+                    double num = atof(src.str);
+                    *vp = make_num(num);
+                } else {
+                    *vp = src;
+                }
+            }
+        }
+        skip_spaces(p);
+        if (**p == ',') {
+            (*p)++;
+            continue;
+        }
+        break;
+    }
+}
+
+/* Lookup a DEF FN user-defined function by name (already uppercased). */
+static int user_func_lookup(const char *name)
+{
+    int i;
+    for (i = 0; i < user_func_count; i++) {
+        if (strcmp(user_funcs[i].name, name) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* Scan all program lines and collect DATA items into data_items[] */
+static void collect_data_from_program(void)
+{
+    int i;
+    data_count = 0;
+    data_index = 0;
+    for (i = 0; i < line_count && data_count < MAX_DATA_ITEMS; i++) {
+        char *p;
+        if (!program_lines[i] || !program_lines[i]->text) {
+            continue;
+        }
+        p = program_lines[i]->text;
+        while (*p == ' ' || *p == '\t') {
+            p++;
+        }
+        if (!starts_with_kw(p, "DATA")) {
+            continue;
+        }
+        p += 4;
+        for (;;) {
+            struct value v;
+            char token[MAX_STR_LEN];
+            int tlen = 0;
+
+            while (*p == ' ' || *p == '\t') {
+                p++;
+            }
+            if (*p == '\0') {
+                break;
+            }
+            if (*p == '\"') {
+                /* Quoted string */
+                p++;
+                while (*p && *p != '\"' && tlen < (int)sizeof(token) - 1) {
+                    token[tlen++] = *p++;
+                }
+                token[tlen] = '\0';
+                if (*p == '\"') {
+                    p++;
+                }
+                v = make_str(token);
+            } else {
+                /* Unquoted token up to comma or end */
+                while (*p && *p != ',' && *p != ':' && tlen < (int)sizeof(token) - 1) {
+                    token[tlen++] = *p++;
+                }
+                token[tlen] = '\0';
+                /* Trim trailing spaces */
+                while (tlen > 0 && (token[tlen - 1] == ' ' || token[tlen - 1] == '\t')) {
+                    token[--tlen] = '\0';
+                }
+                if (tlen == 0) {
+                    v = make_str("");
+                } else {
+                    char *endptr;
+                    double num = strtod(token, &endptr);
+                    if (endptr != token && *endptr == '\0') {
+                        v = make_num(num);
+                    } else {
+                        v = make_str(token);
+                    }
+                }
+            }
+            if (data_count < MAX_DATA_ITEMS) {
+                data_items[data_count++] = v;
+            }
+            while (*p == ' ' || *p == '\t') {
+                p++;
+            }
+            if (*p == ',') {
+                p++;
+                continue;
+            }
+            break;
+        }
+    }
+}
+
 /* Emit a value (number or string) updating column tracking. */
 static void print_value(struct value *v)
 {
@@ -364,6 +622,7 @@ static int function_lookup(const char *name, int len)
         if (len == 3 && name[0] == 'S' && name[1] == 'Q' && name[2] == 'R') return FN_SQR;
         if ((len == 3 && name[0] == 'S' && name[1] == 'T' && name[2] == 'R') ||
             (len == 4 && name[0] == 'S' && name[1] == 'T' && name[2] == 'R' && name[3] == '$')) return FN_STR;
+        if (len == 3 && name[0] == 'S' && name[1] == 'P' && name[2] == 'C') return FN_SPC;
         return FN_NONE;
     case 'C':
         if ((len == 3 && name[0] == 'C' && name[1] == 'H' && name[2] == 'R') ||
@@ -598,6 +857,16 @@ static struct value eval_function(const char *name, char **p)
         print_col = cur;
         return make_str("");
     }
+    case FN_SPC: {
+        int count;
+        ensure_num(&arg);
+        count = (int)arg.num;
+        if (count < 0) {
+            count = 0;
+        }
+        print_spaces(count);
+        return make_str("");
+    }
     default:
         runtime_error("Unknown function");
         return make_num(0.0);
@@ -814,19 +1083,87 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "SGN") || starts_with_kw(*p, "EXP") || starts_with_kw(*p, "LOG") ||
             starts_with_kw(*p, "RND") || starts_with_kw(*p, "LEN") || starts_with_kw(*p, "VAL") ||
             starts_with_kw(*p, "STR") || starts_with_kw(*p, "CHR") || starts_with_kw(*p, "ASC") ||
-            starts_with_kw(*p, "TAB")) {
+            starts_with_kw(*p, "TAB") || starts_with_kw(*p, "SPC")) {
             char namebuf[8];
             char *q;
             q = *p;
             read_identifier(&q, namebuf, sizeof(namebuf));
             return eval_function(namebuf, p);
         } else {
-            struct value *vp;
-            vp = get_var_reference(p, NULL, NULL);
-            if (!vp) {
-                return make_num(0.0);
+            /* Check for user-defined DEF FN function call */
+            char namebuf[8];
+            char *q;
+            int i;
+            int uf_index;
+            q = *p;
+            read_identifier(&q, namebuf, sizeof(namebuf));
+            for (i = 0; namebuf[i]; i++) {
+                namebuf[i] = (char)toupper((unsigned char)namebuf[i]);
             }
-            return *vp;
+            uf_index = user_func_lookup(namebuf);
+            if (uf_index >= 0) {
+                struct user_func *uf;
+                struct value arg;
+                struct value result;
+                struct var *param_var;
+                struct value saved_scalar;
+                char pname_buf[8];
+                char n1, n2;
+                int dummy_is_string;
+
+                uf = &user_funcs[uf_index];
+
+                /* Advance original pointer past function name */
+                *p = q;
+                skip_spaces(p);
+                if (**p != '(') {
+                    runtime_error("Function requires '('");
+                    return make_num(0.0);
+                }
+                (*p)++;
+                arg = eval_expr(p);
+                skip_spaces(p);
+                if (**p == ')') {
+                    (*p)++;
+                } else {
+                    runtime_error("Missing ')'");
+                }
+
+                /* Bind parameter variable, evaluate body, then restore */
+                strncpy(pname_buf, uf->param_name, sizeof(pname_buf) - 1);
+                pname_buf[sizeof(pname_buf) - 1] = '\0';
+                uppercase_name(pname_buf, &n1, &n2, &dummy_is_string);
+                param_var = find_or_create_var(n1, n2, uf->param_is_string, 0, 0);
+                if (!param_var) {
+                    return make_num(0.0);
+                }
+                saved_scalar = param_var->scalar;
+                if (uf->param_is_string) {
+                    ensure_str(&arg);
+                    param_var->scalar = arg;
+                    param_var->scalar.type = VAL_STR;
+                } else {
+                    ensure_num(&arg);
+                    param_var->scalar = arg;
+                    param_var->scalar.type = VAL_NUM;
+                }
+
+                {
+                    char *body_p;
+                    body_p = uf->body;
+                    result = eval_expr(&body_p);
+                }
+
+                param_var->scalar = saved_scalar;
+                return result;
+            } else {
+                struct value *vp;
+                vp = get_var_reference(p, NULL, NULL);
+                if (!vp) {
+                    return make_num(0.0);
+                }
+                return *vp;
+            }
         }
     }
     if (**p == '+' || **p == '-') {
@@ -1392,15 +1729,31 @@ static void execute_statement(char **p)
         statement_print(p);
         return;
     }
-    if (c == 'R' && starts_with_kw(*p, "REM")) {
-        *p += 3;
-        statement_rem(p);
-        return;
+    if (c == 'R') {
+        if (starts_with_kw(*p, "REM")) {
+            *p += 3;
+            statement_rem(p);
+            return;
+        }
+        if (starts_with_kw(*p, "READ")) {
+            *p += 4;
+            statement_read(p);
+            return;
+        }
     }
-    if (c == 'P' && starts_with_kw(*p, "PRINT")) {
-        *p += 5;
-        statement_print(p);
-        return;
+    if (c == 'P') {
+        if (starts_with_kw(*p, "PRINT")) {
+            *p += 5;
+            statement_print(p);
+            return;
+        }
+        /* POKE is treated as a no-op (for compatibility with demos). */
+        if (starts_with_kw(*p, "POKE")) {
+            *p += 4;
+            /* Skip the rest of the arguments */
+            *p += strlen(*p);
+            return;
+        }
     }
     if (c == 'I' && starts_with_kw(*p, "INPUT")) {
         *p += 5;
@@ -1442,10 +1795,31 @@ static void execute_statement(char **p)
         statement_next(p);
         return;
     }
-    if (c == 'D' && starts_with_kw(*p, "DIM")) {
-        *p += 3;
-        statement_dim(p);
-        return;
+    if (c == 'D') {
+        /* DATA lines are non-executable (values were collected at load time). */
+        if (starts_with_kw(*p, "DATA")) {
+            *p += strlen(*p);
+            return;
+        }
+        /* DIM arrays */
+        if (starts_with_kw(*p, "DIM")) {
+            *p += 3;
+            statement_dim(p);
+            return;
+        }
+        /* DEF FN user-defined function */
+        {
+            char *q;
+            q = *p;
+            if ((q[0] == 'D' || q[0] == 'd') &&
+                (q[1] == 'E' || q[1] == 'e') &&
+                (q[2] == 'F' || q[2] == 'f') &&
+                (q[3] == '\0' || q[3] == ' ' || q[3] == '\t' || q[3] == '(' || q[3] == ':')) {
+                *p += 3;
+                statement_def(p);
+                return;
+            }
+        }
     }
     if (c == 'S' && starts_with_kw(*p, "SLEEP")) {
         *p += 5;
@@ -1561,6 +1935,7 @@ static void load_program(const char *path)
     }
     fclose(f);
     sort_program();
+    collect_data_from_program();
 }
 
 static void run_program(void)

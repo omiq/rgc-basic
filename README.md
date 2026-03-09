@@ -1,7 +1,7 @@
 ## CBM-BASIC
 Commodore BASIC v2–style interpreter written in C.
 
-Expanded from [David Plummer](https://github.com/davepl/pdpsrc/tree/main/bsd/basic)
+Expanded from original by [David Plummer](https://github.com/davepl/pdpsrc/tree/main/bsd/basic)
 
 Line-numbered BASIC interpreter inspired by CBM BASIC v2 as found on classic Commodore machines.
 
