@@ -20,6 +20,9 @@ Line-numbered BASIC interpreter inspired by CBM BASIC v2 as found on classic Com
   - **`REM`** and **`'`**: comments to end of line.
   - **`SLEEP`**: pause execution for a number of 60 Hz “ticks” (e.g., `SLEEP 60` ≈ 1 second).
   - **`END` / `STOP`**: terminate program execution.
+  - **`READ` / `DATA`**: load numeric and string literals from `DATA` statements into variables.
+  - **`DEF FN`**: define simple user functions, e.g. `DEF FNY(X) = SIN(X)`.
+  - **`POKE`**: accepted as a no‑op (for compatibility with old listings; it does not touch real memory).
 - **Variables**
   - **Numeric variables**: `A`, `B1`, `AB`, etc.
   - **String variables**: names ending in `$`, e.g. `A$`, `NAME$`.
@@ -27,7 +30,7 @@ Line-numbered BASIC interpreter inspired by CBM BASIC v2 as found on classic Com
 - **Intrinsic functions**
   - **Math**: `SIN`, `COS`, `TAN`, `ABS`, `INT`, `SQR`, `SGN`, `EXP`, `LOG`, `RND`.
   - **Strings**: `LEN`, `VAL`, `STR$`, `CHR$`, `ASC`.
-  - **Formatting**: `TAB` for horizontal positioning in `PRINT`.
+  - **Formatting**: `TAB` and `SPC` for horizontal positioning in `PRINT`.
 
 ### Requirements
 
@@ -130,6 +133,12 @@ If you do not pass a file name, the interpreter will print usage information:
 ```text
 Usage: basic <program.bas>
 ```
+
+### Included example programs
+
+- **`dartmouth.bas`**: a port of a classic Dartmouth BASIC tutorial program that exercises `PRINT`, `INPUT`, `IF`, `FOR/NEXT`, `DEF FN`, `READ`/`DATA`, and more.
+- **`tests/def_fn.bas`**: small regression for `DEF FN` and function calls.
+- **`tests/read_data.bas`**: small regression for `READ`/`DATA` with numeric and string arrays.
 
 ### Notes on the BASIC dialect
 
