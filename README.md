@@ -38,49 +38,74 @@ This is a tiny, line-numbered BASIC interpreter inspired by CBM BASIC v2 as foun
 
 ### Building
 
-#### Linux / WSL
+You can either use the provided `Makefile` (recommended) or compile manually.
+
+#### Using `make` (recommended)
+
+From the project root:
 
 ```bash
-gcc -std=c99 -Wall -O2 basic.c -lm -o basic
+make
 ```
 
-or
+The Makefile will detect your platform (Linux, macOS, or Windows via MinGW/Cygwin) and produce the appropriate native binary:
+
+- **Linux / WSL / macOS**: `basic`
+- **Windows (MinGW / Cygwin)**: `basic.exe`
+
+To clean the build:
 
 ```bash
-clang -std=c99 -Wall -O2 basic.c -lm -o basic
+make clean
 ```
 
-#### macOS
+#### Manual compilation
 
-Install the Xcode command line tools if you have not already:
+If you prefer to invoke the compiler directly:
 
-```bash
-xcode-select --install
-```
+- **Linux / WSL**
 
-Then build with:
+  ```bash
+  gcc -std=c99 -Wall -O2 basic.c -lm -o basic
+  ```
 
-```bash
-clang -std=c99 -Wall -O2 basic.c -lm -o basic
-```
+  or
 
-#### Windows (MSVC)
+  ```bash
+  clang -std=c99 -Wall -O2 basic.c -lm -o basic
+  ```
 
-From a “Developer Command Prompt for VS”:
+- **macOS**
 
-```bat
-cl /std:c11 /W4 /O2 basic.c
-```
+  Install the Xcode command line tools if you have not already:
 
-This will produce `basic.exe`.
+  ```bash
+  xcode-select --install
+  ```
 
-#### Windows (MinGW‑w64)
+  Then build with:
 
-In a MinGW‑w64 shell:
+  ```bash
+  clang -std=c99 -Wall -O2 basic.c -lm -o basic
+  ```
 
-```bash
-gcc -std=c99 -Wall -O2 basic.c -lm -o basic.exe
-```
+- **Windows (MSVC)**
+
+  From a “Developer Command Prompt for VS”:
+
+  ```bat
+  cl /std:c11 /W4 /O2 basic.c
+  ```
+
+  This will produce `basic.exe`.
+
+- **Windows (MinGW‑w64)**
+
+  In a MinGW‑w64 shell:
+
+  ```bash
+  gcc -std=c99 -Wall -O2 basic.c -lm -o basic.exe
+  ```
 
 ### Usage
 

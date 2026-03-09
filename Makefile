@@ -1,12 +1,16 @@
-# Portable makefile for 2.11BSD/pdp11 and modern Unix/macOS
+## Portable Makefile for cbm-basic
+##
+## Targets:
+##   make         - build native binary for the current host
+##   make clean   - remove built binary
 
-TARGET=basic
-SRCS=basic.c
+TARGET = basic
+SRCS   = basic.c
 
-# Defaults for modern systems; PDP11 settings are chosen in the rule below.
-CC?=cc
-CFLAGS?=-Wall -std=c89 -pedantic -O2 -DHAVE_USLEEP
-LDFLAGS?=-lm
+# Reasonable defaults for modern systems; can be overridden on the command line.
+CC      ?= cc
+CFLAGS  ?= -Wall -std=c99 -O2
+LDFLAGS ?= -lm
 
 all: $(TARGET)
 
@@ -14,11 +18,19 @@ $(TARGET): $(SRCS)
 	@set -e; \
 	M=`uname -m 2>/dev/null || echo unknown`; \
 	U=`uname -s 2>/dev/null || echo unknown`; \
-	case "$$M $$U" in \
-	*pdp11*|*PDP*|*pdp*|*"2.11BSD"*) \
-		CC=cc; CFLAGS="-i -O"; LDFLAGS="-lm"; PLATFORM="PDP11";; \
+	case "$$U" in \
+	*MINGW*|*MSYS*|*CYGWIN*) \
+		PLATFORM="Windows (MinGW/Cygwin)"; \
+		CC="$(CC)"; CFLAGS="$(CFLAGS)"; LDFLAGS="";; \
+	Darwin) \
+		PLATFORM="macOS"; \
+		CC="$(CC)"; CFLAGS="$(CFLAGS)"; LDFLAGS="$(LDFLAGS)";; \
+	Linux) \
+		PLATFORM="Linux"; \
+		CC="$(CC)"; CFLAGS="$(CFLAGS)"; LDFLAGS="$(LDFLAGS)";; \
 	*) \
-		CC="$(CC)"; CFLAGS="$(CFLAGS)"; LDFLAGS="$(LDFLAGS)"; PLATFORM="UNIX";; \
+		PLATFORM="UNIX"; \
+		CC="$(CC)"; CFLAGS="$(CFLAGS)"; LDFLAGS="$(LDFLAGS)";; \
 	esac; \
 	echo "Building for $$PLATFORM ($$M $$U)"; \
 	$$CC $$CFLAGS -o $@ $(SRCS) $$LDFLAGS
@@ -28,3 +40,4 @@ clean:
 
 .PHONY: all clean
 
+# End of Makefile
