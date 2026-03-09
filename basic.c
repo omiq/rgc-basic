@@ -33,6 +33,9 @@
 #include <string.h>
 #include <ctype.h>
 #include <math.h>
+#if defined(_WIN32)
+#include <windows.h>
+#else
 #if defined(__unix__) || defined(__APPLE__) || defined(__MACH__)
 #include <unistd.h>
 #endif
@@ -45,6 +48,7 @@
 #ifndef HAVE_USLEEP
 #if defined(__APPLE__) || defined(__MACH__) || defined(__linux__) || defined(_POSIX_VERSION)
 #define HAVE_USLEEP 1
+#endif
 #endif
 #endif
 
@@ -395,7 +399,22 @@ static int function_lookup(const char *name, int len)
     }
 }
 
-/* Sleep for a number of 60Hz ticks, using the best timer available. */
+#if defined(_WIN32)
+/* Windows: sleep using Sleep() in milliseconds derived from 60Hz ticks. */
+static void do_sleep_ticks(double ticks)
+{
+    DWORD ms;
+    if (ticks <= 0.0) {
+        return;
+    }
+    ms = (DWORD)(ticks * (1000.0 / 60.0) + 0.5);
+    if (ms == 0) {
+        return;
+    }
+    Sleep(ms);
+}
+#else
+/* POSIX/Unix: original usleep/select-based implementation for 60Hz ticks. */
 static void do_sleep_ticks(double ticks)
 {
     long usec;
@@ -438,6 +457,7 @@ static void do_sleep_ticks(double ticks)
     }
 #endif
 }
+#endif
 
 /* Parse SLEEP statement and pause execution. */
 static void statement_sleep(char **p)
