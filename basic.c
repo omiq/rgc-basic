@@ -839,6 +839,9 @@ static struct value eval_function(const char *name, char **p)
                     return make_str("\033[C");
                 case 157: /* cursor left */
                     return make_str("\033[D");
+                /* Base colors */
+                case 144: /* black */
+                    return make_str("\033[30m");
                 case 5:   /* white */
                     return make_str("\033[37m");
                 case 28:  /* red */
@@ -847,8 +850,29 @@ static struct value eval_function(const char *name, char **p)
                     return make_str("\033[32m");
                 case 31:  /* blue */
                     return make_str("\033[34m");
-                case 144: /* black */
-                    return make_str("\033[30m");
+                case 159: /* cyan */
+                    return make_str("\033[36m");
+                case 156: /* purple */
+                    return make_str("\033[35m");
+                case 158: /* yellow */
+                    return make_str("\033[33m");
+                /* Extended colors (approximate mappings) */
+                case 129: /* orange */
+                    return make_str("\033[38;5;208m");
+                case 149: /* brown */
+                    return make_str("\033[33m");
+                case 150: /* light red */
+                    return make_str("\033[91m");
+                case 151: /* dark gray */
+                    return make_str("\033[90m");
+                case 152: /* medium gray */
+                    return make_str("\033[37m");
+                case 153: /* light green */
+                    return make_str("\033[92m");
+                case 154: /* light blue */
+                    return make_str("\033[94m");
+                case 155: /* light gray */
+                    return make_str("\033[97m");
                 default:
                     break;
                 }

@@ -142,12 +142,23 @@ In `-petscii` mode, `CHR$` maps a few PETSCII control bytes to ANSI escape seque
   - **`CHR$(145)`**: cursor up (`ESC[A]`).
   - **`CHR$(29)`**: cursor right (`ESC[C]`).
   - **`CHR$(157)`**: cursor left (`ESC[D]`).
-- **Basic text colors**
+- **Basic text colors** (ANSI approximations of C64 colors)
+  - **`CHR$(144)`**: black (`ESC[30m]`).
   - **`CHR$(5)`**: white (`ESC[37m]`).
   - **`CHR$(28)`**: red (`ESC[31m]`).
+  - **`CHR$(159)`**: cyan (`ESC[36m]`).
+  - **`CHR$(156)`**: purple (`ESC[35m]`).
   - **`CHR$(30)`**: green (`ESC[32m]`).
   - **`CHR$(31)`**: blue (`ESC[34m]`).
-  - **`CHR$(144)`**: black (`ESC[30m]`).
+  - **`CHR$(158)`**: yellow (`ESC[33m]`).
+  - **`CHR$(129)`**: orange (`ESC[38;5;208m]`).
+  - **`CHR$(149)`**: brown (`ESC[33m]`).
+  - **`CHR$(150)`**: light red (`ESC[91m]`).
+  - **`CHR$(151)`**: dark gray (`ESC[90m]`).
+  - **`CHR$(152)`**: medium gray (`ESC[37m]`).
+  - **`CHR$(153)`**: light green (`ESC[92m]`).
+  - **`CHR$(154)`**: light blue (`ESC[94m]`).
+  - **`CHR$(155)`**: light gray (`ESC[97m]`).
 
 If you do not pass a file name, the interpreter will print usage information:
 
