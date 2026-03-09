@@ -128,11 +128,26 @@ Run the interpreter and pass the path to your BASIC program:
 basic.exe hello.bas      # Windows
 ```
 
-You can also enable a **PETSCII/ANSI mode** that understands common C64 control codes (clear screen, cursor moves, basic colors) inside strings and `CHR$` output:
+You can also enable a **PETSCII/ANSI mode** that understands common C64 control codes inside strings and `CHR$` output:
 
 ```bash
 ./basic -petscii hello.bas
 ```
+
+In `-petscii` mode, `CHR$` maps a few PETSCII control bytes to ANSI escape sequences (others print as-is):
+
+- **Screen control**
+  - **`CHR$(147)`**: clear screen and home cursor (maps to `ESC[2J ESC[H]`).
+  - **`CHR$(17)`**: cursor down (`ESC[B]`).
+  - **`CHR$(145)`**: cursor up (`ESC[A]`).
+  - **`CHR$(29)`**: cursor right (`ESC[C]`).
+  - **`CHR$(157)`**: cursor left (`ESC[D]`).
+- **Basic text colors**
+  - **`CHR$(5)`**: white (`ESC[37m]`).
+  - **`CHR$(28)`**: red (`ESC[31m]`).
+  - **`CHR$(30)`**: green (`ESC[32m]`).
+  - **`CHR$(31)`**: blue (`ESC[34m]`).
+  - **`CHR$(144)`**: black (`ESC[30m]`).
 
 If you do not pass a file name, the interpreter will print usage information:
 

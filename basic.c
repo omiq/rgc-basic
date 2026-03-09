@@ -298,7 +298,7 @@ static int starts_with_kw(char *p, const char *kw)
             return 0;
         }
     }
-    if (p[i] == '\0' || p[i] == ' ' || p[i] == '\t' || p[i] == ':' || p[i] == '(') {
+    if (p[i] == '\0' || p[i] == ' ' || p[i] == '\t' || p[i] == ':' || p[i] == '(' || p[i] == '$') {
         return 1;
     }
     return 0;
@@ -592,69 +592,14 @@ static void print_value(struct value *v)
         s = v->str;
         while (*s) {
             unsigned char c = (unsigned char)*s;
-            if (petscii_mode) {
-                /* Minimal PETSCII -> ANSI translation */
-                switch (c) {
-                case 147: /* CLR: clear screen, home cursor */
-                    fputs("\033[2J\033[H", stdout);
-                    print_col = 0;
-                    break;
-                case 17: /* cursor down */
-                    fputs("\033[B", stdout);
-                    break;
-                case 145: /* cursor up */
-                    fputs("\033[A", stdout);
-                    break;
-                case 29: /* cursor right */
-                    fputs("\033[C", stdout);
-                    print_col++;
-                    break;
-                case 157: /* cursor left */
-                    fputs("\033[D", stdout);
-                    if (print_col > 0) {
-                        print_col--;
-                    }
-                    break;
-                /* Basic color controls mapped to ANSI */
-                case 5:   /* white */
-                    fputs("\033[37m", stdout);
-                    break;
-                case 28:  /* red */
-                    fputs("\033[31m", stdout);
-                    break;
-                case 30:  /* green */
-                    fputs("\033[32m", stdout);
-                    break;
-                case 31:  /* blue */
-                    fputs("\033[34m", stdout);
-                    break;
-                case 144: /* black */
-                    fputs("\033[30m", stdout);
-                    break;
-                default:
-                    if (c == '\n') {
-                        fputc('\n', stdout);
-                        print_col = 0;
-                    } else {
-                        fputc(c, stdout);
-                        print_col++;
-                        if (print_col >= PRINT_WIDTH) {
-                            fputc('\n', stdout);
-                            print_col = 0;
-                        }
-                    }
-                    break;
-                }
+            fputc(c, stdout);
+            if (c == '\n') {
+                print_col = 0;
             } else {
-                fputc(c, stdout);
-                if (c == '\n') {
+                print_col++;
+                if (print_col >= PRINT_WIDTH) {
+                    fputc('\n', stdout);
                     print_col = 0;
-                } else {
-                    print_col++;
-                    if (print_col >= PRINT_WIDTH) {
-                        fputc('\n', stdout);
-                        print_col = 0;
-                    }
                 }
             }
             s++;
@@ -879,9 +824,39 @@ static struct value eval_function(const char *name, char **p)
         return make_str(outbuf);
     case FN_CHR:
         ensure_num(&arg);
-        outbuf[0] = (char)((int)arg.num & 0xff);
-        outbuf[1] = '\0';
-        return make_str(outbuf);
+        {
+            int code = (int)arg.num & 0xff;
+            if (petscii_mode) {
+                /* Map common PETSCII control codes to ANSI escape sequences. */
+                switch (code) {
+                case 147: /* CLR: clear screen, home cursor */
+                    return make_str("\033[2J\033[H");
+                case 17:  /* cursor down */
+                    return make_str("\033[B");
+                case 145: /* cursor up */
+                    return make_str("\033[A");
+                case 29:  /* cursor right */
+                    return make_str("\033[C");
+                case 157: /* cursor left */
+                    return make_str("\033[D");
+                case 5:   /* white */
+                    return make_str("\033[37m");
+                case 28:  /* red */
+                    return make_str("\033[31m");
+                case 30:  /* green */
+                    return make_str("\033[32m");
+                case 31:  /* blue */
+                    return make_str("\033[34m");
+                case 144: /* black */
+                    return make_str("\033[30m");
+                default:
+                    break;
+                }
+            }
+            outbuf[0] = (char)code;
+            outbuf[1] = '\0';
+            return make_str(outbuf);
+        }
     case FN_ASC:
         ensure_str(&arg);
         if (arg.str[0] == '\0') {
