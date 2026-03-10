@@ -1,11 +1,22 @@
-## CBM-BASIC
-Commodore BASIC v2–style interpreter written in C.
+# CBM-BASIC
+
+   _____ ____  __  __        ____           _____ _____ _____ 
+  / ____|  _ \|  \/  |      |  _ \   /\    / ____|_   _/ ____|
+ | |    | |_) | \  / |______| |_) | /  \  | (___   | || |     
+ | |    |  _ <| |\/| |______|  _ < / /\ \  \___ \  | || |     
+ | |____| |_) | |  | |      | |_) / ____ \ ____) |_| || |____ 
+  \_____|____/|_|  |_|      |____/_/    \_\_____/|_____\_____|
+                                                                                                                   
+  .............................................................
+
+
+## Commodore BASIC v2–style interpreter written in C.
 
 Expanded from original by [David Plummer](https://github.com/davepl/pdpsrc/tree/main/bsd/basic)
 
 Line-numbered BASIC interpreter inspired by CBM BASIC v2 as found on classic Commodore machines.
 
-### Features
+## Features
 
 - **Line-numbered programs** loaded from a text file (`10 ...`, `20 ...`, etc.).
 - **Core statements**
@@ -32,7 +43,7 @@ Line-numbered BASIC interpreter inspired by CBM BASIC v2 as found on classic Com
   - **Strings**: `LEN`, `VAL`, `STR$`, `CHR$`, `ASC`.
   - **Formatting**: `TAB` and `SPC` for horizontal positioning in `PRINT`.
 
-### Requirements
+## Requirements
 
 - A C compiler with C99 (or newer) support:
   - Linux / WSL: `gcc` or `clang`
@@ -41,7 +52,7 @@ Line-numbered BASIC interpreter inspired by CBM BASIC v2 as found on classic Com
     - MSVC (Visual Studio / Build Tools), or
     - MinGW‑w64 (`gcc`)
 
-### Building
+## Building
 
 You can either use the provided `Makefile` (recommended) or compile manually.
 
@@ -112,7 +123,7 @@ If you prefer to invoke the compiler directly:
   gcc -std=c99 -Wall -O2 basic.c -lm -o basic.exe
   ```
 
-### Usage
+## Usage
 
 The interpreter runs a BASIC source file that contains **line‑numbered** statements:
 
@@ -200,4 +211,4 @@ Usage: basic [-petscii] [-palette ansi|c64] <program.bas>
 - **Random numbers**:
   - `RND(X)` behaves like classic BASIC; a negative argument reseeds the generator.
 
-This README describes the current feature set of the interpreter as implemented in `basic.c`.
+`This README describes the current feature set of the interpreter as implemented in `basic.c` and is subject to change without notice`
