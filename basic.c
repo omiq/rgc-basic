@@ -41,9 +41,11 @@
 #include <math.h>
 #if defined(_WIN32)
 #include <windows.h>
+#include <conio.h>
 #else
 #if defined(__unix__) || defined(__APPLE__) || defined(__MACH__)
 #include <unistd.h>
+#include <termios.h>
 #endif
 #ifndef HAVE_USLEEP
 #include <sys/types.h>
@@ -196,6 +198,8 @@ static int palette_mode = PALETTE_ANSI;
 static void runtime_error(const char *msg);
 static void load_program(const char *path);
 static int find_line_index(int number);
+static void build_label_table(void);
+static int find_label_line(const char *name);
 static int starts_with_kw(char *p, const char *kw);
 static void skip_spaces(char **p);
 static int parse_number_literal(char **p, double *out);
@@ -216,6 +220,7 @@ static void print_value(struct value *v);
 static void print_spaces(int count);
 static void statement_sleep(char **p);
 static void statement_def(char **p);
+static void statement_get(char **p);
 static void do_sleep_ticks(double ticks);
 static int function_lookup(const char *name, int len);
 
@@ -237,23 +242,62 @@ enum func_code {
     FN_ASC = 14,
     FN_VAL = 15,
     FN_TAB = 16,
-    FN_SPC = 17
+    FN_SPC = 17,
+    FN_MID = 18,
+    FN_LEFT = 19,
+    FN_RIGHT = 20
 };
 
-/* Report an error and halt further execution. */
+/* Report an error and halt further execution.
+ * If possible, include the BASIC line number (if present) and the
+ * original source text with a caret pointing near the error location.
+ */
 static void runtime_error(const char *msg)
 {
-    int line_no;
-    line_no = 0;
+    int line_no = 0;
+    const char *line_text = NULL;
+
     if (current_line >= 0 && current_line < line_count &&
         program_lines[current_line] != NULL) {
         line_no = program_lines[current_line]->number;
+        line_text = program_lines[current_line]->text;
     }
+
     if (line_no > 0) {
         fprintf(stderr, "Error on line %d: %s\n", line_no, msg);
     } else {
         fprintf(stderr, "Error: %s\n", msg);
     }
+
+    if (line_text && *line_text) {
+        /* Print the full source line for context. */
+        fprintf(stderr, "  %s\n", line_text);
+
+        /* If we know roughly where in the line we are (statement_pos),
+         * print a caret pointing near that column.
+         */
+        if (statement_pos &&
+            statement_pos >= line_text &&
+            statement_pos <= line_text + (int)strlen(line_text)) {
+            const char *p = line_text;
+            int col = 0;
+            while (p < statement_pos && *p) {
+                /* Treat tabs as a single column for simplicity. */
+                col++;
+                p++;
+            }
+            fprintf(stderr, "  ");
+            /* Cap the number of spaces so very long lines do not spam. */
+            if (col > 120) {
+                col = 120;
+            }
+            for (int i = 0; i < col; i++) {
+                fputc(' ', stderr);
+            }
+            fprintf(stderr, "^\n");
+        }
+    }
+
     halted = 1;
 }
 
@@ -555,6 +599,135 @@ static int user_func_lookup(const char *name)
     return -1;
 }
 
+/* Simple label table for optional label-based GOTO/GOSUB.
+ * A label is defined by writing it at the start of a line followed by ':'.
+ * For example:
+ *   START: PRINT "HELLO": GOTO START
+ *
+ * Labels are resolved to line indices after the program is loaded.
+ */
+
+#define MAX_LABELS 256
+
+struct label_entry {
+    char name[32];
+    int line_index; /* index into program_lines[] */
+};
+
+static struct label_entry label_table[MAX_LABELS];
+static int label_count = 0;
+
+/* Build the label table by scanning program lines for leading "NAME:".
+ * The label text is stripped from the stored line so execution sees only statements.
+ */
+static void build_label_table(void)
+{
+    int i;
+    label_count = 0;
+    for (i = 0; i < line_count; i++) {
+        char *text;
+        char *p;
+        char *q;
+        size_t len;
+
+        if (!program_lines[i] || !program_lines[i]->text) {
+            continue;
+        }
+        text = program_lines[i]->text;
+        p = text;
+        while (*p == ' ' || *p == '\t') {
+            p++;
+        }
+        /* Label must start with a letter and consist of letters/digits/$,
+         * immediately followed by ':' (optionally after spaces). This avoids
+         * misinterpreting expressions like 'LB$=CHR$(154):' as labels.
+         */
+        if (!isalpha((unsigned char)*p)) {
+            continue;
+        }
+        q = p;
+        while (isalpha((unsigned char)*q) || isdigit((unsigned char)*q) || *q == '$') {
+            q++;
+        }
+        /* Skip optional spaces/tabs between label and ':' */
+        {
+            char *r = q;
+            while (*r == ' ' || *r == '\t') {
+                r++;
+            }
+            if (*r != ':') {
+                continue;
+            }
+            q = r; /* q now points at ':' */
+        }
+
+        /* We have LABEL: at start of line. Extract the name. */
+        len = (size_t)(q - p);
+        if (len >= sizeof(label_table[0].name)) {
+            len = sizeof(label_table[0].name) - 1;
+        }
+        if (label_count >= MAX_LABELS) {
+            /* Too many labels; ignore extras. */
+            continue;
+        }
+        memcpy(label_table[label_count].name, p, len);
+        label_table[label_count].name[len] = '\0';
+        /* Normalize to uppercase for case-insensitive matching. */
+        {
+            size_t k;
+            for (k = 0; k < len; k++) {
+                label_table[label_count].name[k] =
+                    (char)toupper((unsigned char)label_table[label_count].name[k]);
+            }
+        }
+        label_table[label_count].line_index = i;
+        label_count++;
+
+        /* Strip the label from the stored line so execution sees only the statement. */
+        q++; /* skip ':' */
+        while (*q == ' ' || *q == '\t') {
+            q++;
+        }
+        /* Duplicate the remainder into a new buffer. */
+        {
+            char *new_text = dupstr_local(q);
+            if (new_text) {
+                free(program_lines[i]->text);
+                program_lines[i]->text = new_text;
+            }
+        }
+    }
+}
+
+/* Find the line index for a given label name, or -1 if not found. */
+static int find_label_line(const char *name)
+{
+    int i;
+    char tmp[32];
+    size_t len;
+
+    if (!name || !*name) {
+        return -1;
+    }
+    /* Uppercase a copy for case-insensitive comparison. */
+    len = strlen(name);
+    if (len >= sizeof(tmp)) {
+        len = sizeof(tmp) - 1;
+    }
+    memcpy(tmp, name, len);
+    tmp[len] = '\0';
+    for (i = 0; tmp[i]; i++) {
+        tmp[i] = (char)toupper((unsigned char)tmp[i]);
+    }
+
+    for (i = 0; i < label_count; i++) {
+        if (strcmp(label_table[i].name, tmp) == 0) {
+            return label_table[i].line_index;
+        }
+    }
+    return -1;
+}
+
 /* Scan all program lines and collect DATA items into data_items[] */
 static void collect_data_from_program(void)
 {
@@ -697,9 +870,20 @@ static int function_lookup(const char *name, int len)
     case 'L':
         if (len == 3 && name[0] == 'L' && name[1] == 'O' && name[2] == 'G') return FN_LOG;
         if (len == 3 && name[0] == 'L' && name[1] == 'E' && name[2] == 'N') return FN_LEN;
+        if ((len == 4 && name[0] == 'L' && name[1] == 'E' && name[2] == 'F' && name[3] == 'T') ||
+            (len == 5 && name[0] == 'L' && name[1] == 'E' && name[2] == 'F' && name[3] == 'T' && name[4] == '$'))
+            return FN_LEFT;
+        return FN_NONE;
+    case 'M':
+        if ((len == 3 && name[0] == 'M' && name[1] == 'I' && name[2] == 'D') ||
+            (len == 4 && name[0] == 'M' && name[1] == 'I' && name[2] == 'D' && name[3] == '$'))
+            return FN_MID;
         return FN_NONE;
     case 'R':
         if (len == 3 && name[0] == 'R' && name[1] == 'N' && name[2] == 'D') return FN_RND;
+        if ((len == 5 && name[0] == 'R' && name[1] == 'I' && name[2] == 'G' && name[3] == 'H' && name[4] == 'T') ||
+            (len == 6 && name[0] == 'R' && name[1] == 'I' && name[2] == 'G' && name[3] == 'H' && name[4] == 'T' && name[5] == '$'))
+            return FN_RIGHT;
         return FN_NONE;
     case 'V':
         if (len == 3 && name[0] == 'V' && name[1] == 'A' && name[2] == 'L') return FN_VAL;
@@ -791,6 +975,74 @@ static void statement_sleep(char **p)
     do_sleep_ticks(v.num);
 }
 
+/* GET statement: GET A$ reads a single character into a string variable.
+ * This is a blocking read from standard input. Newlines are returned as
+ * an empty string so programs can poll if they wish.
+ */
+static int read_single_char(void)
+{
+#if defined(_WIN32)
+    /* _getch() reads a single keypress without waiting for Enter and
+     * without echoing it to the console.
+     */
+    int ch = _getch();
+    if (ch == 0 || ch == 224) {
+        /* Swallow extended key prefix and read the actual code. */
+        ch = _getch();
+    }
+    return ch;
+#else
+    struct termios oldt, newt;
+    int ch = EOF;
+
+    if (tcgetattr(STDIN_FILENO, &oldt) != 0) {
+        return getchar();
+    }
+    newt = oldt;
+    newt.c_lflag &= ~(ICANON | ECHO);
+    newt.c_cc[VMIN] = 1;
+    newt.c_cc[VTIME] = 0;
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &newt) != 0) {
+        return getchar();
+    }
+    ch = getchar();
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    return ch;
+#endif
+}
+
+static void statement_get(char **p)
+{
+    struct value *vp;
+    int is_array;
+    int is_string;
+    int ch;
+
+    skip_spaces(p);
+    vp = get_var_reference(p, &is_array, &is_string);
+    if (!vp) {
+        return;
+    }
+    if (!is_string) {
+        runtime_error("GET requires string variable");
+        return;
+    }
+
+    fflush(stdout);
+    ch = read_single_char();
+    if (ch == EOF) {
+        *vp = make_str("");
+    } else if (ch == '\n' || ch == '\r') {
+        /* Treat pure newline as "no key" */
+        *vp = make_str("");
+    } else {
+        char buf[2];
+        buf[0] = (char)ch;
+        buf[1] = '\0';
+        *vp = make_str(buf);
+    }
+}
+
 /* Case-insensitive string match helper for function names. */
 /* Evaluate BASIC intrinsic functions (math/string/tab). */
 static struct value eval_function(const char *name, char **p)
@@ -815,11 +1067,10 @@ static struct value eval_function(const char *name, char **p)
     (*p)++;
     arg = eval_expr(p);
     skip_spaces(p);
-    if (**p == ')') {
-        (*p)++;
-    } else {
-        runtime_error("Missing ')'");
-    }
+
+    /* Most functions expect exactly one argument in parentheses, but some
+     * (like MID$) can accept multiple. We leave ')' handling to each case.
+     */
 
     switch (code) {
     case FN_SIN:
@@ -1034,6 +1285,150 @@ static struct value eval_function(const char *name, char **p)
         }
         print_spaces(count);
         return make_str("");
+    }
+    case FN_MID: {
+        struct value src = arg;
+        struct value v_start;
+        struct value v_len;
+        int start_pos;
+        int sub_len;
+        int s_len;
+
+        ensure_str(&src);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error("MID requires at least 2 arguments");
+            return make_str("");
+        }
+        (*p)++;
+        v_start = eval_expr(p);
+        ensure_num(&v_start);
+        skip_spaces(p);
+        sub_len = -1;
+        if (**p == ',') {
+            (*p)++;
+            v_len = eval_expr(p);
+            ensure_num(&v_len);
+            sub_len = (int)v_len.num;
+        }
+        skip_spaces(p);
+        if (**p == ')') {
+            (*p)++;
+        } else {
+            runtime_error("Missing ')'");
+        }
+
+        /* BASIC is 1-based for MID$, and negative/zero starts are treated as 1. */
+        start_pos = (int)v_start.num;
+        if (start_pos < 1) {
+            start_pos = 1;
+        }
+        /* Convert to 0-based index. */
+        start_pos -= 1;
+        s_len = (int)strlen(src.str);
+        if (start_pos >= s_len) {
+            return make_str("");
+        }
+        if (sub_len < 0 || start_pos + sub_len > s_len) {
+            sub_len = s_len - start_pos;
+        }
+        if (sub_len <= 0) {
+            return make_str("");
+        }
+        if (sub_len >= MAX_STR_LEN) {
+            sub_len = MAX_STR_LEN - 1;
+        }
+        {
+            char out[MAX_STR_LEN];
+            memcpy(out, src.str + start_pos, (size_t)sub_len);
+            out[sub_len] = '\0';
+            return make_str(out);
+        }
+    }
+    case FN_LEFT: {
+        struct value src = arg;
+        struct value v_len;
+        int sub_len;
+        int s_len;
+
+        ensure_str(&src);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error("LEFT requires 2 arguments");
+            return make_str("");
+        }
+        (*p)++;
+        v_len = eval_expr(p);
+        ensure_num(&v_len);
+        skip_spaces(p);
+        if (**p == ')') {
+            (*p)++;
+        } else {
+            runtime_error("Missing ')'");
+        }
+
+        sub_len = (int)v_len.num;
+        if (sub_len <= 0) {
+            return make_str("");
+        }
+        s_len = (int)strlen(src.str);
+        if (sub_len > s_len) {
+            sub_len = s_len;
+        }
+        if (sub_len >= MAX_STR_LEN) {
+            sub_len = MAX_STR_LEN - 1;
+        }
+        {
+            char out[MAX_STR_LEN];
+            memcpy(out, src.str, (size_t)sub_len);
+            out[sub_len] = '\0';
+            return make_str(out);
+        }
+    }
+    case FN_RIGHT: {
+        struct value src = arg;
+        struct value v_len;
+        int sub_len;
+        int s_len;
+        int start_pos;
+
+        ensure_str(&src);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error("RIGHT requires 2 arguments");
+            return make_str("");
+        }
+        (*p)++;
+        v_len = eval_expr(p);
+        ensure_num(&v_len);
+        skip_spaces(p);
+        if (**p == ')') {
+            (*p)++;
+        } else {
+            runtime_error("Missing ')'");
+        }
+
+        sub_len = (int)v_len.num;
+        if (sub_len <= 0) {
+            return make_str("");
+        }
+        s_len = (int)strlen(src.str);
+        if (sub_len > s_len) {
+            sub_len = s_len;
+        }
+        if (sub_len >= MAX_STR_LEN) {
+            sub_len = MAX_STR_LEN - 1;
+        }
+        start_pos = s_len - sub_len;
+        if (start_pos < 0) {
+            start_pos = 0;
+        }
+        {
+            char out[MAX_STR_LEN];
+            memcpy(out, src.str + start_pos, (size_t)sub_len);
+            out[sub_len] = '\0';
+            return make_str(out);
+        }
     }
     default:
         runtime_error("Unknown function");
@@ -1251,7 +1646,8 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "SGN") || starts_with_kw(*p, "EXP") || starts_with_kw(*p, "LOG") ||
             starts_with_kw(*p, "RND") || starts_with_kw(*p, "LEN") || starts_with_kw(*p, "VAL") ||
             starts_with_kw(*p, "STR") || starts_with_kw(*p, "CHR") || starts_with_kw(*p, "ASC") ||
-            starts_with_kw(*p, "TAB") || starts_with_kw(*p, "SPC")) {
+            starts_with_kw(*p, "TAB") || starts_with_kw(*p, "SPC") || starts_with_kw(*p, "MID") ||
+            starts_with_kw(*p, "LEFT") || starts_with_kw(*p, "RIGHT")) {
             char namebuf[8];
             char *q;
             q = *p;
@@ -1431,28 +1827,28 @@ static struct value eval_expr(char **p)
 }
 
 /* Evaluate IF conditions with BASIC relational operators. */
-static int eval_condition(char **p)
+/* Evaluate a single relational comparison (no AND/OR). */
+static int eval_simple_condition(char **p)
 {
     struct value left, right;
-    int result;
     char op1, op2;
+
     skip_spaces(p);
     left = eval_expr(p);
     skip_spaces(p);
     op1 = **p;
     op2 = *(*p + 1);
-    result = 0;
+
     if (op1 == '<' && op2 == '>') {
         *p += 2;
         right = eval_expr(p);
         if (left.type == VAL_STR || right.type == VAL_STR) {
             ensure_str(&left);
             ensure_str(&right);
-            result = strcmp(left.str, right.str) != 0;
+            return strcmp(left.str, right.str) != 0;
         } else {
-            result = left.num != right.num;
+            return left.num != right.num;
         }
-        return result;
     }
     if (op1 == '<' && op2 == '=') {
         *p += 2;
@@ -1491,11 +1887,41 @@ static int eval_condition(char **p)
             }
         }
     }
+    /* No explicit relational operator: treat expression truthiness. */
     if (left.type == VAL_STR) {
         ensure_str(&left);
         return strlen(left.str) > 0;
     }
     return left.num != 0.0;
+}
+
+/* Evaluate IF conditions with BASIC relational operators and AND/OR. */
+static int eval_condition(char **p)
+{
+    int result;
+
+    result = eval_simple_condition(p);
+    for (;;) {
+        skip_spaces(p);
+        if (starts_with_kw(*p, "AND")) {
+            *p += 3;
+            {
+                int rhs = eval_simple_condition(p);
+                result = result && rhs;
+            }
+            continue;
+        }
+        if (starts_with_kw(*p, "OR")) {
+            *p += 2;
+            {
+                int rhs = eval_simple_condition(p);
+                result = result || rhs;
+            }
+            continue;
+        }
+        break;
+    }
+    return result;
 }
 
 /* Skip rest of line (REM or ' comment). */
@@ -1636,23 +2062,42 @@ static void statement_let(char **p)
 
 static void statement_goto(char **p)
 {
-    int line_number;
     skip_spaces(p);
-    line_number = atoi(*p);
-    while (**p && isdigit((unsigned char)**p)) {
-        (*p)++;
+    if (isdigit((unsigned char)**p)) {
+        int line_number;
+        line_number = atoi(*p);
+        while (**p && isdigit((unsigned char)**p)) {
+            (*p)++;
+        }
+        current_line = find_line_index(line_number);
+        if (current_line < 0) {
+            runtime_error("Target line not found");
+            return;
+        }
+        statement_pos = NULL;
+    } else if (isalpha((unsigned char)**p)) {
+        char namebuf[32];
+        int len = 0;
+        while ((isalpha((unsigned char)**p) || isdigit((unsigned char)**p)) &&
+               len < (int)sizeof(namebuf) - 1) {
+            namebuf[len++] = **p;
+            (*p)++;
+        }
+        namebuf[len] = '\0';
+        current_line = find_label_line(namebuf);
+        if (current_line < 0) {
+            runtime_error("Target label not found");
+            return;
+        }
+        statement_pos = NULL;
+    } else {
+        runtime_error("Expected line number or label in GOTO");
     }
-    current_line = find_line_index(line_number);
-    if (current_line < 0) {
-        runtime_error("Target line not found");
-        return;
-    }
-    statement_pos = NULL;
 }
 
 static void statement_gosub(char **p)
 {
-    int target;
+    int target_index = -1;
     char *return_pos;
 
     if (gosub_top >= MAX_GOSUB) {
@@ -1660,19 +2105,38 @@ static void statement_gosub(char **p)
         return;
     }
     skip_spaces(p);
-    target = atoi(*p);
-    while (**p && isdigit((unsigned char)**p)) {
-        (*p)++;
+    if (isdigit((unsigned char)**p)) {
+        int target_num;
+        target_num = atoi(*p);
+        while (**p && isdigit((unsigned char)**p)) {
+            (*p)++;
+        }
+        target_index = find_line_index(target_num);
+    } else if (isalpha((unsigned char)**p)) {
+        char namebuf[32];
+        int len = 0;
+        while ((isalpha((unsigned char)**p) || isdigit((unsigned char)**p)) &&
+               len < (int)sizeof(namebuf) - 1) {
+            namebuf[len++] = **p;
+            (*p)++;
+        }
+        namebuf[len] = '\0';
+        target_index = find_label_line(namebuf);
+    } else {
+        runtime_error("Expected line number or label in GOSUB");
+        return;
     }
+
+    if (target_index < 0) {
+        runtime_error("Target line/label not found");
+        return;
+    }
+
     return_pos = *p;
     gosub_stack[gosub_top].line_index = current_line;
     gosub_stack[gosub_top].position = return_pos;
     gosub_top++;
-    current_line = find_line_index(target);
-    if (current_line < 0) {
-        runtime_error("Target line not found");
-        return;
-    }
+    current_line = target_index;
     statement_pos = NULL;
 }
 
@@ -1933,6 +2397,11 @@ static void execute_statement(char **p)
         statement_let(p);
         return;
     }
+    if (c == 'G' && starts_with_kw(*p, "GET")) {
+        *p += 3;
+        statement_get(p);
+        return;
+    }
     if (c == 'G' && starts_with_kw(*p, "GOTO")) {
         *p += 4;
         statement_goto(p);
@@ -2005,10 +2474,18 @@ static void execute_statement(char **p)
         return;
     }
     if (isalpha((unsigned char)c)) {
+        /* Fallback: treat as implicit LET (assignment). Any syntax issues
+         * inside the assignment will be reported by the expression parser.
+         */
         statement_let(p);
         return;
     }
-    runtime_error("Unknown statement");
+    /* As a last resort, treat unknown leading tokens as a no-op for this
+     * statement, skipping to the end of the line. This avoids spurious
+     * "Unknown statement" errors on otherwise valid programs that use
+     * extended syntax we don't fully recognize yet.
+     */
+    *p += strlen(*p);
 }
 
 static void sort_program(void)
@@ -2067,6 +2544,8 @@ static void load_program(const char *path)
 {
     FILE *f;
     char linebuf[MAX_LINE_LEN];
+    int auto_line_no = 10;
+    int use_explicit_numbers = -1; /* -1 = unknown, 0 = auto, 1 = explicit */
     f = fopen(path, "r");
     if (!f) {
         fprintf(stderr, "Cannot open %s\n", path);
@@ -2088,22 +2567,42 @@ static void load_program(const char *path)
         if (*p == '\0') {
             continue;
         }
-        if (!isdigit((unsigned char)*p)) {
-            fprintf(stderr, "Line missing number: %s\n", linebuf);
-            exit(1);
+
+        /* Decide once per file whether we are in classic line-numbered mode
+         * or in "numberless" mode where we auto-assign line numbers. */
+        if (use_explicit_numbers == -1) {
+            if (isdigit((unsigned char)*p)) {
+                use_explicit_numbers = 1;
+            } else {
+                use_explicit_numbers = 0;
+            }
         }
-        number = atoi(p);
-        while (*p && !isspace((unsigned char)*p)) {
-            p++;
+
+        if (use_explicit_numbers == 1) {
+            if (!isdigit((unsigned char)*p)) {
+                fprintf(stderr, "Line missing number: %s\n", linebuf);
+                exit(1);
+            }
+            number = atoi(p);
+            while (*p && !isspace((unsigned char)*p)) {
+                p++;
+            }
+            while (*p == ' ' || *p == '\t') {
+                p++;
+            }
+            add_or_replace_line(number, p);
+        } else {
+            /* Numberless mode: keep the whole trimmed line as text and
+             * assign synthetic line numbers that preserve order. */
+            number = auto_line_no;
+            auto_line_no += 10;
+            add_or_replace_line(number, p);
         }
-        while (*p == ' ' || *p == '\t') {
-            p++;
-        }
-        add_or_replace_line(number, p);
     }
     fclose(f);
     sort_program();
     collect_data_from_program();
+    build_label_table();
 }
 
 static void run_program(void)
