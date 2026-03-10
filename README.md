@@ -73,85 +73,9 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
   - **Strings**: `LEN`, `VAL`, `STR$`, `CHR$`, `ASC`.
   - **Formatting**: `TAB` and `SPC` for horizontal positioning in `PRINT`.
 
-## Requirements
 
-- A C compiler with C99 (or newer) support:
-  - Linux / WSL: `gcc` or `clang`
-  - macOS: Xcode Command Line Tools (`clang`)
-  - Windows:
-    - MSVC (Visual Studio / Build Tools), or
-    - MinGW‑w64 (`gcc`)
 
-## Building
 
-You can either use the provided `Makefile` (recommended) or compile manually.
-
-#### Using `make` (recommended)
-
-From the project root:
-
-```bash
-make
-```
-
-The Makefile will detect your platform (Linux, macOS, or Windows via MinGW/Cygwin) and produce the appropriate native binary:
-
-- **Linux / WSL / macOS**: `basic`
-- **Windows (MinGW / Cygwin)**: `basic.exe`
-
-To clean the build:
-
-```bash
-make clean
-```
-
-#### Manual compilation
-
-If you prefer to invoke the compiler directly:
-
-- **Linux / WSL**
-
-  ```bash
-  gcc -std=c99 -Wall -O2 basic.c -lm -o basic
-  ```
-
-  or
-
-  ```bash
-  clang -std=c99 -Wall -O2 basic.c -lm -o basic
-  ```
-
-- **macOS**
-
-  Install the Xcode command line tools if you have not already:
-
-  ```bash
-  xcode-select --install
-  ```
-
-  Then build with:
-
-  ```bash
-  clang -std=c99 -Wall -O2 basic.c -lm -o basic
-  ```
-
-- **Windows (MSVC)**
-
-  From a “Developer Command Prompt for VS”:
-
-  ```bat
-  cl /std:c11 /W4 /O2 basic.c
-  ```
-
-  This will produce `basic.exe`.
-
-- **Windows (MinGW‑w64)**
-
-  In a MinGW‑w64 shell:
-
-  ```bash
-  gcc -std=c99 -Wall -O2 basic.c -lm -o basic.exe
-  ```
 
 ## Usage
 
@@ -242,3 +166,85 @@ Usage: basic [-petscii] [-palette ansi|c64] <program.bas>
   - `RND(X)` behaves like classic BASIC; a negative argument reseeds the generator.
 
 `This README describes the current feature set of the interpreter as implemented in `basic.c` and is subject to change without notice`
+
+## Building from Source
+
+You can either use the provided `Makefile` (recommended) or compile manually.
+
+### Requirements
+
+- A C compiler with C99 (or newer) support:
+  - Linux / WSL: `gcc` or `clang`
+  - macOS: Xcode Command Line Tools (`clang`)
+  - Windows:
+    - MSVC (Visual Studio / Build Tools), or
+    - MinGW‑w64 (`gcc`)
+
+
+
+#### Using `make` (recommended)
+
+From the project root:
+
+```bash
+make
+```
+
+The Makefile will detect your platform (Linux, macOS, or Windows via MinGW/Cygwin) and produce the appropriate native binary:
+
+- **Linux / WSL / macOS**: `basic`
+- **Windows (MinGW / Cygwin)**: `basic.exe`
+
+To clean the build:
+
+```bash
+make clean
+```
+
+#### Manual compilation
+
+If you prefer to invoke the compiler directly:
+
+- **Linux / WSL**
+
+  ```bash
+  gcc -std=c99 -Wall -O2 basic.c -lm -o basic
+  ```
+
+  or
+
+  ```bash
+  clang -std=c99 -Wall -O2 basic.c -lm -o basic
+  ```
+
+- **macOS**
+
+  Install the Xcode command line tools if you have not already:
+
+  ```bash
+  xcode-select --install
+  ```
+
+  Then build with:
+
+  ```bash
+  clang -std=c99 -Wall -O2 basic.c -lm -o basic
+  ```
+
+- **Windows (MSVC)**
+
+  From a “Developer Command Prompt for VS”:
+
+  ```bat
+  cl /std:c11 /W4 /O2 basic.c
+  ```
+
+  This will produce `basic.exe`.
+
+- **Windows (MinGW‑w64)**
+
+  In a MinGW‑w64 shell:
+
+  ```bash
+  gcc -std=c99 -Wall -O2 basic.c -lm -o basic.exe
+  ```
