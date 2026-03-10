@@ -47,6 +47,38 @@
 #endif
 #endif
 
+/* Platform-specific handling for ANSI escape sequences.
+ * On Unix-like systems (macOS/Linux), standard ANSI escapes work in most terminals.
+ * On Windows, we enable virtual terminal processing where available so that
+ * ANSI color/control sequences render correctly instead of being printed literally. */
+#if defined(_WIN32)
+static int ansi_enabled = 0;
+
+static void init_console_ansi(void)
+{
+    HANDLE hOut;
+    DWORD mode;
+
+    hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hOut == INVALID_HANDLE_VALUE || hOut == NULL) {
+        return;
+    }
+    if (!GetConsoleMode(hOut, &mode)) {
+        return;
+    }
+    mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+    if (!SetConsoleMode(hOut, mode)) {
+        return;
+    }
+    ansi_enabled = 1;
+}
+#else
+static void init_console_ansi(void)
+{
+    /* Standard ANSI escapes are generally supported on macOS/Linux terminals. */
+}
+#endif
+
 /* 211BSD-friendly BASIC interpreter targeting CBM BASIC v2 style programs.
  * Implements a minimal but compatible feature set: line-numbered programs,
  * PRINT/INPUT/LET (implicit), IF/THEN, GOTO, GOSUB/RETURN, FOR/NEXT, DIM,
@@ -142,7 +174,16 @@ static int current_line = 0;
 static char *statement_pos = NULL;
 static int halted = 0;
 static int print_col = 0;
+
+/* PETSCII/ANSI configuration */
 static int petscii_mode = 0;
+
+enum {
+    PALETTE_ANSI = 0,       /* Standard ANSI SGR colors */
+    PALETTE_C64_8BIT = 1    /* 8-bit palette approximating C64 colors */
+};
+
+static int palette_mode = PALETTE_ANSI;
 
 static void runtime_error(const char *msg);
 static void load_program(const char *path);
@@ -827,7 +868,70 @@ static struct value eval_function(const char *name, char **p)
         {
             int code = (int)arg.num & 0xff;
             if (petscii_mode) {
-                /* Map common PETSCII control codes to ANSI escape sequences. */
+                /* Optional 8-bit palette approximating C64 colors. */
+                if (palette_mode == PALETTE_C64_8BIT) {
+                    int idx = -1;
+                    switch (code) {
+                    /* Base C64 colors */
+                    case 144: /* black */
+                        idx = 16;  /* dark black-ish */
+                        break;
+                    case 28:  /* red */
+                        idx = 196;
+                        break;
+                    case 30:  /* green */
+                        idx = 46;
+                        break;
+                    case 31:  /* blue */
+                        idx = 21;
+                        break;
+                    case 159: /* cyan */
+                        idx = 51;
+                        break;
+                    case 156: /* purple */
+                        idx = 93;
+                        break;
+                    case 158: /* yellow */
+                        idx = 226;
+                        break;
+                    case 5:   /* white */
+                        idx = 231;
+                        break;
+                    /* Extended C64 colors */
+                    case 129: /* orange */
+                        idx = 208;
+                        break;
+                    case 149: /* brown */
+                        idx = 130;
+                        break;
+                    case 150: /* light red */
+                        idx = 203;
+                        break;
+                    case 151: /* dark gray */
+                        idx = 238;
+                        break;
+                    case 152: /* medium gray */
+                        idx = 244;
+                        break;
+                    case 153: /* light green */
+                        idx = 120;
+                        break;
+                    case 154: /* light blue */
+                        idx = 81;
+                        break;
+                    case 155: /* light gray */
+                        idx = 252;
+                        break;
+                    default:
+                        break;
+                    }
+                    if (idx >= 0) {
+                        sprintf(outbuf, "\033[38;5;%dm", idx);
+                        return make_str(outbuf);
+                    }
+                }
+
+                /* Default ANSI palette mapping for PETSCII control codes. */
                 switch (code) {
                 case 147: /* CLR: clear screen, home cursor */
                     return make_str("\033[2J\033[H");
@@ -851,7 +955,7 @@ static struct value eval_function(const char *name, char **p)
                 case 31:  /* blue */
                     return make_str("\033[34m");
                 case 159: /* cyan */
-                    return make_str("\033[36m");
+                    return make_str("\033[96m");
                 case 156: /* purple */
                     return make_str("\033[35m");
                 case 158: /* yellow */
@@ -2038,17 +2142,35 @@ int main(int argc, char **argv)
     const char *prog_path = NULL;
     int i;
 
+    /* Initialize console so ANSI colors/control codes behave consistently. */
+    init_console_ansi();
+
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s [-petscii] <program.bas>\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-petscii] [-palette ansi|c64] <program.bas>\n", argv[0]);
         return 1;
     }
 
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-petscii") == 0 || strcmp(argv[i], "--petscii") == 0) {
             petscii_mode = 1;
+        } else if (strcmp(argv[i], "-palette") == 0) {
+            const char *name;
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Missing value for -palette\n");
+                return 1;
+            }
+            name = argv[++i];
+            if (strcmp(name, "ansi") == 0) {
+                palette_mode = PALETTE_ANSI;
+            } else if (strcmp(name, "c64") == 0 || strcmp(name, "c64-8bit") == 0) {
+                palette_mode = PALETTE_C64_8BIT;
+            } else {
+                fprintf(stderr, "Unknown palette '%s' (expected ansi or c64)\n", name);
+                return 1;
+            }
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [-petscii] <program.bas>\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-petscii] [-palette ansi|c64] <program.bas>\n", argv[0]);
             return 1;
         } else {
             prog_path = argv[i];
@@ -2057,7 +2179,7 @@ int main(int argc, char **argv)
     }
 
     if (!prog_path) {
-        fprintf(stderr, "Usage: %s [-petscii] <program.bas>\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-petscii] [-palette ansi|c64] <program.bas>\n", argv[0]);
         return 1;
     }
 
