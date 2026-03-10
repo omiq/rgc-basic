@@ -16,11 +16,11 @@ Expanded from original by [David Plummer](https://github.com/davepl/pdpsrc/tree/
 
 Line-numbered BASIC interpreter inspired by CBM BASIC v2 as found on classic Commodore machines.
 
-## DOWNLOADS
+## 💾 DOWNLOADS
 
 [The latest binaries for Win/Mac/Linux are in ***Releases***](https://github.com/omiq/cbm-basic/releases/)
 
-### macOS Gatekeeper note
+### macOS Gatekeeper note 🔐
 
 On recent macOS versions, downloading a binary from the internet may show a warning such as:
 
@@ -46,7 +46,7 @@ xattr -d com.apple.quarantine /path/to/basic
 
 Run this once after unpacking, and macOS will stop treating the binary as “from the internet”.
 
-## Features
+## 💡 Features
 
 - **Line-numbered programs** loaded from a text file (`10 ...`, `20 ...`, etc.).
 - **Core statements**
@@ -77,7 +77,7 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
 
 
 
-## Usage
+## 🎛️ Usage
 
 The interpreter runs a BASIC source file that contains **line‑numbered** statements:
 
@@ -166,6 +166,9 @@ Usage: basic [-petscii] [-palette ansi|c64] <program.bas>
   - `RND(X)` behaves like classic BASIC; a negative argument reseeds the generator.
 
 `This README describes the current feature set of the interpreter as implemented in `basic.c` and is subject to change without notice`
+
+---
+
 
 ## Building from Source
 
