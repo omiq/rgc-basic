@@ -20,6 +20,32 @@ Line-numbered BASIC interpreter inspired by CBM BASIC v2 as found on classic Com
 
 [The latest binaries for Win/Mac/Linux are in ***Releases***](https://github.com/omiq/cbm-basic/releases/)
 
+### macOS Gatekeeper note
+
+On recent macOS versions, downloading a binary from the internet may show a warning such as:
+
+> “Apple could not verify `basic` is free of malware that may harm your Mac or compromise your privacy.”
+
+Because `basic` is an unsigned open‑source binary, this is expected. To run it anyway:
+
+1. **First attempt to open it once** (so Gatekeeper records it):
+   - In Finder, locate the unpacked `basic` binary.
+   - Control‑click (or right‑click) and choose **Open**.
+   - When the warning dialog appears, click **Cancel**.
+2. **Allow the app in System Settings**:
+   - Open **System Settings → Privacy & Security**.
+   - Scroll down to the **Security** section; you should see a message about `basic` being blocked.
+   - Click **Open Anyway**, then confirm in the dialog.
+3. After this, you should be able to run `./basic` from Terminal without further prompts.
+
+If you prefer using Terminal only, you can also remove the quarantine attribute:
+
+```bash
+xattr -d com.apple.quarantine /path/to/basic
+```
+
+Run this once after unpacking, and macOS will stop treating the binary as “from the internet”.
+
 ## Features
 
 - **Line-numbered programs** loaded from a text file (`10 ...`, `20 ...`, etc.).
