@@ -128,6 +128,15 @@ Run the interpreter and pass the path to your BASIC program:
 basic.exe hello.bas      # Windows
 ```
 
+#### Command-line options
+
+- **`-petscii` / `--petscii`**: enable PETSCII/ANSI mode so that certain `CHR$` control codes
+  (cursor movement, clear screen, colors, etc.) are translated to ANSI escape sequences.
+- **`-palette ansi|c64`**: choose how PETSCII colors are mapped:
+  - **`ansi`** (default): map colors to standard 16-color ANSI SGR codes.
+  - **`c64`** or **`c64-8bit`**: use 8‑bit (`38;5;N`) color indices chosen to approximate
+    the classic C64 palette. This is most consistent on terminals that support 256 colors.
+
 You can also enable a **PETSCII/ANSI mode** that understands common C64 control codes inside strings and `CHR$` output:
 
 ```bash
@@ -163,7 +172,7 @@ In `-petscii` mode, `CHR$` maps a few PETSCII control bytes to ANSI escape seque
 If you do not pass a file name, the interpreter will print usage information:
 
 ```text
-Usage: basic [-petscii] <program.bas>
+Usage: basic [-petscii] [-palette ansi|c64] <program.bas>
 ```
 
 ### Included example programs
