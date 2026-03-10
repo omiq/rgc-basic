@@ -1,4 +1,15 @@
 /*
+ *
+ *    _____ ____  __  __        ____           _____ _____ _____ 
+ *   / ____|  _ \|  \/  |      |  _ \   /\    / ____|_   _/ ____|
+ *  | |    | |_) | \  / |______| |_) | /  \  | (___   | || |     
+ *  | |    |  _ <| |\/| |______|  _ < / /\ \  \___ \  | || |     
+ *  | |____| |_) | |  | |      | |_) / ____ \ ____) |_| || |____ 
+ *   \_____|____/|_|  |_|      |____/_/    \_\_____/|_____\_____|                                                           
+ *  .............................................................
+ *
+ *  [Version 0.1.0]
+ * 
  * BASIC interpreter targeting CBM BASIC v2 style programs.
  * Copyright (C) 2024  Davepl with various AI assists
  *
@@ -79,10 +90,7 @@ static void init_console_ansi(void)
 }
 #endif
 
-/* 211BSD-friendly BASIC interpreter targeting CBM BASIC v2 style programs.
- * Implements a minimal but compatible feature set: line-numbered programs,
- * PRINT/INPUT/LET (implicit), IF/THEN, GOTO, GOSUB/RETURN, FOR/NEXT, DIM,
- * REM, END/STOP and statement separators (:). */
+// DEFINES
 
 #define MAX_LINES 1024
 #define MAX_LINE_LEN 256
