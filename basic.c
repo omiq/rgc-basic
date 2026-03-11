@@ -1127,9 +1127,20 @@ static struct value eval_function(const char *name, char **p)
     arg = eval_expr(p);
     skip_spaces(p);
 
-    /* Most functions expect exactly one argument in parentheses, but some
-     * (like MID$) can accept multiple. We leave ')' handling to each case.
+    /* Functions that accept multiple arguments (MID$, LEFT$, RIGHT$) parse
+     * their full argument list themselves and are responsible for consuming
+     * the closing ')'. For all other intrinsics we expect exactly one
+     * argument and consume ')' here so the caller resumes after it.
      */
+    if (code != FN_MID && code != FN_LEFT && code != FN_RIGHT) {
+        if (**p == ')') {
+            (*p)++;
+        } else {
+            runtime_error("Missing ')'");
+            return make_num(0.0);
+        }
+        skip_spaces(p);
+    }
 
     switch (code) {
     case FN_SIN:
@@ -1265,6 +1276,8 @@ static struct value eval_function(const char *name, char **p)
                     return make_str("\033[7m");
                 case 146: /* reverse off */
                     return make_str("\033[27m");
+                case 13:  /* carriage return -> newline */
+                    return make_str("\n");
                 /* Base colors */
                 case 144: /* black */
                     return make_str("\033[30m");
