@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # ANSI escape codes
 # https://en.wikipedia.org/wiki/ANSI_escape_code#Colors
-#https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
+# https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
 for i in range(30, 37 + 1):
     print("\033[%dm%d\t\t\033[%dm%d" % (i, i, i + 60, i + 60))
 
