@@ -222,6 +222,7 @@ static void statement_sleep(char **p);
 static void statement_def(char **p);
 static void statement_get(char **p);
 static void do_sleep_ticks(double ticks);
+static void statement_locate(char **p);
 static int function_lookup(const char *name, int len);
 
 enum func_code {
@@ -2088,6 +2089,29 @@ static void statement_print(char **p)
     fflush(stdout);
 }
 
+
+static void statement_locate(char **p)
+{
+    // Passed as LOCATE x, y
+    struct value vx, vy;
+    int x, y;
+
+    // Validation
+    vx = eval_expr(p);  ensure_num(&vx);
+    skip_spaces(p);
+    if (**p != ',') { runtime_error("LOCATE: expected ',' after X"); return; }
+    (*p)++;
+    vy = eval_expr(p);  ensure_num(&vy);
+    skip_spaces(p);
+
+    x = (int)vx.num; if (x < 0) x = 0;
+    y = (int)vy.num; if (y < 0) y = 0;
+
+    // Move cursor with ANSI: rows/cols are 1-based
+    printf("\033[%d;%dH", y + 1, x + 1);
+    fflush(stdout);
+}
+
 static void statement_input(char **p)
 {
     char prompt[MAX_STR_LEN];
@@ -2512,6 +2536,11 @@ static void execute_statement(char **p)
     if (c == 'L' && starts_with_kw(*p, "LET")) {
         *p += 3;
         statement_let(p);
+        return;
+    }
+    if (c == 'L' && starts_with_kw(*p, "LOCATE")) {
+        *p += 6;
+        statement_locate(p);
         return;
     }
     if (c == 'G' && starts_with_kw(*p, "GET")) {
