@@ -56,3 +56,4 @@ dkms.conf
 
 # Windows alternate data stream metadata accidentally committed on some systems
 dartmouth.bas:Zone.Identifier
+.DS_Store
