@@ -2709,6 +2709,15 @@ static void load_program(const char *path)
             }
             add_or_replace_line(number, p);
         } else {
+            /* Numberless mode: reject later lines that suddenly introduce
+             * explicit line numbers. Mixed numbered/numberless programs are
+             * currently not supported because they make control flow and
+             * editing semantics ambiguous.
+             */
+            if (isdigit((unsigned char)*p)) {
+                fprintf(stderr, "Mixed numbered and numberless lines are not supported: %s\n", linebuf);
+                exit(1);
+            }
             /* Numberless mode: keep the whole trimmed line as text and
              * assign synthetic line numbers that preserve order. */
             number = auto_line_no;

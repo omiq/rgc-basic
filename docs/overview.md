@@ -332,4 +332,5 @@ if (c == 'T' && starts_with_kw(*p, "TEXTAT")) {
 - **Match visible behavior, not just theory**:
   - For PETSCII/ANSI and `PRINT` semantics, compare against an actual C64 emulator or the original `chr.bas`/`adventure.bas` programs whenever in doubt.
 
-This overview should give you enough context to confidently navigate and extend `basic.c`. When in doubt, follow the patterns used by existing statements like `PRINT`, `INPUT`, `SLEEP`, and `GET`—they are intentionally kept as small, readable reference implementations.*** End Patch`}}} -->
+This overview should give you enough context to confidently navigate and extend `basic.c`. When in doubt, follow the patterns used by existing statements like `PRINT`, `INPUT`, `SLEEP`, and `GET`—they are intentionally kept as small, readable reference implementations.
+
