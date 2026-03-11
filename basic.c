@@ -219,6 +219,7 @@ static void statement_read(char **p);
 static void print_value(struct value *v);
 static void print_spaces(int count);
 static void statement_sleep(char **p);
+static void statement_textat(char **p);
 static void statement_def(char **p);
 static void statement_get(char **p);
 static void do_sleep_ticks(double ticks);
@@ -2090,6 +2091,45 @@ static void statement_print(char **p)
 }
 
 
+static void statement_textat(char **p)
+{
+    struct value vx, vy, vtext;
+    int x, y;
+
+    /* TEXTAT x, y, text */
+    vx = eval_expr(p);
+    ensure_num(&vx);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error("TEXTAT: expected ',' after X");
+        return;
+    }
+    (*p)++;
+
+    vy = eval_expr(p);
+    ensure_num(&vy);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error("TEXTAT: expected ',' after Y");
+        return;
+    }
+    (*p)++;
+
+    vtext = eval_expr(p);
+    ensure_str(&vtext);
+
+    x = (int)vx.num;
+    if (x < 0) x = 0;
+    y = (int)vy.num;
+    if (y < 0) y = 0;
+
+    /* Move cursor with ANSI: rows/cols are 1-based */
+    printf("\033[%d;%dH", y + 1, x + 1);
+    fputs(vtext.str, stdout);
+    fflush(stdout);
+}
+
+
 static void statement_locate(char **p)
 {
     // Passed as LOCATE x, y
@@ -2536,6 +2576,11 @@ static void execute_statement(char **p)
     if (c == 'L' && starts_with_kw(*p, "LET")) {
         *p += 3;
         statement_let(p);
+        return;
+    }
+    if (c == 'T' && starts_with_kw(*p, "TEXTAT")) {
+        *p += 6;
+        statement_textat(p);
         return;
     }
     if (c == 'L' && starts_with_kw(*p, "LOCATE")) {

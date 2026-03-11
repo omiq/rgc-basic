@@ -85,6 +85,27 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
 
 - **`SLEEP`**: pause execution for a number of 60 Hz “ticks” (e.g., `SLEEP 60` ≈ 1 second).
 
+### Screen coordinates and cursor positioning
+
+- **Coordinate system**:
+  - `LOCATE col, row` and `TEXTAT col, row, text` both use **0‑based** screen coordinates, where `0,0` is the top‑left corner.
+  - Internally these are mapped to ANSI escape sequences as `ESC[row+1;col+1H`.
+- **`LOCATE`**:
+  - Moves the cursor without printing: e.g. `LOCATE 10,5` positions the cursor at column 10, row 5 before the next `PRINT`.
+- **`TEXTAT`**:
+  - `TEXTAT x, y, text` moves the cursor to `(x, y)` and writes `text` directly at that absolute position.
+  - `text` is any string expression, for example: `TEXTAT 0, 0, "SCORE: " + STR$(S)`.
+- **Keeping final text visible**:
+  - Terminals often print the shell prompt immediately after your program exits; if your last output is on the bottom row, an implicit newline or prompt can scroll it off‑screen.
+  - To make sure your final UI remains visible, **explicitly position the cursor after your last `TEXTAT`/`LOCATE` output**, for example:
+
+```basic
+LOCATE 0, 22
+PRINT "PRESS ANY KEY TO CONTINUE";
+```
+
+  - This ensures the cursor (and thus any following prompt) appears where you expect, rather than accidentally pushing your last line out of view.
+
 
 ## 🎛️ Usage
 
