@@ -48,14 +48,17 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
 
 ## 💡 Features
 
-- **Line-numbered programs** loaded from a text file (`10 ...`, `20 ...`, etc.).
+- **Programs with or without line numbers**
+  - Classic **line-numbered programs** loaded from a text file (`10 ...`, `20 ...`, etc.).
+  - Also supports **numberless programs**: if the first non‑blank line has no leading digits, synthetic line numbers are assigned internally (you can still use labels and structured control flow).
 - **Core statements**
-  - **`PRINT` / `?`**: output expressions, with `;` (no newline) and `,` (zone/tab) separators.
+  - **`PRINT` / `?`**: output expressions, with `;` (no newline) and `,` (zone/tab) separators; wrapping defaults to a 40‑column C64‑style width.
   - **`INPUT`**: read numeric or string variables from standard input, with optional prompt.
+  - **`GET`**: single‑key input into a string variable, without waiting for Enter (e.g. `GET K$`).
   - **`LET`** (optional): assignment; you can also assign with `A=1` without `LET`.
-  - **`IF ... THEN`**: conditional execution, supporting comparisons and optional line-number jumps.
-  - **`GOTO`**: jump to a given line number.
-  - **`GOSUB` / `RETURN`**: subroutines with a fixed-depth stack.
+  - **`IF ... THEN`**: conditional execution, supporting comparisons, `AND`/`OR`, and optional line-number or label jumps.
+  - **`GOTO`**: jump to a given line number **or label** (e.g. `GOTO 100` or `GOTO GAMELOOP`).
+  - **`GOSUB` / `RETURN`**: subroutines with a fixed-depth stack; targets may be line numbers or labels.
   - **`FOR` / `NEXT`**: numeric loops, including `STEP` with positive or negative increments.
   - **`DIM`**: declare 1‑D numeric or string arrays.
   - **`REM`** and **`'`**: comments to end of line.
@@ -69,7 +72,12 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
   - **1‑D arrays**: `A(10)`, `A$(20)`. Index is 0‑based internally; `DIM A(10)` allows indices `0..10`.
 - **Intrinsic functions**
   - **Math**: `SIN`, `COS`, `TAN`, `ABS`, `INT`, `SQR`, `SGN`, `EXP`, `LOG`, `RND`.
-  - **Strings**: `LEN`, `VAL`, `STR$`, `CHR$`, `ASC`.
+  - **Strings**:
+    - `LEN`, `VAL`, `STR$`, `CHR$`, `ASC`.
+    - `MID$`, `LEFT$`, `RIGHT$` with C64‑style semantics:
+      - `MID$(S$, start)` or `MID$(S$, start, len)` (1‑based `start`).
+      - `LEFT$(S$, n)` – first `n` characters.
+      - `RIGHT$(S$, n)` – last `n` characters.
   - **Formatting**: `TAB` and `SPC` for horizontal positioning in `PRINT`.
 
 
