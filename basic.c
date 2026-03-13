@@ -407,6 +407,41 @@ static char *normalize_keywords_line(const char *input)
                 }
             }
 
+            /* GOTO followed immediately by digit: GOTO410 -> GOTO 410 */
+            if (c1 == 'G' && c2 == 'O' && c3 == 'T' && (char)toupper((unsigned char)input[i + 3]) == 'O') {
+                char next = input[i + 4];
+                if (next != '\0' && !isspace((unsigned char)next) && next != ':' ) {
+                    if (out.len > 0) {
+                        char prev = out.buf[out.len - 1];
+                        if (!isspace((unsigned char)prev) && prev != ':' && prev != '(') {
+                            sb_append_char(&out, ' ');
+                        }
+                    }
+                    sb_append_str(&out, "GOTO");
+                    i += 4;
+                    sb_append_char(&out, ' ');
+                    continue;
+                }
+            }
+
+            /* GOSUB followed immediately by digit: GOSUB410 -> GOSUB 410 */
+            if (c1 == 'G' && c2 == 'O' && c3 == 'S' && c4 == 'U' &&
+                (char)toupper((unsigned char)input[i + 4]) == 'B') {
+                char next = input[i + 5];
+                if (next != '\0' && !isspace((unsigned char)next) && next != ':' ) {
+                    if (out.len > 0) {
+                        char prev = out.buf[out.len - 1];
+                        if (!isspace((unsigned char)prev) && prev != ':' && prev != '(') {
+                            sb_append_char(&out, ' ');
+                        }
+                    }
+                    sb_append_str(&out, "GOSUB");
+                    i += 5;
+                    sb_append_char(&out, ' ');
+                    continue;
+                }
+            }
+
             /* NEXT followed immediately by identifier: NEXTI -> NEXT I */
             if (c1 == 'N' && c2 == 'E' && c3 == 'X' && c4 == 'T') {
                 char next = input[i + 4];
@@ -714,6 +749,7 @@ static void statement_def(char **p);
 static void statement_get(char **p);
 static void do_sleep_ticks(double ticks);
 static void statement_locate(char **p);
+static void statement_on(char **p);
 static int function_lookup(const char *name, int len);
 
 enum func_code {
@@ -2755,6 +2791,79 @@ static void statement_input(char **p)
     }
 }
 
+/* ON expr GOTO line1, line2, ... / ON expr GOSUB line1, line2, ... */
+static void statement_on(char **p)
+{
+    struct value idxv;
+    int idx;
+    int is_gosub = 0;
+
+    /* Evaluate the selector expression (1-based index). */
+    idxv = eval_expr(p);
+    ensure_num(&idxv);
+    idx = (int)idxv.num;
+
+    skip_spaces(p);
+    if (starts_with_kw(*p, "GOTO")) {
+        is_gosub = 0;
+        *p += 4;
+    } else if (starts_with_kw(*p, "GOSUB")) {
+        is_gosub = 1;
+        *p += 5;
+    } else {
+        runtime_error("ON must be followed by GOTO or GOSUB");
+        return;
+    }
+
+    /* Walk the comma-separated list of line numbers. */
+    {
+        int current = 1;
+        while (1) {
+            int target;
+
+            skip_spaces(p);
+            if (!isdigit((unsigned char)**p)) {
+                runtime_error("Expected line number in ON");
+                return;
+            }
+            target = atoi(*p);
+            while (**p && isdigit((unsigned char)**p)) {
+                (*p)++;
+            }
+
+            if (idx == current) {
+                int line_index = find_line_index(target);
+                if (line_index < 0) {
+                    runtime_error("Target line not found");
+                    return;
+                }
+                if (is_gosub) {
+                    if (gosub_top >= MAX_GOSUB) {
+                        runtime_error("GOSUB stack overflow");
+                        return;
+                    }
+                    gosub_stack[gosub_top].line_index = current_line;
+                    gosub_stack[gosub_top].position = *p;
+                    gosub_top++;
+                }
+                current_line = line_index;
+                statement_pos = NULL;
+                return;
+            }
+
+            /* Not the selected entry; skip to next, if any. */
+            skip_spaces(p);
+            if (**p == ',') {
+                (*p)++;
+                current++;
+                continue;
+            }
+            break;
+        }
+    }
+    /* If index is out of range, ON expression simply falls through. */
+}
+
 static void statement_let(char **p)
 {
     struct value *vp;
@@ -3164,6 +3273,11 @@ static void execute_statement(char **p)
     if (c == 'G' && starts_with_kw(*p, "GOSUB")) {
         *p += 5;
         statement_gosub(p);
+        return;
+    }
+    if (c == 'O' && starts_with_kw(*p, "ON")) {
+        *p += 2;
+        statement_on(p);
         return;
     }
     if (c == 'R' && starts_with_kw(*p, "RETURN")) {

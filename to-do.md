@@ -17,8 +17,14 @@ Colour without pokes
   * Implement CBM-style CLR (reset variables, stacks, execution state)
 
 * Program text preprocessor
-  * Normalize keyword boundaries (e.g. `IFX<0THEN` → `IF X<0 THEN`) while preserving string literals
-  * Optionally reinsert minimal whitespace for readability without changing semantics
+  * Replace current ad-hoc whitespace tweaks with a small lexer-like pass for keywords and operators
+  * Normalize compact CBM forms while preserving semantics, e.g.:
+    * `IFX<0THEN` → `IF X<0 THEN`
+    * `FORI=1TO9` → `FOR I=1 TO 9`
+    * `GOTO410` / `GOSUB5400` → `GOTO 410` / `GOSUB 5400`
+    * `IF Q1<1ORQ1>8ORQ2<1ORQ2>8 THEN` → proper spacing around `OR` and `AND`
+  * Ensure keywords are only recognized when not inside identifiers (e.g. avoid splitting `ORD(7)` or `FOR`), and never mangling string literals
+  * Validate behavior against reference interpreter (`cbmbasic`) with a regression suite of tricky lines
 
 * Multi-dimensional arrays(x,y,x)
 
