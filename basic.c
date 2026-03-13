@@ -79,6 +79,11 @@ static int is_ident_char(int c)
     return isalpha((unsigned char)c) || isdigit((unsigned char)c) || c == '$';
 }
 
+static int is_name_char(int c)
+{
+    return isalpha((unsigned char)c) || c == '$';
+}
+
 static const TokenMap token_map[] = {
     {"WHITE", 5},
     {"RED", 28},
@@ -385,6 +390,40 @@ static char *normalize_keywords_line(const char *input)
                 }
             }
 
+            /* FOR followed immediately by identifier/digit: FORI=1TO9 -> FOR I=1TO9 */
+            if (c1 == 'F' && c2 == 'O' && c3 == 'R') {
+                char next = input[i + 3];
+                if (next != '\0' && !isspace((unsigned char)next) && next != ':' ) {
+                    if (out.len > 0) {
+                        char prev = out.buf[out.len - 1];
+                        if (!isspace((unsigned char)prev) && prev != ':' && prev != '(') {
+                            sb_append_char(&out, ' ');
+                        }
+                    }
+                    sb_append_str(&out, "FOR");
+                    i += 3;
+                    sb_append_char(&out, ' ');
+                    continue;
+                }
+            }
+
+            /* NEXT followed immediately by identifier: NEXTI -> NEXT I */
+            if (c1 == 'N' && c2 == 'E' && c3 == 'X' && c4 == 'T') {
+                char next = input[i + 4];
+                if (out.len > 0) {
+                    char prev = out.buf[out.len - 1];
+                    if (!isspace((unsigned char)prev) && prev != ':' && prev != '(') {
+                        sb_append_char(&out, ' ');
+                    }
+                }
+                sb_append_str(&out, "NEXT");
+                i += 4;
+                if (next != '\0' && !isspace((unsigned char)next) && next != ':' ) {
+                    sb_append_char(&out, ' ');
+                }
+                continue;
+            }
+
             /* THEN */
             if (c1 == 'T' && c2 == 'H' && c3 == 'E' && c4 == 'N') {
                 /* Insert space before THEN if needed */
@@ -405,6 +444,56 @@ static char *normalize_keywords_line(const char *input)
                     sb_append_char(&out, ' ');
                 }
                 continue;
+            }
+
+            /* TO inside numeric ranges: 1TO9 -> 1 TO 9, but never split GOTO. */
+            if (c1 == 'T' && c2 == 'O') {
+                size_t j;
+                char prev_ns = ' ';
+                char next_ns = '\0';
+
+                /* Skip if this is the TO in GOTO (e.g. ...GOTO 100). */
+                if (i >= 2) {
+                    char g = (char)toupper((unsigned char)input[i - 2]);
+                    char o = (char)toupper((unsigned char)input[i - 1]);
+                    if (g == 'G' && o == 'O') {
+                        /* fall through to normal character handling */
+                    } else {
+                        /* Find previous non-space character. */
+                        j = i;
+                        while (j > 0) {
+                            j--;
+                            if (!isspace((unsigned char)input[j])) {
+                                prev_ns = input[j];
+                                break;
+                            }
+                        }
+                        /* Find next non-space character after TO. */
+                        j = i + 2;
+                        while (input[j] != '\0' && isspace((unsigned char)input[j])) {
+                            j++;
+                        }
+                        next_ns = input[j];
+
+                        /* Treat as TO only when between numeric-ish tokens, like 1TO9. */
+                        if ((isdigit((unsigned char)prev_ns) || prev_ns == ')') &&
+                            (isdigit((unsigned char)next_ns) || next_ns == '+' || next_ns == '-')) {
+                            if (out.len > 0) {
+                                char prev = out.buf[out.len - 1];
+                                if (!isspace((unsigned char)prev) && prev != '(') {
+                                    sb_append_char(&out, ' ');
+                                }
+                            }
+                            sb_append_str(&out, "TO");
+                            i += 2;
+                            if (next_ns != '\0' && !isspace((unsigned char)next_ns) &&
+                                next_ns != ':' && next_ns != ')') {
+                                sb_append_char(&out, ' ');
+                            }
+                            continue;
+                        }
+                    }
+                }
             }
 
             /* AND / OR infix operators without spaces.
