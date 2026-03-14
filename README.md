@@ -105,6 +105,7 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
 ### Additional/Non-Standard BASIC Commands
 
 - **`SLEEP`**: pause execution for a number of 60 Hz “ticks” (e.g., `SLEEP 60` ≈ 1 second).
+- **`LOCATE`** and **`TEXTAT`**: screen cursor positioning and absolute text placement (see below).
 
 ### Tokenised PETSCII shortcuts inside strings
 
