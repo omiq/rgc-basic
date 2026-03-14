@@ -1,8 +1,12 @@
 # Features to add/to-do
 
-Colour without pokes
+* Colour without pokes
   * background command for setting screen colour
   * colour/color for text colour
+
+* Cursor On/Off
+  * Uses ANSI escape codes to hide or show the blinking cursor
+  * Quitting out of the interpreter should always restore the cursor if poss
 
 * PETSCII symbols
   * Unicode stand-ins
@@ -38,7 +42,7 @@ Colour without pokes
   * Command ("OS"?) that executes CLI commands
   * Is it possible to have results returned? Eg. `result$ = os("echo test")`
   * What about large/long-running programs such as `cURL`?
-  
+
 
 ---
 
