@@ -53,6 +53,7 @@ xattr -d com.apple.quarantine /path/to/basic
 ```
 
 Run this once after unpacking, and macOS will stop treating the binary as “from the internet”.
+
 ---
 
 ## 💡 Features
