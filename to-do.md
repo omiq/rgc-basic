@@ -1,5 +1,18 @@
 # Features to add/to-do
 
+* INSTR
+  * Not found in c64 but was in later commodore basic
+  * https://www.c64-wiki.com/wiki/INSTR
+
+* Flexible DATA read
+  * RESTORE [line number]
+
+* Decimal ↔ hexadecimal conversion: DEC(),HEX$()
+
+* IF THEN ELSE END IF
+
+* Structured loops: DO,LOOP,WHILE,UNTIL,EXIT
+
 * Colour without pokes
   * background command for setting screen colour
   * colour/color for text colour
