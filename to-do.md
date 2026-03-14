@@ -26,5 +26,14 @@ Colour without pokes
   * Ensure keywords are only recognized when not inside identifiers (e.g. avoid splitting `ORD(7)` or `FOR`), and never mangling string literals
   * Validate behavior against reference interpreter (`cbmbasic`) with a regression suite of tricky lines
 
+* String case utilities
+  * Add CBM-style upper/lower-case string manipulation functions (e.g. `UCASE$`, `LCASE$`)
+  * Ensure they round-trip correctly with PETSCII/ANSI mappings and existing `ASC`/`CHR$` behavior
+
+* Include files / libraries
+  * Design a simple `INCLUDE "file.bas"` or similar directive processed at load time
+  * Allow splitting larger programs into multiple source files / libraries while preserving line-numbered semantics
+  * Consider search paths and guarding against recursive includes
+
 * Multi-dimensional arrays(x,y,x)
 
