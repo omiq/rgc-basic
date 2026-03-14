@@ -705,6 +705,13 @@ static struct value data_items[MAX_DATA_ITEMS];
 static int data_count = 0;
 static int data_index = 0;
 
+/* File I/O: logical file numbers 1-255, CBM-style OPEN/CLOSE/PRINT#/INPUT#/GET#.
+ * Device 1 = disk/file (filename required). Secondary: 0=read, 1=write, 2=append.
+ * ST (status) is updated after INPUT#/GET#: 0=ok, 64=EOF, 1=error/not open. */
+#define MAX_OPEN_FILES 16
+static FILE *open_files[256];   /* 1-based; [0] unused; NULL = closed */
+static void set_io_status(int st);
+
 static int current_line = 0;
 static char *statement_pos = NULL;
 static int halted = 0;
@@ -751,6 +758,11 @@ static void do_sleep_ticks(double ticks);
 static void statement_locate(char **p);
 static void statement_on(char **p);
 static void statement_clr(char **p);
+static void statement_open(char **p);
+static void statement_close(char **p);
+static void statement_print_hash(char **p);
+static void statement_input_hash(char **p);
+static void statement_get_hash(char **p);
 static int function_lookup(const char *name, int len);
 
 enum func_code {
@@ -922,7 +934,7 @@ static int starts_with_kw(char *p, const char *kw)
             return 0;
         }
     }
-    if (p[i] == '\0' || p[i] == ' ' || p[i] == '\t' || p[i] == ':' || p[i] == '(' || p[i] == '$' || p[i] == '\"') {
+    if (p[i] == '\0' || p[i] == ' ' || p[i] == '\t' || p[i] == ':' || p[i] == '(' || p[i] == '$' || p[i] == '\"' || p[i] == '#') {
         return 1;
     }
     return 0;
@@ -2919,6 +2931,286 @@ static void statement_clr(char **p)
     data_index = 0;
 }
 
+/* Set ST (I/O status) variable for file operations: 0=ok, 64=EOF, 1=error. */
+static void set_io_status(int st)
+{
+    struct var *v = find_or_create_var('S', 'T', 0, 0, 0, NULL, 0);
+    if (v) {
+        v->scalar.type = VAL_NUM;
+        v->scalar.num = (double)st;
+        v->scalar.str[0] = '\0';
+    }
+}
+
+/* OPEN lfn [, device [, secondary [, "filename" ]]] */
+static void statement_open(char **p)
+{
+    int lfn, device, secondary;
+    char fname[MAX_STR_LEN];
+    const char *mode;
+    FILE *fp;
+
+    skip_spaces(p);
+    if (!isdigit((unsigned char)**p)) {
+        runtime_error("OPEN: expected logical file number");
+        return;
+    }
+    lfn = atoi(*p);
+    while (isdigit((unsigned char)**p)) (*p)++;
+    if (lfn < 1 || lfn > 255) {
+        runtime_error("OPEN: file number must be 1-255");
+        return;
+    }
+    skip_spaces(p);
+    device = 1;
+    secondary = 0;
+    if (**p == ',') {
+        (*p)++;
+        skip_spaces(p);
+        if (isdigit((unsigned char)**p)) {
+            device = atoi(*p);
+            while (isdigit((unsigned char)**p)) (*p)++;
+        }
+        skip_spaces(p);
+        if (**p == ',') {
+            (*p)++;
+            skip_spaces(p);
+            if (isdigit((unsigned char)**p)) {
+                secondary = atoi(*p);
+                while (isdigit((unsigned char)**p)) (*p)++;
+            }
+            skip_spaces(p);
+        }
+    }
+    fname[0] = '\0';
+    if (**p == ',') {
+        (*p)++;
+        skip_spaces(p);
+        if (**p == '"') {
+            (*p)++;
+            size_t i = 0;
+            while (**p && **p != '"' && i < sizeof(fname) - 1)
+                fname[i++] = *(*p)++;
+            fname[i] = '\0';
+            if (**p == '"') (*p)++;
+        }
+    }
+    if (open_files[lfn]) {
+        fclose(open_files[lfn]);
+        open_files[lfn] = NULL;
+    }
+    if (fname[0] == '\0') {
+        runtime_error("OPEN: filename required");
+        return;
+    }
+    if (device == 1 || device == 0) {
+        if (secondary == 0) mode = "r";
+        else if (secondary == 1) mode = "w";
+        else mode = "a";
+        fp = fopen(fname, mode);
+        if (!fp) {
+            set_io_status(1);
+            runtime_error("OPEN: cannot open file");
+            return;
+        }
+        open_files[lfn] = fp;
+        set_io_status(0);
+    } else {
+        set_io_status(1);
+        runtime_error("OPEN: unsupported device");
+    }
+}
+
+/* CLOSE [lfn [, lfn ...]] or CLOSE (close all) */
+static void statement_close(char **p)
+{
+    int lfn;
+    skip_spaces(p);
+    if (**p == '\0' || **p == ':') {
+        for (lfn = 1; lfn < 256; lfn++) {
+            if (open_files[lfn]) {
+                fclose(open_files[lfn]);
+                open_files[lfn] = NULL;
+            }
+        }
+        return;
+    }
+    for (;;) {
+        if (!isdigit((unsigned char)**p)) break;
+        lfn = atoi(*p);
+        while (isdigit((unsigned char)**p)) (*p)++;
+        if (lfn >= 1 && lfn <= 255 && open_files[lfn]) {
+            fclose(open_files[lfn]);
+            open_files[lfn] = NULL;
+        }
+        skip_spaces(p);
+        if (**p != ',') break;
+        (*p)++;
+        skip_spaces(p);
+    }
+}
+
+/* PRINT# lfn, expr [,|; expr ...] — like PRINT but to file. */
+static void statement_print_hash(char **p)
+{
+    int lfn;
+    struct value v;
+    int any_output = 0;
+    int ended_with_sep = 0;
+
+    skip_spaces(p);
+    if (!isdigit((unsigned char)**p)) {
+        runtime_error("PRINT#: expected file number");
+        return;
+    }
+    lfn = atoi(*p);
+    while (isdigit((unsigned char)**p)) (*p)++;
+    if (lfn < 1 || lfn > 255 || !open_files[lfn]) {
+        runtime_error("PRINT#: file not open");
+        return;
+    }
+    skip_spaces(p);
+    if (**p == ',') (*p)++;
+    skip_spaces(p);
+
+    for (;;) {
+        if (**p == '\0' || **p == ':') break;
+        if (**p == ';') { (*p)++; continue; }
+        if (**p == ',') { fprintf(open_files[lfn], "\t"); (*p)++; continue; }
+        v = eval_expr(p);
+        any_output = 1;
+        ended_with_sep = 0;
+        if (v.type == VAL_STR) {
+            fputs(v.str, open_files[lfn]);
+        } else {
+            fprintf(open_files[lfn], "%g", v.num);
+        }
+        skip_spaces(p);
+        if (**p == ';') { ended_with_sep = 1; (*p)++; }
+        else if (**p == ',') { fprintf(open_files[lfn], "\t"); ended_with_sep = 1; (*p)++; }
+        else break;
+        skip_spaces(p);
+    }
+    if (!ended_with_sep && any_output) fprintf(open_files[lfn], "\n");
+    fflush(open_files[lfn]);
+}
+
+/* Read one token from file (skip spaces/newlines, read until comma or newline or EOF). */
+static int read_file_token(FILE *fp, char *buf, int buf_size)
+{
+    int i = 0;
+    int c;
+    while ((c = fgetc(fp)) != EOF && (c == ' ' || c == '\t' || c == '\n' || c == '\r')) ;
+    if (c == EOF) { buf[0] = '\0'; return 0; }
+    if (c == ',') { buf[0] = '\0'; return 1; }
+    if (c == '\n' || c == '\r') { buf[0] = '\0'; ungetc(c, fp); return 1; }
+    while (i < buf_size - 1) {
+        if (c == EOF || c == ',' || c == '\n' || c == '\r') break;
+        buf[i++] = (char)(unsigned char)c;
+        c = fgetc(fp);
+    }
+    buf[i] = '\0';
+    if (c == ',' || c == '\n' || c == '\r') ungetc(c, fp);
+    return 1;
+}
+
+/* INPUT# lfn, var [, var ...] — one token per variable (comma/newline separated). */
+static void statement_input_hash(char **p)
+{
+    int lfn;
+    char tokbuf[MAX_STR_LEN];
+    struct value *vp;
+    int is_array, is_string;
+
+    skip_spaces(p);
+    if (!isdigit((unsigned char)**p)) {
+        runtime_error("INPUT#: expected file number");
+        return;
+    }
+    lfn = atoi(*p);
+    while (isdigit((unsigned char)**p)) (*p)++;
+    if (lfn < 1 || lfn > 255 || !open_files[lfn]) {
+        set_io_status(1);
+        runtime_error("INPUT#: file not open");
+        return;
+    }
+    skip_spaces(p);
+    if (**p == ',') (*p)++;
+    skip_spaces(p);
+
+    for (;;) {
+        if (**p == '\0' || **p == ':') break;
+        if (!isalpha((unsigned char)**p)) break;
+        vp = get_var_reference(p, &is_array, &is_string);
+        if (!vp) return;
+        if (is_array) {
+            runtime_error("INPUT#: array not allowed");
+            return;
+        }
+        if (!read_file_token(open_files[lfn], tokbuf, sizeof(tokbuf))) {
+            set_io_status(64);
+            *vp = is_string ? make_str("") : make_num(0.0);
+        } else {
+            set_io_status(0);
+            if (is_string) {
+                *vp = make_str(tokbuf);
+            } else {
+                *vp = make_num(atof(tokbuf));
+            }
+        }
+        skip_spaces(p);
+        if (**p == ',') (*p)++;
+        else break;
+    }
+}
+
+/* GET# lfn, stringvar — read one character. */
+static void statement_get_hash(char **p)
+{
+    int lfn;
+    int c;
+    struct value *vp;
+    int is_array, is_string;
+
+    skip_spaces(p);
+    if (!isdigit((unsigned char)**p)) {
+        runtime_error("GET#: expected file number");
+        return;
+    }
+    lfn = atoi(*p);
+    while (isdigit((unsigned char)**p)) (*p)++;
+    if (lfn < 1 || lfn > 255 || !open_files[lfn]) {
+        set_io_status(1);
+        runtime_error("GET#: file not open");
+        return;
+    }
+    skip_spaces(p);
+    if (**p == ',') (*p)++;
+    skip_spaces(p);
+    if (!isalpha((unsigned char)**p)) {
+        runtime_error("GET#: expected string variable");
+        return;
+    }
+    vp = get_var_reference(p, &is_array, &is_string);
+    if (!vp || !is_string || is_array) {
+        runtime_error("GET#: requires string variable");
+        return;
+    }
+    c = fgetc(open_files[lfn]);
+    if (c == EOF) {
+        set_io_status(64);
+        *vp = make_str("");
+    } else {
+        set_io_status(0);
+        {
+            char buf[2];
+            buf[0] = (char)(unsigned char)c;
+            buf[1] = '\0';
+            *vp = make_str(buf);
+        }
+    }
+}
+
 static void statement_let(char **p)
 {
     struct value *vp;
@@ -3256,6 +3548,39 @@ static void execute_statement(char **p)
     if (**p == '\0') {
         return;
     }
+    /* Explicit PRINT# / INPUT# / GET# (allow optional space before #). */
+    if ((*p)[0] != '\0' && toupper((unsigned char)(*p)[0]) == 'P' && toupper((unsigned char)(*p)[1]) == 'R' &&
+        toupper((unsigned char)(*p)[2]) == 'I' && toupper((unsigned char)(*p)[3]) == 'N' &&
+        toupper((unsigned char)(*p)[4]) == 'T') {
+        char *q = *p + 5;
+        while (*q == ' ' || *q == '\t') q++;
+        if (*q == '#') {
+            *p = q + 1;
+            statement_print_hash(p);
+            return;
+        }
+    }
+    if (toupper((unsigned char)(*p)[0]) == 'I' && toupper((unsigned char)(*p)[1]) == 'N' &&
+        toupper((unsigned char)(*p)[2]) == 'P' && toupper((unsigned char)(*p)[3]) == 'U' &&
+        toupper((unsigned char)(*p)[4]) == 'T') {
+        char *q = *p + 5;
+        while (*q == ' ' || *q == '\t') q++;
+        if (*q == '#') {
+            *p = q + 1;
+            statement_input_hash(p);
+            return;
+        }
+    }
+    if (toupper((unsigned char)(*p)[0]) == 'G' && toupper((unsigned char)(*p)[1]) == 'E' &&
+        toupper((unsigned char)(*p)[2]) == 'T') {
+        char *q = *p + 3;
+        while (*q == ' ' || *q == '\t') q++;
+        if (*q == '#') {
+            *p = q + 1;
+            statement_get_hash(p);
+            return;
+        }
+    }
     c = toupper((unsigned char)**p);
     if (c == '\0') {
         return;
@@ -3281,9 +3606,30 @@ static void execute_statement(char **p)
             return;
         }
     }
+    if (c == 'O') {
+        if (starts_with_kw(*p, "OPEN")) {
+            *p += 4;
+            statement_open(p);
+            return;
+        }
+    }
+    if (c == 'C') {
+        if (starts_with_kw(*p, "CLOSE")) {
+            *p += 5;
+            statement_close(p);
+            return;
+        }
+    }
     if (c == 'P') {
+        /* PRINT# must be recognized (starts_with_kw allows '#' as terminator for PRINT). */
         if (starts_with_kw(*p, "PRINT")) {
             *p += 5;
+            skip_spaces(p);
+            if (**p == '#') {
+                (*p)++;
+                statement_print_hash(p);
+                return;
+            }
             statement_print(p);
             return;
         }
@@ -3297,6 +3643,12 @@ static void execute_statement(char **p)
     }
     if (c == 'I' && starts_with_kw(*p, "INPUT")) {
         *p += 5;
+        skip_spaces(p);
+        if (**p == '#') {
+            (*p)++;
+            statement_input_hash(p);
+            return;
+        }
         statement_input(p);
         return;
     }
@@ -3317,6 +3669,12 @@ static void execute_statement(char **p)
     }
     if (c == 'G' && starts_with_kw(*p, "GET")) {
         *p += 3;
+        skip_spaces(p);
+        if (**p == '#') {
+            (*p)++;
+            statement_get_hash(p);
+            return;
+        }
         statement_get(p);
         return;
     }
@@ -3590,6 +3948,16 @@ static void run_program(void)
         if (*statement_pos == '\0') {
             current_line++;
             statement_pos = NULL;
+        }
+    }
+    /* Close any files left open when program ends. */
+    {
+        int lfn;
+        for (lfn = 1; lfn < 256; lfn++) {
+            if (open_files[lfn]) {
+                fclose(open_files[lfn]);
+                open_files[lfn] = NULL;
+            }
         }
     }
 }

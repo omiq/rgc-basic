@@ -68,6 +68,13 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
   - **`DEF FN`**: define simple user functions, e.g. `DEF FNY(X) = SIN(X)`.
   - **`POKE`**: accepted as a no‑op (for compatibility with old listings; it does not touch real memory).
   - **`CLR`**: resets all variables to 0/empty, clears GOSUB/FOR stacks and DATA pointer; DEF FN definitions are kept.
+  - **File I/O (CBM-style)**:
+    - **`OPEN lfn, device, secondary, "filename"`** — open a file (device 1 = disk/file; secondary 0 = read, 1 = write, 2 = append). Filename is a path in the current directory.
+    - **`PRINT# lfn, expr [,|; expr ...]`** — write to the open file (like `PRINT` to file).
+    - **`INPUT# lfn, var [, var ...]`** — read from the open file into variables (one token per variable; comma/newline separated).
+    - **`GET# lfn, stringvar`** — read one character from the file into a string variable.
+    - **`CLOSE [lfn [, lfn ...]]`** — close file(s); `CLOSE` with no arguments closes all.
+    - **`ST`** — system variable set after `INPUT#`/`GET#`: 0 = success, 64 = end of file, 1 = error / file not open. Use e.g. `IF ST <> 0 THEN GOTO done`.
 - **Variables**
   - **Numeric variables**: `A`, `B1`, `AB`, `ATAKFLAG`, etc. Names may be longer than two characters; CBM-style **first two characters** identify the variable (e.g. `ATAKFLAG` and `ATA` refer to the same variable).
   - **String variables**: names ending in `$`, e.g. `A$`, `NAME$`.
@@ -212,6 +219,10 @@ The **`examples`** folder (included in release archives) contains:
 - **`chr.bas`**: PETSCII/ANSI color and control-code test (run with `-petscii`).
 - **`examples/testdef.bas`**, **`tests/read_data.bas`**: small regressions for `DEF FN` and `READ`/`DATA`.
 - **`test_dim2d.bas`**, **`test_get.bas`**: multi-dimensional arrays and `GET` Enter handling.
+- **`tests/fileio.bas`**, **`tests/fileeof.bas`**, **`tests/test_get_hash.bas`**: file I/O regression tests.
+- **`examples/fileio_basics.bas`**: write and read a file (OPEN, PRINT#, INPUT#, CLOSE) with step-by-step comments.
+- **`examples/fileio_loop.bas`**: read until end of file using the ST status variable (ST=0/64/1).
+- **`examples/fileio_get.bas`**: read one character at a time with GET#.
 - **`guess.bas`**, **`adventure.bas`**, **`printx.bas`**, and others for various features.
 
 ### Notes on the BASIC dialect

@@ -28,10 +28,12 @@ Key global structures in `basic.c`:
   - `static int print_col;` – current output column (for wrapping and `TAB`).
 
 - **Variables and stacks**
-  - `static struct var vars[MAX_VARS];` – scalar/array variables (numeric and string).
+  - `static struct var vars[MAX_VARS];` – scalar/array variables (numeric and string). Each `struct var` has `dims`, `dim_sizes[MAX_DIMS]`, and a flat `array` for multi‑dimensional arrays (up to `MAX_DIMS` dimensions).
   - `static struct gosub_frame gosub_stack[MAX_GOSUB];`
   - `static struct for_frame  for_stack[MAX_FOR];`
   - `static struct user_func  user_funcs[MAX_USER_FUNCS];` – `DEF FN` functions.
+  - **DATA/READ**: `static struct value data_items[MAX_DATA_ITEMS];`, `data_count`, `data_index` – populated at load time by `collect_data_from_program()`, consumed by `statement_read`.
+  - **File I/O**: `static FILE *open_files[256];` – 1‑based logical file numbers; `OPEN`/`CLOSE`/`PRINT#`/`INPUT#`/`GET#` use this table. The **ST** (status) variable is implemented by setting the variable `ST` (via `find_or_create_var('S','T',0,...)`) after each `INPUT#`/`GET#` (0 = ok, 64 = EOF, 1 = error).
 
 - **PETSCII / ANSI config**
   - `static int petscii_mode;` – enabled by `-petscii` CLI flag.
@@ -118,6 +120,7 @@ while (!halted && current_line >= 0 && current_line < line_count) {
         statement_pos = NULL;
     }
 }
+/* When the loop exits, all open files (open_files[1..255]) are closed. */
 ```
 
 Important points:
@@ -142,13 +145,30 @@ char c = toupper((unsigned char)**p);
 if (c == '\'') { statement_rem(p); return; }
 if (c == '?')  { (*p)++; statement_print(p); return; }
 
+/* PRINT# / INPUT# / GET# are recognized first (explicit check) or via PRINT/INPUT/GET + '#' (starts_with_kw allows '#' as terminator). */
 if (c == 'P') {
-    if (starts_with_kw(*p, "PRINT")) { *p += 5; statement_print(p); return; }
+    if (starts_with_kw(*p, "PRINT")) {
+        *p += 5; skip_spaces(p);
+        if (**p == '#') { (*p)++; statement_print_hash(p); return; }
+        statement_print(p); return;
+    }
     if (starts_with_kw(*p, "POKE"))  { ...; return; }
 }
+if (c == 'O' && starts_with_kw(*p, "OPEN"))  { ...; return; }
+if (c == 'C' && starts_with_kw(*p, "CLOSE"))  { ...; return; }
+if (c == 'C' && starts_with_kw(*p, "CLR"))    { ...; return; }
+if (c == 'O' && starts_with_kw(*p, "ON"))    { statement_on(p); return; }
 
-if (c == 'I' && starts_with_kw(*p, "INPUT")) { ... }
-if (c == 'G' && starts_with_kw(*p, "GET"))   { ... }
+if (c == 'I' && starts_with_kw(*p, "INPUT")) {
+    *p += 5; skip_spaces(p);
+    if (**p == '#') { (*p)++; statement_input_hash(p); return; }
+    statement_input(p); return;
+}
+if (c == 'G' && starts_with_kw(*p, "GET")) {
+    *p += 3; skip_spaces(p);
+    if (**p == '#') { (*p)++; statement_get_hash(p); return; }
+    statement_get(p); return;
+}
 if (c == 'G' && starts_with_kw(*p, "GOTO"))  { ... }
 if (c == 'G' && starts_with_kw(*p, "GOSUB")) { ... }
 if (c == 'I' && starts_with_kw(*p, "IF"))    { ... }
@@ -167,7 +187,11 @@ Adding a new **statement keyword** almost always means:
 1. Writing a helper `static void statement_X(char **p)` that parses the rest of the line.
 2. Adding one small branch in `execute_statement` to recognize the keyword and call your helper.
 
-Example: `SLEEP` was added exactly this way (`statement_sleep` + minimal dispatch).
+If the keyword is followed by **`#`** (e.g. `PRINT#`, `INPUT#`, `GET#`), either:
+- Add an **explicit early check** at the top of `execute_statement` (see the `PRINT#`/`INPUT#`/`GET#` block), or
+- Ensure `starts_with_kw` treats `#` as a valid terminator (it does), then after matching e.g. `PRINT`, `skip_spaces(p)` and if `**p == '#'` consume it and call the hash variant (e.g. `statement_print_hash`).
+
+Example: `SLEEP` was added exactly this way (`statement_sleep` + minimal dispatch). File I/O uses `statement_open`, `statement_close`, `statement_print_hash`, `statement_input_hash`, `statement_get_hash`.
 
 ---
 
@@ -186,7 +210,8 @@ Expressions are parsed recursively by:
 if (isalpha((unsigned char)**p)) {
     if (starts_with_kw(*p, "SIN")  || starts_with_kw(*p, "COS")  ||
         starts_with_kw(*p, "MID")  || starts_with_kw(*p, "LEFT") ||
-        starts_with_kw(*p, "RIGHT") || /* ... many others ... */ ) {
+        starts_with_kw(*p, "RIGHT") || starts_with_kw(*p, "UCASE") ||
+        starts_with_kw(*p, "LCASE") || /* ... many others ... */ ) {
         char namebuf[8];
         char *q = *p;
         read_identifier(&q, namebuf, sizeof(namebuf));
@@ -205,7 +230,8 @@ enum func_code {
     FN_SIN, FN_COS, FN_TAN, FN_ABS, FN_INT, FN_SQR, FN_SGN,
     FN_EXP, FN_LOG, FN_RND, FN_LEN, FN_STR, FN_CHR,
     FN_ASC, FN_VAL, FN_TAB, FN_SPC,
-    FN_MID, FN_LEFT, FN_RIGHT
+    FN_MID, FN_LEFT, FN_RIGHT,
+    FN_UCASE, FN_LCASE
 };
 ```
 
@@ -332,5 +358,5 @@ if (c == 'T' && starts_with_kw(*p, "TEXTAT")) {
 - **Match visible behavior, not just theory**:
   - For PETSCII/ANSI and `PRINT` semantics, compare against an actual C64 emulator or the original `chr.bas`/`adventure.bas` programs whenever in doubt.
 
-This overview should give you enough context to confidently navigate and extend `basic.c`. When in doubt, follow the patterns used by existing statements like `PRINT`, `INPUT`, `SLEEP`, and `GET`—they are intentionally kept as small, readable reference implementations.
+This overview should give you enough context to confidently navigate and extend `basic.c`. When in doubt, follow the patterns used by existing statements like `PRINT`, `INPUT`, `SLEEP`, `GET`, `OPEN`/`CLOSE`/`PRINT#`/`INPUT#`/`GET#`, and `CLR`—they are intentionally kept as small, readable reference implementations.
 

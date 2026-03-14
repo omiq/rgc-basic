@@ -4,8 +4,6 @@ Colour without pokes
   * background command for setting screen colour
   * colour/color for text colour
 
-* Files (open get# print# close etc)
-
 * PETSCII symbols
   * Unicode stand-ins
   * Bitmap rendering of 320x200 pixel or 40x25 characters (SDL? Raylib?)
@@ -34,4 +32,5 @@ Colour without pokes
 - Multi-dimensional arrays — `DIM A(x,y)` (and up to 3 dimensions) in `basic.c`.
 - **CLR statement** — Resets all variables (scalar and array elements) to 0/empty, clears GOSUB and FOR stacks, resets DATA pointer; DEF FN definitions are kept.
 - **String case utilities** — `UCASE$(s)` and `LCASE$(s)` implemented (ASCII `toupper`/`tolower`); use in expressions and PRINT.
+- **File I/O** — `OPEN lfn, device, secondary, "filename"` (device 1: file; secondary 0=read, 1=write, 2=append), `PRINT# lfn, ...`, `INPUT# lfn, var,...`, `GET# lfn, stringvar`, `CLOSE [lfn]`. `ST` (status) set after INPUT#/GET# (0=ok, 64=EOF, 1=error). Tests: `tests/fileio.bas`, `tests/fileeof.bas`, `tests/test_get_hash.bas`.
 

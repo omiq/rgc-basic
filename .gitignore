@@ -60,3 +60,7 @@ dartmouth.bas:Zone.Identifier
 basic
 *:Zone.Identifier
 examples/trek64.bas:Zone.Identifier
+basic
+CHARS.DAT
+.gitignore
+*.DAT
