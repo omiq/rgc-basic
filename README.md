@@ -18,7 +18,7 @@ Line-numbered BASIC interpreter inspired by CBM BASIC v2 as found on classic Com
 
 ## 💾 DOWNLOADS
 
-[The latest binaries for Win/Mac/Linux are in ***Releases***](https://github.com/omiq/cbm-basic/releases/)
+[The latest binaries for Win/Mac/Linux are in ***Releases***](https://github.com/omiq/cbm-basic/releases/). Each release archive includes the interpreter binary and the **`examples`** folder so you can run programs such as `./basic examples/trek.bas` (or `basic.exe examples\trek.bas` on Windows) from the unpacked directory.
 
 ### macOS Gatekeeper note 🔐
 
@@ -54,22 +54,23 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
 - **Core statements**
   - **`PRINT` / `?`**: output expressions, with `;` (no newline) and `,` (zone/tab) separators; wrapping defaults to a 40‑column C64‑style width.
   - **`INPUT`**: read numeric or string variables from standard input, with optional prompt.
-  - **`GET`**: single‑key input into a string variable, without waiting for Enter (e.g. `GET K$`).
+  - **`GET`**: single‑key input into a string variable, without waiting for Enter (e.g. `GET K$`). Enter/Return is returned as `CHR$(13)` so `ASC(K$)=13` works for “press Enter” checks.
   - **`LET`** (optional): assignment; you can also assign with `A=1` without `LET`.
   - **`IF ... THEN`**: conditional execution, supporting comparisons, `AND`/`OR`, and optional line-number or label jumps.
   - **`GOTO`**: jump to a given line number **or label** (e.g. `GOTO 100` or `GOTO GAMELOOP`).
   - **`GOSUB` / `RETURN`**: subroutines with a fixed-depth stack; targets may be line numbers or labels.
+  - **`ON expr GOTO` / `ON expr GOSUB`**: multi-branch jumps; e.g. `ON N GOTO 100,200,300` or `ON K GOSUB 500,600`.
   - **`FOR` / `NEXT`**: numeric loops, including `STEP` with positive or negative increments.
-  - **`DIM`**: declare 1‑D numeric or string arrays.
+  - **`DIM`**: declare 1‑D or multi‑dimensional numeric or string arrays (e.g. `DIM A(10)`, `DIM B(2,3)`).
   - **`REM`** and **`'`**: comments to end of line.
   - **`END` / `STOP`**: terminate program execution.
   - **`READ` / `DATA`**: load numeric and string literals from `DATA` statements into variables.
   - **`DEF FN`**: define simple user functions, e.g. `DEF FNY(X) = SIN(X)`.
   - **`POKE`**: accepted as a no‑op (for compatibility with old listings; it does not touch real memory).
 - **Variables**
-  - **Numeric variables**: `A`, `B1`, `AB`, etc.
+  - **Numeric variables**: `A`, `B1`, `AB`, `ATAKFLAG`, etc. Names may be longer than two characters; CBM-style **first two characters** identify the variable (e.g. `ATAKFLAG` and `ATA` refer to the same variable).
   - **String variables**: names ending in `$`, e.g. `A$`, `NAME$`.
-  - **1‑D arrays**: `A(10)`, `A$(20)`. Index is 0‑based internally; `DIM A(10)` allows indices `0..10`.
+  - **Arrays**: 1‑D or multi‑dimensional, e.g. `A(10)`, `A$(20)`, `C(2,3)`. Index is 0‑based internally; `DIM A(10)` allows indices `0..10`; `DIM C(2,3)` gives a 3×4 matrix.
 - **Intrinsic functions**
   - **Math**: `SIN`, `COS`, `TAN`, `ABS`, `INT`, `SQR`, `SGN`, `EXP`, `LOG`, `RND`.
   - **Strings**:
@@ -196,11 +197,20 @@ If you do not pass a file name, the interpreter will print usage information:
 Usage: basic [-petscii] [-palette ansi|c64] <program.bas>
 ```
 
+### Source normalization (compact CBM style)
+
+Program text is normalized at load time so **compact CBM BASIC** without spaces around keywords is accepted. For example: `IFX<0THEN`, `FORI=1TO9`, `GOTO410`, `GOSUB5400`, and similar forms are rewritten with spaces so the parser recognises `IF`/`THEN`, `FOR`/`TO`/`NEXT`, `GOTO`, and `GOSUB`. This helps run listings that were saved with minimal whitespace.
+
 ### Included example programs
 
-- **`dartmouth.bas`**: a port of a classic Dartmouth BASIC tutorial program that exercises `PRINT`, `INPUT`, `IF`, `FOR/NEXT`, `DEF FN`, `READ`/`DATA`, and more.
-- **`tests/def_fn.bas`**: small regression for `DEF FN` and function calls.
-- **`tests/read_data.bas`**: small regression for `READ`/`DATA` with numeric and string arrays.
+The **`examples`** folder (included in release archives) contains:
+
+- **`dartmouth.bas`**: classic Dartmouth BASIC tutorial; exercises `PRINT`, `INPUT`, `IF`, `FOR/NEXT`, `DEF FN`, `READ`/`DATA`, and more.
+- **`trek.bas`**: Star Trek–style game; exercises `GET`, `ON GOTO`/`GOSUB`, multi-dimensional arrays, and PETSCII-style output.
+- **`chr.bas`**: PETSCII/ANSI color and control-code test (run with `-petscii`).
+- **`examples/testdef.bas`**, **`tests/read_data.bas`**: small regressions for `DEF FN` and `READ`/`DATA`.
+- **`test_dim2d.bas`**, **`test_get.bas`**: multi-dimensional arrays and `GET` Enter handling.
+- **`guess.bas`**, **`adventure.bas`**, **`printx.bas`**, and others for various features.
 
 ### Notes on the BASIC dialect
 
@@ -221,7 +231,7 @@ Usage: basic [-petscii] [-palette ansi|c64] <program.bas>
 - **Random numbers**:
   - `RND(X)` behaves like classic BASIC; a negative argument reseeds the generator.
 
-`This README describes the current feature set of the interpreter as implemented in `basic.c` and is subject to change without notice`
+This README describes the current feature set of the interpreter as implemented in `basic.c` and is subject to change without notice.
 
 ---
 
