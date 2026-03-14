@@ -2,7 +2,8 @@
 #define PETSCII_H
 
 /* Map a PETSCII code (0–255) to a UTF-8 string for terminal display.
- * Used when -petscii is set so CHR$(n) shows C64-style glyphs. */
+ * Used when -petscii or -petscii-plain is set. Faithful Unicode: £ ↑ ←, box-drawing,
+ * block elements, card suits, π, and Symbols for Legacy Computing where applicable. */
 const char *petscii_code_to_utf8(unsigned char c);
 
 #endif
