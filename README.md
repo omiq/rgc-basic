@@ -173,7 +173,12 @@ basic.exe hello.bas      # Windows
 
 - **`-petscii` / `--petscii`**: enable PETSCII/ANSI mode so that certain `CHR$` control codes
   (cursor movement, clear screen, colors, etc.) are translated to ANSI escape sequences.
-- **`-palette ansi|c64`**: choose how PETSCII colors are mapped:
+  Printable and graphics PETSCII codes are mapped to Unicode (e.g. £ ↑ ←, box-drawing, card suits).
+- **`-petscii-plain` / `--petscii-plain`**: PETSCII mode **without** ANSI: control and color codes
+  output nothing (invisible, like on a real C64), and only printable/graphics bytes produce
+  visible characters. Use this when you need strict one-character-per-column alignment (e.g.
+  viewing .seq files or pasting output into a fixed-width editor).
+- **`-palette ansi|c64`**: choose how PETSCII colors are mapped (only in `-petscii` mode):
   - **`ansi`** (default): map colors to standard 16-color ANSI SGR codes.
   - **`c64`** or **`c64-8bit`**: use 8‑bit (`38;5;N`) color indices chosen to approximate
     the classic C64 palette. This is most consistent on terminals that support 256 colors.
@@ -215,7 +220,7 @@ In `-petscii` mode, `CHR$` behaves in a C64-like way: control and color codes ar
 If you do not pass a file name, the interpreter will print usage information:
 
 ```text
-Usage: basic [-petscii] [-palette ansi|c64] <program.bas>
+Usage: basic [-petscii] [-petscii-plain] [-palette ansi|c64] <program.bas>
 ```
 
 ### Source normalization (compact CBM style)
@@ -235,6 +240,15 @@ The **`examples`** folder (included in release archives) contains:
 - **`examples/fileio_basics.bas`**: write and read a file (OPEN, PRINT#, INPUT#, CLOSE) with step-by-step comments.
 - **`examples/fileio_loop.bas`**: read until end of file using the ST status variable (ST=0/64/1).
 - **`examples/fileio_get.bas`**: read one character at a time with GET#.
+- **`examples/colaburger_viewer.bas`** and **`examples/colaburger.seq`**: PETSCII .seq file viewer.
+  - **.seq files** are sequential dumps of PETSCII screen codes (e.g. from BBS logs or PETSCII art).
+  - The viewer reads the file byte-by-byte with `GET#`, prints each byte via `CHR$`, and wraps after
+    **40 visible columns** (only printable/graphics bytes advance the cursor; control/color codes do not).
+  - Run with **`-petscii-plain`** so control and color codes output nothing and alignment matches a real
+    C64 screen:  
+    `./basic -petscii-plain examples/colaburger_viewer.bas`  
+  - With **`-petscii`** you get ANSI colors and cursor codes; with **`-petscii-plain`** you get
+    strict character alignment and no escape sequences, ideal for art and fixed-width paste.
 - **`guess.bas`**, **`adventure.bas`**, **`printx.bas`**, and others for various features.
 
 ### Notes on the BASIC dialect
