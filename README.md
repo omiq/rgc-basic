@@ -11,13 +11,11 @@
 
 ## Commodore BASIC v2–style interpreter written in C.
 
-Expanded from original by [David Plummer](https://github.com/davepl/pdpsrc/tree/main/bsd/basic)
+Expanded from an original LLM-generated demo project by [David Plummer](https://github.com/davepl/pdpsrc/tree/main/bsd/basic)
 
-Line-numbered BASIC interpreter inspired by CBM BASIC v2 as found on classic Commodore machines.
+CBM-BASIC is, as the name suggests, a BASIC interpreter *inspired* by CBM BASIC v2 as found on classic Commodore machines. This means while you *can* use `GOTO`, you don't *have* to. You do you. This is a readme file, not the code police.
 
-Unlike emulators, this is a BASIC interpreter that, while a project still very much in development, can already do real work.
-
-For example reading and writing files.
+Unlike emulators, this is a BASIC interpreter that, while a project still very much in development, can already do real work. For example, this interpreter is capable of reading and writing files on your computer's disk.
 
 
 
