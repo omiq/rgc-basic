@@ -54,6 +54,7 @@ jobs:
         run: |
           mkdir -p out/${{ matrix.outdir }}
           cp ${{ matrix.bin }} out/${{ matrix.outdir }}/basic
+          cp -r examples out/${{ matrix.outdir }}/
           cd out
           tar czf ${{ matrix.archive }} ${{ matrix.outdir }}
 
@@ -63,6 +64,7 @@ jobs:
         run: |
           mkdir -p out/${{ matrix.outdir }}
           cp ${{ matrix.bin }} out/${{ matrix.outdir }}/basic.exe
+          cp -r examples out/${{ matrix.outdir }}/
           cd out
           powershell -Command "Compress-Archive -Path '${{ matrix.outdir }}' -DestinationPath '${{ matrix.archive }}'"
 
