@@ -58,4 +58,5 @@ dkms.conf
 dartmouth.bas:Zone.Identifier
 .DS_Store
 basic
-*Zone.Identifier
+*:Zone.Identifier
+examples/trek64.bas:Zone.Identifier
