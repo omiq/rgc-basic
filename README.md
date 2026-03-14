@@ -16,10 +16,21 @@ Expanded from original by [David Plummer](https://github.com/davepl/pdpsrc/tree/
 
 Line-numbered BASIC interpreter inspired by CBM BASIC v2 as found on classic Commodore machines.
 
+Unlike emulators, this is a BASIC interpreter that, while a project in development, can already do real work.
+
+For example reading and writing files.
+
+
+
 ## 💾 DOWNLOADS
 
-[The latest binaries for Win/Mac/Linux are in ***Releases***](https://github.com/omiq/cbm-basic/releases/). Each release archive includes the interpreter binary and the **`examples`** folder so you can run programs such as `./basic examples/trek.bas` (or `basic.exe examples\trek.bas` on Windows) from the unpacked directory.
+[The latest binaries for Win/Mac/Linux are in ***Releases***](https://github.com/omiq/cbm-basic/releases/). 
 
+Extract the files after downloading.
+
+Each release archive includes the interpreter binary and the **`examples`** folder so you can run programs such as `./basic examples/trek.bas` (or `basic.exe examples\trek.bas` on Windows) from the unpacked directory.
+
+---
 ### macOS Gatekeeper note 🔐
 
 On recent macOS versions, downloading a binary from the internet may show a warning such as:
@@ -45,6 +56,7 @@ xattr -d com.apple.quarantine /path/to/basic
 ```
 
 Run this once after unpacking, and macOS will stop treating the binary as “from the internet”.
+---
 
 ## 💡 Features
 
