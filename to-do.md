@@ -10,8 +10,10 @@
 * Decimal ↔ hexadecimal conversion: DEC(),HEX$()
 
 * IF THEN ELSE END IF
+  * Internally can be handled like : but this syntax is easier to read and understand
 
 * Structured loops: DO,LOOP,WHILE,UNTIL,EXIT
+  * Internally can be handled with labels and gotos but is far easier to understand
 
 * Colour without pokes
   * background command for setting screen colour
