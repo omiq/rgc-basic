@@ -1,0 +1,2 @@
+10 PRINT UCASE$("hello "); LCASE$("WORLD")
+20 END

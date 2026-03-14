@@ -750,6 +750,7 @@ static void statement_get(char **p);
 static void do_sleep_ticks(double ticks);
 static void statement_locate(char **p);
 static void statement_on(char **p);
+static void statement_clr(char **p);
 static int function_lookup(const char *name, int len);
 
 enum func_code {
@@ -773,7 +774,9 @@ enum func_code {
     FN_SPC = 17,
     FN_MID = 18,
     FN_LEFT = 19,
-    FN_RIGHT = 20
+    FN_RIGHT = 20,
+    FN_UCASE = 21,
+    FN_LCASE = 22
 };
 
 /* Report an error and halt further execution.
@@ -1460,6 +1463,9 @@ static int function_lookup(const char *name, int len)
         if ((len == 4 && name[0] == 'L' && name[1] == 'E' && name[2] == 'F' && name[3] == 'T') ||
             (len == 5 && name[0] == 'L' && name[1] == 'E' && name[2] == 'F' && name[3] == 'T' && name[4] == '$'))
             return FN_LEFT;
+        if ((len == 5 && name[0] == 'L' && name[1] == 'C' && name[2] == 'A' && name[3] == 'S' && name[4] == 'E') ||
+            (len == 6 && name[0] == 'L' && name[1] == 'C' && name[2] == 'A' && name[3] == 'S' && name[4] == 'E' && name[5] == '$'))
+            return FN_LCASE;
         return FN_NONE;
     case 'M':
         if ((len == 3 && name[0] == 'M' && name[1] == 'I' && name[2] == 'D') ||
@@ -1474,6 +1480,11 @@ static int function_lookup(const char *name, int len)
         return FN_NONE;
     case 'V':
         if (len == 3 && name[0] == 'V' && name[1] == 'A' && name[2] == 'L') return FN_VAL;
+        return FN_NONE;
+    case 'U':
+        if ((len == 5 && name[0] == 'U' && name[1] == 'C' && name[2] == 'A' && name[3] == 'S' && name[4] == 'E') ||
+            (len == 6 && name[0] == 'U' && name[1] == 'C' && name[2] == 'A' && name[3] == 'S' && name[4] == 'E' && name[5] == '$'))
+            return FN_UCASE;
         return FN_NONE;
     default:
         return FN_NONE;
@@ -2039,6 +2050,28 @@ static struct value eval_function(const char *name, char **p)
             return make_str(out);
         }
     }
+    case FN_UCASE: {
+        char out[MAX_STR_LEN];
+        size_t i, n;
+        ensure_str(&arg);
+        n = strlen(arg.str);
+        if (n >= MAX_STR_LEN) n = MAX_STR_LEN - 1;
+        for (i = 0; i < n; i++)
+            out[i] = (char)toupper((unsigned char)arg.str[i]);
+        out[n] = '\0';
+        return make_str(out);
+    }
+    case FN_LCASE: {
+        char out[MAX_STR_LEN];
+        size_t i, n;
+        ensure_str(&arg);
+        n = strlen(arg.str);
+        if (n >= MAX_STR_LEN) n = MAX_STR_LEN - 1;
+        for (i = 0; i < n; i++)
+            out[i] = (char)tolower((unsigned char)arg.str[i]);
+        out[n] = '\0';
+        return make_str(out);
+    }
     default:
         runtime_error("Unknown function");
         return make_num(0.0);
@@ -2303,7 +2336,8 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "RND") || starts_with_kw(*p, "LEN") || starts_with_kw(*p, "VAL") ||
             starts_with_kw(*p, "STR") || starts_with_kw(*p, "CHR") || starts_with_kw(*p, "ASC") ||
             starts_with_kw(*p, "TAB") || starts_with_kw(*p, "SPC") || starts_with_kw(*p, "MID") ||
-            starts_with_kw(*p, "LEFT") || starts_with_kw(*p, "RIGHT")) {
+            starts_with_kw(*p, "LEFT") || starts_with_kw(*p, "RIGHT") ||
+            starts_with_kw(*p, "UCASE") || starts_with_kw(*p, "LCASE")) {
             char namebuf[8];
             char *q;
             q = *p;
@@ -2864,6 +2898,27 @@ static void statement_on(char **p)
     /* If index is out of range, ON expression simply falls through. */
 }
 
+/* CLR: reset all variables to 0/empty, clear GOSUB/FOR stacks, reset DATA pointer.
+ * DEF FN definitions are left intact (CBM-style). */
+static void statement_clr(char **p)
+{
+    int i, j;
+    (void)p;
+
+    for (i = 0; i < var_count; i++) {
+        struct var *v = &vars[i];
+        v->scalar = v->is_string ? make_str("") : make_num(0.0);
+        if (v->array && v->size > 0) {
+            for (j = 0; j < v->size; j++) {
+                v->array[j] = v->is_string ? make_str("") : make_num(0.0);
+            }
+        }
+    }
+    gosub_top = 0;
+    for_top = 0;
+    data_index = 0;
+}
+
 static void statement_let(char **p)
 {
     struct value *vp;
@@ -3339,6 +3394,11 @@ static void execute_statement(char **p)
     if (c == 'S' && starts_with_kw(*p, "STOP")) {
         halted = 1;
         *p += strlen(*p);
+        return;
+    }
+    if (c == 'C' && starts_with_kw(*p, "CLR")) {
+        *p += 3;
+        statement_clr(p);
         return;
     }
     if (isalpha((unsigned char)c)) {

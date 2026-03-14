@@ -13,9 +13,6 @@ Colour without pokes
 * Subroutines and Functions
   * Syntax sugar before actual implementation?
 
-* CLR statement
-  * Implement CBM-style CLR (reset variables, stacks, execution state)
-
 * Program text preprocessor
   * Replace current ad-hoc whitespace tweaks with a small lexer-like pass for keywords and operators
   * Normalize compact CBM forms while preserving semantics, e.g.:
@@ -26,14 +23,15 @@ Colour without pokes
   * Ensure keywords are only recognized when not inside identifiers (e.g. avoid splitting `ORD(7)` or `FOR`), and never mangling string literals
   * Validate behavior against reference interpreter (`cbmbasic`) with a regression suite of tricky lines
 
-* String case utilities
-  * Add CBM-style upper/lower-case string manipulation functions (e.g. `UCASE$`, `LCASE$`)
-  * Ensure they round-trip correctly with PETSCII/ANSI mappings and existing `ASC`/`CHR$` behavior
-
 * Include files / libraries
   * Design a simple `INCLUDE "file.bas"` or similar directive processed at load time
   * Allow splitting larger programs into multiple source files / libraries while preserving line-numbered semantics
   * Consider search paths and guarding against recursive includes
 
-* Multi-dimensional arrays(x,y,x)
+---
+
+**Completed (removed from list):**
+- Multi-dimensional arrays — `DIM A(x,y)` (and up to 3 dimensions) in `basic.c`.
+- **CLR statement** — Resets all variables (scalar and array elements) to 0/empty, clears GOSUB and FOR stacks, resets DATA pointer; DEF FN definitions are kept.
+- **String case utilities** — `UCASE$(s)` and `LCASE$(s)` implemented (ASCII `toupper`/`tolower`); use in expressions and PRINT.
 

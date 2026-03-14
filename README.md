@@ -67,6 +67,7 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
   - **`READ` / `DATA`**: load numeric and string literals from `DATA` statements into variables.
   - **`DEF FN`**: define simple user functions, e.g. `DEF FNY(X) = SIN(X)`.
   - **`POKE`**: accepted as a no‑op (for compatibility with old listings; it does not touch real memory).
+  - **`CLR`**: resets all variables to 0/empty, clears GOSUB/FOR stacks and DATA pointer; DEF FN definitions are kept.
 - **Variables**
   - **Numeric variables**: `A`, `B1`, `AB`, `ATAKFLAG`, etc. Names may be longer than two characters; CBM-style **first two characters** identify the variable (e.g. `ATAKFLAG` and `ATA` refer to the same variable).
   - **String variables**: names ending in `$`, e.g. `A$`, `NAME$`.
@@ -75,6 +76,7 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
   - **Math**: `SIN`, `COS`, `TAN`, `ABS`, `INT`, `SQR`, `SGN`, `EXP`, `LOG`, `RND`.
   - **Strings**:
     - `LEN`, `VAL`, `STR$`, `CHR$`, `ASC`.
+    - `UCASE$`, `LCASE$`: convert string to upper or lower case (ASCII).
     - `MID$`, `LEFT$`, `RIGHT$` with C64‑style semantics:
       - `MID$(S$, start)` or `MID$(S$, start, len)` (1‑based `start`).
       - `LEFT$(S$, n)` – first `n` characters.
