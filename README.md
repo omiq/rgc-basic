@@ -184,7 +184,7 @@ You can also enable a **PETSCII/ANSI mode** that understands common C64 control 
 ./basic -petscii hello.bas
 ```
 
-In `-petscii` mode, `CHR$` maps a few PETSCII control bytes to ANSI escape sequences (others print as-is):
+In `-petscii` mode, `CHR$` behaves in a C64-like way: control and color codes are mapped to ANSI escapes, and **printable/graphics PETSCII codes** (block graphics, arrows, card suits, etc.) are mapped to Unicode so they display sensibly in the terminal.
 
 - **Screen control**
   - **`CHR$(147)`**: clear screen and home cursor (maps to `ESC[2J ESC[H]`).

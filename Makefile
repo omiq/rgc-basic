@@ -5,7 +5,7 @@
 ##   make clean   - remove built binary
 
 TARGET = basic
-SRCS   = basic.c
+SRCS   = basic.c petscii.c
 
 # Reasonable defaults for modern systems; can be overridden on the command line.
 CC      ?= cc

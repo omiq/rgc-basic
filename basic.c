@@ -34,12 +34,16 @@
  * interpreter (PRINT, INPUT, IF/THEN, FOR/NEXT, GOTO, GOSUB, DIM, etc.).
  */
 
+#if (defined(__unix__) || defined(__linux__) || defined(__APPLE__) || defined(__MACH__)) && !defined(_POSIX_C_SOURCE) && !defined(_GNU_SOURCE)
+#define _POSIX_C_SOURCE 200809L
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 #include <math.h>
 #include <time.h>
+#include "petscii.h"
 #if defined(_WIN32)
 #include <windows.h>
 #include <conio.h>
@@ -285,14 +289,14 @@ static char *transform_basic_line(const char *input)
 
                     if (seg_len > 0) {
                         if (piece_count > 0) {
-                            sb_append_char(&out, ';');
+                            sb_append_char(&out, '+');
                         }
                         append_quoted(&out, segment_start, seg_len);
                         piece_count++;
                     }
 
                     if (piece_count > 0) {
-                        sb_append_char(&out, ';');
+                        sb_append_char(&out, '+');
                     }
 
                     {
@@ -319,7 +323,7 @@ static char *transform_basic_line(const char *input)
 
             if (seg_len > 0 || piece_count == 0) {
                 if (piece_count > 0) {
-                    sb_append_char(&out, ';');
+                    sb_append_char(&out, '+');
                 }
                 append_quoted(&out, segment_start, seg_len);
             }
@@ -720,6 +724,10 @@ static int print_col = 0;
 
 /* PETSCII/ANSI configuration */
 static int petscii_mode = 0;
+/* When set, do not output ANSI (color/reverse/cursor); output is paste-friendly, no extra bytes. */
+static int petscii_plain = 0;
+/* When set (e.g. stdout is a pipe), do not insert newlines at PRINT_WIDTH. */
+static int petscii_no_wrap = 0;
 
 enum {
     PALETTE_ANSI = 0,       /* Standard ANSI SGR colors */
@@ -1394,7 +1402,7 @@ static void print_value(struct value *v)
                         if (d == 'C') {
                             /* Cursor right */
                             print_col += n;
-                            if (print_col >= PRINT_WIDTH) {
+                            if (print_col >= PRINT_WIDTH && !petscii_no_wrap) {
                                 fputc('\n', stdout);
                                 print_col = 0;
                             }
@@ -1421,10 +1429,14 @@ static void print_value(struct value *v)
             if (c == '\n') {
                 print_col = 0;
             } else {
-                print_col++;
-                if (print_col >= PRINT_WIDTH) {
-                    fputc('\n', stdout);
-                    print_col = 0;
+                /* Count one column per UTF-8 character (glyph), not per byte, so
+                 * wrap happens at 40 visible columns and we don't break mid-char. */
+                if (c < 0x80 || (c & 0xC0) != 0x80) {
+                    print_col++;
+                    if (print_col >= PRINT_WIDTH && !petscii_no_wrap) {
+                        fputc('\n', stdout);
+                        print_col = 0;
+                    }
                 }
             }
             s++;
@@ -1753,6 +1765,14 @@ static struct value eval_function(const char *name, char **p)
         {
             int code = (int)arg.num & 0xff;
             if (petscii_mode) {
+                /* -petscii-plain: no ANSI; control/color output nothing (invisible, like C64 - no visible space). */
+                if (petscii_plain) {
+                    if (code == 13) return make_str("\n");
+                    if (code <= 31 && code != 10) return make_str("");
+                    if (code >= 128 && code <= 159) return make_str("");
+                    if (code == 127) return make_str("");
+                    return make_str(petscii_code_to_utf8((unsigned char)code));
+                }
                 /* Optional 8-bit palette approximating C64 colors. */
                 if (palette_mode == PALETTE_C64_8BIT) {
                     int idx = -1;
@@ -1873,6 +1893,12 @@ static struct value eval_function(const char *name, char **p)
                 default:
                     break;
                 }
+                /* Control/color not in switch: output nothing (invisible, like C64). Table would give " " and break layout. */
+                if (code <= 31 && code != 10 && code != 13) return make_str("");
+                if (code == 127) return make_str("");
+                if (code >= 128 && code <= 159) return make_str("");
+                /* Printable PETSCII: map to UTF-8 for terminal (block graphics, etc.) */
+                return make_str(petscii_code_to_utf8((unsigned char)code));
             }
             outbuf[0] = (char)code;
             outbuf[1] = '\0';
@@ -3973,13 +3999,22 @@ int main(int argc, char **argv)
     init_console_ansi();
 
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s [-petscii] [-palette ansi|c64] <program.bas>\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-palette ansi|c64] <program.bas>\n", argv[0]);
         return 1;
     }
 
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-petscii") == 0 || strcmp(argv[i], "--petscii") == 0) {
             petscii_mode = 1;
+            petscii_plain = 0;
+            /* Disable our column-based wrap in PETSCII mode: many Unicode block/symbol
+             * glyphs are "ambiguous" width (1 or 2 cols) so our count doesn't match
+             * the terminal. Let the terminal wrap at its width to avoid misalignment. */
+            petscii_no_wrap = 1;
+        } else if (strcmp(argv[i], "-petscii-plain") == 0 || strcmp(argv[i], "--petscii-plain") == 0) {
+            petscii_mode = 1;
+            petscii_plain = 1;
+            petscii_no_wrap = 1;
         } else if (strcmp(argv[i], "-palette") == 0) {
             const char *name;
             if (i + 1 >= argc) {
@@ -3997,7 +4032,7 @@ int main(int argc, char **argv)
             }
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [-petscii] [-palette ansi|c64] <program.bas>\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-palette ansi|c64] <program.bas>\n", argv[0]);
             return 1;
         } else {
             prog_path = argv[i];
@@ -4006,7 +4041,7 @@ int main(int argc, char **argv)
     }
 
     if (!prog_path) {
-        fprintf(stderr, "Usage: %s [-petscii] [-palette ansi|c64] <program.bas>\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-palette ansi|c64] <program.bas>\n", argv[0]);
         return 1;
     }
 
