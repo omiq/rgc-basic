@@ -93,13 +93,17 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
 - **Intrinsic functions**
   - **Math**: `SIN`, `COS`, `TAN`, `ABS`, `INT`, `SQR`, `SGN`, `EXP`, `LOG`, `RND`.
   - **Strings**:
-    - `LEN`, `VAL`, `STR$`, `CHR$`, `ASC`.
+    - `LEN`, `VAL`, `STR$`, `CHR$`, `ASC`, `INSTR`.
     - `UCASE$`, `LCASE$`: convert string to upper or lower case (ASCII).
     - `MID$`, `LEFT$`, `RIGHT$` with C64‑style semantics:
       - `MID$(S$, start)` or `MID$(S$, start, len)` (1‑based `start`).
       - `LEFT$(S$, n)` – first `n` characters.
       - `RIGHT$(S$, n)` – last `n` characters.
+    - `INSTR(source$, search$)` – returns the 1‑based index of `search$` in `source$`, or `0` if not found.
   - **Formatting**: `TAB` and `SPC` for horizontal positioning in `PRINT`.
+  - **Numeric/string conversion**:
+    - `DEC(s$)` – parse a hexadecimal string to a numeric value (e.g. `DEC("FF")` = 255, invalid strings yield 0).
+    - `HEX$(n)` – format a number as an uppercase hexadecimal string (no `$` prefix), using the integer part of `n`.
   - **Command-line arguments and shell** (for scripting):
     - **`ARGC()`** — returns the number of arguments passed after the script path (e.g. `./basic script.bas a b` → `ARGC()` = 2). Use `ARGC()` with parentheses.
     - **`ARG$(n)`** — returns the *n*th argument as a string. `ARG$(0)` is the script path; `ARG$(1)` … `ARG$(ARGC())` are the arguments. Out-of-range returns `""`.
@@ -111,6 +115,8 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
 
 - **`SLEEP`**: pause execution for a number of 60 Hz “ticks” (e.g., `SLEEP 60` ≈ 1 second).
 - **`LOCATE`** and **`TEXTAT`**: screen cursor positioning and absolute text placement (see below).
+- **`CURSOR ON` / `CURSOR OFF`**: show or hide the terminal cursor using ANSI escape codes (`ESC[?25h` / `ESC[?25l`).
+- **`COLOR n` / `COLOUR n`**: set the text foreground colour using a C64-style palette index `0–15`, mapped to ANSI SGR colours (approximate CBM palette).
 
 ### Tokenised PETSCII shortcuts inside strings
 
