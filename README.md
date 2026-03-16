@@ -1,4 +1,5 @@
 # CBM-BASIC
+
 ```
    _____ ____  __  __        ____           _____ _____ _____ 
   / ____|  _ \|  \/  |      |  _ \   /\    / ____|_   _/ ____|
@@ -9,26 +10,26 @@
   ............................................................
 ```
 
-## Commodore BASIC v2–style interpreter written in C.
+## Commodore BASIC –style interpreter written in C.
 
 CBM-BASIC is, as the name suggests, a BASIC interpreter *inspired* by CBM BASIC v2 as found on classic Commodore machines. This means while you *can* use `GOTO`, you don't *have* to. You do you. This is a readme file, not the code police.
 
 Unlike emulators, this is a BASIC interpreter that, while a project still very much in development, can already do real work. For example, this interpreter is capable of reading and writing files on your computer's disk.
 
-## Why Commodore BASIC? 
+## Why Commodore BASIC?
 
 The project started as an expansion on an original LLM-generated demo project by [David Plummer](https://github.com/davepl/pdpsrc/tree/main/bsd/basic). As I played with it, and added to it, I had fun. That's enough reason for me, and nobody is going to take your favourite toolchain away because this exists so calm down, sheesh.
 
-
 ## 💾 DOWNLOADS
 
-[The latest binaries for Win/Mac/Linux are in ***Releases***](https://github.com/omiq/cbm-basic/releases/). 
+[The latest binaries for Win/Mac/Linux are in ***Releases](https://github.com/omiq/cbm-basic/releases/)***. 
 
 Extract the files after downloading.
 
-Each release archive includes the interpreter binary and the **`examples`** folder so you can run programs such as `./basic examples/trek.bas` (or `basic.exe examples\trek.bas` on Windows) from the unpacked directory.
+Each release archive includes the interpreter binary and the `**examples*`* folder so you can run programs such as `./basic examples/trek.bas` (or `basic.exe examples\trek.bas` on Windows) from the unpacked directory.
 
 ---
+
 ### macOS Gatekeeper note 🔐
 
 On recent macOS versions, downloading a binary from the internet may show a warning such as:
@@ -38,13 +39,13 @@ On recent macOS versions, downloading a binary from the internet may show a warn
 Because `basic` is an unsigned open‑source binary, this is expected. To run it anyway:
 
 1. **First attempt to open it once** (so Gatekeeper records it):
-   - In Finder, locate the unpacked `basic` binary.
-   - Control‑click (or right‑click) and choose **Open**.
-   - When the warning dialog appears, click **Cancel**.
+  - In Finder, locate the unpacked `basic` binary.
+  - Control‑click (or right‑click) and choose **Open**.
+  - When the warning dialog appears, click **Cancel**.
 2. **Allow the app in System Settings**:
-   - Open **System Settings → Privacy & Security**.
-   - Scroll down to the **Security** section; you should see a message about `basic` being blocked.
-   - Click **Open Anyway**, then confirm in the dialog.
+  - Open **System Settings → Privacy & Security**.
+  - Scroll down to the **Security** section; you should see a message about `basic` being blocked.
+  - Click **Open Anyway**, then confirm in the dialog.
 3. After this, you should be able to run `./basic` from Terminal without further prompts.
 
 If you prefer using Terminal only, you can also remove the quarantine attribute:
@@ -63,29 +64,29 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
   - Classic **line-numbered programs** loaded from a text file (`10 ...`, `20 ...`, etc.).
   - Also supports **numberless programs**: if the first non‑blank line has no leading digits, synthetic line numbers are assigned internally (you can still use labels and structured control flow).
 - **Core statements**
-  - **`PRINT` / `?`**: output expressions, with `;` (no newline) and `,` (zone/tab) separators; wrapping defaults to a 40‑column C64‑style width.
-  - **`INPUT`**: read numeric or string variables from standard input, with optional prompt.
-  - **`GET`**: single‑key input into a string variable, without waiting for Enter (e.g. `GET K$`). Enter/Return is returned as `CHR$(13)` so `ASC(K$)=13` works for “press Enter” checks.
-  - **`LET`** (optional): assignment; you can also assign with `A=1` without `LET`.
-  - **`IF ... THEN`**: conditional execution, supporting comparisons, `AND`/`OR`, and optional line-number or label jumps.
-  - **`GOTO`**: jump to a given line number **or label** (e.g. `GOTO 100` or `GOTO GAMELOOP`).
-  - **`GOSUB` / `RETURN`**: subroutines with a fixed-depth stack; targets may be line numbers or labels.
-  - **`ON expr GOTO` / `ON expr GOSUB`**: multi-branch jumps; e.g. `ON N GOTO 100,200,300` or `ON K GOSUB 500,600`.
-  - **`FOR` / `NEXT`**: numeric loops, including `STEP` with positive or negative increments.
-  - **`DIM`**: declare 1‑D or multi‑dimensional numeric or string arrays (e.g. `DIM A(10)`, `DIM B(2,3)`).
-  - **`REM`** and **`'`**: comments to end of line.
-  - **`END` / `STOP`**: terminate program execution.
-  - **`READ` / `DATA`**: load numeric and string literals from `DATA` statements into variables. **`RESTORE`** resets the DATA pointer so the next `READ` uses the first value again (C64-style).
-  - **`DEF FN`**: define simple user functions, e.g. `DEF FNY(X) = SIN(X)`.
-  - **`POKE`**: accepted as a no‑op (for compatibility with old listings; it does not touch real memory).
-  - **`CLR`**: resets all variables to 0/empty, clears GOSUB/FOR stacks and DATA pointer; DEF FN definitions are kept.
+  - `**PRINT` / `?`**: output expressions, with `;` (no newline) and `,` (zone/tab) separators; wrapping defaults to a 40‑column C64‑style width.
+  - `**INPUT**`: read numeric or string variables from standard input, with optional prompt.
+  - `**GET**`: single‑key input into a string variable, without waiting for Enter (e.g. `GET K$`). Enter/Return is returned as `CHR$(13)` so `ASC(K$)=13` works for “press Enter” checks.
+  - `**LET**` (optional): assignment; you can also assign with `A=1` without `LET`.
+  - `**IF ... THEN**`: conditional execution, supporting comparisons, `AND`/`OR`, and optional line-number or label jumps.
+  - `**GOTO**`: jump to a given line number **or label** (e.g. `GOTO 100` or `GOTO GAMELOOP`).
+  - `**GOSUB` / `RETURN`**: subroutines with a fixed-depth stack; targets may be line numbers or labels.
+  - `**ON expr GOTO` / `ON expr GOSUB**`: multi-branch jumps; e.g. `ON N GOTO 100,200,300` or `ON K GOSUB 500,600`.
+  - `**FOR` / `NEXT**`: numeric loops, including `STEP` with positive or negative increments.
+  - `**DIM**`: declare 1‑D or multi‑dimensional numeric or string arrays (e.g. `DIM A(10)`, `DIM B(2,3)`).
+  - `**REM**` and `**'**`: comments to end of line.
+  - `**END` / `STOP**`: terminate program execution.
+  - `**READ` / `DATA**`: load numeric and string literals from `DATA` statements into variables. `**RESTORE**` resets the DATA pointer so the next `READ` uses the first value again (C64-style).
+  - `**DEF FN**`: define simple user functions, e.g. `DEF FNY(X) = SIN(X)`.
+  - `**POKE**`: accepted as a no‑op (for compatibility with old listings; it does not touch real memory).
+  - `**CLR**`: resets all variables to 0/empty, clears GOSUB/FOR stacks and DATA pointer; DEF FN definitions are kept.
   - **File I/O (CBM-style)**:
-    - **`OPEN lfn, device, secondary, "filename"`** — open a file (device 1 = disk/file; secondary 0 = read, 1 = write, 2 = append). Filename is a path in the current directory.
-    - **`PRINT# lfn, expr [,|; expr ...]`** — write to the open file (like `PRINT` to file).
-    - **`INPUT# lfn, var [, var ...]`** — read from the open file into variables (one token per variable; comma/newline separated).
-    - **`GET# lfn, stringvar`** — read one character from the file into a string variable.
-    - **`CLOSE [lfn [, lfn ...]]`** — close file(s); `CLOSE` with no arguments closes all.
-    - **`ST`** — system variable set after `INPUT#`/`GET#`: 0 = success, 64 = end of file, 1 = error / file not open. Use e.g. `IF ST <> 0 THEN GOTO done`.
+    - `**OPEN lfn, device, secondary, "filename"`** — open a file (device 1 = disk/file; secondary 0 = read, 1 = write, 2 = append). Filename is a path in the current directory.
+    - `**PRINT# lfn, expr [,|; expr ...]**` — write to the open file (like `PRINT` to file).
+    - `**INPUT# lfn, var [, var ...]**` — read from the open file into variables (one token per variable; comma/newline separated).
+    - `**GET# lfn, stringvar**` — read one character from the file into a string variable.
+    - `**CLOSE [lfn [, lfn ...]]**` — close file(s); `CLOSE` with no arguments closes all.
+    - `**ST**` — system variable set after `INPUT#`/`GET#`: 0 = success, 64 = end of file, 1 = error / file not open. Use e.g. `IF ST <> 0 THEN GOTO done`.
 - **Variables**
   - **Numeric variables**: `A`, `B1`, `AB`, `ATAKFLAG`, etc. Names may be longer than two characters; CBM-style **first two characters** identify the variable (e.g. `ATAKFLAG` and `ATA` refer to the same variable).
   - **String variables**: names ending in `$`, e.g. `A$`, `NAME$`.
@@ -105,19 +106,18 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
     - `DEC(s$)` – parse a hexadecimal string to a numeric value (e.g. `DEC("FF")` = 255, invalid strings yield 0).
     - `HEX$(n)` – format a number as an uppercase hexadecimal string (no `$` prefix), using the integer part of `n`.
   - **Command-line arguments and shell** (for scripting):
-    - **`ARGC()`** — returns the number of arguments passed after the script path (e.g. `./basic script.bas a b` → `ARGC()` = 2). Use `ARGC()` with parentheses.
-    - **`ARG$(n)`** — returns the *n*th argument as a string. `ARG$(0)` is the script path; `ARG$(1)` … `ARG$(ARGC())` are the arguments. Out-of-range returns `""`.
-    - **`SYSTEM(cmd$)`** — runs a shell command (e.g. `SYSTEM("ls -l")`), waits for it to finish, and returns its exit status (0 = success).
-    - **`EXEC$(cmd$)`** — runs a shell command and returns its standard output as a string (up to 255 characters; trailing newline trimmed). Use for scripting (e.g. `U$ = EXEC$("whoami")`).
-
+    - `**ARGC()`** — returns the number of arguments passed after the script path (e.g. `./basic script.bas a b` → `ARGC()` = 2). Use `ARGC()` with parentheses.
+    - `**ARG$(n)**` — returns the *n*th argument as a string. `ARG$(0)` is the script path; `ARG$(1)` … `ARG$(ARGC())` are the arguments. Out-of-range returns `""`.
+    - `**SYSTEM(cmd$)*`* — runs a shell command (e.g. `SYSTEM("ls -l")`), waits for it to finish, and returns its exit status (0 = success).
+    - `**EXEC$(cmd$)**` — runs a shell command and returns its standard output as a string (up to 255 characters; trailing newline trimmed). Use for scripting (e.g. `U$ = EXEC$("whoami")`).
 
 ### Additional/Non-Standard BASIC Commands
 
-- **`SLEEP`**: pause execution for a number of 60 Hz “ticks” (e.g., `SLEEP 60` ≈ 1 second).
-- **`LOCATE`** and **`TEXTAT`**: screen cursor positioning and absolute text placement (see below).
-- **`CURSOR ON` / `CURSOR OFF`**: show or hide the terminal cursor using ANSI escape codes (`ESC[?25h` / `ESC[?25l`).
-- **`COLOR n` / `COLOUR n`**: set the text **foreground** colour using a C64-style palette index `0–15`, mapped to ANSI SGR colours (approximate CBM palette).
-- **`BACKGROUND n`**: set the text **background** colour using the same C64-style palette index `0–15`, mapped to ANSI background SGR codes (e.g. 0=black, 1=white, 2=red, 3=cyan, etc.).
+- `**SLEEP**`: pause execution for a number of 60 Hz “ticks” (e.g., `SLEEP 60` ≈ 1 second).
+- `**LOCATE**` and `**TEXTAT**`: screen cursor positioning and absolute text placement (see below).
+- `**CURSOR ON` / `CURSOR OFF**`: show or hide the terminal cursor using ANSI escape codes (`ESC[?25h` / `ESC[?25l`).
+- `**COLOR n` / `COLOUR n**`: set the text **foreground** colour using a C64-style palette index `0–15`, mapped to ANSI SGR colours (approximate CBM palette).
+- `**BACKGROUND n`**: set the text **background** colour using the same C64-style palette index `0–15`, mapped to ANSI background SGR codes (e.g. 0=black, 1=white, 2=red, 3=cyan, etc.).
 
 ### Tokenised PETSCII shortcuts inside strings
 
@@ -148,9 +148,9 @@ PRINT "MOVE {DOWN}{DOWN}{RIGHT} HERE"
 - **Coordinate system**:
   - `LOCATE col, row` and `TEXTAT col, row, text` both use **0‑based** screen coordinates, where `0,0` is the top‑left corner.
   - Internally these are mapped to ANSI escape sequences as `ESC[row+1;col+1H`.
-- **`LOCATE`**:
+- `**LOCATE`**:
   - Moves the cursor without printing: e.g. `LOCATE 10,5` positions the cursor at column 10, row 5 before the next `PRINT`.
-- **`TEXTAT`**:
+- `**TEXTAT**`:
   - `TEXTAT x, y, text` moves the cursor to `(x, y)` and writes `text` directly at that absolute position.
   - `text` is any string expression, for example: `TEXTAT 0, 0, "SCORE: " + STR$(S)`.
 - **Keeping final text visible**:
@@ -162,8 +162,7 @@ LOCATE 0, 22
 PRINT "PRESS ANY KEY TO CONTINUE";
 ```
 
-  - This ensures the cursor (and thus any following prompt) appears where you expect, rather than accidentally pushing your last line out of view.
-
+- This ensures the cursor (and thus any following prompt) appears where you expect, rather than accidentally pushing your last line out of view.
 
 ## 🎛️ Usage
 
@@ -183,17 +182,17 @@ basic.exe hello.bas      # Windows
 
 #### Command-line options
 
-- **`-petscii` / `--petscii`**: enable PETSCII/ANSI mode so that certain `CHR$` control codes
-  (cursor movement, clear screen, colors, etc.) are translated to ANSI escape sequences.
-  Printable and graphics PETSCII codes are mapped to Unicode (e.g. £ ↑ ←, box-drawing, card suits).
-- **`-petscii-plain` / `--petscii-plain`**: PETSCII mode **without** ANSI: control and color codes
-  output nothing (invisible, like on a real C64), and only printable/graphics bytes produce
-  visible characters. Use this when you need strict one-character-per-column alignment (e.g.
-  viewing .seq files or pasting output into a fixed-width editor).
-- **`-palette ansi|c64`**: choose how PETSCII colors are mapped (only in `-petscii` mode):
-  - **`ansi`** (default): map colors to standard 16-color ANSI SGR codes.
-  - **`c64`** or **`c64-8bit`**: use 8‑bit (`38;5;N`) color indices chosen to approximate
-    the classic C64 palette. This is most consistent on terminals that support 256 colors.
+- `**-petscii` / `--petscii**`: enable PETSCII/ANSI mode so that certain `CHR$` control codes
+(cursor movement, clear screen, colors, etc.) are translated to ANSI escape sequences.
+Printable and graphics PETSCII codes are mapped to Unicode (e.g. £ ↑ ←, box-drawing, card suits).
+- `**-petscii-plain` / `--petscii-plain**`: PETSCII mode **without** ANSI: control and color codes
+output nothing (invisible, like on a real C64), and only printable/graphics bytes produce
+visible characters. Use this when you need strict one-character-per-column alignment (e.g.
+viewing .seq files or pasting output into a fixed-width editor).
+- `**-palette ansi|c64`**: choose how PETSCII colors are mapped (only in `-petscii` mode):
+  - `**ansi**` (default): map colors to standard 16-color ANSI SGR codes.
+  - `**c64**` or `**c64-8bit**`: use 8‑bit (`38;5;N`) color indices chosen to approximate
+  the classic C64 palette. This is most consistent on terminals that support 256 colors.
 
 You can also enable a **PETSCII/ANSI mode** that understands common C64 control codes inside strings and `CHR$` output:
 
@@ -204,30 +203,30 @@ You can also enable a **PETSCII/ANSI mode** that understands common C64 control 
 In `-petscii` mode, `CHR$` behaves in a C64-like way: control and color codes are mapped to ANSI escapes, and **printable/graphics PETSCII codes** (block graphics, arrows, card suits, etc.) are mapped to Unicode so they display sensibly in the terminal.
 
 - **Screen control**
-  - **`CHR$(147)`**: clear screen and home cursor (maps to `ESC[2J ESC[H]`).
-  - **`CHR$(17)`**: cursor down (`ESC[B]`).
-  - **`CHR$(145)`**: cursor up (`ESC[A]`).
-  - **`CHR$(29)`**: cursor right (`ESC[C]`).
-  - **`CHR$(157)`**: cursor left (`ESC[D]`).
-  - **`CHR$(18)`**: reverse video on (`ESC[7m]`).
-  - **`CHR$(146)`**: reverse video off (`ESC[27m]`).
+  - `**CHR$(147)`**: clear screen and home cursor (maps to `ESC[2J ESC[H]`).
+  - `**CHR$(17)**`: cursor down (`ESC[B]`).
+  - `**CHR$(145)**`: cursor up (`ESC[A]`).
+  - `**CHR$(29)**`: cursor right (`ESC[C]`).
+  - `**CHR$(157)**`: cursor left (`ESC[D]`).
+  - `**CHR$(18)**`: reverse video on (`ESC[7m]`).
+  - `**CHR$(146)**`: reverse video off (`ESC[27m]`).
 - **Basic text colors** (ANSI approximations of C64 colors)
-  - **`CHR$(144)`**: black (`ESC[30m]`).
-  - **`CHR$(5)`**: white (`ESC[37m]`).
-  - **`CHR$(28)`**: red (`ESC[31m]`).
-  - **`CHR$(159)`**: cyan (`ESC[36m]`).
-  - **`CHR$(156)`**: purple (`ESC[35m]`).
-  - **`CHR$(30)`**: green (`ESC[32m]`).
-  - **`CHR$(31)`**: blue (`ESC[34m]`).
-  - **`CHR$(158)`**: yellow (`ESC[33m]`).
-  - **`CHR$(129)`**: orange (`ESC[38;5;208m]`).
-  - **`CHR$(149)`**: brown (`ESC[33m]`).
-  - **`CHR$(150)`**: light red (`ESC[91m]`).
-  - **`CHR$(151)`**: dark gray (`ESC[90m]`).
-  - **`CHR$(152)`**: medium gray (`ESC[37m]`).
-  - **`CHR$(153)`**: light green (`ESC[92m]`).
-  - **`CHR$(154)`**: light blue (`ESC[94m]`).
-  - **`CHR$(155)`**: light gray (`ESC[97m]`).
+  - `**CHR$(144)`**: black (`ESC[30m]`).
+  - `**CHR$(5)**`: white (`ESC[37m]`).
+  - `**CHR$(28)**`: red (`ESC[31m]`).
+  - `**CHR$(159)**`: cyan (`ESC[36m]`).
+  - `**CHR$(156)**`: purple (`ESC[35m]`).
+  - `**CHR$(30)**`: green (`ESC[32m]`).
+  - `**CHR$(31)**`: blue (`ESC[34m]`).
+  - `**CHR$(158)**`: yellow (`ESC[33m]`).
+  - `**CHR$(129)**`: orange (`ESC[38;5;208m]`).
+  - `**CHR$(149)**`: brown (`ESC[33m]`).
+  - `**CHR$(150)**`: light red (`ESC[91m]`).
+  - `**CHR$(151)**`: dark gray (`ESC[90m]`).
+  - `**CHR$(152)**`: medium gray (`ESC[37m]`).
+  - `**CHR$(153)**`: light green (`ESC[92m]`).
+  - `**CHR$(154)**`: light blue (`ESC[94m]`).
+  - `**CHR$(155)**`: light gray (`ESC[97m]`).
 
 If you do not pass a file name, the interpreter will print usage information:
 
@@ -240,19 +239,17 @@ Usage: basic [-petscii] [-petscii-plain] [-palette ansi|c64] <program.bas>
 You can use the interpreter for shell-script style tasks:
 
 - **Standard input/output**  
-  **`INPUT`** reads from standard input (one line or token at a time). **`PRINT`** writes to standard output. So you can pipe data in and out:
+`**INPUT`** reads from standard input (one line or token at a time). `**PRINT**` writes to standard output. So you can pipe data in and out:
   - `echo 42 | ./basic program.bas`
   - `./basic program.bas > out.txt`
   Errors and usage go to **stderr**; only program output goes to stdout when you redirect.
-
 - **Command-line arguments**  
-  Anything after the script path is available to the program:
+Anything after the script path is available to the program:
   - `./basic script.bas first second`
   - In the script: `ARG$(0)` = script path, `ARG$(1)` = `"first"`, `ARG$(2)` = `"second"`, `ARGC()` = 2.
-
 - **Running shell commands**  
-  **`SYSTEM("command")`** runs the command and returns its exit code. **`EXEC$("command")`** runs the command and returns its stdout as a string (e.g. `PRINT EXEC$("date")`).  
-  Example: `examples/scripting.bas` demonstrates `ARGC()`, `ARG$()`, `SYSTEM()`, and `EXEC$()`.
+`**SYSTEM("command")`** runs the command and returns its exit code. `**EXEC$("command")**` runs the command and returns its stdout as a string (e.g. `PRINT EXEC$("date")`).  
+Example: `examples/scripting.bas` demonstrates `ARGC()`, `ARG$()`, `SYSTEM()`, and `EXEC$()`.
 
 ### Source normalization (compact CBM style)
 
@@ -260,28 +257,28 @@ Program text is normalized at load time so **compact CBM BASIC** without spaces 
 
 ### Included example programs
 
-The **`examples`** folder (included in release archives) contains:
+The `**examples`** folder (included in release archives) contains:
 
-- **`dartmouth.bas`**: classic Dartmouth BASIC tutorial; exercises `PRINT`, `INPUT`, `IF`, `FOR/NEXT`, `DEF FN`, `READ`/`DATA`, and more.
-- **`trek.bas`**: Star Trek–style game; exercises `GET`, `ON GOTO`/`GOSUB`, multi-dimensional arrays, and PETSCII-style output.
-- **`chr.bas`**: PETSCII/ANSI color and control-code test (run with `-petscii`).
-- **`examples/testdef.bas`**, **`tests/read_data.bas`**: small regressions for `DEF FN` and `READ`/`DATA`.
-- **`test_dim2d.bas`**, **`test_get.bas`**: multi-dimensional arrays and `GET` Enter handling.
-- **`tests/fileio.bas`**, **`tests/fileeof.bas`**, **`tests/test_get_hash.bas`**: file I/O regression tests.
-- **`examples/fileio_basics.bas`**: write and read a file (OPEN, PRINT#, INPUT#, CLOSE) with step-by-step comments.
-- **`examples/fileio_loop.bas`**: read until end of file using the ST status variable (ST=0/64/1).
-- **`examples/fileio_get.bas`**: read one character at a time with GET#.
-- **`examples/colaburger_viewer.bas`** and **`examples/colaburger.seq`**: PETSCII .seq file viewer.
+- `**dartmouth.bas**`: classic Dartmouth BASIC tutorial; exercises `PRINT`, `INPUT`, `IF`, `FOR/NEXT`, `DEF FN`, `READ`/`DATA`, and more.
+- `**trek.bas**`: Star Trek–style game; exercises `GET`, `ON GOTO`/`GOSUB`, multi-dimensional arrays, and PETSCII-style output.
+- `**chr.bas**`: PETSCII/ANSI color and control-code test (run with `-petscii`).
+- `**examples/testdef.bas**`, `**tests/read_data.bas**`: small regressions for `DEF FN` and `READ`/`DATA`.
+- `**test_dim2d.bas**`, `**test_get.bas**`: multi-dimensional arrays and `GET` Enter handling.
+- `**tests/fileio.bas**`, `**tests/fileeof.bas**`, `**tests/test_get_hash.bas**`: file I/O regression tests.
+- `**examples/fileio_basics.bas**`: write and read a file (OPEN, PRINT#, INPUT#, CLOSE) with step-by-step comments.
+- `**examples/fileio_loop.bas**`: read until end of file using the ST status variable (ST=0/64/1).
+- `**examples/fileio_get.bas**`: read one character at a time with GET#.
+- `**examples/colaburger_viewer.bas**` and `**examples/colaburger.seq**`: PETSCII .seq file viewer.
   - **.seq files** are sequential dumps of PETSCII screen codes (e.g. from BBS logs or PETSCII art).
   - The viewer reads the file byte-by-byte with `GET#`, prints each byte via `CHR$`, and wraps after
-    **40 visible columns** (only printable/graphics bytes advance the cursor; control/color codes do not).
-  - Run with **`-petscii-plain`** so control and color codes output nothing and alignment matches a real
-    C64 screen:  
-    `./basic -petscii-plain examples/colaburger_viewer.bas`  
-  - With **`-petscii`** you get ANSI colors and cursor codes; with **`-petscii-plain`** you get
-    strict character alignment and no escape sequences, ideal for art and fixed-width paste.
-- **`examples/scripting.bas`**: shell-scripting style — command-line arguments (`ARGC()`, `ARG$(0)` … `ARG$(n)`), running commands (`SYSTEM("date")`, `EXEC$("whoami")`). Run: `./basic examples/scripting.bas [name]`.
-- **`guess.bas`**, **`adventure.bas`**, **`printx.bas`**, and others for various features.
+  **40 visible columns** (only printable/graphics bytes advance the cursor; control/color codes do not).
+  - Run with `**-petscii-plain`** so control and color codes output nothing and alignment matches a real
+  C64 screen:  
+  `./basic -petscii-plain examples/colaburger_viewer.bas`  
+  - With `**-petscii**` you get ANSI colors and cursor codes; with `**-petscii-plain**` you get
+  strict character alignment and no escape sequences, ideal for art and fixed-width paste.
+- `**examples/scripting.bas**`: shell-scripting style — command-line arguments (`ARGC()`, `ARG$(0)` … `ARG$(n)`), running commands (`SYSTEM("date")`, `EXEC$("whoami")`). Run: `./basic examples/scripting.bas [name]`.
+- `**guess.bas**`, `**adventure.bas**`, `**printx.bas**`, and others for various features.
 
 ### Notes on the BASIC dialect
 
@@ -306,7 +303,6 @@ This README describes the current feature set of the interpreter as implemented 
 
 ---
 
-
 ## 🛠️ Building from Source
 
 You can either use the provided `Makefile` (recommended) or compile manually.
@@ -319,8 +315,6 @@ You can either use the provided `Makefile` (recommended) or compile manually.
   - Windows:
     - MSVC (Visual Studio / Build Tools), or
     - MinGW‑w64 (`gcc`)
-
-
 
 #### Using `make` (recommended)
 
@@ -346,45 +340,31 @@ make clean
 If you prefer to invoke the compiler directly:
 
 - **Linux / WSL**
-
   ```bash
   gcc -std=c99 -Wall -O2 basic.c -lm -o basic
   ```
-
   or
-
   ```bash
   clang -std=c99 -Wall -O2 basic.c -lm -o basic
   ```
-
 - **macOS**
-
   Install the Xcode command line tools if you have not already:
-
   ```bash
   xcode-select --install
   ```
-
   Then build with:
-
   ```bash
   clang -std=c99 -Wall -O2 basic.c -lm -o basic
   ```
-
 - **Windows (MSVC)**
-
   From a “Developer Command Prompt for VS”:
-
   ```bat
   cl /std:c11 /W4 /O2 basic.c
   ```
-
   This will produce `basic.exe`.
-
 - **Windows (MinGW‑w64)**
-
   In a MinGW‑w64 shell:
-
   ```bash
   gcc -std=c99 -Wall -O2 basic.c -lm -o basic.exe
   ```
+
