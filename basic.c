@@ -735,6 +735,7 @@ enum {
 };
 
 static int palette_mode = PALETTE_ANSI;
+static int cursor_hidden = 0;
 
 /* Command-line arguments for the running script (after options and program path). */
 static const char *script_path = NULL;   /* path to the .bas file */
@@ -813,6 +814,8 @@ static void statement_print_hash(char **p);
 static void statement_input_hash(char **p);
 static void statement_get_hash(char **p);
 static int function_lookup(const char *name, int len);
+static void statement_cursor(char **p);
+static void statement_color(char **p);
 
 enum func_code {
     FN_NONE = 0,
@@ -841,7 +844,10 @@ enum func_code {
     FN_SYSTEM = 23,
     FN_EXEC = 24,
     FN_ARGC = 25,
-    FN_ARG = 26
+    FN_ARG = 26,
+    FN_INSTR = 27,
+    FN_DEC = 28,
+    FN_HEX = 29
 };
 
 /* Report an error and halt further execution.
@@ -1526,6 +1532,7 @@ static int function_lookup(const char *name, int len)
         return FN_NONE;
     case 'I':
         if (len == 3 && name[0] == 'I' && name[1] == 'N' && name[2] == 'T') return FN_INT;
+        if (len == 5 && name[0] == 'I' && name[1] == 'N' && name[2] == 'S' && name[3] == 'T' && name[4] == 'R') return FN_INSTR;
         return FN_NONE;
     case 'E':
         if (len == 3 && name[0] == 'E' && name[1] == 'X' && name[2] == 'P') return FN_EXP;
@@ -1556,6 +1563,14 @@ static int function_lookup(const char *name, int len)
         return FN_NONE;
     case 'V':
         if (len == 3 && name[0] == 'V' && name[1] == 'A' && name[2] == 'L') return FN_VAL;
+        return FN_NONE;
+    case 'D':
+        if (len == 3 && name[0] == 'D' && name[1] == 'E' && name[2] == 'C') return FN_DEC;
+        return FN_NONE;
+    case 'H':
+        if ((len == 3 && name[0] == 'H' && name[1] == 'E' && name[2] == 'X') ||
+            (len == 4 && name[0] == 'H' && name[1] == 'E' && name[2] == 'X' && name[3] == '$'))
+            return FN_HEX;
         return FN_NONE;
     case 'U':
         if ((len == 5 && name[0] == 'U' && name[1] == 'C' && name[2] == 'A' && name[3] == 'S' && name[4] == 'E') ||
@@ -1647,6 +1662,64 @@ static void statement_sleep(char **p)
     }
     ensure_num(&v);
     do_sleep_ticks(v.num);
+}
+
+static void statement_cursor(char **p)
+{
+    skip_spaces(p);
+    if (starts_with_kw(*p, "ON")) {
+        *p += 2;
+        printf("\033[?25h");
+        cursor_hidden = 0;
+        fflush(stdout);
+        return;
+    }
+    if (starts_with_kw(*p, "OFF")) {
+        *p += 3;
+        printf("\033[?25l");
+        cursor_hidden = 1;
+        fflush(stdout);
+        return;
+    }
+    runtime_error("CURSOR expects ON or OFF");
+}
+
+static void statement_color(char **p)
+{
+    /* COLOR n: set foreground colour using ANSI SGR based on C64-style palette index 0-15. */
+    struct value v;
+    int idx;
+
+    v = eval_expr(p);
+    ensure_num(&v);
+    idx = (int)v.num;
+    if (idx < 0 || idx > 15) {
+        runtime_error("COLOR index must be 0-15");
+        return;
+    }
+
+    /* Map C64 color index to ANSI foreground SGR. */
+    switch (idx) {
+    case 0:  printf("\033[30m"); break;       /* black */
+    case 1:  printf("\033[37m"); break;       /* white */
+    case 2:  printf("\033[31m"); break;       /* red */
+    case 3:  printf("\033[36m"); break;       /* cyan */
+    case 4:  printf("\033[35m"); break;       /* purple */
+    case 5:  printf("\033[32m"); break;       /* green */
+    case 6:  printf("\033[34m"); break;       /* blue */
+    case 7:  printf("\033[33m"); break;       /* yellow */
+    case 8:  printf("\033[38;5;208m"); break; /* orange */
+    case 9:  printf("\033[33m"); break;       /* brown (approx) */
+    case 10: printf("\033[91m"); break;       /* light red */
+    case 11: printf("\033[90m"); break;       /* dark gray */
+    case 12: printf("\033[37m"); break;       /* medium gray */
+    case 13: printf("\033[92m"); break;       /* light green */
+    case 14: printf("\033[94m"); break;       /* light blue */
+    case 15: printf("\033[97m"); break;       /* light gray */
+    default:
+        break;
+    }
+    fflush(stdout);
 }
 
 /* GET statement: GET A$ reads a single character into a string variable.
@@ -1760,7 +1833,7 @@ static struct value eval_function(const char *name, char **p)
      * the closing ')'. For all other intrinsics we expect exactly one
      * argument and consume ')' here so the caller resumes after it.
      */
-    if (code != FN_MID && code != FN_LEFT && code != FN_RIGHT) {
+    if (code != FN_MID && code != FN_LEFT && code != FN_RIGHT && code != FN_INSTR) {
         if (**p == ')') {
             (*p)++;
         } else {
@@ -2109,6 +2182,66 @@ static struct value eval_function(const char *name, char **p)
         }
     }
     case FN_RIGHT: {
+    case FN_INSTR: {
+        /* INSTR(source$, search$) -> 1-based index or 0 if not found. */
+        struct value v_source = arg;
+        struct value v_search;
+        int s_len;
+        int sub_len;
+        int i;
+
+        ensure_str(&v_source);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error("INSTR requires 2 arguments");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        v_search = eval_expr(p);
+        ensure_str(&v_search);
+        skip_spaces(p);
+        if (**p == ')') {
+            (*p)++;
+        } else {
+            runtime_error("Missing ')'");
+            return make_num(0.0);
+        }
+
+        s_len = (int)strlen(v_source.str);
+        sub_len = (int)strlen(v_search.str);
+        if (sub_len == 0 || s_len == 0) {
+            return make_num(0.0);
+        }
+        for (i = 0; i <= s_len - sub_len; i++) {
+            if (strncmp(v_source.str + i, v_search.str, (size_t)sub_len) == 0) {
+                return make_num((double)(i + 1));
+            }
+        }
+        return make_num(0.0);
+    }
+    case FN_DEC: {
+        /* DEC(s$): parse hexadecimal string into numeric value. */
+        char *endptr;
+        long v;
+        ensure_str(&arg);
+        if (arg.str[0] == '\0') {
+            return make_num(0.0);
+        }
+        v = strtol(arg.str, &endptr, 16);
+        if (endptr == arg.str) {
+            return make_num(0.0);
+        }
+        return make_num((double)v);
+    }
+    case FN_HEX: {
+        /* HEX$(n): format integer as uppercase hexadecimal string without prefix. */
+        long v;
+        ensure_num(&arg);
+        v = (long)arg.num;
+        sprintf(outbuf, "%lX", v);
+        return make_str(outbuf);
+    }
         struct value src = arg;
         struct value v_len;
         int sub_len;
@@ -2460,6 +2593,7 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "TAB") || starts_with_kw(*p, "SPC") || starts_with_kw(*p, "MID") ||
             starts_with_kw(*p, "LEFT") || starts_with_kw(*p, "RIGHT") ||
             starts_with_kw(*p, "UCASE") || starts_with_kw(*p, "LCASE") ||
+            starts_with_kw(*p, "INSTR") || starts_with_kw(*p, "DEC") || starts_with_kw(*p, "HEX") ||
             starts_with_kw(*p, "ARGC") || starts_with_kw(*p, "ARG") ||
             starts_with_kw(*p, "SYSTEM") || starts_with_kw(*p, "EXEC")) {
             char namebuf[8];
@@ -3894,10 +4028,27 @@ static void execute_statement(char **p)
         *p += strlen(*p);
         return;
     }
-    if (c == 'C' && starts_with_kw(*p, "CLR")) {
-        *p += 3;
-        statement_clr(p);
-        return;
+    if (c == 'C') {
+        if (starts_with_kw(*p, "CLR")) {
+            *p += 3;
+            statement_clr(p);
+            return;
+        }
+        if (starts_with_kw(*p, "CURSOR")) {
+            *p += 6;
+            statement_cursor(p);
+            return;
+        }
+        if (starts_with_kw(*p, "COLOR") || starts_with_kw(*p, "COLOUR")) {
+            /* Accept both COLOR and COLOUR spellings. */
+            if (toupper((unsigned char)(*p)[3]) == 'O' && toupper((unsigned char)(*p)[4]) == 'U') {
+                *p += 6; /* COLOUR */
+            } else {
+                *p += 5; /* COLOR */
+            }
+            statement_color(p);
+            return;
+        }
     }
     if (isalpha((unsigned char)c)) {
         /* Fallback: treat as implicit LET (assignment). Any syntax issues
