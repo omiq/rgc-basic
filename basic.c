@@ -816,6 +816,7 @@ static void statement_get_hash(char **p);
 static int function_lookup(const char *name, int len);
 static void statement_cursor(char **p);
 static void statement_color(char **p);
+static void statement_background(char **p);
 
 enum func_code {
     FN_NONE = 0,
@@ -1716,6 +1717,44 @@ static void statement_color(char **p)
     case 13: printf("\033[92m"); break;       /* light green */
     case 14: printf("\033[94m"); break;       /* light blue */
     case 15: printf("\033[97m"); break;       /* light gray */
+    default:
+        break;
+    }
+    fflush(stdout);
+}
+
+static void statement_background(char **p)
+{
+    /* BACKGROUND n: set background colour using ANSI SGR based on C64-style palette index 0-15. */
+    struct value v;
+    int idx;
+
+    v = eval_expr(p);
+    ensure_num(&v);
+    idx = (int)v.num;
+    if (idx < 0 || idx > 15) {
+        runtime_error("BACKGROUND index must be 0-15");
+        return;
+    }
+
+    /* Map C64 color index to ANSI background SGR. */
+    switch (idx) {
+    case 0:  printf("\033[40m"); break;        /* black */
+    case 1:  printf("\033[47m"); break;        /* white */
+    case 2:  printf("\033[41m"); break;        /* red */
+    case 3:  printf("\033[46m"); break;        /* cyan */
+    case 4:  printf("\033[45m"); break;        /* purple */
+    case 5:  printf("\033[42m"); break;        /* green */
+    case 6:  printf("\033[44m"); break;        /* blue */
+    case 7:  printf("\033[43m"); break;        /* yellow */
+    case 8:  printf("\033[48;5;208m"); break;  /* orange */
+    case 9:  printf("\033[43m"); break;        /* brown (approx) */
+    case 10: printf("\033[101m"); break;       /* light red */
+    case 11: printf("\033[100m"); break;       /* dark gray */
+    case 12: printf("\033[47m"); break;        /* medium gray */
+    case 13: printf("\033[102m"); break;       /* light green */
+    case 14: printf("\033[104m"); break;       /* light blue */
+    case 15: printf("\033[107m"); break;       /* light gray */
     default:
         break;
     }
@@ -4049,6 +4088,11 @@ static void execute_statement(char **p)
             statement_color(p);
             return;
         }
+    }
+    if (c == 'B' && starts_with_kw(*p, "BACKGROUND")) {
+        *p += 10;
+        statement_background(p);
+        return;
     }
     if (isalpha((unsigned char)c)) {
         /* Fallback: treat as implicit LET (assignment). Any syntax issues

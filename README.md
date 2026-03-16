@@ -116,7 +116,8 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
 - **`SLEEP`**: pause execution for a number of 60 Hz “ticks” (e.g., `SLEEP 60` ≈ 1 second).
 - **`LOCATE`** and **`TEXTAT`**: screen cursor positioning and absolute text placement (see below).
 - **`CURSOR ON` / `CURSOR OFF`**: show or hide the terminal cursor using ANSI escape codes (`ESC[?25h` / `ESC[?25l`).
-- **`COLOR n` / `COLOUR n`**: set the text foreground colour using a C64-style palette index `0–15`, mapped to ANSI SGR colours (approximate CBM palette).
+- **`COLOR n` / `COLOUR n`**: set the text **foreground** colour using a C64-style palette index `0–15`, mapped to ANSI SGR colours (approximate CBM palette).
+- **`BACKGROUND n`**: set the text **background** colour using the same C64-style palette index `0–15`, mapped to ANSI background SGR codes (e.g. 0=black, 1=white, 2=red, 3=cyan, etc.).
 
 ### Tokenised PETSCII shortcuts inside strings
 
