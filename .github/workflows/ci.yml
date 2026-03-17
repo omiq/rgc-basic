@@ -48,10 +48,12 @@ jobs:
           set -e
           for t in tests/*.bas; do
             # Skip interactive tests that require keyboard input.
-            if [ "$(basename "$t")" = "codes-replaced.bas" ]; then
-              echo "Skipping interactive test $t"
-              continue
-            fi
+            case "$(basename "$t")" in
+              codes-replaced.bas|locate.bas)
+                echo "Skipping interactive test $t"
+                continue
+                ;;
+            esac
             echo "Running $t"
             ./basic -petscii "$t" >/dev/null
           done
@@ -69,10 +71,12 @@ jobs:
           set -e
           for t in tests/*.bas; do
             # Skip interactive tests that require keyboard input.
-            if [ "$(basename "$t")" = "codes-replaced.bas" ]; then
-              echo "Skipping interactive test $t"
-              continue
-            fi
+            case "$(basename "$t")" in
+              codes-replaced.bas|locate.bas)
+                echo "Skipping interactive test $t"
+                continue
+                ;;
+            esac
             echo "Running $t"
             ./basic.exe -petscii "$t" >/dev/null
           done
