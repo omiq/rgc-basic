@@ -1,4 +1,4 @@
-REM Regression tests for string slicing patterns used in trek.bas
+5 REM Regression tests for string slicing patterns used in trek.bas
 
 REM Basic LEFT$/RIGHT$ behaviour
 10 A$="ABCDEFG"
@@ -11,6 +11,4 @@ REM Quadrant insertion-style splice like trek.bas line 5440
 60 S8=10
 70 Q$=LEFT$(Q$,S8-1)+A$+RIGHT$(Q$,190-S8)
 80 PRINT MID$(Q$,S8,3) : REM Expect XYZ
-
-END
-
+90 END
