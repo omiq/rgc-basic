@@ -848,7 +848,8 @@ enum func_code {
     FN_ARG = 26,
     FN_INSTR = 27,
     FN_DEC = 28,
-    FN_HEX = 29
+    FN_HEX = 29,
+    FN_STRINGFN = 30
 };
 
 /* Report an error and halt further execution.
@@ -1520,6 +1521,9 @@ static int function_lookup(const char *name, int len)
         if ((len == 3 && name[0] == 'S' && name[1] == 'T' && name[2] == 'R') ||
             (len == 4 && name[0] == 'S' && name[1] == 'T' && name[2] == 'R' && name[3] == '$')) return FN_STR;
         if (len == 3 && name[0] == 'S' && name[1] == 'P' && name[2] == 'C') return FN_SPC;
+        if ((len == 6 && name[0] == 'S' && name[1] == 'T' && name[2] == 'R' && name[3] == 'I' && name[4] == 'N' && name[5] == 'G') ||
+            (len == 7 && name[0] == 'S' && name[1] == 'T' && name[2] == 'R' && name[3] == 'I' && name[4] == 'N' && name[5] == 'G' && name[6] == '$'))
+            return FN_STRINGFN;
         if (len == 6 && name[0] == 'S' && name[1] == 'Y' && name[2] == 'S' && name[3] == 'T' && name[4] == 'E' && name[5] == 'M') return FN_SYSTEM;
         return FN_NONE;
     case 'C':
@@ -1868,7 +1872,7 @@ static struct value eval_function(const char *name, char **p)
      * the closing ')'. For all other intrinsics we expect exactly one
      * argument and consume ')' here so the caller resumes after it.
      */
-    if (code != FN_MID && code != FN_LEFT && code != FN_RIGHT && code != FN_INSTR) {
+    if (code != FN_MID && code != FN_LEFT && code != FN_RIGHT && code != FN_INSTR && code != FN_STRINGFN) {
         if (**p == ')') {
             (*p)++;
         } else {
@@ -2321,6 +2325,58 @@ static struct value eval_function(const char *name, char **p)
         sprintf(outbuf, "%lX", v);
         return make_str(outbuf);
     }
+    case FN_STRINGFN: {
+        /* STRING$(n, char$) or STRING$(n, code) */
+        struct value v_count = arg;
+        struct value v_ch;
+        int count;
+        char ch;
+
+        ensure_num(&v_count);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error("STRING$ requires 2 arguments");
+            return make_str("");
+        }
+        (*p)++;
+        v_ch = eval_expr(p);
+        skip_spaces(p);
+        if (**p == ')') {
+            (*p)++;
+        } else {
+            runtime_error("Missing ')'");
+            return make_str("");
+        }
+
+        count = (int)v_count.num;
+        if (count <= 0) {
+            return make_str("");
+        }
+        if (count >= MAX_STR_LEN) {
+            count = MAX_STR_LEN - 1;
+        }
+
+        if (v_ch.type == VAL_STR) {
+            if (v_ch.str[0] == '\0') {
+                ch = ' ';
+            } else {
+                ch = v_ch.str[0];
+            }
+        } else {
+            /* Treat numeric second arg as character code. */
+            ch = (char)((int)v_ch.num & 0xff);
+        }
+
+        {
+            char out[MAX_STR_LEN];
+            int i;
+            for (i = 0; i < count; i++) {
+                out[i] = ch;
+            }
+            out[count] = '\0';
+            return make_str(out);
+        }
+    }
     case FN_UCASE: {
         char out[MAX_STR_LEN];
         size_t i, n;
@@ -2626,7 +2682,7 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "RND") || starts_with_kw(*p, "LEN") || starts_with_kw(*p, "VAL") ||
             starts_with_kw(*p, "STR") || starts_with_kw(*p, "CHR") || starts_with_kw(*p, "ASC") ||
             starts_with_kw(*p, "TAB") || starts_with_kw(*p, "SPC") || starts_with_kw(*p, "MID") ||
-            starts_with_kw(*p, "LEFT") || starts_with_kw(*p, "RIGHT") ||
+            starts_with_kw(*p, "LEFT") || starts_with_kw(*p, "RIGHT") || starts_with_kw(*p, "STRING") ||
             starts_with_kw(*p, "UCASE") || starts_with_kw(*p, "LCASE") ||
             starts_with_kw(*p, "INSTR") || starts_with_kw(*p, "DEC") || starts_with_kw(*p, "HEX") ||
             starts_with_kw(*p, "ARGC") || starts_with_kw(*p, "ARG") ||

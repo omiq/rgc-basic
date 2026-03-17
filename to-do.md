@@ -41,6 +41,10 @@
   * Allow splitting larger programs into multiple source files / libraries while preserving line-numbered semantics
   * Consider search paths and guarding against recursive includes
 
+* Shebang-aware loader
+  * Teach `load_program` to ignore an initial `#!...` shebang line before deciding numbered vs numberless mode
+  * Allow Unix-style executable BASIC scripts with a shebang (`#!/usr/bin/env ./basic`) without triggering the "mixed numbered and numberless" error
+
 ---
 
 **Completed (removed from list):**
