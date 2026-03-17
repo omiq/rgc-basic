@@ -44,6 +44,10 @@
 #include <math.h>
 #include <time.h>
 #include "petscii.h"
+
+#ifdef GFX_VIDEO
+#include "gfx_video.h"
+#endif
 #if defined(_WIN32)
 #include <windows.h>
 #include <conio.h>
@@ -82,11 +86,6 @@ typedef struct {
 static int is_ident_char(int c)
 {
     return isalpha((unsigned char)c) || isdigit((unsigned char)c) || c == '$';
-}
-
-static int is_name_char(int c)
-{
-    return isalpha((unsigned char)c) || c == '$';
 }
 
 static const TokenMap token_map[] = {
@@ -722,6 +721,10 @@ static char *statement_pos = NULL;
 static int halted = 0;
 static int print_col = 0;
 
+#ifdef GFX_VIDEO
+static GfxVideoState *gfx_vs = NULL;
+#endif
+
 /* PETSCII/ANSI configuration */
 static int petscii_mode = 0;
 /* When set, do not output ANSI (color/reverse/cursor); output is paste-friendly, no extra bytes. */
@@ -849,7 +852,8 @@ enum func_code {
     FN_INSTR = 27,
     FN_DEC = 28,
     FN_HEX = 29,
-    FN_STRINGFN = 30
+    FN_STRINGFN = 30,
+    FN_PEEK = 31
 };
 
 /* Report an error and halt further execution.
@@ -1584,6 +1588,9 @@ static int function_lookup(const char *name, int len)
             (len == 4 && name[0] == 'H' && name[1] == 'E' && name[2] == 'X' && name[3] == '$'))
             return FN_HEX;
         return FN_NONE;
+    case 'P':
+        if (len == 4 && name[0] == 'P' && name[1] == 'E' && name[2] == 'E' && name[3] == 'K') return FN_PEEK;
+        return FN_NONE;
     case 'U':
         if ((len == 5 && name[0] == 'U' && name[1] == 'C' && name[2] == 'A' && name[3] == 'S' && name[4] == 'E') ||
             (len == 6 && name[0] == 'U' && name[1] == 'C' && name[2] == 'A' && name[3] == 'S' && name[4] == 'E' && name[5] == '$'))
@@ -1614,11 +1621,6 @@ static void do_sleep_ticks(double ticks)
 {
     long usec;
     unsigned int sec;
-    long start;
-    long target_ticks;
-    int tps;
-    struct tms tm;
-    double remaining_ticks;
     if (ticks <= 0.0) {
         return;
     }
@@ -2377,6 +2379,16 @@ static struct value eval_function(const char *name, char **p)
             return make_str(out);
         }
     }
+    case FN_PEEK: {
+        ensure_num(&arg);
+#ifdef GFX_VIDEO
+        if (gfx_vs) {
+            return make_num((double)gfx_peek(gfx_vs,
+                            (uint16_t)((int)arg.num & 0xFFFF)));
+        }
+#endif
+        return make_num(0.0);
+    }
     case FN_UCASE: {
         char out[MAX_STR_LEN];
         size_t i, n;
@@ -2535,7 +2547,6 @@ static struct value *get_var_reference(char **p, int *is_array_out, int *is_stri
     struct value *valp;
     int is_array;
     int dims;
-    int dim_sizes[MAX_DIMS];
     int indices[MAX_DIMS];
     int flat_index = 0;
     int stride = 1;
@@ -2555,7 +2566,6 @@ static struct value *get_var_reference(char **p, int *is_array_out, int *is_stri
     is_array = 0;
     dims = 0;
     if (**p == '(') {
-        int d;
         is_array = 1;
         (*p)++;
         for (;;) {
@@ -2686,7 +2696,8 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "UCASE") || starts_with_kw(*p, "LCASE") ||
             starts_with_kw(*p, "INSTR") || starts_with_kw(*p, "DEC") || starts_with_kw(*p, "HEX") ||
             starts_with_kw(*p, "ARGC") || starts_with_kw(*p, "ARG") ||
-            starts_with_kw(*p, "SYSTEM") || starts_with_kw(*p, "EXEC")) {
+            starts_with_kw(*p, "SYSTEM") || starts_with_kw(*p, "EXEC") ||
+            starts_with_kw(*p, "PEEK")) {
             char namebuf[8];
             char *q;
             q = *p;
@@ -3998,11 +4009,26 @@ static void execute_statement(char **p)
             statement_print(p);
             return;
         }
-        /* POKE is treated as a no-op (for compatibility with demos). */
         if (starts_with_kw(*p, "POKE")) {
             *p += 4;
-            /* Skip the rest of the arguments */
+#ifdef GFX_VIDEO
+            {
+                struct value v_addr, v_val;
+                v_addr = eval_expr(p);
+                ensure_num(&v_addr);
+                skip_spaces(p);
+                if (**p == ',') (*p)++;
+                v_val = eval_expr(p);
+                ensure_num(&v_val);
+                if (gfx_vs) {
+                    gfx_poke(gfx_vs,
+                             (uint16_t)((int)v_addr.num & 0xFFFF),
+                             (uint8_t)((int)v_val.num & 0xFF));
+                }
+            }
+#else
             *p += strlen(*p);
+#endif
             return;
         }
     }
@@ -4352,6 +4378,62 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
     }
 }
 
+/* ── Public API for gfx builds ──────────────────────────────────── */
+
+int basic_parse_args(int argc, char **argv)
+{
+    int i;
+    init_console_ansi();
+    for (i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-petscii") == 0 || strcmp(argv[i], "--petscii") == 0) {
+            petscii_mode = 1;
+            petscii_plain = 0;
+            petscii_no_wrap = 1;
+        } else if (strcmp(argv[i], "-petscii-plain") == 0 || strcmp(argv[i], "--petscii-plain") == 0) {
+            petscii_mode = 1;
+            petscii_plain = 1;
+            petscii_no_wrap = 1;
+        } else if (strcmp(argv[i], "-palette") == 0) {
+            const char *name;
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Missing value for -palette\n");
+                return -1;
+            }
+            name = argv[++i];
+            if (strcmp(name, "ansi") == 0) {
+                palette_mode = PALETTE_ANSI;
+            } else if (strcmp(name, "c64") == 0 || strcmp(name, "c64-8bit") == 0) {
+                palette_mode = PALETTE_C64_8BIT;
+            } else {
+                fprintf(stderr, "Unknown palette '%s' (expected ansi or c64)\n", name);
+                return -1;
+            }
+        } else if (argv[i][0] == '-') {
+            fprintf(stderr, "Unknown option: %s\n", argv[i]);
+            return -1;
+        } else {
+            return i;   /* index of the .bas path */
+        }
+    }
+    return -1;  /* no program path found */
+}
+
+void basic_load(const char *path) { load_program(path); }
+
+void basic_run(const char *script_path_arg, int nargs, char **args)
+{
+    run_program(script_path_arg, nargs, args);
+}
+
+int basic_halted(void) { return halted; }
+
+#ifdef GFX_VIDEO
+void basic_set_video(GfxVideoState *vs) { gfx_vs = vs; }
+#endif
+
+/* ── Terminal-mode entry point (not used when GFX_VIDEO is defined) ── */
+
+#ifndef GFX_VIDEO
 int main(int argc, char **argv)
 {
     const char *prog_path = NULL;
@@ -4411,3 +4493,4 @@ int main(int argc, char **argv)
     run_program(prog_path, argc - (i + 1), (argc > (i + 1)) ? (argv + (i + 1)) : NULL);
     return 0;
 }
+#endif /* !GFX_VIDEO */
