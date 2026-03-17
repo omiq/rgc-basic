@@ -19,9 +19,13 @@
 
 * ~Cursor On/Off~
 
-* PETSCII symbols
+* PETSCII symbols & graphics
   * ~Unicode stand-ins~
   * Bitmap rendering of 320x200 pixel or 40x25 characters (SDL? Raylib?)
+  * New **raylib-based graphics branch** (see `docs/bitmap-graphics-plan.md`):
+    * Separate `basic-gfx` binary using raylib for a windowed 40×25 PETSCII text screen.
+    * Memory-mapped screen/colour/char RAM and bitmap RAM, readable/writable via `PEEK`/`POKE`.
+    * `SCREEN` modes for text vs 320×200 bitmap; renderer driven by PETSCII/screen codes instead of ANSI.
 
 * Subroutines and Functions
   * Syntax sugar before actual implementation?

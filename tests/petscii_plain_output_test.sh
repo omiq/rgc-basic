@@ -4,20 +4,22 @@
 
 SEQ=examples/colaburger.seq
 OUT=$(./basic -petscii-plain examples/colaburger_viewer.bas 2>/dev/null)
-BYTES=$(echo -n "$OUT" | wc -c)
+CHARS=$(echo -n "$OUT" | wc -m)
 
-# Expected: printable (32-126, 160-255) + newlines. No output for 0-31 (except 10->\n, 13->\n), 127, 128-159.
+# Expected: one Unicode character per printable PETSCII byte (32-126, 160-255) + newlines.
+# Use wc -m (character count) not wc -c (byte count) because PETSCII graphics map to
+# multi-byte UTF-8 (box-drawing, block elements, card suits, etc.).
 python3 -c "
 d = open('$SEQ', 'rb').read()
 printable = sum(1 for b in d if (32 <= b <= 126) or (b >= 160))
 nls = 1 + (printable // 40)  # initial + wrap
 expected = printable + nls
-actual = $BYTES
+actual = $CHARS
 extra = actual - expected
-print('Expected bytes (printable + newlines):', expected)
-print('Actual bytes:', actual)
+print('Expected chars (printable + newlines):', expected)
+print('Actual chars:', actual)
 print('Extra characters:', extra)
-if extra > 5:
+if abs(extra) > 5:
     print('FAIL: too many extra characters (expected <= a few from LF/CR handling)')
     exit(1)
 print('OK: output size in expected range')
