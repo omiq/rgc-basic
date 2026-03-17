@@ -20,6 +20,8 @@ Unlike emulators, this is a BASIC interpreter that, while a project still very m
 
 The project started as an expansion on an original LLM-generated demo project by [David Plummer](https://github.com/davepl/pdpsrc/tree/main/bsd/basic). As I played with it, and added to it, I had fun. That's enough reason for me, and nobody is going to take your favourite toolchain away because this exists so calm down, sheesh.
 
+See `CHANGELOG.md` for a versioned history of changes (starting from **1.0.0 – 2026-03-09**).
+
 ## 💾 DOWNLOADS
 
 [The latest binaries for Win/Mac/Linux are in ***Releases***](https://github.com/omiq/cbm-basic/releases/). 
@@ -318,6 +320,11 @@ You can either use the provided `Makefile` (recommended) or compile manually.
   - Windows:
     - MSVC (Visual Studio / Build Tools), or
     - MinGW‑w64 (`gcc`)
+- **Optional (for raylib-based graphics builds)**:
+  - **Linux / WSL**: install the raylib development package so headers and `pkg-config` metadata are available, for example:
+    - Debian/Ubuntu: `sudo apt-get install -y libraylib-dev`
+  - **macOS** (Homebrew): `brew install raylib`
+  - Once installed, you can build the integrated graphics targets via `make gfx-demo` and `make basic-gfx`.
 
 #### Using `make` (recommended)
 
