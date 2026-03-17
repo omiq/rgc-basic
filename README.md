@@ -320,6 +320,11 @@ You can either use the provided `Makefile` (recommended) or compile manually.
   - Windows:
     - MSVC (Visual Studio / Build Tools), or
     - MinGW‑w64 (`gcc`)
+- **Optional (for raylib-based graphics builds)**:
+  - **Linux / WSL**: install the raylib development package so headers and `pkg-config` metadata are available, for example:
+    - Debian/Ubuntu: `sudo apt-get install -y libraylib-dev`
+  - **macOS** (Homebrew): `brew install raylib`
+  - Once installed, you can build the integrated graphics targets via `make gfx-demo` and `make basic-gfx`.
 
 #### Using `make` (recommended)
 

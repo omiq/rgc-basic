@@ -227,7 +227,14 @@ int main(int argc, char **argv)
 
     pthread_create(&tid, NULL, interpreter_thread, &ia);
 
-    while (!WindowShouldClose()) {
+    /* Run the render loop until either:
+     *  - the user closes the window / presses ESC, or
+     *  - the BASIC interpreter has halted (END / error / fall-through).
+     *
+     * This allows BASIC programs to control how long the window remains
+     * visible (e.g., via SLEEP) and then exit cleanly without requiring
+     * manual ESC presses. */
+    while (!WindowShouldClose() && !basic_halted()) {
         render_text_screen(&vs, target);
 
         BeginDrawing();
