@@ -1,0 +1,6 @@
+REM END FUNCTION without RETURN - yields 0 in expression
+FUNCTION foo()
+  PRINT "IN FOO"
+END FUNCTION
+PRINT foo()
+PRINT "DONE"

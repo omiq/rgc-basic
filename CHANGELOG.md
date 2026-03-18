@@ -2,10 +2,37 @@
 
 ### Unreleased
 
+- **User-defined FUNCTIONS**
+  - Multi-line, multi-parameter: `FUNCTION name [(params)]` … `RETURN [expr]` … `END FUNCTION`.
+  - Call from expressions: `x = add(3, 5)`; as statement for side effects: `sayhi()`.
+  - Brackets always required; optional params; `RETURN` with no expr or `END FUNCTION` yields 0/`""`.
+  - Coexists with `DEF FN` (different arity). See `docs/user-functions-plan.md`.
+- **Meta directives** (`#` prefix, load-time)
+  - Shebang: `#!/usr/bin/env basic` on first line ignored.
+  - `#OPTION petscii|petscii-plain|charset upper|lower|palette ansi|c64` — file overrides CLI.
+  - `#INCLUDE "path"` — splice file at that point; relative to current file; duplicate line numbers and labels error.
+- **WHILE … WEND**
+  - Pre-test loop: `WHILE cond` … `WEND`. Nested WHILE/WEND supported.
+- **IF ELSE END IF**
+  - Multi-line blocks: `IF cond THEN` … `ELSE` … `END IF`. Nested blocks supported.
+  - Backward compatible: `IF X THEN 100` and `IF X THEN PRINT "Y"` unchanged.
+- **Variable naming**
+  - Full variable names (up to 31 chars) are now significant; `SALE` and `SAFE` are distinct.
+  - Reserved-word check: keywords cannot be used as variables; clear error on misuse. Labels may match keywords (e.g. `CLR:`).
+- **basic-gfx PETSCII / .seq viewer**
+  - PETSCII→screen code conversion when `SCREENCODES ON`; `.seq` streams display correctly.
+  - Reverse-video rendering fixed (W, P, etc. in “Welcome”, “Press”) via renderer fg/bg swap.
+  - Window closes automatically when program reaches `END`.
+  - `examples/gfx_colaburger_viewer.bas` with `-petscii -charset lower`.
 - **GFX charset toggle**
-  - Added lowercase/uppercase charset support to the Raylib `basic-gfx` build.
-  - `CHR$(14)` switches to the lowercase charset, `CHR$(142)` switches back.
-  - `-charset lower|upper` now also sets the initial charset in `basic-gfx`.
+  - `CHR$(14)` switches to lowercase, `CHR$(142)` switches back.
+  - `-charset lower|upper` sets initial charset in `basic-gfx`.
+- **Documentation**
+  - Sprite features planning doc (`docs/sprite-features-plan.md`).
+  - Meta directives plan (`docs/meta-directives-plan.md`) — shebang, #OPTION, #INCLUDE.
+  - User-defined functions plan (`docs/user-functions-plan.md`).
+  - README, to-do, and `docs/bitmap-graphics-plan.md` updated for merged GFX.
+  - Removed colaburger test PNG/MD artifacts.
 
 ### 1.0.0 – 2026-03-09
 

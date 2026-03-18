@@ -28,8 +28,8 @@
     * ~PETSCII control codes, colours, reverse video; `.seq` viewer with SCREENCODES ON~
     * **Remaining**: `SCREEN` modes for text vs 320×200 bitmap; bitmap RAM.
 
-* Subroutines and Functions
-  * Syntax sugar before actual implementation?
+* ~~Subroutines and Functions~~
+  * **User-defined FUNCTIONS** implemented — `FUNCTION name[(params)]` … `RETURN [expr]` … `END FUNCTION`; call with `name()` or `name(a,b)`; recursion supported. See `docs/user-functions-plan.md`.
 
 * Program text preprocessor
   * Replace current ad-hoc whitespace tweaks with a small lexer-like pass for keywords and operators

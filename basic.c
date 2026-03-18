@@ -621,7 +621,12 @@ static void init_console_ansi(void)
 
 #define MAX_LINES 1024
 #define MAX_LINE_LEN 256
+#define MAX_INCLUDE_DEPTH 16
+#define MAX_INCLUDE_PATH  512
+
+static char include_path_store[MAX_INCLUDE_DEPTH][MAX_INCLUDE_PATH];
 #define MAX_VARS 128
+#define VAR_NAME_MAX 32
 #define MAX_GOSUB 64
 #define MAX_FOR 32
 #define MAX_STR_LEN 256
@@ -651,8 +656,7 @@ struct line {
 #define MAX_DIMS 3
 
 struct var {
-    char name1;
-    char name2;
+    char name[VAR_NAME_MAX];
     int is_string;
     int is_array;
     int dims;                      /* 0 for scalar, >=1 for arrays */
@@ -668,8 +672,7 @@ struct gosub_frame {
 };
 
 struct for_frame {
-    char name1;
-    char name2;
+    char name[VAR_NAME_MAX];
     int is_string;
     double end_value;
     double step;
@@ -689,6 +692,52 @@ static int gosub_top = 0;
 
 static struct for_frame for_stack[MAX_FOR];
 static int for_top = 0;
+
+/* IF ELSE END IF block stack */
+#define MAX_IF_DEPTH 16
+struct if_block {
+    int took_then;    /* 1 if we executed THEN branch, 0 if we skipped to ELSE/END IF */
+};
+static struct if_block if_stack[MAX_IF_DEPTH];
+static int if_depth = 0;
+
+/* WHILE WEND block stack */
+#define MAX_WHILE_DEPTH 16
+struct while_frame {
+    int line_index;
+    char *position;
+};
+static struct while_frame while_stack[MAX_WHILE_DEPTH];
+static int while_top = 0;
+
+#define MAX_UDF_PARAMS 16
+#define MAX_UDF_FUNCS  32
+#define MAX_UDF_DEPTH  16
+
+struct udf_func {
+    char name[VAR_NAME_MAX];
+    int param_count;
+    char param_names[MAX_UDF_PARAMS][VAR_NAME_MAX];
+    int param_is_string[MAX_UDF_PARAMS];
+    int body_line;
+    char *body_pos;
+};
+
+static struct udf_func udf_funcs[MAX_UDF_FUNCS];
+static int udf_func_count = 0;
+
+static int udf_call_depth = 0;
+static struct value udf_return_value;
+static int udf_returned = 0;
+
+struct udf_call_frame {
+    int func_index;
+    int saved_line;
+    char *saved_pos;
+    struct value saved_params[MAX_UDF_PARAMS];
+};
+
+static struct udf_call_frame udf_call_stack[MAX_UDF_DEPTH];
 
 /* User-defined functions created with DEF FN. */
 #define MAX_USER_FUNCS 32
@@ -936,6 +985,62 @@ static int palette_mode = PALETTE_ANSI;
 static int cursor_hidden = 0;
 static int petscii_lowercase_opt = 0;
 
+/* Case-insensitive string compare. */
+static int str_eq_ci(const char *a, const char *b)
+{
+    if (!a || !b) return (a == b);
+    while (*a && *b) {
+        if (toupper((unsigned char)*a) != toupper((unsigned char)*b)) return 0;
+        a++; b++;
+    }
+    return (*a == *b);
+}
+
+/* Apply option from #OPTION directive (file overrides CLI). Returns 0 on success, -1 on error. */
+static int apply_option_directive(const char *name, const char *value)
+{
+    if (!name || !name[0]) return -1;
+    if (str_eq_ci(name, "petscii")) {
+        petscii_mode = 1;
+        petscii_plain = 0;
+        petscii_no_wrap = 1;
+        return 0;
+    }
+    if (str_eq_ci(name, "petscii-plain")) {
+        petscii_mode = 1;
+        petscii_plain = 1;
+        petscii_no_wrap = 1;
+        return 0;
+    }
+    if (str_eq_ci(name, "charset")) {
+        if (!value || !value[0]) return -1;
+        if (str_eq_ci(value, "upper") || str_eq_ci(value, "uc")) {
+            petscii_lowercase_opt = 0;
+            petscii_set_lowercase(0);
+            return 0;
+        }
+        if (str_eq_ci(value, "lower") || str_eq_ci(value, "lc")) {
+            petscii_lowercase_opt = 1;
+            petscii_set_lowercase(1);
+            return 0;
+        }
+        return -1;
+    }
+    if (str_eq_ci(name, "palette")) {
+        if (!value || !value[0]) return -1;
+        if (str_eq_ci(value, "ansi")) {
+            palette_mode = PALETTE_ANSI;
+            return 0;
+        }
+        if (str_eq_ci(value, "c64") || str_eq_ci(value, "c64-8bit")) {
+            palette_mode = PALETTE_C64_8BIT;
+            return 0;
+        }
+        return -1;
+    }
+    return -1;
+}
+
 /* Command-line arguments for the running script (after options and program path). */
 static const char *script_path = NULL;   /* path to the .bas file */
 static int script_argc = 0;              /* number of arguments after script path */
@@ -980,7 +1085,9 @@ static void load_program(const char *path);
 static void run_program(const char *script_path_arg, int nargs, char **args);
 static int find_line_index(int number);
 static void build_label_table(void);
+static void build_udf_table(void);
 static int find_label_line(const char *name);
+static int udf_lookup(const char *name, int param_count);
 static int starts_with_kw(char *p, const char *kw);
 static void skip_spaces(char **p);
 static int parse_number_literal(char **p, double *out);
@@ -992,7 +1099,7 @@ static void execute_statement(char **p);
 static struct value *get_var_reference(char **p, int *is_array_out, int *is_string_out);
 static struct value make_num(double v);
 static struct value make_str(const char *s);
-static struct var *find_or_create_var(char name1, char name2, int is_string, int want_array, int dims, const int *dim_sizes, int total_size);
+static struct var *find_or_create_var(const char *name, int is_string, int want_array, int dims, const int *dim_sizes, int total_size);
 static struct value eval_function(const char *name, char **p);
 static int user_func_lookup(const char *name);
 static void collect_data_from_program(void);
@@ -1017,6 +1124,15 @@ static void statement_cursor(char **p);
 static void statement_color(char **p);
 static void statement_background(char **p);
 static void statement_screencodes(char **p);
+static void statement_else(char **p);
+static void statement_end_if(char **p);
+static void statement_return(char **p);
+static void statement_end_function(char **p);
+static void skip_function_block(char **p);
+static void statement_while(char **p, char *while_pos);
+static void statement_wend(char **p);
+static void skip_if_block_to_target(char **p, int want_else);
+static void skip_while_to_wend(char **p);
 
 enum func_code {
     FN_NONE = 0,
@@ -1186,6 +1302,37 @@ static char *dupstr_local(const char *s)
     }
     memcpy(p, s, len);
     return p;
+}
+
+/* Reserved words: identifiers that cannot be used as variable or label names. */
+static const char *const reserved_words[] = {
+    "AND", "ARG", "ARGC", "ASC", "BACKGROUND", "CHR", "CLOSE", "CLR", "COLOR",
+    "COLOUR", "COS", "CURSOR", "DATA", "DEC", "DEF", "DIM", "DOWN", "END", "FUNCTION",
+    "ELSE", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
+    "INKEY", "INPUT", "INSTR", "INT", "LEFT", "LEN", "LET", "LOCATE", "LOG",
+    "LCASE", "MID", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PRINT",
+    "READ", "REM", "RESTORE", "RETURN", "RIGHT", "RND", "RVS", "SCREENCODES",
+    "SGN", "SIN", "SLEEP", "SPC", "SQR", "STEP", "STOP", "STR", "STRING",
+    "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "UCASE",     "VAL", "WEND", "WHILE",
+    NULL
+};
+
+static int is_reserved_word(const char *name)
+{
+    int i;
+    char up[VAR_NAME_MAX];
+    size_t len;
+    if (!name || !name[0]) return 0;
+    len = strlen(name);
+    if (len >= VAR_NAME_MAX) return 0;
+    for (i = 0; (unsigned char)name[i]; i++) {
+        up[i] = (char)toupper((unsigned char)name[i]);
+    }
+    up[i] = '\0';
+    for (i = 0; reserved_words[i]; i++) {
+        if (strcmp(up, reserved_words[i]) == 0) return 1;
+    }
+    return 0;
 }
 
 /* Check if the input starts with the keyword (case-insensitive). */
@@ -1489,6 +1636,21 @@ static void build_label_table(void)
             /* Too many labels; ignore extras. */
             continue;
         }
+        /* Check for duplicate label (case-insensitive). */
+        {
+            char tmp[32];
+            size_t k;
+            if (len >= sizeof(tmp)) tmp[sizeof(tmp)-1] = '\0';
+            memcpy(tmp, p, len);
+            tmp[len] = '\0';
+            for (k = 0; k < len; k++) tmp[k] = (char)toupper((unsigned char)tmp[k]);
+            for (k = 0; k < (size_t)label_count; k++) {
+                if (strcmp(label_table[k].name, tmp) == 0) {
+                    fprintf(stderr, "Duplicate label '%.*s' in program\n", (int)len, p);
+                    exit(1);
+                }
+            }
+        }
         memcpy(label_table[label_count].name, p, len);
         label_table[label_count].name[len] = '\0';
         /* Normalize to uppercase for case-insensitive matching. */
@@ -1499,6 +1661,7 @@ static void build_label_table(void)
                     (char)toupper((unsigned char)label_table[label_count].name[k]);
             }
         }
+        /* Labels may share names with keywords (e.g. CLR: in trek.bas); context is unambiguous. */
         label_table[label_count].line_index = i;
         label_count++;
 
@@ -1545,6 +1708,142 @@ static int find_label_line(const char *name)
         }
     }
     return -1;
+}
+
+/* Lookup UDF by name (uppercased) and param count. */
+static int udf_lookup(const char *name, int param_count)
+{
+    int i;
+    for (i = 0; i < udf_func_count; i++) {
+        if (strcmp(udf_funcs[i].name, name) == 0 && udf_funcs[i].param_count == param_count) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* Scan program for FUNCTION...END FUNCTION and build udf_funcs table. */
+static void build_udf_table(void)
+{
+    int i, j, nesting;
+    char *p, *q;
+    char namebuf[VAR_NAME_MAX];
+    int param_count;
+    char *body_start;
+    int body_line;
+
+    udf_func_count = 0;
+    for (i = 0; i < line_count && udf_func_count < MAX_UDF_FUNCS; i++) {
+        if (!program_lines[i] || !program_lines[i]->text) continue;
+        p = program_lines[i]->text;
+        for (;;) {
+            while (*p == ' ' || *p == '\t') p++;
+            if (!*p) break;
+            if ((toupper((unsigned char)p[0])=='F' && toupper((unsigned char)p[1])=='U' &&
+                 toupper((unsigned char)p[2])=='N' && toupper((unsigned char)p[3])=='C' &&
+                 toupper((unsigned char)p[4])=='T' && toupper((unsigned char)p[5])=='I' &&
+                 toupper((unsigned char)p[6])=='O' && toupper((unsigned char)p[7])=='N') &&
+                (p[8]=='\0' || p[8]==' ' || p[8]=='\t')) {
+                q = p + 8;
+                while (*q == ' ' || *q == '\t') q++;
+                if (!isalpha((unsigned char)*q)) {
+                    { char *n = strchr(p, ':'); p = n ? n + 1 : p + strlen(p); }
+                    continue;
+                }
+                read_identifier((char**)&q, namebuf, sizeof(namebuf));
+                { int k; for (k = 0; namebuf[k]; k++) namebuf[k] = (char)toupper((unsigned char)namebuf[k]); }
+                while (*q == ' ' || *q == '\t') q++;
+                param_count = 0;
+                if (*q == '(') {
+                    q++;
+                    while (*q && *q != ')') {
+                        while (*q == ' ' || *q == '\t') q++;
+                        if (!isalpha((unsigned char)*q)) break;
+                        if (param_count < MAX_UDF_PARAMS) {
+                            read_identifier((char**)&q, udf_funcs[udf_func_count].param_names[param_count], VAR_NAME_MAX);
+                            { int k; for (k = 0; udf_funcs[udf_func_count].param_names[param_count][k]; k++)
+                                udf_funcs[udf_func_count].param_names[param_count][k] =
+                                    (char)toupper((unsigned char)udf_funcs[udf_func_count].param_names[param_count][k]); }
+                            udf_funcs[udf_func_count].param_is_string[param_count] =
+                                (strlen(udf_funcs[udf_func_count].param_names[param_count]) > 0 &&
+                                 udf_funcs[udf_func_count].param_names[param_count][strlen(udf_funcs[udf_func_count].param_names[param_count])-1] == '$');
+                            param_count++;
+                        }
+                        while (*q == ' ' || *q == '\t') q++;
+                        if (*q == ',') q++;
+                    }
+                    if (*q == ')') q++;
+                }
+                while (*q == ' ' || *q == '\t') q++;
+                if (*q == ':') {
+                    q++;
+                    while (*q == ' ' || *q == '\t') q++;
+                    body_start = q;
+                    body_line = i;
+                } else {
+                    body_line = i + 1;
+                    body_start = NULL;
+                }
+                /* Find matching END FUNCTION */
+                nesting = 1;
+                for (j = (body_start && *body_start) ? i : i + 1; j < line_count && nesting > 0; j++) {
+                    char *r = (j == i && body_start) ? body_start : program_lines[j]->text;
+                    if (!r) continue;
+                    for (;;) {
+                        while (r && (*r == ' ' || *r == '\t')) r++;
+                        if (!r || !*r) break;
+                        if ((toupper((unsigned char)r[0])=='F' && toupper((unsigned char)r[1])=='U' &&
+                             toupper((unsigned char)r[2])=='N' && toupper((unsigned char)r[3])=='C' &&
+                             toupper((unsigned char)r[4])=='T' && toupper((unsigned char)r[5])=='I' &&
+                             toupper((unsigned char)r[6])=='O' && toupper((unsigned char)r[7])=='N') &&
+                            (r[8]=='\0' || r[8]==' ' || r[8]=='\t')) {
+                            nesting++;
+                            r += 8;
+                            while (*r && *r != ':') r++;
+                            if (*r) r++;
+                            continue;
+                        }
+                        if (toupper((unsigned char)r[0])=='E' && toupper((unsigned char)r[1])=='N' &&
+                            toupper((unsigned char)r[2])=='D' && (r[3]=='\0' || r[3]==' ' || r[3]=='\t')) {
+                            char *ef = r + 3;
+                            while (*ef == ' ' || *ef == '\t') ef++;
+                            if (toupper((unsigned char)ef[0])=='F' && toupper((unsigned char)ef[1])=='U' &&
+                                toupper((unsigned char)ef[2])=='N' && toupper((unsigned char)ef[3])=='C' &&
+                                toupper((unsigned char)ef[4])=='T' && toupper((unsigned char)ef[5])=='I' &&
+                                toupper((unsigned char)ef[6])=='O' && toupper((unsigned char)ef[7])=='N' &&
+                                (ef[8]=='\0' || ef[8]==' ' || ef[8]=='\t' || ef[8]==':')) {
+                            nesting--;
+                            if (nesting == 0) {
+                                struct udf_func *uf = &udf_funcs[udf_func_count];
+                                strncpy(uf->name, namebuf, VAR_NAME_MAX - 1);
+                                uf->name[VAR_NAME_MAX - 1] = '\0';
+                                uf->param_count = param_count;
+                                uf->body_line = body_line;
+                                uf->body_pos = body_start ? body_start : (program_lines[body_line] ? program_lines[body_line]->text : NULL);
+                                udf_func_count++;
+                                goto next_statement;
+                            }
+                            r = ef + 8;
+                            while (*r && *r != ':') r++;
+                            if (*r) r++;
+                            continue;
+                            }
+                        }
+                        {
+                            char *next = strchr(r, ':');
+                            if (!next) break;
+                            r = next + 1;
+                        }
+                    }
+                }
+                fprintf(stderr, "FUNCTION %s: END FUNCTION not found\n", namebuf);
+next_statement:
+                { char *n = strchr(p, ':'); p = n ? n + 1 : p + strlen(p); }
+                continue;
+            }
+            { char *n = strchr(p, ':'); p = n ? n + 1 : p + strlen(p); }
+        }
+    }
 }
 
 /* Scan all program lines and collect DATA items into data_items[] */
@@ -2772,35 +3071,29 @@ static struct value eval_function(const char *name, char **p)
     }
 }
 
-/* Break a BASIC variable name into two-letter uppercase key and detect strings. */
-static void uppercase_name(const char *src, char *n1, char *n2, int *is_string)
+/* Normalize variable name to uppercase in dest, strip trailing $ and set is_string. */
+static void uppercase_name(const char *src, char *dest, int dest_size, int *is_string)
 {
-    int len;
+    int i, len;
     len = (int)strlen(src);
     *is_string = 0;
     if (len > 0 && src[len - 1] == '$') {
         *is_string = 1;
         len--;
     }
-    if (len < 1) {
-        *n1 = ' ';
-        *n2 = ' ';
-        return;
+    if (len >= dest_size) len = dest_size - 1;
+    for (i = 0; i < len; i++) {
+        dest[i] = (char)toupper((unsigned char)src[i]);
     }
-    *n1 = toupper((unsigned char)src[0]);
-    if (len > 1) {
-        *n2 = toupper((unsigned char)src[1]);
-    } else {
-        *n2 = ' ';
-    }
+    dest[i] = '\0';
 }
 
-static struct var *find_or_create_var(char name1, char name2, int is_string, int want_array, int dims, const int *dim_sizes, int total_size)
+static struct var *find_or_create_var(const char *name, int is_string, int want_array, int dims, const int *dim_sizes, int total_size)
 {
     int i, idx;
     struct var *v;
     for (i = 0; i < var_count; i++) {
-        if (vars[i].name1 == name1 && vars[i].name2 == name2 && vars[i].is_string == is_string) {
+        if (strcmp(vars[i].name, name) == 0 && vars[i].is_string == is_string) {
             v = &vars[i];
             if (want_array && !v->is_array) {
                 v->is_array = 1;
@@ -2827,8 +3120,8 @@ static struct var *find_or_create_var(char name1, char name2, int is_string, int
     }
     idx = var_count++;
     v = &vars[idx];
-    v->name1 = name1;
-    v->name2 = name2;
+    strncpy(v->name, name, VAR_NAME_MAX - 1);
+    v->name[VAR_NAME_MAX - 1] = '\0';
     v->is_string = is_string;
     v->is_array = want_array;
     v->dims = want_array ? dims : 0;
@@ -2876,8 +3169,7 @@ static int read_identifier(char **p, char *buf, int buf_size)
 /* Resolve a variable (and optional array index) creating it if needed. */
 static struct value *get_var_reference(char **p, int *is_array_out, int *is_string_out)
 {
-    char namebuf[8];
-    char n1, n2;
+    char namebuf[VAR_NAME_MAX];
     int is_string;
     struct var *v;
     struct value *valp;
@@ -2894,7 +3186,11 @@ static struct value *get_var_reference(char **p, int *is_array_out, int *is_stri
         return NULL;
     }
     read_identifier(p, namebuf, sizeof(namebuf));
-    uppercase_name(namebuf, &n1, &n2, &is_string);
+    uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
+    if (is_reserved_word(namebuf)) {
+        runtime_error("Reserved word cannot be used as variable");
+        return NULL;
+    }
     if (is_string_out) {
         *is_string_out = is_string;
     }
@@ -2933,7 +3229,7 @@ static struct value *get_var_reference(char **p, int *is_array_out, int *is_stri
     if (is_array_out) {
         *is_array_out = is_array;
     }
-    v = find_or_create_var(n1, n2, is_string, is_array, 0, NULL, 0);
+    v = find_or_create_var(namebuf, is_string, is_array, 0, NULL, 0);
     if (!v) {
         return NULL;
     }
@@ -2984,6 +3280,80 @@ static struct value *get_var_reference(char **p, int *is_array_out, int *is_stri
         *valp = make_num(0.0);
     }
     return valp;
+}
+
+/* Run statements until RETURN or END FUNCTION sets udf_returned. */
+static void run_until_udf_return(void)
+{
+    char *p;
+    udf_returned = 0;
+    while (!udf_returned && !halted && current_line >= 0 && current_line < line_count) {
+        if (statement_pos == NULL) {
+            statement_pos = program_lines[current_line]->text;
+        }
+        p = statement_pos;
+        skip_spaces(&p);
+        if (*p == '\0') {
+            current_line++;
+            statement_pos = NULL;
+            continue;
+        }
+        statement_pos = p;
+        execute_statement(&statement_pos);
+        if (udf_returned || halted) break;
+        if (statement_pos == NULL) continue;
+        skip_spaces(&statement_pos);
+        if (*statement_pos == ':') {
+            statement_pos++;
+            continue;
+        }
+        skip_spaces(&statement_pos);
+        if (*statement_pos == '\0') {
+            current_line++;
+            statement_pos = NULL;
+        }
+    }
+}
+
+/* Invoke UDF and return its value. Caller has already parsed name and '('; args evaluated. */
+static struct value invoke_udf(int func_index, struct value *args, int nargs)
+{
+    struct udf_func *uf = &udf_funcs[func_index];
+    struct var *param_var;
+    int i;
+
+    if (udf_call_depth >= MAX_UDF_DEPTH) {
+        runtime_error("FUNCTION nesting too deep");
+        return make_num(0.0);
+    }
+    udf_call_stack[udf_call_depth].func_index = func_index;
+    udf_call_stack[udf_call_depth].saved_line = current_line;
+    udf_call_stack[udf_call_depth].saved_pos = statement_pos;
+    for (i = 0; i < uf->param_count; i++) {
+        param_var = find_or_create_var(uf->param_names[i], uf->param_is_string[i], 0, 0, NULL, 0);
+        if (param_var && i < nargs) {
+            udf_call_stack[udf_call_depth].saved_params[i] = param_var->scalar;
+            if (uf->param_is_string[i]) {
+                ensure_str(&args[i]);
+                param_var->scalar = args[i];
+                param_var->scalar.type = VAL_STR;
+            } else {
+                ensure_num(&args[i]);
+                param_var->scalar = args[i];
+                param_var->scalar.type = VAL_NUM;
+            }
+        }
+    }
+    udf_call_depth++;
+    current_line = uf->body_line;
+    statement_pos = uf->body_pos;
+    run_until_udf_return();
+    /* statement_return/statement_end_function already pops; restore params from saved frame */
+    for (i = 0; i < uf->param_count; i++) {
+        param_var = find_or_create_var(uf->param_names[i], uf->param_is_string[i], 0, 0, NULL, 0);
+        if (param_var) param_var->scalar = udf_call_stack[udf_call_depth].saved_params[i];
+    }
+    return udf_return_value;
 }
 
 /* Parse a factor: number, string, variable, function call, or parenthesized expr. */
@@ -3071,78 +3441,80 @@ static struct value eval_factor(char **p)
             read_identifier(&q, namebuf, sizeof(namebuf));
             return eval_function(namebuf, p);
         } else {
-            /* Check for user-defined DEF FN function call */
-            char namebuf[8];
+            /* Check for user-defined FUNCTION or DEF FN, else variable */
+            char namebuf[VAR_NAME_MAX];
             char *q;
-            int i;
-            int uf_index;
+            int i, arg_count, udf_idx, uf_index;
+            struct value args[MAX_UDF_PARAMS];
             q = *p;
             read_identifier(&q, namebuf, sizeof(namebuf));
             for (i = 0; namebuf[i]; i++) {
                 namebuf[i] = (char)toupper((unsigned char)namebuf[i]);
             }
-            uf_index = user_func_lookup(namebuf);
-            if (uf_index >= 0) {
-                struct user_func *uf;
-                struct value arg;
-                struct value result;
-                struct var *param_var;
-                struct value saved_scalar;
-                char pname_buf[8];
-                char n1, n2;
-                int dummy_is_string;
-
-                uf = &user_funcs[uf_index];
-
-                /* Advance original pointer past function name */
-                *p = q;
+            skip_spaces(&q);
+            if (*q == '(') {
+                char *saved_p = *p;
+                *p = q + 1;
                 skip_spaces(p);
-                if (**p != '(') {
-                    runtime_error("Function requires '('");
-                    return make_num(0.0);
+                arg_count = 0;
+                if (**p != ')') {
+                    for (;;) {
+                        if (arg_count >= MAX_UDF_PARAMS) {
+                            runtime_error("Too many arguments");
+                            return make_num(0.0);
+                        }
+                        args[arg_count] = eval_expr(p);
+                        arg_count++;
+                        skip_spaces(p);
+                        if (**p == ')') break;
+                        if (**p != ',') {
+                            runtime_error("Expected ',' or ')'");
+                            return make_num(0.0);
+                        }
+                        (*p)++;
+                        skip_spaces(p);
+                    }
                 }
-                (*p)++;
-                arg = eval_expr(p);
-                skip_spaces(p);
-                if (**p == ')') {
-                    (*p)++;
-                } else {
-                    runtime_error("Missing ')'");
+                if (**p == ')') (*p)++;
+                udf_idx = udf_lookup(namebuf, arg_count);
+                if (udf_idx >= 0) {
+                    return invoke_udf(udf_idx, args, arg_count);
                 }
+                if (arg_count == 1) {
+                    uf_index = user_func_lookup(namebuf);
+                    if (uf_index >= 0) {
+                        struct user_func *uf = &user_funcs[uf_index];
+                        struct value result;
+                        struct var *param_var;
+                        struct value saved_scalar;
+                        char pname_buf[VAR_NAME_MAX];
 
-                /* Bind parameter variable, evaluate body, then restore */
-                strncpy(pname_buf, uf->param_name, sizeof(pname_buf) - 1);
-                pname_buf[sizeof(pname_buf) - 1] = '\0';
-                uppercase_name(pname_buf, &n1, &n2, &dummy_is_string);
-                param_var = find_or_create_var(n1, n2, uf->param_is_string, 0, 0, NULL, 0);
-                if (!param_var) {
-                    return make_num(0.0);
+                        strncpy(pname_buf, uf->param_name, sizeof(pname_buf) - 1);
+                        pname_buf[sizeof(pname_buf) - 1] = '\0';
+                        param_var = find_or_create_var(pname_buf, uf->param_is_string, 0, 0, NULL, 0);
+                        if (!param_var) return make_num(0.0);
+                        saved_scalar = param_var->scalar;
+                        if (uf->param_is_string) {
+                            ensure_str(&args[0]);
+                            param_var->scalar = args[0];
+                            param_var->scalar.type = VAL_STR;
+                        } else {
+                            ensure_num(&args[0]);
+                            param_var->scalar = args[0];
+                            param_var->scalar.type = VAL_NUM;
+                        }
+                        { char *body_p = uf->body; result = eval_expr(&body_p); }
+                        param_var->scalar = saved_scalar;
+                        return result;
+                    }
                 }
-                saved_scalar = param_var->scalar;
-                if (uf->param_is_string) {
-                    ensure_str(&arg);
-                    param_var->scalar = arg;
-                    param_var->scalar.type = VAL_STR;
-                } else {
-                    ensure_num(&arg);
-                    param_var->scalar = arg;
-                    param_var->scalar.type = VAL_NUM;
-                }
-
-                {
-                    char *body_p;
-                    body_p = uf->body;
-                    result = eval_expr(&body_p);
-                }
-
-                param_var->scalar = saved_scalar;
-                return result;
-            } else {
+                /* No UDF or DEF FN matched; treat as array/variable */
+                *p = saved_p;
+            }
+            {
                 struct value *vp;
                 vp = get_var_reference(p, NULL, NULL);
-                if (!vp) {
-                    return make_num(0.0);
-                }
+                if (!vp) return make_num(0.0);
                 return *vp;
             }
         }
@@ -3686,13 +4058,15 @@ static void statement_clr(char **p)
     }
     gosub_top = 0;
     for_top = 0;
+    while_top = 0;
+    if_depth = 0;
     data_index = 0;
 }
 
 /* Set ST (I/O status) variable for file operations: 0=ok, 64=EOF, 1=error. */
 static void set_io_status(int st)
 {
-    struct var *v = find_or_create_var('S', 'T', 0, 0, 0, NULL, 0);
+    struct var *v = find_or_create_var("ST", 0, 0, 0, NULL, 0);
     if (v) {
         v->scalar.type = VAL_NUM;
         v->scalar.num = (double)st;
@@ -4079,6 +4453,19 @@ static void statement_gosub(char **p)
 
 static void statement_return(char **p)
 {
+    if (udf_call_depth > 0) {
+        skip_spaces(p);
+        if (*p && **p && **p != ':' && (isalnum((unsigned char)**p) || **p == '(' || **p == '-' || **p == '+' || **p == '\"')) {
+            udf_return_value = eval_expr(p);
+        } else {
+            udf_return_value = make_num(0.0);
+        }
+        udf_returned = 1;
+        udf_call_depth--;
+        current_line = udf_call_stack[udf_call_depth].saved_line;
+        statement_pos = udf_call_stack[udf_call_depth].saved_pos;
+        return;
+    }
     if (gosub_top <= 0) {
         runtime_error("RETURN without GOSUB");
         return;
@@ -4088,9 +4475,129 @@ static void statement_return(char **p)
     statement_pos = gosub_stack[gosub_top].position;
 }
 
+/* Skip forward from current position to ELSE (if want_else) or END IF.
+ * Updates current_line, statement_pos, and *p. Handles nested IF blocks. */
+static void skip_if_block_to_target(char **p, int want_else)
+{
+    int line = current_line;
+    char *pos = *p;
+    int nesting = 1;
+
+    while (line >= 0 && line < line_count && program_lines[line]) {
+        if (!pos) pos = program_lines[line]->text;
+        while (pos && *pos) {
+            char *q = pos;
+            skip_spaces(&q);
+            if (!*q) break;
+            if (starts_with_kw(q, "IF")) {
+                char *r = q + 2;
+                skip_spaces(&r);
+                if (starts_with_kw(r, "THEN")) {
+                    r += 4;
+                    skip_spaces(&r);
+                    if (!*r || *r == ':') {
+                        nesting++;
+                        pos = (*r == ':') ? r + 1 : r;
+                        continue;
+                    }
+                }
+            }
+            if (starts_with_kw(q, "END")) {
+                char *r = q + 3;
+                skip_spaces(&r);
+                if (starts_with_kw(r, "IF")) {
+                    r += 2;
+                    skip_spaces(&r);
+                    nesting--;
+                    if (nesting == 0) {
+                        current_line = line;
+                        statement_pos = r;
+                        *p = r;
+                        if_depth--;
+                        return;
+                    }
+                    pos = r;
+                    continue;
+                }
+            }
+            if (nesting == 1 && starts_with_kw(q, "ELSE")) {
+                if (want_else) {
+                    q += 4;
+                    skip_spaces(&q);
+                    current_line = line;
+                    statement_pos = q;
+                    *p = q;
+                    return;
+                }
+                q += 4;
+                skip_spaces(&q);
+                pos = q;
+                continue;
+            }
+            pos = strchr(pos, ':');
+            pos = pos ? pos + 1 : NULL;
+        }
+        line++;
+        pos = NULL;
+    }
+    runtime_error("END IF expected");
+}
+
+/* Skip forward from current position to matching WEND. Handles nested WHILE/WEND. */
+static void skip_while_to_wend(char **p)
+{
+    int line = current_line;
+    char *pos = *p;
+    int nesting = 1;
+
+    while (line >= 0 && line < line_count && program_lines[line]) {
+        if (!pos) pos = program_lines[line]->text;
+        while (pos && *pos) {
+            char *q = pos;
+            skip_spaces(&q);
+            if (!*q) break;
+            if (starts_with_kw(q, "WHILE")) {
+                q += 5;
+                skip_spaces(&q);
+                if (*q && *q != ':') {
+                    nesting++;
+                    while (*q && *q != ':') q++;
+                    pos = (*q == ':') ? q + 1 : q;
+                    continue;
+                }
+            }
+            if (starts_with_kw(q, "WEND")) {
+                char *r = q + 4;
+                skip_spaces(&r);
+                nesting--;
+                if (nesting == 0) {
+                    if (!*r && line + 1 < line_count) {
+                        current_line = line + 1;
+                        statement_pos = program_lines[line + 1]->text;
+                        *p = statement_pos;
+                    } else {
+                        current_line = line;
+                        statement_pos = r;
+                        *p = r;
+                    }
+                    return;
+                }
+                pos = r;
+                continue;
+            }
+            pos = strchr(pos, ':');
+            pos = pos ? pos + 1 : NULL;
+        }
+        line++;
+        pos = NULL;
+    }
+    runtime_error("WEND expected");
+}
+
 static void statement_if(char **p)
 {
     int cond_true;
+    char *after_then;
 
     cond_true = eval_condition(p);
     skip_spaces(p);
@@ -4100,8 +4607,21 @@ static void statement_if(char **p)
     }
     *p += 4;
     skip_spaces(p);
+    after_then = *p;
+    /* Block mode: THEN at EOL or followed only by ':' then EOL */
+    if (!*after_then || (*after_then == ':' && !after_then[1])) {
+        if (if_depth >= MAX_IF_DEPTH) {
+            runtime_error("IF nesting too deep");
+            return;
+        }
+        if_stack[if_depth].took_then = cond_true ? 1 : 0;
+        if_depth++;
+        if (!cond_true) {
+            skip_if_block_to_target(p, 1);
+        }
+        return;
+    }
     if (!cond_true) {
-        /* Skip rest of line */
         *p += strlen(*p);
         return;
     }
@@ -4118,9 +4638,139 @@ static void statement_if(char **p)
         }
         statement_pos = NULL;
     } else {
-        /* Execute rest of line inline */
         skip_spaces(p);
         statement_pos = *p;
+    }
+}
+
+static void statement_else(char **p)
+{
+    if (if_depth <= 0) {
+        runtime_error("ELSE without IF");
+        return;
+    }
+    *p += 4;
+    skip_spaces(p);
+    if (if_stack[if_depth - 1].took_then) {
+        skip_if_block_to_target(p, 0);
+    }
+}
+
+static void statement_end_if(char **p)
+{
+    if (if_depth <= 0) {
+        runtime_error("END IF without matching IF");
+        return;
+    }
+    skip_spaces(p);
+    if_depth--;
+}
+
+/* Skip from FUNCTION to after matching END FUNCTION (top-level only). */
+static void skip_function_block(char **p)
+{
+    int line = current_line;
+    char *pos;
+    int nesting = 1;
+
+    *p += 8; /* past "FUNCTION" */
+    while (**p && **p != ':') (*p)++;
+    if (**p == ':') { (*p)++; skip_spaces(p); pos = *p; } else { line++; pos = NULL; }
+    while (line >= 0 && line < line_count && program_lines[line]) {
+        if (!pos) pos = program_lines[line]->text;
+        while (pos && *pos) {
+            char *q = pos;
+            skip_spaces(&q);
+            if (!*q) break;
+            if ((toupper((unsigned char)q[0])=='F' && toupper((unsigned char)q[1])=='U' &&
+                 toupper((unsigned char)q[2])=='N' && toupper((unsigned char)q[3])=='C' &&
+                 toupper((unsigned char)q[4])=='T' && toupper((unsigned char)q[5])=='I' &&
+                 toupper((unsigned char)q[6])=='O' && toupper((unsigned char)q[7])=='N') &&
+                (q[8]=='\0' || q[8]==' ' || q[8]=='\t')) {
+                nesting++;
+                q += 8;
+                while (*q && *q != ':') q++;
+                pos = (*q == ':') ? q + 1 : q;
+                continue;
+            }
+            if (toupper((unsigned char)q[0])=='E' && toupper((unsigned char)q[1])=='N' &&
+                toupper((unsigned char)q[2])=='D' && (q[3]=='\0' || q[3]==' ' || q[3]=='\t')) {
+                char *ef = q + 3;
+                while (*ef == ' ' || *ef == '\t') ef++;
+                if (toupper((unsigned char)ef[0])=='F' && toupper((unsigned char)ef[1])=='U' &&
+                    toupper((unsigned char)ef[2])=='N' && toupper((unsigned char)ef[3])=='C' &&
+                    toupper((unsigned char)ef[4])=='T' && toupper((unsigned char)ef[5])=='I' &&
+                    toupper((unsigned char)ef[6])=='O' && toupper((unsigned char)ef[7])=='N' &&
+                    (ef[8]=='\0' || ef[8]==' ' || ef[8]=='\t' || ef[8]==':')) {
+                    nesting--;
+                    if (nesting == 0) {
+                        ef += 8;
+                        skip_spaces(&ef);
+                        current_line = line;
+                        statement_pos = ef;
+                        *p = ef;
+                        return;
+                    }
+                    pos = ef + 8;
+                    while (*pos && *pos != ':') pos++;
+                    pos = (*pos == ':') ? pos + 1 : pos;
+                    continue;
+                }
+            }
+            pos = strchr(pos, ':');
+            pos = pos ? pos + 1 : NULL;
+        }
+        line++;
+        pos = NULL;
+    }
+    runtime_error("END FUNCTION expected");
+}
+
+static void statement_end_function(char **p)
+{
+    if (udf_call_depth <= 0) {
+        runtime_error("END FUNCTION without FUNCTION");
+        return;
+    }
+    skip_spaces(p);
+    udf_return_value = make_num(0.0);
+    udf_returned = 1;
+    udf_call_depth--;
+    current_line = udf_call_stack[udf_call_depth].saved_line;
+    statement_pos = udf_call_stack[udf_call_depth].saved_pos;
+}
+
+static void statement_while(char **p, char *while_pos)
+{
+    int cond_true;
+
+    cond_true = eval_condition(p);
+    if (!cond_true) {
+        skip_while_to_wend(p);
+        return;
+    }
+    if (while_top >= MAX_WHILE_DEPTH) {
+        runtime_error("WHILE nesting too deep");
+        return;
+    }
+    while_stack[while_top].line_index = current_line;
+    while_stack[while_top].position = while_pos;
+    while_top++;
+}
+
+static void statement_wend(char **p)
+{
+    if (while_top <= 0) {
+        runtime_error("WEND without WHILE");
+        return;
+    }
+    *p += 4;
+    skip_spaces(p);
+    {
+        int idx = while_top - 1;
+        current_line = while_stack[idx].line_index;
+        statement_pos = while_stack[idx].position;
+        while_top--;
     }
 }
 
@@ -4169,15 +4819,14 @@ static void statement_for(char **p)
     }
     *vp = startv;
 
-    /* Recover loop variable name (two-letter key) from vp by searching var table. */
-    for_stack[for_top].name1 = ' ';
-    for_stack[for_top].name2 = ' ';
+    /* Recover loop variable name from vp by searching var table. */
+    for_stack[for_top].name[0] = '\0';
     if (var_count > 0) {
         for (i = 0; i < var_count; i++) {
             if (&vars[i].scalar == vp ||
                 (vars[i].is_array && vp >= vars[i].array && vp < vars[i].array + vars[i].size)) {
-                for_stack[for_top].name1 = vars[i].name1;
-                for_stack[for_top].name2 = vars[i].name2;
+                strncpy(for_stack[for_top].name, vars[i].name, VAR_NAME_MAX - 1);
+                for_stack[for_top].name[VAR_NAME_MAX - 1] = '\0';
                 break;
             }
         }
@@ -4189,8 +4838,7 @@ static void statement_for(char **p)
      * grow the FOR stack without bound.
      */
     for (i = for_top - 1; i >= 0; i--) {
-        if (for_stack[i].name1 == for_stack[for_top].name1 &&
-            for_stack[i].name2 == for_stack[for_top].name2) {
+        if (strcmp(for_stack[i].name, for_stack[for_top].name) == 0) {
             for_top = i;
             break;
         }
@@ -4211,20 +4859,19 @@ static void statement_for(char **p)
 
 static void statement_next(char **p)
 {
-    char namebuf[8];
-    char n1, n2;
+    char namebuf[VAR_NAME_MAX];
     int i;
     struct value *vp;
     int is_string;
     skip_spaces(p);
     if (isalpha((unsigned char)**p)) {
         read_identifier(p, namebuf, sizeof(namebuf));
+        uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
     } else {
         namebuf[0] = '\0';
     }
-    uppercase_name(namebuf, &n1, &n2, &is_string);
     for (i = for_top - 1; i >= 0; i--) {
-        if (namebuf[0] == '\0' || (for_stack[i].name1 == n1 && for_stack[i].name2 == n2)) {
+        if (namebuf[0] == '\0' || strcmp(for_stack[i].name, namebuf) == 0) {
             break;
         }
     }
@@ -4251,8 +4898,7 @@ static void statement_next(char **p)
 static void statement_dim(char **p)
 {
     for (;;) {
-        char namebuf[8];
-        char n1, n2;
+        char namebuf[VAR_NAME_MAX];
         int is_string;
         int dims = 0;
         int dim_sizes[MAX_DIMS];
@@ -4265,7 +4911,11 @@ static void statement_dim(char **p)
             return;
         }
         read_identifier(p, namebuf, sizeof(namebuf));
-        uppercase_name(namebuf, &n1, &n2, &is_string);
+        uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
+        if (is_reserved_word(namebuf)) {
+            runtime_error("Reserved word cannot be used as variable");
+            return;
+        }
         skip_spaces(p);
         if (**p != '(') {
             runtime_error("DIM requires size");
@@ -4304,7 +4954,7 @@ static void statement_dim(char **p)
                 total_size *= dim_sizes[d];
             }
         }
-        v = find_or_create_var(n1, n2, is_string, 1, dims, dim_sizes, total_size);
+        v = find_or_create_var(namebuf, is_string, 1, dims, dim_sizes, total_size);
         (void)v;
         skip_spaces(p);
         if (**p == ',') {
@@ -4382,6 +5032,11 @@ static void execute_statement(char **p)
         if (starts_with_kw(*p, "RESTORE")) {
             *p += 7;
             statement_restore(p);
+            return;
+        }
+        if (starts_with_kw(*p, "RETURN")) {
+            *p += 6;
+            statement_return(p);
             return;
         }
     }
@@ -4507,6 +5162,19 @@ static void execute_statement(char **p)
         statement_next(p);
         return;
     }
+    if (c == 'W') {
+        if (starts_with_kw(*p, "WHILE")) {
+            char *while_pos = *p;
+            *p += 5;
+            skip_spaces(p);
+            statement_while(p, while_pos);
+            return;
+        }
+        if (starts_with_kw(*p, "WEND")) {
+            statement_wend(p);
+            return;
+        }
+    }
     if (c == 'D') {
         /* DATA lines are non-executable (values were collected at load time). */
         if (starts_with_kw(*p, "DATA")) {
@@ -4538,10 +5206,37 @@ static void execute_statement(char **p)
         statement_sleep(p);
         return;
     }
-    if (c == 'E' && starts_with_kw(*p, "END")) {
-        halted = 1;
-        *p += strlen(*p);
-        return;
+    if (c == 'E') {
+        if (starts_with_kw(*p, "ELSE")) {
+            if (if_depth > 0) {
+                *p += 4;
+                statement_else(p);
+                return;
+            }
+        }
+        if (starts_with_kw(*p, "END")) {
+            char *q = *p + 3;
+            skip_spaces(&q);
+            if (starts_with_kw(q, "IF")) {
+                *p = q + 2;
+                statement_end_if(p);
+                return;
+            }
+            if (starts_with_kw(q, "FUNCTION")) {
+                *p = q + 8;
+                statement_end_function(p);
+                return;
+            }
+            halted = 1;
+            *p += strlen(*p);
+            return;
+        }
+    }
+    if (c == 'F') {
+        if (starts_with_kw(*p, "FUNCTION") && ((*p)[8]=='\0' || (*p)[8]==' ' || (*p)[8]=='\t')) {
+            skip_function_block(p);
+            return;
+        }
     }
     if (c == 'S' && starts_with_kw(*p, "STOP")) {
         halted = 1;
@@ -4581,9 +5276,76 @@ static void execute_statement(char **p)
         return;
     }
     if (isalpha((unsigned char)c)) {
-        /* Fallback: treat as implicit LET (assignment). Any syntax issues
-         * inside the assignment will be reported by the expression parser.
-         */
+        /* Check for "name(...)" as UDF or DEF FN call (statement form, discard return). */
+        {
+            char namebuf[VAR_NAME_MAX];
+            char *q = *p;
+            int arg_count, udf_idx, uf_index, i;
+            struct value args[MAX_UDF_PARAMS];
+            read_identifier(&q, namebuf, sizeof(namebuf));
+            for (i = 0; namebuf[i]; i++) namebuf[i] = (char)toupper((unsigned char)namebuf[i]);
+            skip_spaces(&q);
+            if (*q == '(') {
+                char *saved_p = *p;
+                *p = q + 1;
+                skip_spaces(p);
+                arg_count = 0;
+                if (**p != ')') {
+                    for (;;) {
+                        if (arg_count >= MAX_UDF_PARAMS) {
+                            runtime_error("Too many arguments");
+                            return;
+                        }
+                        args[arg_count] = eval_expr(p);
+                        arg_count++;
+                        skip_spaces(p);
+                        if (**p == ')') break;
+                        if (**p != ',') {
+                            runtime_error("Expected ',' or ')'");
+                            return;
+                        }
+                        (*p)++;
+                        skip_spaces(p);
+                    }
+                }
+                if (**p == ')') (*p)++;
+                udf_idx = udf_lookup(namebuf, arg_count);
+                if (udf_idx >= 0) {
+                    (void)invoke_udf(udf_idx, args, arg_count);
+                    return;
+                }
+                if (arg_count == 1) {
+                    uf_index = user_func_lookup(namebuf);
+                    if (uf_index >= 0) {
+                        struct user_func *uf = &user_funcs[uf_index];
+                        struct var *param_var;
+                        struct value saved_scalar;
+                        char pname_buf[VAR_NAME_MAX];
+                        strncpy(pname_buf, uf->param_name, sizeof(pname_buf) - 1);
+                        pname_buf[sizeof(pname_buf) - 1] = '\0';
+                        param_var = find_or_create_var(pname_buf, uf->param_is_string, 0, 0, NULL, 0);
+                        if (param_var) {
+                            saved_scalar = param_var->scalar;
+                            if (uf->param_is_string) {
+                                ensure_str(&args[0]);
+                                param_var->scalar = args[0];
+                                param_var->scalar.type = VAL_STR;
+                            } else {
+                                ensure_num(&args[0]);
+                                param_var->scalar = args[0];
+                                param_var->scalar.type = VAL_NUM;
+                            }
+                            { char *body_p = uf->body; (void)eval_expr(&body_p); }
+                            param_var->scalar = saved_scalar;
+                        }
+                        return;
+                    }
+                }
+                /* No match; restore and fall through to implicit LET */
+                *p = saved_p;
+            }
+        }
+        /* Fallback: treat as implicit LET (assignment). */
         statement_let(p);
         return;
     }
@@ -4647,78 +5409,196 @@ static void add_or_replace_line(int number, const char *text)
     line_count++;
 }
 
-static void load_program(const char *path)
+/* Add line from included file; error if line number already exists. */
+static void add_line_from_include(int number, const char *text)
+{
+    int i;
+    for (i = 0; i < line_count; i++) {
+        if (program_lines[i] && program_lines[i]->number == number) {
+            fprintf(stderr, "Duplicate line number %d in include\n", number);
+            exit(1);
+        }
+    }
+    add_or_replace_line(number, text);
+}
+
+/* Get directory part of path. Returns "." if no directory. Writes to static buffer. */
+static const char *get_base_dir(const char *path)
+{
+    static char dirbuf[MAX_INCLUDE_PATH];
+    const char *last;
+    last = strrchr(path, '/');
+#if defined(_WIN32)
+    {
+        const char *b = strrchr(path, '\\');
+        if (b && (!last || b > last)) last = b;
+    }
+#endif
+    if (!last || last == path) {
+        return ".";
+    }
+    if ((size_t)(last - path + 1) >= sizeof(dirbuf)) {
+        return ".";
+    }
+    memcpy(dirbuf, path, (size_t)(last - path));
+    dirbuf[last - path] = '\0';
+    return dirbuf;
+}
+
+/* Resolve include path relative to base_dir. Writes to static buffer. */
+static const char *resolve_include_path(const char *base_dir, const char *rel_path)
+{
+    static char buf[MAX_INCLUDE_PATH];
+    if (!base_dir || !rel_path) return rel_path;
+    if (strcmp(base_dir, ".") == 0) {
+        if (strlen(rel_path) >= sizeof(buf)) return NULL;
+        strncpy(buf, rel_path, sizeof(buf) - 1);
+        buf[sizeof(buf) - 1] = '\0';
+        return buf;
+    }
+    if (strlen(base_dir) + 1 + strlen(rel_path) >= sizeof(buf)) return NULL;
+    snprintf(buf, sizeof(buf), "%s/%s", base_dir, rel_path);
+    return buf;
+}
+
+static char loading_paths[MAX_INCLUDE_DEPTH][MAX_INCLUDE_PATH];
+static int loading_count = 0;
+
+/* Load a file into the program, with directive processing. Recursive for #INCLUDE. */
+static void load_file_into_program(const char *path, const char *base_dir, int include_depth,
+    int *use_explicit_numbers, int *auto_line_no, int *first_line_seen)
 {
     FILE *f;
     char linebuf[MAX_LINE_LEN];
-    int auto_line_no = 10;
-    int use_explicit_numbers = -1; /* -1 = unknown, 0 = auto, 1 = explicit */
+    char *p;
+    int number;
+    const char *resolved;
+    int i;
+
+    if (include_depth >= MAX_INCLUDE_DEPTH) {
+        fprintf(stderr, "Include nesting too deep: %s\n", path);
+        exit(1);
+    }
+    /* Circular include: check if we're already loading this path. */
+    for (i = 0; i < loading_count; i++) {
+        if (strcmp(loading_paths[i], path) == 0) {
+            fprintf(stderr, "Circular include: %s\n", path);
+            exit(1);
+        }
+    }
+    if (loading_count >= MAX_INCLUDE_DEPTH || strlen(path) >= MAX_INCLUDE_PATH) {
+        fprintf(stderr, "Include error: %s\n", path);
+        exit(1);
+    }
+    strncpy(loading_paths[loading_count], path, MAX_INCLUDE_PATH - 1);
+    loading_paths[loading_count][MAX_INCLUDE_PATH - 1] = '\0';
+    loading_count++;
+
     f = fopen(path, "r");
     if (!f) {
         fprintf(stderr, "Cannot open %s\n", path);
         exit(1);
     }
+
     while (fgets(linebuf, sizeof(linebuf), f)) {
-        char *p;
-        int number;
         trim_newline(linebuf);
         p = linebuf;
-        while (*p == ' ' || *p == '\t') {
-            p++;
-        }
-        /* Skip UTF-8 BOM if present */
-        if ((unsigned char)p[0] == 0xef && (unsigned char)p[1] == 0xbb && (unsigned char)p[2] == 0xbf) {
+        while (*p == ' ' || *p == '\t') p++;
+        if ((unsigned char)p[0] == 0xef && (unsigned char)p[1] == 0xbb && (unsigned char)p[2] == 0xbf)
             p += 3;
-        }
-        /* Ignore empty or whitespace-only lines */
-        if (*p == '\0') {
+        if (*p == '\0') continue;
+
+        /* Shebang: first line of first file only */
+        if (!*first_line_seen && p[0] == '#' && p[1] == '!') {
+            *first_line_seen = 1;
             continue;
         }
 
-        /* Decide once per file whether we are in classic line-numbered mode
-         * or in "numberless" mode where we auto-assign line numbers. */
-        if (use_explicit_numbers == -1) {
-            if (isdigit((unsigned char)*p)) {
-                use_explicit_numbers = 1;
-            } else {
-                use_explicit_numbers = 0;
+        /* Meta directives: #OPTION, #INCLUDE */
+        if (p[0] == '#') {
+            *first_line_seen = 1;
+            p++;
+            while (*p == ' ' || *p == '\t') p++;
+            if ((toupper((unsigned char)p[0])=='O' && toupper((unsigned char)p[1])=='P' && toupper((unsigned char)p[2])=='T' && toupper((unsigned char)p[3])=='I' && toupper((unsigned char)p[4])=='O' && toupper((unsigned char)p[5])=='N') && (p[6]=='\0' || p[6]==' ' || p[6]=='\t')) {
+                char opt_name[64], opt_val[64];
+                char *q;
+                p += 6;
+                while (*p == ' ' || *p == '\t') p++;
+                q = opt_name;
+                while (*p && *p != ' ' && *p != '\t' && (size_t)(q - opt_name) < sizeof(opt_name) - 1)
+                    *q++ = (char)*p++;
+                *q = '\0';
+                while (*p == ' ' || *p == '\t') p++;
+                q = opt_val;
+                while (*p && (size_t)(q - opt_val) < sizeof(opt_val) - 1) *q++ = (char)*p++;
+                *q = '\0';
+                while (q > opt_val && (q[-1] == ' ' || q[-1] == '\t')) *--q = '\0';
+                if (apply_option_directive(opt_name, opt_val[0] ? opt_val : NULL) != 0) {
+                    fprintf(stderr, "Unknown or invalid #OPTION: %s %s\n", opt_name, opt_val);
+                    exit(1);
+                }
+                continue;
             }
+            if ((toupper((unsigned char)p[0])=='I' && toupper((unsigned char)p[1])=='N' && toupper((unsigned char)p[2])=='C' && toupper((unsigned char)p[3])=='L' && toupper((unsigned char)p[4])=='U' && toupper((unsigned char)p[5])=='D' && toupper((unsigned char)p[6])=='E') && (p[7]=='\0' || p[7]==' ' || p[7]=='\t')) {
+                char inc_file[MAX_INCLUDE_PATH];
+                p += 7;
+                while (*p == ' ' || *p == '\t') p++;
+                if (*p != '"' && *p != '\'') {
+                    fprintf(stderr, "Expected quoted path in #INCLUDE\n");
+                    exit(1);
+                }
+                {
+                    char quote = *p++;
+                    char *q = inc_file;
+                    while (*p && *p != quote && (size_t)(q - inc_file) < sizeof(inc_file) - 1)
+                        *q++ = (char)*p++;
+                    *q = '\0';
+                    if (*p) p++;
+                }
+                resolved = resolve_include_path(base_dir, inc_file);
+                if (!resolved) { fprintf(stderr, "Include path too long\n"); exit(1); }
+                if (strlen(resolved) >= MAX_INCLUDE_PATH) { fprintf(stderr, "Include path too long\n"); exit(1); }
+                /* Store resolved path so it survives the recursive call. */
+                strncpy(include_path_store[MAX_INCLUDE_DEPTH - 1], resolved, MAX_INCLUDE_PATH - 1);
+                include_path_store[MAX_INCLUDE_DEPTH - 1][MAX_INCLUDE_PATH - 1] = '\0';
+                load_file_into_program(include_path_store[MAX_INCLUDE_DEPTH - 1], get_base_dir(include_path_store[MAX_INCLUDE_DEPTH - 1]), include_depth + 1,
+                    use_explicit_numbers, auto_line_no, first_line_seen);
+                continue;
+            }
+            fprintf(stderr, "Unknown directive: #%.*s\n", 60, p);
+            exit(1);
         }
 
-        if (use_explicit_numbers == 1) {
+        *first_line_seen = 1;
+
+        if (*use_explicit_numbers == -1) {
+            *use_explicit_numbers = isdigit((unsigned char)*p) ? 1 : 0;
+        }
+
+        if (*use_explicit_numbers == 1) {
             char *transformed;
             if (!isdigit((unsigned char)*p)) {
                 fprintf(stderr, "Line missing number: %s\n", linebuf);
                 exit(1);
             }
             number = atoi(p);
-            while (*p && !isspace((unsigned char)*p)) {
-                p++;
-            }
-            while (*p == ' ' || *p == '\t') {
-                p++;
-            }
+            while (*p && !isspace((unsigned char)*p)) p++;
+            while (*p == ' ' || *p == '\t') p++;
             transformed = transform_basic_line(p);
             {
                 char *normalized = normalize_keywords_line(transformed);
-                add_or_replace_line(number, normalized);
+                if (include_depth > 0) add_line_from_include(number, normalized);
+                else add_or_replace_line(number, normalized);
                 free(normalized);
             }
             free(transformed);
         } else {
-            /* Numberless mode: reject later lines that suddenly introduce
-             * explicit line numbers. Mixed numbered/numberless programs are
-             * currently not supported because they make control flow and
-             * editing semantics ambiguous.
-             */
             if (isdigit((unsigned char)*p)) {
                 fprintf(stderr, "Mixed numbered and numberless lines are not supported: %s\n", linebuf);
                 exit(1);
             }
-            /* Numberless mode: keep the whole trimmed line as text and
-             * assign synthetic line numbers that preserve order. */
-            number = auto_line_no;
-            auto_line_no += 10;
+            number = *auto_line_no;
+            *auto_line_no += 10;
             {
                 char *transformed = transform_basic_line(p);
                 char *normalized = normalize_keywords_line(transformed);
@@ -4729,9 +5609,23 @@ static void load_program(const char *path)
         }
     }
     fclose(f);
+    loading_count--;
+}
+
+static void load_program(const char *path)
+{
+    int auto_line_no = 10;
+    int use_explicit_numbers = -1;
+    int first_line_seen = 0;
+    const char *base_dir = get_base_dir(path);
+
+    load_file_into_program(path, base_dir, 0,
+        &use_explicit_numbers, &auto_line_no, &first_line_seen);
+
     sort_program();
     collect_data_from_program();
     build_label_table();
+    build_udf_table();
 }
 
 static void run_program(const char *script_path_arg, int nargs, char **args)
@@ -4743,6 +5637,9 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
     current_line = 0;
     statement_pos = NULL;
     print_col = 0;
+    for_top = 0;
+    while_top = 0;
+    if_depth = 0;
     while (!halted && current_line >= 0 && current_line < line_count) {
         char *p;
         if (statement_pos == NULL) {
