@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **WHILE … WEND**
+  - Pre-test loop: `WHILE cond` … `WEND`. Nested WHILE/WEND supported.
 - **IF ELSE END IF**
   - Multi-line blocks: `IF cond THEN` … `ELSE` … `END IF`. Nested blocks supported.
   - Backward compatible: `IF X THEN 100` and `IF X THEN PRINT "Y"` unchanged.

@@ -78,6 +78,7 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
     - Enter/Return is returned as `CHR$(13)` so `ASC(K$)=13` works for “press Enter” checks.
   - `LET` (optional): assignment; you can also assign with `A=1` without `LET`.
   - `IF ... THEN` / `IF ... ELSE ... END IF`: conditional execution. Inline `IF X THEN 100` or `IF X THEN PRINT "Y"`; multi-line blocks with `IF X THEN` … `ELSE` … `END IF`. Supports nested blocks.
+  - `WHILE` … `WEND`: pre-test loops. `WHILE X < 5` … `WEND`; supports nested WHILE/WEND.
   - `GOTO`: jump to a given line number **or label** (e.g. `GOTO 100` or `GOTO GAMELOOP`).
   - `GOSUB` / `RETURN`: subroutines with a fixed-depth stack; targets may be line numbers or labels.
   - `ON expr GOTO` / `ON expr GOSUB`: multi-branch jumps; e.g. `ON N GOTO 100,200,300` or `ON K GOSUB 500,600`.
