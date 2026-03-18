@@ -18,6 +18,7 @@
   - Backward compatible: `IF X THEN 100` and `IF X THEN PRINT "Y"` unchanged.
 - **Variable naming**
   - Full variable names (up to 31 chars) are now significant; `SALE` and `SAFE` are distinct.
+  - Underscores (`_`) allowed in identifiers (e.g. `is_prime`, `my_var`).
   - Reserved-word check: keywords cannot be used as variables; clear error on misuse. Labels may match keywords (e.g. `CLR:`).
 - **basic-gfx PETSCII / .seq viewer**
   - PETSCII→screen code conversion when `SCREENCODES ON`; `.seq` streams display correctly.
@@ -31,6 +32,7 @@
   - Sprite features planning doc (`docs/sprite-features-plan.md`).
   - Meta directives plan (`docs/meta-directives-plan.md`) — shebang, #OPTION, #INCLUDE.
   - User-defined functions plan (`docs/user-functions-plan.md`).
+  - Tutorial examples: `examples/tutorial_functions.bas`, `examples/tutorial_lib.bas`, `examples/tutorial_menu.bas` — FUNCTIONS, #INCLUDE, WHILE, IF ELSE END IF.
   - README, to-do, and `docs/bitmap-graphics-plan.md` updated for merged GFX.
   - Removed colaburger test PNG/MD artifacts.
 

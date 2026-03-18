@@ -50,6 +50,7 @@
 * ~Reserved-word / identifier hygiene (variables)~
   * ~Reserved words cannot be used as variables; error "Reserved word cannot be used as variable"~
   * Labels may match keywords (e.g. `CLR:` in trek.bas); context distinguishes.
+  * ~Underscores in identifiers~ — `is_prime`, `my_var` etc. now allowed.
   * Improve error messages where possible
 
 ---

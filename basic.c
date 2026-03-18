@@ -85,7 +85,7 @@ typedef struct {
 
 static int is_ident_char(int c)
 {
-    return isalpha((unsigned char)c) || isdigit((unsigned char)c) || c == '$';
+    return isalpha((unsigned char)c) || isdigit((unsigned char)c) || c == '$' || c == '_';
 }
 
 static const TokenMap token_map[] = {
@@ -1612,7 +1612,7 @@ static void build_label_table(void)
             continue;
         }
         q = p;
-        while (isalpha((unsigned char)*q) || isdigit((unsigned char)*q) || *q == '$') {
+        while (isalpha((unsigned char)*q) || isdigit((unsigned char)*q) || *q == '$' || *q == '_') {
             q++;
         }
         /* Skip optional spaces/tabs between label and ':' */
@@ -3151,12 +3151,12 @@ static struct var *find_or_create_var(const char *name, int is_string, int want_
     return v;
 }
 
-/* Read an identifier (letters/digits/$) into buf, advancing the pointer. */
+/* Read an identifier (letters/digits/$/_) into buf, advancing the pointer. */
 static int read_identifier(char **p, char *buf, int buf_size)
 {
     int i;
     i = 0;
-    while (isalpha((unsigned char)(**p)) || isdigit((unsigned char)(**p)) || **p == '$') {
+    while (isalpha((unsigned char)(**p)) || isdigit((unsigned char)(**p)) || **p == '$' || **p == '_') {
         if (i < buf_size - 1) {
             buf[i++] = **p;
         }
@@ -4389,7 +4389,7 @@ static void statement_goto(char **p)
     } else if (isalpha((unsigned char)**p)) {
         char namebuf[32];
         int len = 0;
-        while ((isalpha((unsigned char)**p) || isdigit((unsigned char)**p)) &&
+        while ((isalpha((unsigned char)**p) || isdigit((unsigned char)**p) || **p == '_') &&
                len < (int)sizeof(namebuf) - 1) {
             namebuf[len++] = **p;
             (*p)++;
@@ -4426,7 +4426,7 @@ static void statement_gosub(char **p)
     } else if (isalpha((unsigned char)**p)) {
         char namebuf[32];
         int len = 0;
-        while ((isalpha((unsigned char)**p) || isdigit((unsigned char)**p)) &&
+        while ((isalpha((unsigned char)**p) || isdigit((unsigned char)**p) || **p == '_') &&
                len < (int)sizeof(namebuf) - 1) {
             namebuf[len++] = **p;
             (*p)++;
