@@ -58,6 +58,15 @@ static uint8_t peek_bitmap(const GfxVideoState *s, uint16_t addr)
     return 0;
 }
 
+static uint8_t peek_keys(const GfxVideoState *s, uint16_t addr)
+{
+    uint16_t offset = addr - GFX_KEY_BASE;
+    if (offset < GFX_KEY_SIZE) {
+        return s->key_state[offset];
+    }
+    return 0;
+}
+
 uint8_t gfx_peek(const GfxVideoState *s, uint16_t addr)
 {
     if (!s) return 0;
@@ -67,6 +76,8 @@ uint8_t gfx_peek(const GfxVideoState *s, uint16_t addr)
         return peek_color(s, addr);
     if (addr >= GFX_CHAR_BASE && addr < GFX_CHAR_BASE + GFX_CHAR_SIZE)
         return peek_chars(s, addr);
+    if (addr >= GFX_KEY_BASE && addr < GFX_KEY_BASE + GFX_KEY_SIZE)
+        return peek_keys(s, addr);
     if (addr >= GFX_BITMAP_BASE && addr < GFX_BITMAP_BASE + GFX_BITMAP_BYTES)
         return peek_bitmap(s, addr);
     /* Everything else currently undefined: read as 0. */

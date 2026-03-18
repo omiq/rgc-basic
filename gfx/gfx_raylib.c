@@ -426,6 +426,53 @@ int main(int argc, char **argv)
      * visible (e.g., via SLEEP) and then exit cleanly without requiring
      * manual ESC presses. */
     while (!WindowShouldClose() && !basic_halted()) {
+        /* Update simple keyboard state map (ASCII-like indices) so BASIC can
+         * poll via PEEK(GFX_KEY_BASE + code). */
+        gfx_video_clear_keys(&vs);
+        if (IsKeyDown(KEY_SPACE))  vs.key_state[32]  = 1;
+        if (IsKeyDown(KEY_ENTER))  vs.key_state[13]  = 1;
+        if (IsKeyDown(KEY_ESCAPE)) vs.key_state[27]  = 1;
+        if (IsKeyDown(KEY_UP))     vs.key_state[145] = 1; /* C64 CHR$ up */
+        if (IsKeyDown(KEY_DOWN))   vs.key_state[17]  = 1; /* C64 CHR$ down */
+        if (IsKeyDown(KEY_LEFT))   vs.key_state[157] = 1; /* C64 CHR$ left */
+        if (IsKeyDown(KEY_RIGHT))  vs.key_state[29]  = 1; /* C64 CHR$ right */
+        if (IsKeyDown(KEY_A)) vs.key_state['A'] = 1;
+        if (IsKeyDown(KEY_B)) vs.key_state['B'] = 1;
+        if (IsKeyDown(KEY_C)) vs.key_state['C'] = 1;
+        if (IsKeyDown(KEY_D)) vs.key_state['D'] = 1;
+        if (IsKeyDown(KEY_E)) vs.key_state['E'] = 1;
+        if (IsKeyDown(KEY_F)) vs.key_state['F'] = 1;
+        if (IsKeyDown(KEY_G)) vs.key_state['G'] = 1;
+        if (IsKeyDown(KEY_H)) vs.key_state['H'] = 1;
+        if (IsKeyDown(KEY_I)) vs.key_state['I'] = 1;
+        if (IsKeyDown(KEY_J)) vs.key_state['J'] = 1;
+        if (IsKeyDown(KEY_K)) vs.key_state['K'] = 1;
+        if (IsKeyDown(KEY_L)) vs.key_state['L'] = 1;
+        if (IsKeyDown(KEY_M)) vs.key_state['M'] = 1;
+        if (IsKeyDown(KEY_N)) vs.key_state['N'] = 1;
+        if (IsKeyDown(KEY_O)) vs.key_state['O'] = 1;
+        if (IsKeyDown(KEY_P)) vs.key_state['P'] = 1;
+        if (IsKeyDown(KEY_Q)) vs.key_state['Q'] = 1;
+        if (IsKeyDown(KEY_R)) vs.key_state['R'] = 1;
+        if (IsKeyDown(KEY_S)) vs.key_state['S'] = 1;
+        if (IsKeyDown(KEY_T)) vs.key_state['T'] = 1;
+        if (IsKeyDown(KEY_U)) vs.key_state['U'] = 1;
+        if (IsKeyDown(KEY_V)) vs.key_state['V'] = 1;
+        if (IsKeyDown(KEY_W)) vs.key_state['W'] = 1;
+        if (IsKeyDown(KEY_X)) vs.key_state['X'] = 1;
+        if (IsKeyDown(KEY_Y)) vs.key_state['Y'] = 1;
+        if (IsKeyDown(KEY_Z)) vs.key_state['Z'] = 1;
+        if (IsKeyDown(KEY_ZERO))  vs.key_state['0'] = 1;
+        if (IsKeyDown(KEY_ONE))   vs.key_state['1'] = 1;
+        if (IsKeyDown(KEY_TWO))   vs.key_state['2'] = 1;
+        if (IsKeyDown(KEY_THREE)) vs.key_state['3'] = 1;
+        if (IsKeyDown(KEY_FOUR))  vs.key_state['4'] = 1;
+        if (IsKeyDown(KEY_FIVE))  vs.key_state['5'] = 1;
+        if (IsKeyDown(KEY_SIX))   vs.key_state['6'] = 1;
+        if (IsKeyDown(KEY_SEVEN)) vs.key_state['7'] = 1;
+        if (IsKeyDown(KEY_EIGHT)) vs.key_state['8'] = 1;
+        if (IsKeyDown(KEY_NINE))  vs.key_state['9'] = 1;
+
         render_text_screen(&vs, target);
 
         BeginDrawing();

@@ -21,6 +21,12 @@
 #define GFX_CHAR_BASE   0x3000u  /* 256 chars * 8 bytes = 2048 bytes */
 #define GFX_CHAR_SIZE   (256u * 8u)
 
+/* Keyboard state (host-provided): 256 bytes.
+ * Currently mapped as ASCII-like key indices (e.g. 'A' = 65) for simple
+ * polling from BASIC via PEEK. Non-zero means "down". */
+#define GFX_KEY_BASE    0xDC00u
+#define GFX_KEY_SIZE    256u
+
 /* Simple monochrome bitmap: 320x200, 1 bit per pixel. */
 #define GFX_BITMAP_BASE 0x2000u
 #define GFX_BITMAP_WIDTH  320u

@@ -322,9 +322,20 @@ You can either use the provided `Makefile` (recommended) or compile manually.
     - MinGW‑w64 (`gcc`)
 - **Optional (for raylib-based graphics builds)**:
   - **Linux / WSL**: install the raylib development package so headers and `pkg-config` metadata are available, for example:
-    - Debian/Ubuntu: `sudo apt-get install -y libraylib-dev`
+    - Debian/Ubuntu (if available): `sudo apt-get install -y libraylib-dev`
+    - If your distro does not provide `libraylib-dev`, build and install raylib from source (summary):
+      - Install deps: `sudo apt-get install -y build-essential cmake git pkg-config libasound2-dev libx11-dev libxrandr-dev libxi-dev libxinerama-dev libxcursor-dev libgl1-mesa-dev libglu1-mesa-dev`
+      - Build/install: `git clone https://github.com/raysan5/raylib.git && cd raylib && cmake -B build -DBUILD_SHARED_LIBS=ON && cmake --build build --config Release && sudo cmake --install build`
+      - If you installed to `/usr/local/lib`, you may need: `echo '/usr/local/lib' | sudo tee /etc/ld.so.conf.d/raylib.conf && sudo ldconfig`
   - **macOS** (Homebrew): `brew install raylib`
-  - Once installed, you can build the integrated graphics targets via `make gfx-demo` and `make basic-gfx`.
+  - Once installed, you can build the graphics targets via `make gfx-demo` and `make basic-gfx`:
+    - `./gfx-demo`
+    - `./basic-gfx examples/gfx_poke_demo.bas`
+    - `./basic-gfx examples/gfx_charset_demo.bas`
+    - `./basic-gfx examples/gfx_key_demo.bas`
+  - **Keyboard polling (basic-gfx)**:
+    - BASIC can poll a simple key-down map via `PEEK(56320 + code)` where 56320 is \(0xDC00\).
+    - Supported codes include ASCII `A`–`Z`, `0`–`9`, Space (32), Enter (13), Esc (27), and C64 cursor codes Up (145), Down (17), Left (157), Right (29).
 
 #### Using `make` (recommended)
 
