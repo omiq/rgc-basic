@@ -66,6 +66,10 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
 
 ## 💡 Features
 
+- **Meta directives** (load-time, `#` prefix) — see `docs/meta-directives-plan.md`:
+  - Shebang: `#!/usr/bin/env basic` on first line (ignored).
+  - `#OPTION petscii` / `#OPTION charset lower` / `#OPTION palette c64` — mirror command-line options; file overrides CLI.
+  - `#INCLUDE "path"` — splice another file at that point. Recommend numberless mode when using includes; duplicate line numbers and labels error.
 - **Programs with or without line numbers**
   - Classic **line-numbered programs** loaded from a text file (`10 ...`, `20 ...`, etc.).
   - Also supports **numberless programs**: if the first non‑blank line has no leading digits, synthetic line numbers are assigned internally (you can still use labels and structured control flow).
@@ -77,7 +81,8 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
     - If no key is waiting, `K$` becomes `""`.
     - Enter/Return is returned as `CHR$(13)` so `ASC(K$)=13` works for “press Enter” checks.
   - `LET` (optional): assignment; you can also assign with `A=1` without `LET`.
-  - `IF ... THEN`: conditional execution, supporting comparisons, `AND`/`OR`, and optional line-number or label jumps.
+  - `IF ... THEN` / `IF ... ELSE ... END IF`: conditional execution. Inline `IF X THEN 100` or `IF X THEN PRINT "Y"`; multi-line blocks with `IF X THEN` … `ELSE` … `END IF`. Supports nested blocks.
+  - `WHILE` … `WEND`: pre-test loops. `WHILE X < 5` … `WEND`; supports nested WHILE/WEND.
   - `GOTO`: jump to a given line number **or label** (e.g. `GOTO 100` or `GOTO GAMELOOP`).
   - `GOSUB` / `RETURN`: subroutines with a fixed-depth stack; targets may be line numbers or labels.
   - `ON expr GOTO` / `ON expr GOSUB`: multi-branch jumps; e.g. `ON N GOTO 100,200,300` or `ON K GOSUB 500,600`.
@@ -102,8 +107,9 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
     - `CLOSE [lfn [, lfn ...]]` — close file(s); `CLOSE` with no arguments closes all.
     - `ST` — system variable set after `INPUT#`/`GET#`: 0 = success, 64 = end of file, 1 = error / file not open. Use e.g. `IF ST <> 0 THEN GOTO done`.
 - **Variables**
-  - **Numeric variables**: `A`, `B1`, `AB`, `ATAKFLAG`, etc. Names may be longer than two characters; CBM-style **first two characters** identify the variable (e.g. `ATAKFLAG` and `ATA` refer to the same variable).
+  - **Numeric variables**: `A`, `B1`, `SALE`, `SAFE`, `PLAYERSCORE`, etc. Full variable names up to 31 characters are significant (e.g. `SALE` and `SAFE` are distinct).
   - **String variables**: names ending in `$`, e.g. `A$`, `NAME$`.
+  - **Reserved words** (e.g. `IF`, `FOR`, `PRINT`) cannot be used as variable names. Labels may match keywords (e.g. `CLR:`).
   - **Arrays**: 1‑D or multi‑dimensional, e.g. `A(10)`, `A$(20)`, `C(2,3)`. Index is 0‑based internally; `DIM A(10)` allows indices `0..10`; `DIM C(2,3)` gives a 3×4 matrix.
 - **Intrinsic functions**
   - **Math**: `SIN`, `COS`, `TAN`, `ABS`, `INT`, `SQR`, `SGN`, `EXP`, `LOG`, `RND`.
