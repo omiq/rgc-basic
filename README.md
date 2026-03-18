@@ -273,7 +273,7 @@ Program text is normalized at load time so **compact CBM BASIC** without spaces 
 
 ### PETSCII GRAPHICS (using Raylib)
 
-Using BASIC-GFX, you have can have full PETSCII symbols (upper/lower or upper and graphic) and `POKE / PEEK` screen memory reading and writing:
+Using BASIC-GFX, you can have full PETSCII symbols (upper/lower or upper and graphic) and `POKE` / `PEEK` screen memory reading and writing:
 
 (building requires Raylib to be installed - build the graphics target via `make basic-gfx)`
 
@@ -283,7 +283,7 @@ Using BASIC-GFX, you have can have full PETSCII symbols (upper/lower or upper an
 - `./basic-gfx -petscii examples/gfx_text_demo.bas`
 - `./basic-gfx -petscii examples/gfx_inkey_demo.bas`
 - `./basic-gfx -petscii examples/gfx_jiffy_game_demo.bas`
-- `./basic-gfx -petscii examples/gfx_colaburger_viewer.bas`
+- `./basic-gfx -petscii -charset lower examples/gfx_colaburger_viewer.bas` — displays `.seq` art with correct PETSCII rendering (lowercase charset for “Welcome”, “Press”, etc.).
 
 **Keyboard polling (basic-gfx)**:
 
@@ -304,9 +304,10 @@ Using BASIC-GFX, you have can have full PETSCII symbols (upper/lower or upper an
 
 **SCREENCODES ON|OFF (basic-gfx)**:
 
-- In gfx builds, `SCREENCODES ON` makes `PRINT` treat bytes as **raw screen codes** (0–255) rather than ASCII→screen-code mapping.
-- This is useful for displaying `.seq` screen-code art streams (e.g. `examples/gfx_colaburger_viewer.bas`).
-- Use `SCREENCODES OFF` to restore the default behavior (ASCII strings like `PRINT \"HELLO\"` map naturally).
+- In gfx builds, `SCREENCODES ON` makes `PRINT` treat bytes as **PETSCII** from `.seq` streams; they are converted to C64 screen codes for display (same semantics as `CHR$`/terminal PETSCII).
+- This is required for `.seq` art viewers such as `examples/gfx_colaburger_viewer.bas`.
+- Use `SCREENCODES OFF` to restore the default (ASCII strings like `PRINT "HELLO"` map naturally).
+- The window closes automatically when the program reaches `END`.
 
 ---
 
@@ -323,13 +324,15 @@ The `examples` folder (included in release archives) contains:
 - `examples/fileio_basics.bas`: write and read a file (OPEN, PRINT#, INPUT#, CLOSE) with step-by-step comments.
 - `examples/fileio_loop.bas`: read until end of file using the ST status variable (ST=0/64/1).
 - `examples/fileio_get.bas`: read one character at a time with GET#.
-- `examples/colaburger_viewer.bas` and `examples/colaburger.seq`: PETSCII .seq file viewer.
+- `examples/colaburger_viewer.bas`, `examples/gfx_colaburger_viewer.bas`, and `examples/colaburger.seq`: PETSCII .seq file viewer.
   - **.seq files** are sequential dumps of PETSCII screen codes (e.g. from BBS logs or PETSCII art).
-  - The viewer reads the file byte-by-byte with `GET#`, prints each byte via `CHR$`, and wraps after
+  - The terminal viewer reads the file byte-by-byte with `GET#`, prints each byte via `CHR$`, and wraps after
   **40 visible columns** (only printable/graphics bytes advance the cursor; control/color codes do not).
-  - Run with `-petscii-plain` so control and color codes output nothing and alignment matches a real
+  - **Terminal**: run with `-petscii-plain` so control and color codes output nothing and alignment matches a real
   C64 screen:  
   `./basic -petscii-plain examples/colaburger_viewer.bas`  
+  - **Graphics** (`basic-gfx`): run with `-petscii -charset lower` for full PETSCII rendering in a raylib window:  
+  `./basic-gfx -petscii -charset lower examples/gfx_colaburger_viewer.bas`  
   - With `-petscii` you get ANSI colors and cursor codes; with `-petscii-plain` you get
   strict character alignment and no escape sequences, ideal for art and fixed-width paste.
 - `examples/scripting.bas`: shell-scripting style — command-line arguments (`ARGC()`, `ARG$(0)` … `ARG$(n)`), running commands (`SYSTEM("date")`, `EXEC$("whoami")`). Run: `./basic examples/scripting.bas [name]`.
