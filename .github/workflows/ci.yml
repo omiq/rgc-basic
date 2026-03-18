@@ -22,25 +22,58 @@ jobs:
             archive: basic-linux.tar.gz
             outdir: linux
             bin: basic
+            build_gfx: true
           - os: macos-latest
             artifact: basic-macos
             archive: basic-macos.tar.gz
             outdir: mac
             bin: basic
+            build_gfx: true
           - os: windows-latest
             artifact: basic-windows
             archive: basic-windows.zip
             outdir: windows
             bin: basic.exe
+            build_gfx: false
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install raylib (Linux)
+        if: runner.os == 'Linux' && matrix.build_gfx
+        run: |
+          set -e
+          sudo apt-get update
+          if sudo apt-get install -y libraylib-dev; then
+            echo "Installed libraylib-dev from apt"
+          else
+            echo "libraylib-dev not available; building raylib from source"
+            sudo apt-get install -y build-essential cmake git pkg-config \
+              libasound2-dev libx11-dev libxrandr-dev libxi-dev \
+              libxinerama-dev libxcursor-dev libgl1-mesa-dev libglu1-mesa-dev
+            git clone --depth 1 https://github.com/raysan5/raylib.git /tmp/raylib
+            cmake -S /tmp/raylib -B /tmp/raylib/build -DBUILD_SHARED_LIBS=ON
+            cmake --build /tmp/raylib/build --config Release
+            sudo cmake --install /tmp/raylib/build
+            echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/raylib.conf
+            sudo ldconfig
+          fi
+
+      - name: Install raylib (macOS)
+        if: runner.os == 'macOS' && matrix.build_gfx
+        run: |
+          set -e
+          brew update
+          brew install raylib
+
       - name: Build (Unix)
         if: runner.os != 'Windows'
         run: |
           make
+          if [ "${{ matrix.build_gfx }}" = "true" ]; then
+            make basic-gfx
+          fi
 
       - name: Run tests (Unix)
         if: runner.os != 'Windows'
@@ -86,6 +119,9 @@ jobs:
         run: |
           mkdir -p out/${{ matrix.outdir }}
           cp ${{ matrix.bin }} out/${{ matrix.outdir }}/basic
+          if [ "${{ matrix.build_gfx }}" = "true" ] && [ -f basic-gfx ]; then
+            cp basic-gfx out/${{ matrix.outdir }}/basic-gfx
+          fi
           cp -r examples out/${{ matrix.outdir }}/
           cd out
           tar czf ${{ matrix.archive }} ${{ matrix.outdir }}
