@@ -52,7 +52,7 @@ static const Color c64_palette[16] = {
     { 0xBB, 0xBB, 0xBB, 0xFF },   /* 15  Light Gray  */
 };
 
-static const uint8_t BG_COLOR = 6;   /* default C64 blue background */
+/* Background colour comes from video state (s->bg_color). */
 
 /* ── Built-in 8×8 font (full PETSCII screen codes 0–255) ────────── */
 
@@ -333,7 +333,7 @@ static void render_text_screen(const GfxVideoState *s,
     int row, col, y, x;
 
     BeginTextureMode(target);
-    ClearBackground(c64_palette[BG_COLOR]);
+    ClearBackground(c64_palette[s->bg_color & 0x0F]);
 
     for (row = 0; row < SCREEN_ROWS; row++) {
         for (col = 0; col < SCREEN_COLS; col++) {

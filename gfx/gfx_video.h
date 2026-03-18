@@ -39,6 +39,7 @@ typedef struct GfxVideoState {
     uint8_t chars[GFX_CHAR_SIZE];           /* Character ROM / UDGs */
     uint8_t bitmap[GFX_BITMAP_BYTES];       /* 320x200 1bpp bitmap */
     uint8_t key_state[256];                 /* Simple keyboard state, 1 = down */
+    uint8_t bg_color;                       /* Background colour index (0-15) */
 } GfxVideoState;
 
 /* Initialise state to a clean default (all zeros). */

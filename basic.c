@@ -723,6 +723,159 @@ static int print_col = 0;
 
 #ifdef GFX_VIDEO
 static GfxVideoState *gfx_vs = NULL;
+
+/* GFX text output state (mirrors a C64-like 40x25 text screen). */
+#define GFX_COLS 40
+#define GFX_ROWS 25
+static int gfx_x = 0;
+static int gfx_y = 0;
+static uint8_t gfx_fg = 14;      /* default light blue */
+static uint8_t gfx_bg = 6;       /* default blue background */
+static int gfx_reverse = 0;
+
+static uint8_t gfx_ascii_to_screencode(unsigned char c)
+{
+    if (c >= 'A' && c <= 'Z') return (uint8_t)(c - 'A' + 1);
+    if (c >= 'a' && c <= 'z') return (uint8_t)(c - 'a' + 1);
+    if (c == '@') return 0;
+    if (c >= ' ' && c <= '?') return (uint8_t)c;
+    return 32;
+}
+
+static void gfx_scroll_up(void)
+{
+    int row;
+    if (!gfx_vs) return;
+    for (row = 0; row < GFX_ROWS - 1; row++) {
+        memcpy(&gfx_vs->screen[row * GFX_COLS],
+               &gfx_vs->screen[(row + 1) * GFX_COLS],
+               GFX_COLS);
+        memcpy(&gfx_vs->color[row * GFX_COLS],
+               &gfx_vs->color[(row + 1) * GFX_COLS],
+               GFX_COLS);
+    }
+    memset(&gfx_vs->screen[(GFX_ROWS - 1) * GFX_COLS], 32, GFX_COLS);
+    memset(&gfx_vs->color[(GFX_ROWS - 1) * GFX_COLS], gfx_fg, GFX_COLS);
+}
+
+static void gfx_newline(void)
+{
+    gfx_x = 0;
+    gfx_y++;
+    if (gfx_y >= GFX_ROWS) {
+        gfx_scroll_up();
+        gfx_y = GFX_ROWS - 1;
+    }
+    print_col = gfx_x;
+}
+
+static void gfx_clear_screen(void)
+{
+    if (!gfx_vs) return;
+    memset(gfx_vs->screen, 32, GFX_TEXT_SIZE);
+    memset(gfx_vs->color, gfx_fg, GFX_COLOR_SIZE);
+    gfx_x = 0;
+    gfx_y = 0;
+    print_col = 0;
+}
+
+static int gfx_apply_control_code(unsigned char code)
+{
+    /* Return non-zero if the code was handled as control/state. */
+    switch (code) {
+    case 13: /* CR */
+    case 10: /* LF */
+        gfx_newline();
+        return 1;
+    case 19: /* HOME */
+        gfx_x = 0;
+        gfx_y = 0;
+        print_col = 0;
+        return 1;
+    case 147: /* CLR */
+        gfx_clear_screen();
+        return 1;
+    case 17:  /* down */
+        if (gfx_y < GFX_ROWS - 1) gfx_y++;
+        return 1;
+    case 145: /* up */
+        if (gfx_y > 0) gfx_y--;
+        return 1;
+    case 29:  /* right */
+        if (gfx_x < GFX_COLS - 1) gfx_x++;
+        print_col = gfx_x;
+        return 1;
+    case 157: /* left */
+        if (gfx_x > 0) gfx_x--;
+        print_col = gfx_x;
+        return 1;
+    case 18:  /* reverse on */
+        gfx_reverse = 1;
+        return 1;
+    case 146: /* reverse off */
+        gfx_reverse = 0;
+        return 1;
+    /* PETSCII colour control codes -> set current foreground colour index. */
+    case 144: gfx_fg = 0;  return 1; /* black */
+    case 5:   gfx_fg = 1;  return 1; /* white */
+    case 28:  gfx_fg = 2;  return 1; /* red */
+    case 159: gfx_fg = 3;  return 1; /* cyan */
+    case 156: gfx_fg = 4;  return 1; /* purple */
+    case 30:  gfx_fg = 5;  return 1; /* green */
+    case 31:  gfx_fg = 6;  return 1; /* blue */
+    case 158: gfx_fg = 7;  return 1; /* yellow */
+    case 129: gfx_fg = 8;  return 1; /* orange */
+    case 149: gfx_fg = 9;  return 1; /* brown */
+    case 150: gfx_fg = 10; return 1; /* light red */
+    case 151: gfx_fg = 11; return 1; /* dark gray */
+    case 152: gfx_fg = 12; return 1; /* medium gray */
+    case 153: gfx_fg = 13; return 1; /* light green */
+    case 154: gfx_fg = 14; return 1; /* light blue */
+    case 155: gfx_fg = 15; return 1; /* light gray */
+    default:
+        break;
+    }
+    return 0;
+}
+
+static void gfx_put_byte(unsigned char b)
+{
+    int idx;
+    uint8_t sc;
+
+    if (!gfx_vs) return;
+    if (gfx_apply_control_code(b)) return;
+
+    /* Map printable ASCII to C64 screen codes for convenience. Otherwise
+     * treat the byte as a direct screen code. */
+    if (b >= 32 && b <= 126) {
+        sc = gfx_ascii_to_screencode(b);
+    } else {
+        sc = (uint8_t)b;
+    }
+
+    if (gfx_reverse && sc < 128) {
+        sc |= 0x80;
+    }
+
+    if (gfx_x < 0) gfx_x = 0;
+    if (gfx_x >= GFX_COLS) gfx_newline();
+    if (gfx_y < 0) gfx_y = 0;
+    if (gfx_y >= GFX_ROWS) gfx_y = GFX_ROWS - 1;
+
+    idx = gfx_y * GFX_COLS + gfx_x;
+    if (idx >= 0 && idx < (int)GFX_TEXT_SIZE) {
+        gfx_vs->screen[idx] = sc;
+        gfx_vs->color[idx]  = (uint8_t)(gfx_fg & 0x0F);
+    }
+
+    gfx_x++;
+    if (gfx_x >= GFX_COLS) {
+        gfx_newline();
+    } else {
+        print_col = gfx_x;
+    }
+}
 #endif
 
 /* PETSCII/ANSI configuration */
@@ -1054,6 +1207,12 @@ static void print_spaces(int count)
 {
     int i;
     for (i = 0; i < count; i++) {
+#ifdef GFX_VIDEO
+        if (gfx_vs) {
+            gfx_put_byte(' ');
+            continue;
+        }
+#endif
         fputc(' ', stdout);
         print_col++;
         if (print_col >= PRINT_WIDTH) {
@@ -1429,6 +1588,13 @@ static void print_value(struct value *v)
         s = v->str;
         while (*s) {
             unsigned char c = (unsigned char)*s;
+#ifdef GFX_VIDEO
+            if (gfx_vs) {
+                gfx_put_byte(c);
+                s++;
+                continue;
+            }
+#endif
             /* Handle ANSI escape sequences specially so column tracking matches
              * what the terminal actually does. Most sequences are treated as
              * zero-width; cursor-right (C) / cursor-left (D) adjust print_col.
@@ -1507,6 +1673,15 @@ static void print_value(struct value *v)
     } else {
         char buf[64];
         sprintf(buf, "%g", v->num);
+#ifdef GFX_VIDEO
+        if (gfx_vs) {
+            char *s = buf;
+            while (*s) {
+                gfx_put_byte((unsigned char)*s++);
+            }
+            return;
+        }
+#endif
         fputs(buf, stdout);
         print_col += (int)strlen(buf);
     }
@@ -1701,6 +1876,13 @@ static void statement_color(char **p)
         return;
     }
 
+#ifdef GFX_VIDEO
+    if (gfx_vs) {
+        gfx_fg = (uint8_t)idx;
+        return;
+    }
+#endif
+
     /* Map C64 color index to ANSI foreground SGR. */
     switch (idx) {
     case 0:  printf("\033[30m"); break;       /* black */
@@ -1738,6 +1920,14 @@ static void statement_background(char **p)
         runtime_error("BACKGROUND index must be 0-15");
         return;
     }
+
+#ifdef GFX_VIDEO
+    if (gfx_vs) {
+        gfx_bg = (uint8_t)idx;
+        gfx_vs->bg_color = (uint8_t)idx;
+        return;
+    }
+#endif
 
     /* Map C64 color index to ANSI background SGR. */
     switch (idx) {
@@ -1939,6 +2129,15 @@ static struct value eval_function(const char *name, char **p)
         ensure_num(&arg);
         {
             int code = (int)arg.num & 0xff;
+#ifdef GFX_VIDEO
+            /* In gfx mode we want raw bytes so screen/control codes can be
+             * interpreted by the gfx output backend (including {TOKENS}). */
+            if (gfx_vs) {
+                outbuf[0] = (char)code;
+                outbuf[1] = '\0';
+                return make_str(outbuf);
+            }
+#endif
             if (petscii_mode) {
                 /* -petscii-plain: no ANSI; control/color output nothing (invisible, like C64 - no visible space). */
                 if (petscii_plain) {
@@ -3048,6 +3247,12 @@ static void statement_print(char **p)
 
     /* Bare PRINT: always newline. */
     if (!any_output) {
+#ifdef GFX_VIDEO
+        if (gfx_vs) {
+            gfx_newline();
+            return;
+        }
+#endif
         fputc('\n', stdout);
         print_col = 0;
         fflush(stdout);
@@ -3056,6 +3261,12 @@ static void statement_print(char **p)
 
     /* Trailing ';' or ',' suppresses newline. */
     if (!ended_with_sep) {
+#ifdef GFX_VIDEO
+        if (gfx_vs) {
+            gfx_newline();
+            return;
+        }
+#endif
         fputc('\n', stdout);
         print_col = 0;
     }
@@ -3095,6 +3306,21 @@ static void statement_textat(char **p)
     y = (int)vy.num;
     if (y < 0) y = 0;
 
+#ifdef GFX_VIDEO
+    if (gfx_vs) {
+        gfx_x = x;
+        gfx_y = y;
+        print_col = gfx_x;
+        {
+            char *s = vtext.str;
+            while (*s) {
+                gfx_put_byte((unsigned char)*s++);
+            }
+        }
+        return;
+    }
+#endif
+
     /* Move cursor with ANSI: rows/cols are 1-based */
     printf("\033[%d;%dH", y + 1, x + 1);
     fputs(vtext.str, stdout);
@@ -3118,6 +3344,15 @@ static void statement_locate(char **p)
 
     x = (int)vx.num; if (x < 0) x = 0;
     y = (int)vy.num; if (y < 0) y = 0;
+
+#ifdef GFX_VIDEO
+    if (gfx_vs) {
+        gfx_x = x;
+        gfx_y = y;
+        print_col = gfx_x;
+        return;
+    }
+#endif
 
     // Move cursor with ANSI: rows/cols are 1-based
     printf("\033[%d;%dH", y + 1, x + 1);
