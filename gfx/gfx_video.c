@@ -5,6 +5,7 @@ void gfx_video_init(GfxVideoState *s)
 {
     if (!s) return;
     memset(s, 0, sizeof(*s));
+    s->bg_color = 6; /* default C64 blue background */
 }
 
 void gfx_video_clear(GfxVideoState *s)
