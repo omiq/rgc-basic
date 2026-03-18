@@ -107,7 +107,7 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
     - `CLOSE [lfn [, lfn ...]]` — close file(s); `CLOSE` with no arguments closes all.
     - `ST` — system variable set after `INPUT#`/`GET#`: 0 = success, 64 = end of file, 1 = error / file not open. Use e.g. `IF ST <> 0 THEN GOTO done`.
 - **Variables**
-  - **Numeric variables**: `A`, `B1`, `SALE`, `SAFE`, `PLAYERSCORE`, etc. Full variable names up to 31 characters are significant (e.g. `SALE` and `SAFE` are distinct).
+  - **Numeric variables**: `A`, `B1`, `SALE`, `SAFE`, `PLAYERSCORE`, `my_var`, etc. Full variable names up to 31 characters are significant (e.g. `SALE` and `SAFE` are distinct). Underscores (`_`) are allowed.
   - **String variables**: names ending in `$`, e.g. `A$`, `NAME$`.
   - **Reserved words** (e.g. `IF`, `FOR`, `PRINT`) cannot be used as variable names. Labels may match keywords (e.g. `CLR:`).
   - **Arrays**: 1‑D or multi‑dimensional, e.g. `A(10)`, `A$(20)`, `C(2,3)`. Index is 0‑based internally; `DIM A(10)` allows indices `0..10`; `DIM C(2,3)` gives a 3×4 matrix.
@@ -355,6 +355,10 @@ The `examples` folder (included in release archives) contains:
   - With `-petscii` you get ANSI colors and cursor codes; with `-petscii-plain` you get
   strict character alignment and no escape sequences, ideal for art and fixed-width paste.
 - `examples/scripting.bas`: shell-scripting style — command-line arguments (`ARGC()`, `ARG$(0)` … `ARG$(n)`), running commands (`SYSTEM("date")`, `EXEC$("whoami")`). Run: `./basic examples/scripting.bas [name]`.
+- **Tutorial (FUNCTIONS, #INCLUDE, WHILE, IF ELSE END IF)**:
+  - `examples/tutorial_functions.bas` — non-interactive demo of user-defined functions, `#INCLUDE`, `WHILE` … `WEND`, and `IF` … `ELSE` … `END IF`. Run: `./basic examples/tutorial_functions.bas`.
+  - `examples/tutorial_lib.bas` — library included by the tutorial (isprime, gcd, factorial, greet).
+  - `examples/tutorial_menu.bas` — interactive menu using the library. Run: `./basic examples/tutorial_menu.bas`.
 - `guess.bas`, `adventure.bas`, `printx.bas`, and others for various features.
 
 ### Notes on the BASIC dialect
