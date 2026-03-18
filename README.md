@@ -277,6 +277,8 @@ Program text is normalized at load time so **compact CBM BASIC** without spaces 
 ### PETSCII GRAPHICS (using Raylib)
 
 Using BASIC-GFX, you can have full PETSCII symbols (upper/lower or upper and graphic) and `POKE` / `PEEK` screen memory reading and writing:
+<img width="1072" height="740" alt="image" src="https://github.com/user-attachments/assets/ae88c61e-79e9-4662-a853-62c51e0be2f0" />
+
 
 (building requires Raylib to be installed - build the graphics target via `make basic-gfx)`
 
