@@ -2,10 +2,18 @@
 
 ### Unreleased
 
+- **basic-gfx PETSCII / .seq viewer**
+  - PETSCII→screen code conversion when `SCREENCODES ON`; `.seq` streams display correctly.
+  - Reverse-video rendering fixed (W, P, etc. in “Welcome”, “Press”) via renderer fg/bg swap.
+  - Window closes automatically when program reaches `END`.
+  - `examples/gfx_colaburger_viewer.bas` with `-petscii -charset lower`.
 - **GFX charset toggle**
-  - Added lowercase/uppercase charset support to the Raylib `basic-gfx` build.
-  - `CHR$(14)` switches to the lowercase charset, `CHR$(142)` switches back.
-  - `-charset lower|upper` now also sets the initial charset in `basic-gfx`.
+  - `CHR$(14)` switches to lowercase, `CHR$(142)` switches back.
+  - `-charset lower|upper` sets initial charset in `basic-gfx`.
+- **Documentation**
+  - Sprite features planning doc (`docs/sprite-features-plan.md`).
+  - README, to-do, and `docs/bitmap-graphics-plan.md` updated for merged GFX.
+  - Removed colaburger test PNG/MD artifacts.
 
 ### 1.0.0 – 2026-03-09
 
