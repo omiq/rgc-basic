@@ -2043,6 +2043,35 @@ static int read_single_char(void)
 #endif
 }
 
+/* Non-blocking key read.
+ * Returns EOF if no key is available right now. */
+static int read_single_char_nonblock(void)
+{
+#if defined(_WIN32)
+    if (!_kbhit()) {
+        return EOF;
+    }
+    return read_single_char();
+#else
+    int fd;
+    fd_set rfds;
+    struct timeval tv;
+
+    fd = fileno(stdin);
+    if (fd < 0) {
+        return EOF;
+    }
+    FD_ZERO(&rfds);
+    FD_SET(fd, &rfds);
+    tv.tv_sec = 0;
+    tv.tv_usec = 0;
+    if (select(fd + 1, &rfds, (fd_set *)0, (fd_set *)0, &tv) <= 0) {
+        return EOF;
+    }
+    return read_single_char();
+#endif
+}
+
 static void statement_get(char **p)
 {
     struct value *vp;
@@ -2061,7 +2090,19 @@ static void statement_get(char **p)
     }
 
     fflush(stdout);
-    ch = read_single_char();
+#ifdef GFX_VIDEO
+    if (gfx_vs) {
+        uint8_t b = 0;
+        if (gfx_keyq_pop(&b)) {
+            ch = (int)b;
+        } else {
+            ch = EOF;
+        }
+    } else
+#endif
+    {
+        ch = read_single_char_nonblock();
+    }
     if (ch == EOF) {
         *vp = make_str("");
     } else if (ch == '\n' || ch == '\r') {
