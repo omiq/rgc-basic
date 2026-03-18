@@ -2923,6 +2923,37 @@ static struct value eval_factor(char **p)
         return make_str(buf);
     }
     if (isalpha((unsigned char)**p)) {
+        /* System jiffy clock (C64-style): TI and TI$.
+         * CBM BASIC resolves TIME, TICKS, etc. to TI due to 2-char name matching;
+         * we do the same by keying off the first two characters. */
+#ifdef GFX_VIDEO
+        if (gfx_vs) {
+            char namebuf[8];
+            char *q = *p;
+            int i, len;
+            read_identifier(&q, namebuf, sizeof(namebuf));
+            for (i = 0; namebuf[i]; i++) {
+                namebuf[i] = (char)toupper((unsigned char)namebuf[i]);
+            }
+            len = i;
+            if (len >= 2 && namebuf[0] == 'T' && namebuf[1] == 'I') {
+                int is_str = (len > 0 && namebuf[len - 1] == '$');
+                uint32_t t = gfx_vs->ticks60;
+                *p = q;
+                if (!is_str) {
+                    return make_num((double)t);
+                } else {
+                    /* Format like C64 TI$: "HHMMSS" (based on 60Hz jiffies). */
+                    unsigned long sec = (unsigned long)(t / 60u);
+                    unsigned long h = (sec / 3600u) % 24u;
+                    unsigned long m = (sec / 60u) % 60u;
+                    unsigned long s = sec % 60u;
+                    sprintf(buf, "%02lu%02lu%02lu", h, m, s);
+                    return make_str(buf);
+                }
+            }
+        }
+#endif
     /* Function call? */
     if (starts_with_kw(*p, "SIN") || starts_with_kw(*p, "COS") || starts_with_kw(*p, "TAN") ||
             starts_with_kw(*p, "ABS") || starts_with_kw(*p, "INT") || starts_with_kw(*p, "SQR") ||

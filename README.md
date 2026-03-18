@@ -340,6 +340,10 @@ You can either use the provided `Makefile` (recommended) or compile manually.
     - `INKEY$()` is **non-blocking**: it returns a 1-character string for the next queued keypress, or `""` if none.
     - This is driven by the raylib host; it is currently available in `basic-gfx` (gfx build) and returns `""` in the terminal build.
     - Example: `./basic-gfx -petscii examples/gfx_inkey_demo.bas`
+  - **TI / TI$ (basic-gfx)**:
+    - `TI` is a **60 Hz “jiffy” counter** (like C64 BASIC), incremented by the gfx host each frame and wrapping every 24 hours (\(24*60*60*60 = 5184000\)).
+    - `TI$` is a string formatted as `HHMMSS`.
+    - Terminal build: currently not driven by a host tick source (use `SLEEP` or your OS clock instead).
 
 #### Using `make` (recommended)
 
