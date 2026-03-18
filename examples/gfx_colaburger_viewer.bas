@@ -1,6 +1,6 @@
 0 PRINT CHR$(147)
 1 REM GFX viewer for colaburger.seq (PETSCII stream with colour/control codes)
-2 REM Run: ./basic-gfx -petscii examples/gfx_colaburger_viewer.bas
+2 REM Run: ./basic-gfx -petscii -charset lower examples/gfx_colaburger_viewer.bas
 3 REM SCREENCODES ON: bytes 0-255 are raw C64 screen codes (required for .seq)
 4 SCREENCODES ON
 5 REM Cyan background and 40-column wrap to match colaburger art
