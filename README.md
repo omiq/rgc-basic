@@ -30,7 +30,7 @@ Extract the files after downloading.
 
 Each release archive includes the interpreter binary and the `examples` folder so you can run programs such as `./basic examples/trek.bas` (or `basic.exe examples\trek.bas` on Windows) from the unpacked directory.
 
-<img width="599" height="835" alt="git-screenshot1" src="gitscreenshot1.png" />
+[gitscreenshot1.png](https://github.com/omiq/cbm-basic/blob/main/git-screenshot1.png)
 
 
 
@@ -279,7 +279,7 @@ Program text is normalized at load time so **compact CBM BASIC** without spaces 
 
 Using BASIC-GFX, you can have full PETSCII symbols (upper/lower or upper and graphic) and `POKE` / `PEEK` screen memory reading and writing:
 
-<img width="1072" height="740" alt="git-screenshot2" src=""gitscreenshot2.png" />
+[Cola Burger](https://github.com/omiq/cbm-basic/blob/main/git-screenshot2.png)
 
 
 (building requires Raylib to be installed - build the graphics target via `make basic-gfx)`
