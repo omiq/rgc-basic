@@ -1,0 +1,13 @@
+10 I = 0
+20 PRINT "A"
+30 WHILE I < 1
+40   PRINT "B"
+50   I = I + 1
+60 WEND
+70 PRINT "C"
+80 J = 0
+90 WHILE J < 1
+100   PRINT "D"
+110   J = J + 1
+120 WEND
+130 PRINT "E"
