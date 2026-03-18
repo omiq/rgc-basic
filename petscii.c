@@ -6,6 +6,17 @@
 
 #include "petscii.h"
 
+/* C64 has two ROM character sets:
+ * - uppercase/graphics (default)
+ * - lowercase/uppercase (shifted)
+ *
+ * When lowercase charset is enabled we render:
+ * - 0x41-0x5A as 'a'-'z'
+ * - 0x61-0x7A as 'A'-'Z'
+ * Everything else uses the faithful Unicode mapping table.
+ */
+static int petscii_lowercase_charset = 0;
+
 static const char *petscii_to_utf8[256] = {
     /* 0x00 - 0x1F: control (output suppressed in basic.c; table fallback) */
     " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", "\n", " ", " ", "\r", " ", " ",
@@ -44,5 +55,29 @@ static const char *petscii_to_utf8[256] = {
 
 const char *petscii_code_to_utf8(unsigned char c)
 {
+    if (petscii_lowercase_charset) {
+        if (c >= 0x41 && c <= 0x5A) {
+            static char buf[2];
+            buf[0] = (char)('a' + (c - 0x41));
+            buf[1] = '\0';
+            return buf;
+        }
+        if (c >= 0x61 && c <= 0x7A) {
+            static char buf[2];
+            buf[0] = (char)('A' + (c - 0x61));
+            buf[1] = '\0';
+            return buf;
+        }
+    }
     return petscii_to_utf8[c];
+}
+
+void petscii_set_lowercase(int enabled)
+{
+    petscii_lowercase_charset = enabled ? 1 : 0;
+}
+
+int petscii_get_lowercase(void)
+{
+    return petscii_lowercase_charset;
 }
