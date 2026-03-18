@@ -44,6 +44,7 @@ typedef struct GfxVideoState {
     uint8_t key_q_tail;
     uint32_t ticks60;                       /* 60 Hz tick counter (TI), wraps at 24h */
     uint8_t bg_color;                       /* Background colour index (0-15) */
+    uint8_t charset_lowercase;              /* 0=upper/graphics, 1=lower/upper */
 } GfxVideoState;
 
 /* Initialise state to a clean default (all zeros). */
