@@ -38,16 +38,16 @@ $(TARGET)$(EXE): $(SRCS)
 	$(CC) $(CFLAGS) -o $@ $(SRCS) $(LDFLAGS)
 
 gfx_video_test: $(GFX_SRCS)
-	$(CC) $(CFLAGS) -Igfx -o $@ $(GFX_SRCS) $(LDFLAGS)
+	$(CC) $(CFLAGS) -Igfx -o $@$(EXE) $(GFX_SRCS) $(LDFLAGS)
 
 gfx-demo: $(GFX_DEMO_SRCS)
-	$(CC) $(CFLAGS) -Igfx $(RAYLIB_CFLAGS) -o $@ $(GFX_DEMO_SRCS) $(LDFLAGS) $(RAYLIB_LDFLAGS)
+	$(CC) $(CFLAGS) -Igfx $(RAYLIB_CFLAGS) -o $@$(EXE) $(GFX_DEMO_SRCS) $(LDFLAGS) $(RAYLIB_LDFLAGS)
 
 basic-gfx: $(GFX_BIN_SRCS)
-	$(CC) $(CFLAGS) -DGFX_VIDEO -Igfx $(RAYLIB_CFLAGS) -o $@ $(GFX_BIN_SRCS) $(LDFLAGS) $(RAYLIB_LDFLAGS)
+	$(CC) $(CFLAGS) -DGFX_VIDEO -Igfx $(RAYLIB_CFLAGS) -o $@$(EXE) $(GFX_BIN_SRCS) $(LDFLAGS) $(RAYLIB_LDFLAGS)
 
 clean:
-	$(RM) $(TARGET)$(EXE) gfx_video_test gfx-demo basic-gfx
+	$(RM) $(TARGET)$(EXE) gfx_video_test$(EXE) gfx-demo$(EXE) basic-gfx$(EXE)
 
 .PHONY: all clean gfx_video_test gfx-demo basic-gfx
 
