@@ -68,7 +68,10 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
 - **Core statements**
   - `PRINT` / `?`: output expressions, with `;` (no newline) and `,` (zone/tab) separators; wrapping defaults to a 40‑column C64‑style width.
   - `INPUT`: read numeric or string variables from standard input, with optional prompt.
-  - `GET`: single‑key input into a string variable, without waiting for Enter (e.g. `GET K$`). Enter/Return is returned as `CHR$(13)` so `ASC(K$)=13` works for “press Enter” checks.
+  - `GET`: **non-blocking** single‑key input into a string variable (e.g. `GET K$`).
+    - If a key is waiting, `K$` becomes a 1‑character string.
+    - If no key is waiting, `K$` becomes `""`.
+    - Enter/Return is returned as `CHR$(13)` so `ASC(K$)=13` works for “press Enter” checks.
   - `LET` (optional): assignment; you can also assign with `A=1` without `LET`.
   - `IF ... THEN`: conditional execution, supporting comparisons, `AND`/`OR`, and optional line-number or label jumps.
   - `GOTO`: jump to a given line number **or label** (e.g. `GOTO 100` or `GOTO GAMELOOP`).
