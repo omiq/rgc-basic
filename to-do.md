@@ -7,8 +7,8 @@
 
 * ~Decimal ↔ hexadecimal conversion: DEC(),HEX$()~
 
-* IF THEN ELSE END IF
-  * Internally can be handled like : but this syntax is easier to read and understand
+* ~IF THEN ELSE END IF~
+  * ~Multi-line IF/ELSE/END IF blocks with nesting; backward compatible with IF X THEN 100~
 
 * Structured loops: DO,LOOP,WHILE,UNTIL,EXIT
   * Internally can be handled with labels and gotos but is far easier to understand
@@ -81,4 +81,6 @@
 - **basic-gfx (raylib PETSCII graphics)** — Windowed 40×25 PETSCII text screen, POKE/PEEK screen/colour/char RAM, INKEY$, TI/TI$, SCREENCODES ON (PETSCII→screen conversion for .seq viewers), `.seq` colaburger viewer with correct rendering, window closes on END.
 
 - **Variable names** — Full names (up to 31 chars) significant; SALE and SAFE distinct. Reserved words rejected for variables/labels.
+
+- **IF ELSE END IF** — Multi-line `IF cond THEN` … `ELSE` … `END IF` blocks; nested blocks supported.
 
