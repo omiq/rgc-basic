@@ -123,7 +123,7 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
 
 ### Tokenised PETSCII shortcuts inside strings
 
-- **Inline `{TOKENS}`:
+- Inline `{TOKENS}`:
   - Within double-quoted strings, the interpreter recognises `{...}` patterns and expands them to `CHR$()` calls **at load time**.
   - This lets you write readable code such as:
 
