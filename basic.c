@@ -621,6 +621,10 @@ static void init_console_ansi(void)
 
 #define MAX_LINES 1024
 #define MAX_LINE_LEN 256
+#define MAX_INCLUDE_DEPTH 16
+#define MAX_INCLUDE_PATH  512
+
+static char include_path_store[MAX_INCLUDE_DEPTH][MAX_INCLUDE_PATH];
 #define MAX_VARS 128
 #define VAR_NAME_MAX 32
 #define MAX_GOSUB 64
@@ -951,6 +955,62 @@ enum {
 static int palette_mode = PALETTE_ANSI;
 static int cursor_hidden = 0;
 static int petscii_lowercase_opt = 0;
+
+/* Case-insensitive string compare. */
+static int str_eq_ci(const char *a, const char *b)
+{
+    if (!a || !b) return (a == b);
+    while (*a && *b) {
+        if (toupper((unsigned char)*a) != toupper((unsigned char)*b)) return 0;
+        a++; b++;
+    }
+    return (*a == *b);
+}
+
+/* Apply option from #OPTION directive (file overrides CLI). Returns 0 on success, -1 on error. */
+static int apply_option_directive(const char *name, const char *value)
+{
+    if (!name || !name[0]) return -1;
+    if (str_eq_ci(name, "petscii")) {
+        petscii_mode = 1;
+        petscii_plain = 0;
+        petscii_no_wrap = 1;
+        return 0;
+    }
+    if (str_eq_ci(name, "petscii-plain")) {
+        petscii_mode = 1;
+        petscii_plain = 1;
+        petscii_no_wrap = 1;
+        return 0;
+    }
+    if (str_eq_ci(name, "charset")) {
+        if (!value || !value[0]) return -1;
+        if (str_eq_ci(value, "upper") || str_eq_ci(value, "uc")) {
+            petscii_lowercase_opt = 0;
+            petscii_set_lowercase(0);
+            return 0;
+        }
+        if (str_eq_ci(value, "lower") || str_eq_ci(value, "lc")) {
+            petscii_lowercase_opt = 1;
+            petscii_set_lowercase(1);
+            return 0;
+        }
+        return -1;
+    }
+    if (str_eq_ci(name, "palette")) {
+        if (!value || !value[0]) return -1;
+        if (str_eq_ci(value, "ansi")) {
+            palette_mode = PALETTE_ANSI;
+            return 0;
+        }
+        if (str_eq_ci(value, "c64") || str_eq_ci(value, "c64-8bit")) {
+            palette_mode = PALETTE_C64_8BIT;
+            return 0;
+        }
+        return -1;
+    }
+    return -1;
+}
 
 /* Command-line arguments for the running script (after options and program path). */
 static const char *script_path = NULL;   /* path to the .bas file */
@@ -1541,6 +1601,21 @@ static void build_label_table(void)
         if (label_count >= MAX_LABELS) {
             /* Too many labels; ignore extras. */
             continue;
+        }
+        /* Check for duplicate label (case-insensitive). */
+        {
+            char tmp[32];
+            size_t k;
+            if (len >= sizeof(tmp)) tmp[sizeof(tmp)-1] = '\0';
+            memcpy(tmp, p, len);
+            tmp[len] = '\0';
+            for (k = 0; k < len; k++) tmp[k] = (char)toupper((unsigned char)tmp[k]);
+            for (k = 0; k < (size_t)label_count; k++) {
+                if (strcmp(label_table[k].name, tmp) == 0) {
+                    fprintf(stderr, "Duplicate label '%.*s' in program\n", (int)len, p);
+                    exit(1);
+                }
+            }
         }
         memcpy(label_table[label_count].name, p, len);
         label_table[label_count].name[len] = '\0';
@@ -4915,78 +4990,196 @@ static void add_or_replace_line(int number, const char *text)
     line_count++;
 }
 
-static void load_program(const char *path)
+/* Add line from included file; error if line number already exists. */
+static void add_line_from_include(int number, const char *text)
+{
+    int i;
+    for (i = 0; i < line_count; i++) {
+        if (program_lines[i] && program_lines[i]->number == number) {
+            fprintf(stderr, "Duplicate line number %d in include\n", number);
+            exit(1);
+        }
+    }
+    add_or_replace_line(number, text);
+}
+
+/* Get directory part of path. Returns "." if no directory. Writes to static buffer. */
+static const char *get_base_dir(const char *path)
+{
+    static char dirbuf[MAX_INCLUDE_PATH];
+    const char *last;
+    last = strrchr(path, '/');
+#if defined(_WIN32)
+    {
+        const char *b = strrchr(path, '\\');
+        if (b && (!last || b > last)) last = b;
+    }
+#endif
+    if (!last || last == path) {
+        return ".";
+    }
+    if ((size_t)(last - path + 1) >= sizeof(dirbuf)) {
+        return ".";
+    }
+    memcpy(dirbuf, path, (size_t)(last - path));
+    dirbuf[last - path] = '\0';
+    return dirbuf;
+}
+
+/* Resolve include path relative to base_dir. Writes to static buffer. */
+static const char *resolve_include_path(const char *base_dir, const char *rel_path)
+{
+    static char buf[MAX_INCLUDE_PATH];
+    if (!base_dir || !rel_path) return rel_path;
+    if (strcmp(base_dir, ".") == 0) {
+        if (strlen(rel_path) >= sizeof(buf)) return NULL;
+        strncpy(buf, rel_path, sizeof(buf) - 1);
+        buf[sizeof(buf) - 1] = '\0';
+        return buf;
+    }
+    if (strlen(base_dir) + 1 + strlen(rel_path) >= sizeof(buf)) return NULL;
+    snprintf(buf, sizeof(buf), "%s/%s", base_dir, rel_path);
+    return buf;
+}
+
+static char loading_paths[MAX_INCLUDE_DEPTH][MAX_INCLUDE_PATH];
+static int loading_count = 0;
+
+/* Load a file into the program, with directive processing. Recursive for #INCLUDE. */
+static void load_file_into_program(const char *path, const char *base_dir, int include_depth,
+    int *use_explicit_numbers, int *auto_line_no, int *first_line_seen)
 {
     FILE *f;
     char linebuf[MAX_LINE_LEN];
-    int auto_line_no = 10;
-    int use_explicit_numbers = -1; /* -1 = unknown, 0 = auto, 1 = explicit */
+    char *p;
+    int number;
+    const char *resolved;
+    int i;
+
+    if (include_depth >= MAX_INCLUDE_DEPTH) {
+        fprintf(stderr, "Include nesting too deep: %s\n", path);
+        exit(1);
+    }
+    /* Circular include: check if we're already loading this path. */
+    for (i = 0; i < loading_count; i++) {
+        if (strcmp(loading_paths[i], path) == 0) {
+            fprintf(stderr, "Circular include: %s\n", path);
+            exit(1);
+        }
+    }
+    if (loading_count >= MAX_INCLUDE_DEPTH || strlen(path) >= MAX_INCLUDE_PATH) {
+        fprintf(stderr, "Include error: %s\n", path);
+        exit(1);
+    }
+    strncpy(loading_paths[loading_count], path, MAX_INCLUDE_PATH - 1);
+    loading_paths[loading_count][MAX_INCLUDE_PATH - 1] = '\0';
+    loading_count++;
+
     f = fopen(path, "r");
     if (!f) {
         fprintf(stderr, "Cannot open %s\n", path);
         exit(1);
     }
+
     while (fgets(linebuf, sizeof(linebuf), f)) {
-        char *p;
-        int number;
         trim_newline(linebuf);
         p = linebuf;
-        while (*p == ' ' || *p == '\t') {
-            p++;
-        }
-        /* Skip UTF-8 BOM if present */
-        if ((unsigned char)p[0] == 0xef && (unsigned char)p[1] == 0xbb && (unsigned char)p[2] == 0xbf) {
+        while (*p == ' ' || *p == '\t') p++;
+        if ((unsigned char)p[0] == 0xef && (unsigned char)p[1] == 0xbb && (unsigned char)p[2] == 0xbf)
             p += 3;
-        }
-        /* Ignore empty or whitespace-only lines */
-        if (*p == '\0') {
+        if (*p == '\0') continue;
+
+        /* Shebang: first line of first file only */
+        if (!*first_line_seen && p[0] == '#' && p[1] == '!') {
+            *first_line_seen = 1;
             continue;
         }
 
-        /* Decide once per file whether we are in classic line-numbered mode
-         * or in "numberless" mode where we auto-assign line numbers. */
-        if (use_explicit_numbers == -1) {
-            if (isdigit((unsigned char)*p)) {
-                use_explicit_numbers = 1;
-            } else {
-                use_explicit_numbers = 0;
+        /* Meta directives: #OPTION, #INCLUDE */
+        if (p[0] == '#') {
+            *first_line_seen = 1;
+            p++;
+            while (*p == ' ' || *p == '\t') p++;
+            if ((toupper((unsigned char)p[0])=='O' && toupper((unsigned char)p[1])=='P' && toupper((unsigned char)p[2])=='T' && toupper((unsigned char)p[3])=='I' && toupper((unsigned char)p[4])=='O' && toupper((unsigned char)p[5])=='N') && (p[6]=='\0' || p[6]==' ' || p[6]=='\t')) {
+                char opt_name[64], opt_val[64];
+                char *q;
+                p += 6;
+                while (*p == ' ' || *p == '\t') p++;
+                q = opt_name;
+                while (*p && *p != ' ' && *p != '\t' && (size_t)(q - opt_name) < sizeof(opt_name) - 1)
+                    *q++ = (char)*p++;
+                *q = '\0';
+                while (*p == ' ' || *p == '\t') p++;
+                q = opt_val;
+                while (*p && (size_t)(q - opt_val) < sizeof(opt_val) - 1) *q++ = (char)*p++;
+                *q = '\0';
+                while (q > opt_val && (q[-1] == ' ' || q[-1] == '\t')) *--q = '\0';
+                if (apply_option_directive(opt_name, opt_val[0] ? opt_val : NULL) != 0) {
+                    fprintf(stderr, "Unknown or invalid #OPTION: %s %s\n", opt_name, opt_val);
+                    exit(1);
+                }
+                continue;
             }
+            if ((toupper((unsigned char)p[0])=='I' && toupper((unsigned char)p[1])=='N' && toupper((unsigned char)p[2])=='C' && toupper((unsigned char)p[3])=='L' && toupper((unsigned char)p[4])=='U' && toupper((unsigned char)p[5])=='D' && toupper((unsigned char)p[6])=='E') && (p[7]=='\0' || p[7]==' ' || p[7]=='\t')) {
+                char inc_file[MAX_INCLUDE_PATH];
+                p += 7;
+                while (*p == ' ' || *p == '\t') p++;
+                if (*p != '"' && *p != '\'') {
+                    fprintf(stderr, "Expected quoted path in #INCLUDE\n");
+                    exit(1);
+                }
+                {
+                    char quote = *p++;
+                    char *q = inc_file;
+                    while (*p && *p != quote && (size_t)(q - inc_file) < sizeof(inc_file) - 1)
+                        *q++ = (char)*p++;
+                    *q = '\0';
+                    if (*p) p++;
+                }
+                resolved = resolve_include_path(base_dir, inc_file);
+                if (!resolved) { fprintf(stderr, "Include path too long\n"); exit(1); }
+                if (strlen(resolved) >= MAX_INCLUDE_PATH) { fprintf(stderr, "Include path too long\n"); exit(1); }
+                /* Store resolved path so it survives the recursive call. */
+                strncpy(include_path_store[MAX_INCLUDE_DEPTH - 1], resolved, MAX_INCLUDE_PATH - 1);
+                include_path_store[MAX_INCLUDE_DEPTH - 1][MAX_INCLUDE_PATH - 1] = '\0';
+                load_file_into_program(include_path_store[MAX_INCLUDE_DEPTH - 1], get_base_dir(include_path_store[MAX_INCLUDE_DEPTH - 1]), include_depth + 1,
+                    use_explicit_numbers, auto_line_no, first_line_seen);
+                continue;
+            }
+            fprintf(stderr, "Unknown directive: #%.*s\n", 60, p);
+            exit(1);
         }
 
-        if (use_explicit_numbers == 1) {
+        *first_line_seen = 1;
+
+        if (*use_explicit_numbers == -1) {
+            *use_explicit_numbers = isdigit((unsigned char)*p) ? 1 : 0;
+        }
+
+        if (*use_explicit_numbers == 1) {
             char *transformed;
             if (!isdigit((unsigned char)*p)) {
                 fprintf(stderr, "Line missing number: %s\n", linebuf);
                 exit(1);
             }
             number = atoi(p);
-            while (*p && !isspace((unsigned char)*p)) {
-                p++;
-            }
-            while (*p == ' ' || *p == '\t') {
-                p++;
-            }
+            while (*p && !isspace((unsigned char)*p)) p++;
+            while (*p == ' ' || *p == '\t') p++;
             transformed = transform_basic_line(p);
             {
                 char *normalized = normalize_keywords_line(transformed);
-                add_or_replace_line(number, normalized);
+                if (include_depth > 0) add_line_from_include(number, normalized);
+                else add_or_replace_line(number, normalized);
                 free(normalized);
             }
             free(transformed);
         } else {
-            /* Numberless mode: reject later lines that suddenly introduce
-             * explicit line numbers. Mixed numbered/numberless programs are
-             * currently not supported because they make control flow and
-             * editing semantics ambiguous.
-             */
             if (isdigit((unsigned char)*p)) {
                 fprintf(stderr, "Mixed numbered and numberless lines are not supported: %s\n", linebuf);
                 exit(1);
             }
-            /* Numberless mode: keep the whole trimmed line as text and
-             * assign synthetic line numbers that preserve order. */
-            number = auto_line_no;
-            auto_line_no += 10;
+            number = *auto_line_no;
+            *auto_line_no += 10;
             {
                 char *transformed = transform_basic_line(p);
                 char *normalized = normalize_keywords_line(transformed);
@@ -4997,6 +5190,19 @@ static void load_program(const char *path)
         }
     }
     fclose(f);
+    loading_count--;
+}
+
+static void load_program(const char *path)
+{
+    int auto_line_no = 10;
+    int use_explicit_numbers = -1;
+    int first_line_seen = 0;
+    const char *base_dir = get_base_dir(path);
+
+    load_file_into_program(path, base_dir, 0,
+        &use_explicit_numbers, &auto_line_no, &first_line_seen);
+
     sort_program();
     collect_data_from_program();
     build_label_table();

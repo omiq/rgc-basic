@@ -66,6 +66,10 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
 
 ## 💡 Features
 
+- **Meta directives** (load-time, `#` prefix):
+  - Shebang: `#!/usr/bin/env basic` on first line (ignored).
+  - `#OPTION petscii` / `#OPTION charset lower` / `#OPTION palette c64` — mirror command-line options; file overrides CLI.
+  - `#INCLUDE "path"` — splice another file at that point. Recommend numberless mode when using includes.
 - **Programs with or without line numbers**
   - Classic **line-numbered programs** loaded from a text file (`10 ...`, `20 ...`, etc.).
   - Also supports **numberless programs**: if the first non‑blank line has no leading digits, synthetic line numbers are assigned internally (you can still use labels and structured control flow).

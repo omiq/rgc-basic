@@ -42,14 +42,10 @@
   * Ensure keywords are only recognized when not inside identifiers (e.g. avoid splitting `ORD(7)` or `FOR`), and never mangling string literals
   * Validate behavior against reference interpreter (`cbmbasic`) with a regression suite of tricky lines
 
-* Include files / libraries
-  * Design a simple `INCLUDE "file.bas"` or similar directive processed at load time
-  * Allow splitting larger programs into multiple source files / libraries while preserving line-numbered semantics
-  * Consider search paths and guarding against recursive includes
-
-* Shebang-aware loader
-  * Teach `load_program` to ignore an initial `#!...` shebang line before deciding numbered vs numberless mode
-  * Allow Unix-style executable BASIC scripts with a shebang (`#!/usr/bin/env ./basic`) without triggering the "mixed numbered and numberless" error
+* ~Include files / libraries~
+  * ~#INCLUDE "path" implemented; relative to current file; duplicate line/label errors; circular include detection~
+* ~Shebang-aware loader~
+  * ~First line `#!...` ignored; #OPTION mirrors CLI (file overrides)~
 
 * ~Reserved-word / identifier hygiene (variables)~
   * ~Reserved words cannot be used as variables; error "Reserved word cannot be used as variable"~
@@ -85,4 +81,5 @@
 
 - **IF ELSE END IF** — Multi-line `IF cond THEN` … `ELSE` … `END IF` blocks; nested blocks supported.
 - **WHILE WEND** — Pre-test loop `WHILE cond` … `WEND`; nested loops supported.
+- **Meta directives** — Shebang, #OPTION (petscii, charset, palette), #INCLUDE; duplicate line/label errors.
 

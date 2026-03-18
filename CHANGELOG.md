@@ -2,6 +2,10 @@
 
 ### Unreleased
 
+- **Meta directives** (`#` prefix, load-time)
+  - Shebang: `#!/usr/bin/env basic` on first line ignored.
+  - `#OPTION petscii|petscii-plain|charset upper|lower|palette ansi|c64` — file overrides CLI.
+  - `#INCLUDE "path"` — splice file at that point; relative to current file; duplicate line numbers and labels error.
 - **WHILE … WEND**
   - Pre-test loop: `WHILE cond` … `WEND`. Nested WHILE/WEND supported.
 - **IF ELSE END IF**
