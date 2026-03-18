@@ -30,7 +30,7 @@ Extract the files after downloading.
 
 Each release archive includes the interpreter binary and the `examples` folder so you can run programs such as `./basic examples/trek.bas` (or `basic.exe examples\trek.bas` on Windows) from the unpacked directory.
 
-<img width="599" height="835" alt="git-screenshot1" src="https://github.com/user-attachments/assets/343320bb-f6e5-44a7-9c3d-2be791cc3e00" />
+<img width="599" height="835" alt="git-screenshot1" src="gitscreenshot1.png" />
 
 
 
@@ -279,7 +279,7 @@ Program text is normalized at load time so **compact CBM BASIC** without spaces 
 
 Using BASIC-GFX, you can have full PETSCII symbols (upper/lower or upper and graphic) and `POKE` / `PEEK` screen memory reading and writing:
 
-<img width="1072" height="740" alt="git-screenshot2" src="https://github.com/user-attachments/assets/7948b437-7b80-4b4b-b4ca-d0f6f20b604a" />
+<img width="1072" height="740" alt="git-screenshot2" src=""gitscreenshot2.png" />
 
 
 (building requires Raylib to be installed - build the graphics target via `make basic-gfx)`
