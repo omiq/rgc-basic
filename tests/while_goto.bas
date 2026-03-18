@@ -1,0 +1,10 @@
+10 I = 0
+20 WHILE I < 1
+30   I = I + 1
+40   GOTO 70
+50 WEND
+60 J = 0
+70 WHILE J < 1
+80   J = J + 1
+90 WEND
+100 PRINT "OK"

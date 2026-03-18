@@ -1,0 +1,10 @@
+10 I = 1
+20 WHILE I < 1
+30   PRINT "NO"
+40 WEND
+50 J = 0
+60 WHILE J < 1
+70   PRINT "YES"
+80   J = J + 1
+90 WEND
+100 PRINT "OK"
