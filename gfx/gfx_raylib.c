@@ -440,6 +440,12 @@ int main(int argc, char **argv)
      * visible (e.g., via SLEEP) and then exit cleanly without requiring
      * manual ESC presses. */
     while (!WindowShouldClose() && !basic_halted()) {
+        /* 60 Hz jiffy clock (C64-style TI), wraps every 24 hours. */
+        vs.ticks60++;
+        if (vs.ticks60 >= 5184000u) {
+            vs.ticks60 = 0;
+        }
+
         /* Update simple keyboard state map (ASCII-like indices) so BASIC can
          * poll via PEEK(GFX_KEY_BASE + code). */
         gfx_video_clear_keys(&vs);

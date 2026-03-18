@@ -42,6 +42,7 @@ typedef struct GfxVideoState {
     uint8_t key_queue[64];                  /* Keypress FIFO (bytes), for INKEY$ */
     uint8_t key_q_head;
     uint8_t key_q_tail;
+    uint32_t ticks60;                       /* 60 Hz tick counter (TI), wraps at 24h */
     uint8_t bg_color;                       /* Background colour index (0-15) */
 } GfxVideoState;
 

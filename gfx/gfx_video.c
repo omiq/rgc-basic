@@ -8,6 +8,7 @@ void gfx_video_init(GfxVideoState *s)
     s->bg_color = 6; /* default C64 blue background */
     s->key_q_head = 0;
     s->key_q_tail = 0;
+    s->ticks60 = 0;
 }
 
 void gfx_video_clear(GfxVideoState *s)
