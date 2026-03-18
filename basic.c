@@ -718,7 +718,7 @@ static void set_io_status(int st);
 
 static int current_line = 0;
 static char *statement_pos = NULL;
-static int halted = 0;
+static volatile int halted = 0;
 static int print_col = 0;
 
 #ifdef GFX_VIDEO
