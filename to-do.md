@@ -21,11 +21,12 @@
 
 * PETSCII symbols & graphics
   * ~Unicode stand-ins~
-  * Bitmap rendering of 320x200 pixel or 40x25 characters (SDL? Raylib?)
-  * New **raylib-based graphics branch** (see `docs/bitmap-graphics-plan.md`):
-    * Separate `basic-gfx` binary using raylib for a windowed 40×25 PETSCII text screen.
-    * Memory-mapped screen/colour/char RAM and bitmap RAM, readable/writable via `PEEK`/`POKE`.
-    * `SCREEN` modes for text vs 320×200 bitmap; renderer driven by PETSCII/screen codes instead of ANSI.
+  * ~Bitmap rendering of 40×25 characters (raylib)~ — **basic-gfx** merged to main.
+  * **raylib-based graphics** (see `docs/bitmap-graphics-plan.md`):
+    * ~Separate `basic-gfx` binary using raylib for a windowed 40×25 PETSCII text screen~
+    * ~Memory-mapped screen/colour/char RAM, readable/writable via `PEEK`/`POKE`~
+    * ~PETSCII control codes, colours, reverse video; `.seq` viewer with SCREENCODES ON~
+    * **Remaining**: `SCREEN` modes for text vs 320×200 bitmap; bitmap RAM.
 
 * Subroutines and Functions
   * Syntax sugar before actual implementation?
@@ -76,4 +77,6 @@
 - **Colour without pokes** — `COLOR n` / `COLOUR n` set the foreground colour using a C64-style palette index (0–15), and `BACKGROUND n` sets the background colour, all mapped to ANSI SGR.
 
 - **Cursor On/Off** — `CURSOR ON` / `CURSOR OFF` show or hide the blinking cursor using ANSI escape codes; tested with simple smoke programs.
+
+- **basic-gfx (raylib PETSCII graphics)** — Windowed 40×25 PETSCII text screen, POKE/PEEK screen/colour/char RAM, INKEY$, TI/TI$, SCREENCODES ON (PETSCII→screen conversion for .seq viewers), `.seq` colaburger viewer with correct rendering, window closes on END.
 

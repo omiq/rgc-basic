@@ -1,11 +1,13 @@
 ## Bitmap / Graphics Feature – Technical Plan
 
-Target: feature branch (suggested) `feature/raylib-gfx` adding a **graphics-enabled variant** of the interpreter using [raylib](https://www.raylib.com/). The goal is a C64‑flavoured environment with:
+Target: **basic-gfx** — a **graphics-enabled variant** of the interpreter using [raylib](https://www.raylib.com/). The goal is a C64‑flavoured environment with:
 
-- Full **40×25 PETSCII text screen** rendered via a bitmap/font, not the host terminal.
-- **Memory‑mapped screen and colour RAM**, readable/writable via `PEEK`/`POKE`.
-- **User‑defined characters** (UDGs) with a CHAR-ROM‑like bitmap.
-- A 320×200 **hi‑res pixel mode** (and possibly multicolour) under BASIC control.
+- Full **40×25 PETSCII text screen** rendered via a bitmap/font, not the host terminal. ✅
+- **Memory‑mapped screen and colour RAM**, readable/writable via `PEEK`/`POKE`. ✅
+- **User‑defined characters** (UDGs) with a CHAR-ROM‑like bitmap. ✅
+- A 320×200 **hi‑res pixel mode** (and possibly multicolour) under BASIC control. ⏳ planned
+
+**Status**: Phases 1 and 2 are implemented and merged to main. Text mode, POKE/PEEK, INKEY$, TI/TI$, SCREENCODES (PETSCII→screen conversion), `.seq` viewer, and window close on END are working.
 
 This document is the planning baseline for version **gfx-0.1** on top of CBM-BASIC 1.0.0.
 
@@ -120,7 +122,7 @@ Internally:
 
 ## 5. Branch / code organisation
 
-Suggested branch: **`feature/raylib-gfx`**.
+Implemented on **main** (merged from `feature/raylib-gfx` / `feature/current-project-status-ee0f`).
 
 Directory structure:
 
@@ -138,23 +140,22 @@ Directory structure:
 
 ## 6. Incremental to‑do list
 
-**Phase 1 – Skeleton & build**
+**Phase 1 – Skeleton & build** ✅
 
-1. Add `gfx_video.h/.c` with:
-   - Video state struct (screen RAM, colour RAM, char RAM, bitmap RAM).
-   - Initialiser and clear functions.
-2. Add `gfx_raylib.c` with a minimal window + render loop that fills the screen with a solid colour.
-3. Add a new Makefile target `basic-gfx` that links `basic.c`, `petscii.c`, `gfx_video.c`, `gfx_raylib.c` with raylib.
+1. ✅ Add `gfx_video.h/.c` with video state struct, initialiser, clear.
+2. ✅ Add `gfx_raylib.c` with window + render loop.
+3. ✅ Makefile target `basic-gfx` linking `basic.c`, `petscii.c`, `gfx_video.c`, `gfx_raylib.c` with raylib.
 
-**Phase 2 – Text screen via PEEK/POKE**
+**Phase 2 – Text screen via PEEK/POKE** ✅
 
-4. Implement screen RAM + PETSCII mapping in `gfx_video.c`.
-5. Teach `PRINT` / `CHR$` (in gfx build) to write to screen RAM instead of stdout.
-6. Implement raylib text renderer using the char ROM bitmap and colour RAM.
-7. Wire `POKE`/`PEEK` to TEXT_BASE and COLOR_BASE ranges.
-8. Add small demo(s): text scroller, PETSCII art, user‑defined characters.
+4. ✅ Implement screen RAM + PETSCII mapping in `gfx_video.c`.
+5. ✅ Teach `PRINT` / `CHR$` (in gfx build) to write to screen RAM via `gfx_put_byte`.
+6. ✅ Implement raylib text renderer using char ROM bitmap and colour RAM (reverse video, lower/upper charset).
+7. ✅ Wire `POKE`/`PEEK` to TEXT_BASE and COLOR_BASE ranges.
+8. ✅ Demos: `gfx_poke_demo`, `gfx_charset_demo`, `gfx_colaburger_viewer`, `gfx_inkey_demo`, etc.
+   - `SCREENCODES ON`: PETSCII→screen code conversion for `.seq` streams; window closes on END.
 
-**Phase 3 – Bitmap mode**
+**Phase 3 – Bitmap mode** ⏳
 
 9. Define BITMAP_BASE and implement bitmap RAM.
 10. Implement `SCREEN 1` statement and mode switch.
