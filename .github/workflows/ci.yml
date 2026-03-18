@@ -111,9 +111,9 @@ jobs:
         shell: msys2 {0}
         run: |
           set -e
-          make
+          mingw32-make
           if [ "${{ matrix.build_gfx }}" = "true" ]; then
-            make basic-gfx
+            mingw32-make basic-gfx
           fi
 
       - name: Run tests (Windows)
