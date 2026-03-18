@@ -784,6 +784,14 @@ static int gfx_apply_control_code(unsigned char code)
 {
     /* Return non-zero if the code was handled as control/state. */
     switch (code) {
+    case 14:  /* switch to lowercase/uppercase charset */
+        if (gfx_vs) gfx_vs->charset_lowercase = 1;
+        petscii_set_lowercase(1);
+        return 1;
+    case 142: /* switch to uppercase/graphics charset */
+        if (gfx_vs) gfx_vs->charset_lowercase = 0;
+        petscii_set_lowercase(0);
+        return 1;
     case 13: /* CR */
     case 10: /* LF */
         gfx_newline();
@@ -911,6 +919,7 @@ enum {
 
 static int palette_mode = PALETTE_ANSI;
 static int cursor_hidden = 0;
+static int petscii_lowercase_opt = 0;
 
 /* Command-line arguments for the running script (after options and program path). */
 static const char *script_path = NULL;   /* path to the .bas file */
@@ -2278,6 +2287,12 @@ static struct value eval_function(const char *name, char **p)
 
                 /* Default ANSI palette mapping for PETSCII control codes. */
                 switch (code) {
+                case 14:  /* switch to lowercase/uppercase charset */
+                    petscii_set_lowercase(1);
+                    return make_str("");
+                case 142: /* switch to uppercase/graphics charset */
+                    petscii_set_lowercase(0);
+                    return make_str("");
                 case 19:  /* HOME: home cursor */
                     return make_str("\033[H");
                 case 147: /* CLR: clear screen, home cursor */
@@ -4730,6 +4745,23 @@ int basic_parse_args(int argc, char **argv)
             petscii_mode = 1;
             petscii_plain = 1;
             petscii_no_wrap = 1;
+        } else if (strcmp(argv[i], "-charset") == 0) {
+            const char *name;
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Missing value for -charset\n");
+                return -1;
+            }
+            name = argv[++i];
+            if (strcmp(name, "upper") == 0 || strcmp(name, "uc") == 0 || strcmp(name, "upper-graphics") == 0) {
+                petscii_lowercase_opt = 0;
+                petscii_set_lowercase(0);
+            } else if (strcmp(name, "lower") == 0 || strcmp(name, "lc") == 0 || strcmp(name, "lowercase") == 0) {
+                petscii_lowercase_opt = 1;
+                petscii_set_lowercase(1);
+            } else {
+                fprintf(stderr, "Unknown charset '%s' (expected upper or lower)\n", name);
+                return -1;
+            }
         } else if (strcmp(argv[i], "-palette") == 0) {
             const char *name;
             if (i + 1 >= argc) {
@@ -4780,7 +4812,7 @@ int main(int argc, char **argv)
     init_console_ansi();
 
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-palette ansi|c64] <program.bas>\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] <program.bas>\n", argv[0]);
         return 1;
     }
 
@@ -4796,6 +4828,23 @@ int main(int argc, char **argv)
             petscii_mode = 1;
             petscii_plain = 1;
             petscii_no_wrap = 1;
+        } else if (strcmp(argv[i], "-charset") == 0) {
+            const char *name;
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Missing value for -charset\n");
+                return 1;
+            }
+            name = argv[++i];
+            if (strcmp(name, "upper") == 0 || strcmp(name, "uc") == 0 || strcmp(name, "upper-graphics") == 0) {
+                petscii_lowercase_opt = 0;
+                petscii_set_lowercase(0);
+            } else if (strcmp(name, "lower") == 0 || strcmp(name, "lc") == 0 || strcmp(name, "lowercase") == 0) {
+                petscii_lowercase_opt = 1;
+                petscii_set_lowercase(1);
+            } else {
+                fprintf(stderr, "Unknown charset '%s' (expected upper or lower)\n", name);
+                return 1;
+            }
         } else if (strcmp(argv[i], "-palette") == 0) {
             const char *name;
             if (i + 1 >= argc) {
@@ -4813,7 +4862,7 @@ int main(int argc, char **argv)
             }
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-palette ansi|c64] <program.bas>\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] <program.bas>\n", argv[0]);
             return 1;
         } else {
             prog_path = argv[i];
@@ -4822,7 +4871,7 @@ int main(int argc, char **argv)
     }
 
     if (!prog_path) {
-        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-palette ansi|c64] <program.bas>\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] <program.bas>\n", argv[0]);
         return 1;
     }
 

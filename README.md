@@ -191,6 +191,9 @@ Printable and graphics PETSCII codes are mapped to Unicode (e.g. £ ↑ ←, box
 output nothing (invisible, like on a real C64), and only printable/graphics bytes produce
 visible characters. Use this when you need strict one-character-per-column alignment (e.g.
 viewing .seq files or pasting output into a fixed-width editor).
+- `-charset upper|lower`: choose the PETSCII **character set** used for rendering letters in `-petscii` mode:
+  - `upper` (default): C64 **uppercase/graphics** character set.
+  - `lower`: C64 **lowercase/uppercase** character set (useful for `.seq` art that uses lowercase letters).
 - `-palette ansi|c64`: choose how PETSCII colors are mapped (only in `-petscii` mode):
   - `ansi` (default): map colors to standard 16-color ANSI SGR codes.
   - `c64` or `c64-8bit`: use 8‑bit (`38;5;N`) color indices chosen to approximate
@@ -212,6 +215,8 @@ In `-petscii` mode, `CHR$` behaves in a C64-like way: control and color codes ar
   - `CHR$(157)`: cursor left (`ESC[D]`).
   - `CHR$(18)`: reverse video on (`ESC[7m]`).
   - `CHR$(146)`: reverse video off (`ESC[27m]`).
+  - `CHR$(14)`: switch to **lowercase/uppercase** character set (C64 “lowercase mode”).
+  - `CHR$(142)`: switch to **uppercase/graphics** character set (C64 “uppercase mode”).
 - **Basic text colors** (ANSI approximations of C64 colors)
 
   | C64 index (`COLOR`/`BACKGROUND`) | PETSCII `CHR$()` | Token(s) you can use in `{TOKENS}` | Approximate colour |
