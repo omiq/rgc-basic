@@ -14,7 +14,7 @@
 
 CBM-BASIC is, as the name suggests, a BASIC interpreter *inspired* by CBM BASIC v2 as found on classic Commodore machines. This means while you *can* use `GOTO`, you don't *have* to. You do you. This is a readme file, not the code police.
 
-Unlike emulators, this is a BASIC interpreter that, while a project still very much in development, can already do real work. For example, this interpreter is capable of reading and writing files on your computer's disk.
+Unlike emulators, this is a BASIC interpreter that can already do real work: reading and writing files, user-defined functions, structured control flow, and more. In addition to the **terminal interpreter** (`basic`), there is a full **graphical interpreter** (`basic-gfx`) built with Raylib — a complete 40×25 PETSCII windowed environment with `POKE`/`PEEK` screen memory, `INKEY$`, `TI`/`TI$`, and `.seq` art viewers.
 
 ## Why Commodore BASIC?
 
@@ -28,7 +28,7 @@ See `CHANGELOG.md` for a versioned history of changes (starting from **1.0.0 –
 
 Extract the files after downloading.
 
-Each release archive includes the interpreter binary and the `examples` folder so you can run programs such as `./basic examples/trek.bas` (or `basic.exe examples\trek.bas` on Windows) from the unpacked directory.
+Each release archive includes the terminal interpreter (`basic`), the graphical interpreter (`basic-gfx`), and the `examples` folder. Run programs such as `./basic examples/trek.bas` or `./basic-gfx -petscii examples/gfx_colaburger_viewer.bas` (Windows: `basic.exe`, `basic-gfx.exe`).
 
 ![gitscreenshot1.png](https://github.com/omiq/cbm-basic/blob/main/git-screenshot1.png)
 
@@ -92,11 +92,11 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
   - `END` / `STOP`: terminate program execution.
   - `READ` / `DATA`: load numeric and string literals from `DATA` statements into variables. `RESTORE` resets the DATA pointer so the next `READ` uses the first value again (C64-style).
   - `DEF FN`: define simple user functions, e.g. `DEF FNY(X) = SIN(X)`.
-  - **User-defined FUNCTIONS**: multi-line, multi-parameter functions:
+  - **User-defined FUNCTIONS** (implemented): multi-line, multi-parameter functions:
     - `FUNCTION name [(param1, param2, ...)]` … `RETURN [expr]` … `END FUNCTION`.
     - Call with brackets always: `result = add(3, 5)` or `sayhi()` for side effects.
     - `RETURN expr` returns a value; `RETURN` or `END FUNCTION` with no prior RETURN yields 0/`""` in expression context.
-    - Parameters are local; recursion supported. See `docs/user-functions-plan.md`.
+    - Parameters are local; recursion supported. See `docs/user-functions-plan.md` for the design.
   - `POKE`: accepted as a no‑op (for compatibility with old listings; it does not touch real memory).
   - `CLR`: resets all variables to 0/empty, clears GOSUB/FOR stacks and DATA pointer; DEF FN definitions are kept.
   - **File I/O (CBM-style)**:
@@ -286,9 +286,9 @@ Program text is normalized at load time so **compact CBM BASIC** without spaces 
 
 ---
 
-### 🎨 PETSCII GRAPHICS (using Raylib)
+### 🎨 Graphical interpreter (basic-gfx)
 
-Using BASIC-GFX, you can have full PETSCII symbols (upper/lower or upper and graphic) and `POKE` / `PEEK` screen memory reading and writing:
+Releases include **basic-gfx** — a full graphical version of the interpreter built with Raylib. It provides a 40×25 PETSCII windowed display with `POKE`/`PEEK` screen memory, `INKEY$`, `TI`/`TI$`, `.seq` art viewers, and full PETSCII symbols:
 
 ![Cola Burger](https://github.com/omiq/cbm-basic/blob/main/git-screenshot2.png)
 
@@ -357,7 +357,7 @@ The `examples` folder (included in release archives) contains:
 - `examples/scripting.bas`: shell-scripting style — command-line arguments (`ARGC()`, `ARG$(0)` … `ARG$(n)`), running commands (`SYSTEM("date")`, `EXEC$("whoami")`). Run: `./basic examples/scripting.bas [name]`.
 - **Tutorial (FUNCTIONS, #INCLUDE, WHILE, IF ELSE END IF)**:
   - `examples/tutorial_functions.bas` — non-interactive demo of user-defined functions, `#INCLUDE`, `WHILE` … `WEND`, and `IF` … `ELSE` … `END IF`. Run: `./basic examples/tutorial_functions.bas`.
-  - `examples/tutorial_lib.bas` — library included by the tutorial (isprime, gcd, factorial, greet).
+  - `examples/tutorial_lib.bas` — library included by the tutorial (`is_prime`, `gcd`, `factorial`, `greet`).
   - `examples/tutorial_menu.bas` — interactive menu using the library. Run: `./basic examples/tutorial_menu.bas`.
 - `guess.bas`, `adventure.bas`, `printx.bas`, and others for various features.
 
