@@ -97,8 +97,9 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
     - `CLOSE [lfn [, lfn ...]]` — close file(s); `CLOSE` with no arguments closes all.
     - `ST` — system variable set after `INPUT#`/`GET#`: 0 = success, 64 = end of file, 1 = error / file not open. Use e.g. `IF ST <> 0 THEN GOTO done`.
 - **Variables**
-  - **Numeric variables**: `A`, `B1`, `AB`, `ATAKFLAG`, etc. Names may be longer than two characters; CBM-style **first two characters** identify the variable (e.g. `ATAKFLAG` and `ATA` refer to the same variable).
+  - **Numeric variables**: `A`, `B1`, `SALE`, `SAFE`, `PLAYERSCORE`, etc. Full variable names up to 31 characters are significant (e.g. `SALE` and `SAFE` are distinct).
   - **String variables**: names ending in `$`, e.g. `A$`, `NAME$`.
+  - **Reserved words** (e.g. `IF`, `FOR`, `PRINT`) cannot be used as variable names. Labels may match keywords (e.g. `CLR:`).
   - **Arrays**: 1‑D or multi‑dimensional, e.g. `A(10)`, `A$(20)`, `C(2,3)`. Index is 0‑based internally; `DIM A(10)` allows indices `0..10`; `DIM C(2,3)` gives a 3×4 matrix.
 - **Intrinsic functions**
   - **Math**: `SIN`, `COS`, `TAN`, `ABS`, `INT`, `SQR`, `SGN`, `EXP`, `LOG`, `RND`.
