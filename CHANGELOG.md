@@ -24,6 +24,7 @@
   - `-charset lower|upper` sets initial charset in `basic-gfx`.
 - **Documentation**
   - Sprite features planning doc (`docs/sprite-features-plan.md`).
+  - Meta directives plan (`docs/meta-directives-plan.md`) — shebang, #OPTION, #INCLUDE.
   - README, to-do, and `docs/bitmap-graphics-plan.md` updated for merged GFX.
   - Removed colaburger test PNG/MD artifacts.
 
