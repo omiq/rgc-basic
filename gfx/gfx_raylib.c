@@ -586,6 +586,10 @@ static void load_default_charrom(GfxVideoState *s)
 {
     if (s && s->charset_lowercase) {
         memcpy(s->chars, petscii_font_lower, sizeof(petscii_font_lower));
+        /* Use petscii_font for 96-255: block elements and reversed chars.
+         * The lowercase font has wrong glyphs there; uppercase has correct
+         * C64 graphics (blocks, dithering, quadrants). */
+        memcpy(&s->chars[96 * 8], &petscii_font[96][0], 160 * 8);
     } else {
         memcpy(s->chars, petscii_font, sizeof(petscii_font));
     }
@@ -609,11 +613,20 @@ static void render_text_screen(const GfxVideoState *s,
             const uint8_t *glyph;
             Color fg = c64_palette[ci];
 
-            /* In the gfx build, screen RAM bytes are treated as direct
-             * PETSCII screen codes 0–255, and chars[] holds 256×8 glyphs
-             * in that order.  The glyph data already encodes normal vs
-             * reverse video, so we do not need to special‑case sc>=128. */
-            glyph = &s->chars[(uint8_t)sc * 8];
+            /* In the gfx build, screen RAM bytes are direct PETSCII screen codes.
+             * When charset_lowercase is set, apply the same remap as petscii.c
+             * so the file bytes (PETSCII-style: 65-90=a-z, 97-122=A-Z) display
+             * correctly. The font has a-z at 1-26 and A-Z at 65-90. */
+            uint8_t glyph_idx = sc;
+            if (s->charset_lowercase) {
+                uint8_t base = sc & 0x7F;
+                if (base >= 0x41 && base <= 0x5A) {
+                    glyph_idx = (sc & 0x80) | (base - 0x40);
+                } else if (base >= 0x61 && base <= 0x7A) {
+                    glyph_idx = (sc & 0x80) | (base - 0x20);
+                }
+            }
+            glyph = &s->chars[(uint8_t)glyph_idx * 8];
 
             for (y = 0; y < CELL_H; y++) {
                 uint8_t bits = glyph[y];
