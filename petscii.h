@@ -11,4 +11,8 @@ const char *petscii_code_to_utf8(unsigned char c);
 void petscii_set_lowercase(int enabled);
 int petscii_get_lowercase(void);
 
+/* Convert PETSCII print code (CHR$/PRINT stream) to C64 screen code (POKE/screen RAM).
+ * Used when displaying .seq streams: bytes are PETSCII, font expects screen codes. */
+unsigned char petscii_to_screencode(unsigned char petscii);
+
 #endif

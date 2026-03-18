@@ -870,10 +870,11 @@ static void gfx_put_byte(unsigned char b)
     if (gfx_apply_control_code(b)) return;
 
     /* By default, map printable ASCII to C64 screen codes for convenience.
-     * For .seq viewers and other screen-code streams, gfx_raw_screen_codes can
-     * be enabled so bytes are treated as direct screen codes 0–255. */
+     * With SCREENCODES ON (gfx_raw_screen_codes): bytes are PETSCII from .seq
+     * streams—same as CHR$/PRINT. Convert PETSCII→screen code; the font (like
+     * gfx_charset_demo via POKE) expects screen codes 0–255. */
     if (gfx_raw_screen_codes) {
-        sc = (uint8_t)b;
+        sc = petscii_to_screencode(b);
     } else if (b >= 32 && b <= 126) {
         sc = gfx_ascii_to_screencode(b);
     } else {
