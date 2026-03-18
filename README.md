@@ -30,6 +30,9 @@ Extract the files after downloading.
 
 Each release archive includes the interpreter binary and the `examples`** folder so you can run programs such as `./basic examples/trek.bas` (or `basic.exe examples\trek.bas` on Windows) from the unpacked directory.
 
+<img width="599" height="835" alt="image" src="https://github.com/user-attachments/assets/1a91c6ab-fed8-436d-a3ea-cd8ad6f224af" />
+
+
 ---
 
 ### macOS Gatekeeper note 🔐
