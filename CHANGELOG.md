@@ -2,11 +2,20 @@
 
 ### Unreleased
 
-- **User-defined FUNCTIONS**
+(Future changes go here.)
+
+### 2.0.0 – 2026-03-18
+
+- **User-defined FUNCTIONS** (implemented)
   - Multi-line, multi-parameter: `FUNCTION name [(params)]` … `RETURN [expr]` … `END FUNCTION`.
   - Call from expressions: `x = add(3, 5)`; as statement for side effects: `sayhi()`.
   - Brackets always required; optional params; `RETURN` with no expr or `END FUNCTION` yields 0/`""`.
   - Coexists with `DEF FN` (different arity). See `docs/user-functions-plan.md`.
+- **Graphical interpreter (basic-gfx)** — full raylib-based 40×25 PETSCII window
+  - Complete graphical version of the interpreter: `basic-gfx` alongside terminal `basic`.
+  - `POKE`/`PEEK` screen/colour/char RAM, `INKEY$`, `TI`/`TI$`, `.seq` art viewers.
+  - PETSCII→screen code conversion when `SCREENCODES ON`; reverse-video fixed.
+  - Window closes on `END`. Build with `make basic-gfx` (requires Raylib).
 - **Meta directives** (`#` prefix, load-time)
   - Shebang: `#!/usr/bin/env basic` on first line ignored.
   - `#OPTION petscii|petscii-plain|charset upper|lower|palette ansi|c64` — file overrides CLI.
