@@ -39,6 +39,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: false
 
       - name: Install raylib (Linux)
         if: runner.os == 'Linux' && matrix.build_gfx
@@ -64,7 +67,7 @@ jobs:
         if: runner.os == 'macOS' && matrix.build_gfx
         run: |
           set -e
-          brew update
+          export HOMEBREW_NO_AUTO_UPDATE=1
           brew install raylib
 
       - name: Build (Unix)
@@ -105,19 +108,17 @@ jobs:
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
-        shell: bash
+        shell: msys2 {0}
         run: |
           set -e
+          make
           if [ "${{ matrix.build_gfx }}" = "true" ]; then
-            C:\\msys64\\usr\\bin\\bash -lc "make && make basic-gfx"
-          else
-            choco install -y make
-            make
+            make basic-gfx
           fi
 
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
-        shell: bash
+        shell: msys2 {0}
         run: |
           set -e
           for t in tests/*.bas; do
