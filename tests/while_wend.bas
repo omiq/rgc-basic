@@ -1,0 +1,19 @@
+10 REM Test WHILE WEND
+20 I = 0
+30 WHILE I < 5
+40   PRINT I;
+50   I = I + 1
+60 WEND
+70 PRINT
+80 REM Nested WHILE
+90 A = 0
+100 B = 0
+110 WHILE A < 2
+120   B = 0
+130   WHILE B < 2
+140     PRINT A;B;
+150     B = B + 1
+160   WEND
+165   A = A + 1
+170 WEND
+180 PRINT "OK"

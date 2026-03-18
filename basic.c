@@ -697,6 +697,15 @@ struct if_block {
 static struct if_block if_stack[MAX_IF_DEPTH];
 static int if_depth = 0;
 
+/* WHILE WEND block stack */
+#define MAX_WHILE_DEPTH 16
+struct while_frame {
+    int line_index;
+    char *position;
+};
+static struct while_frame while_stack[MAX_WHILE_DEPTH];
+static int while_top = 0;
+
 /* User-defined functions created with DEF FN. */
 #define MAX_USER_FUNCS 32
 
@@ -1026,7 +1035,10 @@ static void statement_background(char **p);
 static void statement_screencodes(char **p);
 static void statement_else(char **p);
 static void statement_end_if(char **p);
+static void statement_while(char **p, char *while_pos);
+static void statement_wend(char **p);
 static void skip_if_block_to_target(char **p, int want_else);
+static void skip_while_to_wend(char **p);
 
 enum func_code {
     FN_NONE = 0,
@@ -1207,7 +1219,7 @@ static const char *const reserved_words[] = {
     "LCASE", "MID", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PRINT",
     "READ", "REM", "RESTORE", "RETURN", "RIGHT", "RND", "RVS", "SCREENCODES",
     "SGN", "SIN", "SLEEP", "SPC", "SQR", "STEP", "STOP", "STR", "STRING",
-    "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "UCASE", "VAL",
+    "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "UCASE",     "VAL", "WEND", "WHILE",
     NULL
 };
 
@@ -3722,6 +3734,8 @@ static void statement_clr(char **p)
     }
     gosub_top = 0;
     for_top = 0;
+    while_top = 0;
+    if_depth = 0;
     data_index = 0;
 }
 
@@ -4192,6 +4206,57 @@ static void skip_if_block_to_target(char **p, int want_else)
     runtime_error("END IF expected");
 }
 
+/* Skip forward from current position to matching WEND. Handles nested WHILE/WEND. */
+static void skip_while_to_wend(char **p)
+{
+    int line = current_line;
+    char *pos = *p;
+    int nesting = 1;
+
+    while (line >= 0 && line < line_count && program_lines[line]) {
+        if (!pos) pos = program_lines[line]->text;
+        while (pos && *pos) {
+            char *q = pos;
+            skip_spaces(&q);
+            if (!*q) break;
+            if (starts_with_kw(q, "WHILE")) {
+                q += 5;
+                skip_spaces(&q);
+                if (*q && *q != ':') {
+                    nesting++;
+                    while (*q && *q != ':') q++;
+                    pos = (*q == ':') ? q + 1 : q;
+                    continue;
+                }
+            }
+            if (starts_with_kw(q, "WEND")) {
+                char *r = q + 4;
+                skip_spaces(&r);
+                nesting--;
+                if (nesting == 0) {
+                    if (!*r && line + 1 < line_count) {
+                        current_line = line + 1;
+                        statement_pos = program_lines[line + 1]->text;
+                        *p = statement_pos;
+                    } else {
+                        current_line = line;
+                        statement_pos = r;
+                        *p = r;
+                    }
+                    return;
+                }
+                pos = r;
+                continue;
+            }
+            pos = strchr(pos, ':');
+            pos = pos ? pos + 1 : NULL;
+        }
+        line++;
+        pos = NULL;
+    }
+    runtime_error("WEND expected");
+}
+
 static void statement_if(char **p)
 {
     int cond_true;
@@ -4262,6 +4327,40 @@ static void statement_end_if(char **p)
     }
     skip_spaces(p);
     if_depth--;
+}
+
+static void statement_while(char **p, char *while_pos)
+{
+    int cond_true;
+
+    cond_true = eval_condition(p);
+    if (!cond_true) {
+        skip_while_to_wend(p);
+        return;
+    }
+    if (while_top >= MAX_WHILE_DEPTH) {
+        runtime_error("WHILE nesting too deep");
+        return;
+    }
+    while_stack[while_top].line_index = current_line;
+    while_stack[while_top].position = while_pos;
+    while_top++;
+}
+
+static void statement_wend(char **p)
+{
+    if (while_top <= 0) {
+        runtime_error("WEND without WHILE");
+        return;
+    }
+    *p += 4;
+    skip_spaces(p);
+    {
+        int idx = while_top - 1;
+        current_line = while_stack[idx].line_index;
+        statement_pos = while_stack[idx].position;
+        while_top--;
+    }
 }
 
 static void statement_for(char **p)
@@ -4647,6 +4746,19 @@ static void execute_statement(char **p)
         statement_next(p);
         return;
     }
+    if (c == 'W') {
+        if (starts_with_kw(*p, "WHILE")) {
+            char *while_pos = *p;
+            *p += 5;
+            skip_spaces(p);
+            statement_while(p, while_pos);
+            return;
+        }
+        if (starts_with_kw(*p, "WEND")) {
+            statement_wend(p);
+            return;
+        }
+    }
     if (c == 'D') {
         /* DATA lines are non-executable (values were collected at load time). */
         if (starts_with_kw(*p, "DATA")) {
@@ -4899,6 +5011,9 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
     current_line = 0;
     statement_pos = NULL;
     print_col = 0;
+    for_top = 0;
+    while_top = 0;
+    if_depth = 0;
     while (!halted && current_line >= 0 && current_line < line_count) {
         char *p;
         if (statement_pos == NULL) {

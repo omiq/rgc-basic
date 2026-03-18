@@ -10,8 +10,9 @@
 * ~IF THEN ELSE END IF~
   * ~Multi-line IF/ELSE/END IF blocks with nesting; backward compatible with IF X THEN 100~
 
-* Structured loops: DO,LOOP,WHILE,UNTIL,EXIT
-  * Internally can be handled with labels and gotos but is far easier to understand
+* Structured loops: DO,LOOP,UNTIL,EXIT
+  * ~WHILE … WEND~ implemented.
+  * Remaining: DO/LOOP with UNTIL, EXIT.
 
 * ~Colour without pokes~
   * ~background command for setting screen colour~
@@ -83,4 +84,5 @@
 - **Variable names** — Full names (up to 31 chars) significant; SALE and SAFE distinct. Reserved words rejected for variables/labels.
 
 - **IF ELSE END IF** — Multi-line `IF cond THEN` … `ELSE` … `END IF` blocks; nested blocks supported.
+- **WHILE WEND** — Pre-test loop `WHILE cond` … `WEND`; nested loops supported.
 
