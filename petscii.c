@@ -83,9 +83,14 @@ int petscii_get_lowercase(void)
 }
 
 /* C64 PETSCII (print/CHR$ stream) to screen code (POKE/screen RAM) conversion.
- * Ref: sta.c64.org/cbm64pettoscr.html */
+ * Ref: sta.c64.org/cbm64pettoscr.html
+ * When charset is lowercase, letters use C64 layout: 1-26=a-z, 65-90=A-Z. */
 unsigned char petscii_to_screencode(unsigned char p)
 {
+    if (petscii_lowercase_charset) {
+        if (p >= 0x41 && p <= 0x5A) return (unsigned char)(p - 0x40); /* A-Z → 1-26 (a-z) */
+        if (p >= 0x61 && p <= 0x7A) return (unsigned char)(p - 0x20); /* a-z → 65-90 (A-Z) */
+    }
     if (p <= 31)  return (unsigned char)(p + 128);
     if (p <= 63)  return p;
     if (p <= 95)  return (unsigned char)(p - 64);
