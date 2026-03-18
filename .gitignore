@@ -64,3 +64,6 @@ basic
 CHARS.DAT
 .gitignore
 *.DAT
+*.exe
+basic-gfx
+gfx-demo
