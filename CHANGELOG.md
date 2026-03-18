@@ -1,5 +1,12 @@
 ## Changelog
 
+### Unreleased
+
+- **GFX charset toggle**
+  - Added lowercase/uppercase charset support to the Raylib `basic-gfx` build.
+  - `CHR$(14)` switches to the lowercase charset, `CHR$(142)` switches back.
+  - `-charset lower|upper` now also sets the initial charset in `basic-gfx`.
+
 ### 1.0.0 – 2026-03-09
 
 Baseline “version 1” tag capturing the current feature set.
