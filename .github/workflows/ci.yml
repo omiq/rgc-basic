@@ -34,7 +34,7 @@ jobs:
             archive: basic-windows.zip
             outdir: windows
             bin: basic.exe
-            build_gfx: false
+            build_gfx: true
 
     steps:
       - name: Checkout repository
@@ -91,11 +91,29 @@ jobs:
             ./basic -petscii "$t" >/dev/null
           done
 
+      - name: Setup MSYS2 (Windows, for raylib)
+        if: runner.os == 'Windows' && matrix.build_gfx
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-make
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-raylib
+
       - name: Build (Windows)
         if: runner.os == 'Windows'
+        shell: bash
         run: |
-          choco install -y make
-          make
+          set -e
+          if [ "${{ matrix.build_gfx }}" = "true" ]; then
+            C:\\msys64\\usr\\bin\\bash -lc "make && make basic-gfx"
+          else
+            choco install -y make
+            make
+          fi
 
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
@@ -132,6 +150,9 @@ jobs:
         run: |
           mkdir -p out/${{ matrix.outdir }}
           cp ${{ matrix.bin }} out/${{ matrix.outdir }}/basic.exe
+          if [ "${{ matrix.build_gfx }}" = "true" ] && [ -f basic-gfx.exe ]; then
+            cp basic-gfx.exe out/${{ matrix.outdir }}/basic-gfx.exe
+          fi
           cp -r examples out/${{ matrix.outdir }}/
           cd out
           powershell -Command "Compress-Archive -Path '${{ matrix.outdir }}' -DestinationPath '${{ matrix.archive }}'"
