@@ -4,7 +4,7 @@
 
 (Future changes go here.)
 
-### 2.0.0 – 2026-03-18
+### 1.4.0 – 2026-03-18
 
 - **User-defined FUNCTIONS** (implemented)
   - Multi-line, multi-parameter: `FUNCTION name [(params)]` … `RETURN [expr]` … `END FUNCTION`.
