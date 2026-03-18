@@ -586,9 +586,13 @@ static void load_default_charrom(GfxVideoState *s)
 {
     if (s && s->charset_lowercase) {
         memcpy(s->chars, petscii_font_lower, sizeof(petscii_font_lower));
-        /* Use petscii_font for 96-255: block elements and reversed chars.
-         * The lowercase font has wrong glyphs there; uppercase has correct
-         * C64 graphics (blocks, dithering, quadrants). */
+        /* Use petscii_font for 65-90 (A-Z) and 96-255: font_lower has wrong
+         * glyphs for P and W at 80 and 87; uppercase has correct A-Z at 1-26.
+         * Copy uppercase 1-26 into chars 65-90 so screen 80/87 show P/W. */
+        for (int i = 0; i < 26; i++) {
+            memcpy(&s->chars[(65 + i) * 8], &petscii_font[1 + i][0], 8);
+        }
+        /* Use petscii_font for 96-255: block elements and reversed chars. */
         memcpy(&s->chars[96 * 8], &petscii_font[96][0], 160 * 8);
     } else {
         memcpy(s->chars, petscii_font, sizeof(petscii_font));
@@ -613,8 +617,9 @@ static void render_text_screen(const GfxVideoState *s,
             const uint8_t *glyph;
             Color fg = c64_palette[ci];
 
-            /* Screen RAM holds C64 screen codes 0–255 (from POKE or PETSCII→screen
-             * conversion). Glyphs are indexed by screen code. */
+            /* Screen RAM holds C64 screen codes 0–255. When charset is lowercase,
+             * screen 65–90 (A–Z) use the uppercase font’s 1–26 glyphs—font_lower
+             * has wrong/inverted glyphs for P and W at 80 and 87. */
             glyph = &s->chars[(uint8_t)sc * 8];
 
             for (y = 0; y < CELL_H; y++) {

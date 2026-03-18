@@ -1,10 +1,10 @@
-0 PRINT CHR$(147)
+0 PRINT CHR$(147): PRINT CHR$(14)
 1 REM GFX viewer for colaburger.seq (PETSCII stream with colour/control codes)
 2 REM Run: ./basic-gfx -petscii -charset lower examples/gfx_colaburger_viewer.bas
 3 REM SCREENCODES ON: bytes are PETSCII (CHR$/PRINT stream); converts to screen codes
 4 SCREENCODES ON
-5 REM Cyan background and 40-column wrap to match colaburger art
-6 BACKGROUND 3
+5 REM Black background and 40-column wrap to match colaburger art
+6 BACKGROUND 0
 7 OPEN 1,1,0,"examples/colaburger.seq"
 8 L=0
 9 GET#1,C$
