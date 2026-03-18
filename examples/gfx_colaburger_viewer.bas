@@ -1,6 +1,6 @@
 0 PRINT CHR$(147)
-1 REM Read colaburger.seq (raw PETSCII) and display
-2 REM Run: basic -petscii-plain examples/colaburger_viewer.bas  (no ANSI = strict alignment)
+1 REM GFX viewer for colaburger.seq (PETSCII stream with colour/control codes)
+2 REM Run: ./basic-gfx -petscii examples/gfx_colaburger_viewer.bas
 3 REM Wrap at 40 columns (C64 screen width)
 4 OPEN 1,1,0,"examples/colaburger.seq"
 5 L=0
@@ -16,7 +16,7 @@
 15 GOTO 6
 16 CLOSE 1
 17 PRINT
-18 LOOP:
-19 GET K$: IF K$="" THEN GOTO LOOP
+18 TEXTAT 0,24,"DONE. PRESS ANY KEY (ESC TO QUIT)"
+19 K$ = INKEY$(): IF K$="" THEN SLEEP 1 : GOTO 19
 20 END
 

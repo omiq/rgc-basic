@@ -336,6 +336,7 @@ You can either use the provided `Makefile` (recommended) or compile manually.
     - `./basic-gfx -petscii examples/gfx_text_demo.bas`
     - `./basic-gfx -petscii examples/gfx_inkey_demo.bas`
     - `./basic-gfx -petscii examples/gfx_jiffy_game_demo.bas`
+    - `./basic-gfx -petscii examples/gfx_colaburger_viewer.bas`
   - **Keyboard polling (basic-gfx)**:
     - BASIC can poll a simple key-down map via `PEEK(56320 + code)` where 56320 is \(0xDC00\).
     - Supported codes include ASCII `A`–`Z`, `0`–`9`, Space (32), Enter (13), Esc (27), and C64 cursor codes Up (145), Down (17), Left (157), Right (29).
@@ -347,6 +348,10 @@ You can either use the provided `Makefile` (recommended) or compile manually.
     - `TI` is a **60 Hz “jiffy” counter** (like C64 BASIC), incremented by the gfx host each frame and wrapping every 24 hours (\(24*60*60*60 = 5184000\)).
     - `TI$` is a string formatted as `HHMMSS`.
     - Terminal build: currently not driven by a host tick source (use `SLEEP` or your OS clock instead).
+  - **SCREENCODES ON|OFF (basic-gfx)**:
+    - In gfx builds, `SCREENCODES ON` makes `PRINT` treat bytes as **raw screen codes** (0–255) rather than ASCII→screen-code mapping.
+    - This is useful for displaying `.seq` screen-code art streams (e.g. `examples/gfx_colaburger_viewer.bas`).
+    - Use `SCREENCODES OFF` to restore the default behavior (ASCII strings like `PRINT \"HELLO\"` map naturally).
 
 #### Using `make` (recommended)
 
