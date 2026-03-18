@@ -7,11 +7,12 @@
 
 * ~Decimal ↔ hexadecimal conversion: DEC(),HEX$()~
 
-* IF THEN ELSE END IF
-  * Internally can be handled like : but this syntax is easier to read and understand
+* ~IF THEN ELSE END IF~
+  * ~Multi-line IF/ELSE/END IF blocks with nesting; backward compatible with IF X THEN 100~
 
-* Structured loops: DO,LOOP,WHILE,UNTIL,EXIT
-  * Internally can be handled with labels and gotos but is far easier to understand
+* Structured loops: DO,LOOP,UNTIL,EXIT
+  * ~WHILE … WEND~ implemented.
+  * Remaining: DO/LOOP with UNTIL, EXIT.
 
 * ~Colour without pokes~
   * ~background command for setting screen colour~
@@ -41,19 +42,15 @@
   * Ensure keywords are only recognized when not inside identifiers (e.g. avoid splitting `ORD(7)` or `FOR`), and never mangling string literals
   * Validate behavior against reference interpreter (`cbmbasic`) with a regression suite of tricky lines
 
-* Include files / libraries
-  * Design a simple `INCLUDE "file.bas"` or similar directive processed at load time
-  * Allow splitting larger programs into multiple source files / libraries while preserving line-numbered semantics
-  * Consider search paths and guarding against recursive includes
+* ~Include files / libraries~
+  * ~#INCLUDE "path" implemented; relative to current file; duplicate line/label errors; circular include detection~
+* ~Shebang-aware loader~
+  * ~First line `#!...` ignored; #OPTION mirrors CLI (file overrides)~
 
-* Shebang-aware loader
-  * Teach `load_program` to ignore an initial `#!...` shebang line before deciding numbered vs numberless mode
-  * Allow Unix-style executable BASIC scripts with a shebang (`#!/usr/bin/env ./basic`) without triggering the "mixed numbered and numberless" error
-
-* Reserved-word / identifier hygiene
-  * Add a lightweight lexical pass after loading that scans identifiers (variables, labels, DEF FN names)
-  * Detect reserved keywords (statements and intrinsic functions) used as labels or variables in ambiguous ways and emit clear diagnostics before execution
-  * Improve error messages where possible by pointing to likely misuse of reserved words instead of only reporting low-level parse/runtime errors (e.g. "Numeric value required")
+* ~Reserved-word / identifier hygiene (variables)~
+  * ~Reserved words cannot be used as variables; error "Reserved word cannot be used as variable"~
+  * Labels may match keywords (e.g. `CLR:` in trek.bas); context distinguishes.
+  * Improve error messages where possible
 
 ---
 
@@ -79,4 +76,10 @@
 - **Cursor On/Off** — `CURSOR ON` / `CURSOR OFF` show or hide the blinking cursor using ANSI escape codes; tested with simple smoke programs.
 
 - **basic-gfx (raylib PETSCII graphics)** — Windowed 40×25 PETSCII text screen, POKE/PEEK screen/colour/char RAM, INKEY$, TI/TI$, SCREENCODES ON (PETSCII→screen conversion for .seq viewers), `.seq` colaburger viewer with correct rendering, window closes on END.
+
+- **Variable names** — Full names (up to 31 chars) significant; SALE and SAFE distinct. Reserved words rejected for variables/labels.
+
+- **IF ELSE END IF** — Multi-line `IF cond THEN` … `ELSE` … `END IF` blocks; nested blocks supported.
+- **WHILE WEND** — Pre-test loop `WHILE cond` … `WEND`; nested loops supported.
+- **Meta directives** — Shebang, #OPTION (petscii, charset, palette), #INCLUDE; duplicate line/label errors; circular include detection. See `docs/meta-directives-plan.md`.
 

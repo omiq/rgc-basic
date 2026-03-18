@@ -1,0 +1,6 @@
+10 I = 0
+20 WHILE I < 3
+30   PRINT I
+40   I = I + 1
+50 WEND
+60 PRINT "OK"
