@@ -732,6 +732,7 @@ static int gfx_y = 0;
 static uint8_t gfx_fg = 14;      /* default light blue */
 static uint8_t gfx_bg = 6;       /* default blue background */
 static int gfx_reverse = 0;
+static int gfx_raw_screen_codes = 0;  /* when set, bytes 0–255 are screen codes */
 
 static uint8_t gfx_ascii_to_screencode(unsigned char c)
 {
@@ -846,9 +847,12 @@ static void gfx_put_byte(unsigned char b)
     if (!gfx_vs) return;
     if (gfx_apply_control_code(b)) return;
 
-    /* Map printable ASCII to C64 screen codes for convenience. Otherwise
-     * treat the byte as a direct screen code. */
-    if (b >= 32 && b <= 126) {
+    /* By default, map printable ASCII to C64 screen codes for convenience.
+     * For .seq viewers and other screen-code streams, gfx_raw_screen_codes can
+     * be enabled so bytes are treated as direct screen codes 0–255. */
+    if (gfx_raw_screen_codes) {
+        sc = (uint8_t)b;
+    } else if (b >= 32 && b <= 126) {
         sc = gfx_ascii_to_screencode(b);
     } else {
         sc = (uint8_t)b;
@@ -988,6 +992,7 @@ static int function_lookup(const char *name, int len);
 static void statement_cursor(char **p);
 static void statement_color(char **p);
 static void statement_background(char **p);
+static void statement_screencodes(char **p);
 
 enum func_code {
     FN_NONE = 0,
@@ -1969,6 +1974,28 @@ static void statement_background(char **p)
         break;
     }
     fflush(stdout);
+}
+
+static void statement_screencodes(char **p)
+{
+    /* SCREENCODES ON|OFF: in gfx build, control whether PRINT outputs bytes
+     * as raw screen codes (0–255) or maps ASCII to screen codes. */
+    skip_spaces(p);
+    if (starts_with_kw(*p, "ON")) {
+        *p += 2;
+        #ifdef GFX_VIDEO
+        if (gfx_vs) gfx_raw_screen_codes = 1;
+        #endif
+        return;
+    }
+    if (starts_with_kw(*p, "OFF")) {
+        *p += 3;
+        #ifdef GFX_VIDEO
+        if (gfx_vs) gfx_raw_screen_codes = 0;
+        #endif
+        return;
+    }
+    runtime_error("SCREENCODES expects ON or OFF");
 }
 
 /* GET statement: GET A$ reads a single character into a string variable.
@@ -4475,6 +4502,11 @@ static void execute_statement(char **p)
     if (c == 'B' && starts_with_kw(*p, "BACKGROUND")) {
         *p += 10;
         statement_background(p);
+        return;
+    }
+    if (c == 'S' && starts_with_kw(*p, "SCREENCODES")) {
+        *p += 11;
+        statement_screencodes(p);
         return;
     }
     if (isalpha((unsigned char)c)) {
