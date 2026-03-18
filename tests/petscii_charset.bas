@@ -1,0 +1,6 @@
+10 REM PETSCII charset toggle test (C64-style)
+20 PRINT CHR$(65);CHR$(66);CHR$(67)
+30 PRINT CHR$(14);CHR$(65);CHR$(66);CHR$(67)
+40 PRINT CHR$(142);CHR$(65);CHR$(66);CHR$(67)
+50 END
+
