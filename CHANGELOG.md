@@ -2,6 +2,9 @@
 
 ### Unreleased
 
+- **IF ELSE END IF**
+  - Multi-line blocks: `IF cond THEN` … `ELSE` … `END IF`. Nested blocks supported.
+  - Backward compatible: `IF X THEN 100` and `IF X THEN PRINT "Y"` unchanged.
 - **Variable naming**
   - Full variable names (up to 31 chars) are now significant; `SALE` and `SAFE` are distinct.
   - Reserved-word check: keywords cannot be used as variables; clear error on misuse. Labels may match keywords (e.g. `CLR:`).

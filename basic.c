@@ -689,6 +689,14 @@ static int gosub_top = 0;
 static struct for_frame for_stack[MAX_FOR];
 static int for_top = 0;
 
+/* IF ELSE END IF block stack */
+#define MAX_IF_DEPTH 16
+struct if_block {
+    int took_then;    /* 1 if we executed THEN branch, 0 if we skipped to ELSE/END IF */
+};
+static struct if_block if_stack[MAX_IF_DEPTH];
+static int if_depth = 0;
+
 /* User-defined functions created with DEF FN. */
 #define MAX_USER_FUNCS 32
 
@@ -1016,6 +1024,9 @@ static void statement_cursor(char **p);
 static void statement_color(char **p);
 static void statement_background(char **p);
 static void statement_screencodes(char **p);
+static void statement_else(char **p);
+static void statement_end_if(char **p);
+static void skip_if_block_to_target(char **p, int want_else);
 
 enum func_code {
     FN_NONE = 0,
@@ -1191,7 +1202,7 @@ static char *dupstr_local(const char *s)
 static const char *const reserved_words[] = {
     "AND", "ARG", "ARGC", "ASC", "BACKGROUND", "CHR", "CLOSE", "CLR", "COLOR",
     "COLOUR", "COS", "CURSOR", "DATA", "DEC", "DEF", "DIM", "DOWN", "END",
-    "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
+    "ELSE", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
     "INKEY", "INPUT", "INSTR", "INT", "LEFT", "LEN", "LET", "LOCATE", "LOG",
     "LCASE", "MID", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PRINT",
     "READ", "REM", "RESTORE", "RETURN", "RIGHT", "RND", "RVS", "SCREENCODES",
@@ -4113,9 +4124,78 @@ static void statement_return(char **p)
     statement_pos = gosub_stack[gosub_top].position;
 }
 
+/* Skip forward from current position to ELSE (if want_else) or END IF.
+ * Updates current_line, statement_pos, and *p. Handles nested IF blocks. */
+static void skip_if_block_to_target(char **p, int want_else)
+{
+    int line = current_line;
+    char *pos = *p;
+    int nesting = 1;
+
+    while (line >= 0 && line < line_count && program_lines[line]) {
+        if (!pos) pos = program_lines[line]->text;
+        while (pos && *pos) {
+            char *q = pos;
+            skip_spaces(&q);
+            if (!*q) break;
+            if (starts_with_kw(q, "IF")) {
+                char *r = q + 2;
+                skip_spaces(&r);
+                if (starts_with_kw(r, "THEN")) {
+                    r += 4;
+                    skip_spaces(&r);
+                    if (!*r || *r == ':') {
+                        nesting++;
+                        pos = (*r == ':') ? r + 1 : r;
+                        continue;
+                    }
+                }
+            }
+            if (starts_with_kw(q, "END")) {
+                char *r = q + 3;
+                skip_spaces(&r);
+                if (starts_with_kw(r, "IF")) {
+                    r += 2;
+                    skip_spaces(&r);
+                    nesting--;
+                    if (nesting == 0) {
+                        current_line = line;
+                        statement_pos = r;
+                        *p = r;
+                        if_depth--;
+                        return;
+                    }
+                    pos = r;
+                    continue;
+                }
+            }
+            if (nesting == 1 && starts_with_kw(q, "ELSE")) {
+                if (want_else) {
+                    q += 4;
+                    skip_spaces(&q);
+                    current_line = line;
+                    statement_pos = q;
+                    *p = q;
+                    return;
+                }
+                q += 4;
+                skip_spaces(&q);
+                pos = q;
+                continue;
+            }
+            pos = strchr(pos, ':');
+            pos = pos ? pos + 1 : NULL;
+        }
+        line++;
+        pos = NULL;
+    }
+    runtime_error("END IF expected");
+}
+
 static void statement_if(char **p)
 {
     int cond_true;
+    char *after_then;
 
     cond_true = eval_condition(p);
     skip_spaces(p);
@@ -4125,8 +4205,21 @@ static void statement_if(char **p)
     }
     *p += 4;
     skip_spaces(p);
+    after_then = *p;
+    /* Block mode: THEN at EOL or followed only by ':' then EOL */
+    if (!*after_then || (*after_then == ':' && !after_then[1])) {
+        if (if_depth >= MAX_IF_DEPTH) {
+            runtime_error("IF nesting too deep");
+            return;
+        }
+        if_stack[if_depth].took_then = cond_true ? 1 : 0;
+        if_depth++;
+        if (!cond_true) {
+            skip_if_block_to_target(p, 1);
+        }
+        return;
+    }
     if (!cond_true) {
-        /* Skip rest of line */
         *p += strlen(*p);
         return;
     }
@@ -4143,10 +4236,32 @@ static void statement_if(char **p)
         }
         statement_pos = NULL;
     } else {
-        /* Execute rest of line inline */
         skip_spaces(p);
         statement_pos = *p;
     }
+}
+
+static void statement_else(char **p)
+{
+    if (if_depth <= 0) {
+        runtime_error("ELSE without IF");
+        return;
+    }
+    *p += 4;
+    skip_spaces(p);
+    if (if_stack[if_depth - 1].took_then) {
+        skip_if_block_to_target(p, 0);
+    }
+}
+
+static void statement_end_if(char **p)
+{
+    if (if_depth <= 0) {
+        runtime_error("END IF without matching IF");
+        return;
+    }
+    skip_spaces(p);
+    if_depth--;
 }
 
 static void statement_for(char **p)
@@ -4563,10 +4678,26 @@ static void execute_statement(char **p)
         statement_sleep(p);
         return;
     }
-    if (c == 'E' && starts_with_kw(*p, "END")) {
-        halted = 1;
-        *p += strlen(*p);
-        return;
+    if (c == 'E') {
+        if (starts_with_kw(*p, "ELSE")) {
+            if (if_depth > 0) {
+                *p += 4;
+                statement_else(p);
+                return;
+            }
+        }
+        if (starts_with_kw(*p, "END")) {
+            char *q = *p + 3;
+            skip_spaces(&q);
+            if (starts_with_kw(q, "IF")) {
+                *p = q + 2;
+                statement_end_if(p);
+                return;
+            }
+            halted = 1;
+            *p += strlen(*p);
+            return;
+        }
     }
     if (c == 'S' && starts_with_kw(*p, "STOP")) {
         halted = 1;
