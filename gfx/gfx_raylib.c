@@ -403,6 +403,7 @@ int main(int argc, char **argv)
     InterpreterArgs ia;
     int prog_idx;
     const char *prog_path;
+    int closed_by_user;
 
     prog_idx = basic_parse_args(argc, argv);
     if (prog_idx < 0) {
@@ -563,8 +564,17 @@ int main(int argc, char **argv)
         EndDrawing();
     }
 
+    closed_by_user = WindowShouldClose() && !basic_halted();
+
     UnloadRenderTexture(target);
     CloseWindow();
+    /* If the user closed the window before the BASIC program ended, don't
+     * block forever waiting for the interpreter thread. Exiting the process
+     * will terminate all threads; detach to avoid a join leak. */
+    if (closed_by_user) {
+        pthread_detach(tid);
+        return 0;
+    }
     pthread_join(tid, NULL);
     return 0;
 }
