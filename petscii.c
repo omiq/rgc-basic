@@ -81,3 +81,18 @@ int petscii_get_lowercase(void)
 {
     return petscii_lowercase_charset;
 }
+
+/* C64 PETSCII (print/CHR$ stream) to screen code (POKE/screen RAM) conversion.
+ * Ref: sta.c64.org/cbm64pettoscr.html */
+unsigned char petscii_to_screencode(unsigned char p)
+{
+    if (p <= 31)  return (unsigned char)(p + 128);
+    if (p <= 63)  return p;
+    if (p <= 95)  return (unsigned char)(p - 64);
+    if (p <= 127) return (unsigned char)(p - 32);
+    if (p <= 159) return (unsigned char)(p + 64);
+    if (p <= 191) return (unsigned char)(p - 64);
+    if (p <= 223) return (unsigned char)(p - 128);
+    if (p <= 254) return (unsigned char)(p - 128);
+    return 94;  /* 255 (π) → 94 */
+}
