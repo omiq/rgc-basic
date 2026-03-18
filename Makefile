@@ -13,7 +13,7 @@ GFX_SRCS = gfx/gfx_video.c tests/gfx_video_test.c
 # Raylib-based graphics demo (Phase 1 skeleton, no interpreter)
 GFX_DEMO_SRCS = gfx/gfx_video.c gfx/gfx_raylib.c
 RAYLIB_CFLAGS  = $(shell pkg-config --cflags raylib 2>/dev/null)
-RAYLIB_LDFLAGS = $(shell pkg-config --libs raylib 2>/dev/null) -ldl -lpthread
+RAYLIB_LDFLAGS = $(shell pkg-config --libs raylib 2>/dev/null) -lpthread
 
 # Integrated graphics build: BASIC interpreter + raylib window
 GFX_BIN_SRCS = basic.c petscii.c gfx/gfx_video.c gfx/gfx_raylib.c
@@ -27,9 +27,12 @@ LDFLAGS ?= -lm
 ifeq ($(OS),Windows_NT)
   EXE := .exe
   RM  := del /F /Q
+  # MinGW does not provide libdl; pthreads come from winpthreads.
+  RAYLIB_LDFLAGS = $(shell pkg-config --libs raylib 2>/dev/null) -lwinpthread
 else
   EXE :=
   RM  := rm -f
+  RAYLIB_LDFLAGS = $(shell pkg-config --libs raylib 2>/dev/null) -ldl -lpthread
 endif
 
 all: $(TARGET)$(EXE)
