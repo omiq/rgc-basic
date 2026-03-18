@@ -24,11 +24,11 @@ See `CHANGELOG.md` for a versioned history of changes (starting from **1.0.0 –
 
 ## 💾 DOWNLOADS
 
-[The latest binaries for Win/Mac/Linux are in ***Releases](https://github.com/omiq/cbm-basic/releases/)***. 
+[The latest binaries for Win/Mac/Linux are in Releases](https://github.com/omiq/cbm-basic/releases/). 
 
 Extract the files after downloading.
 
-Each release archive includes the interpreter binary and the `examples`** folder so you can run programs such as `./basic examples/trek.bas` (or `basic.exe examples\trek.bas` on Windows) from the unpacked directory.
+Each release archive includes the interpreter binary and the `examples` folder so you can run programs such as `./basic examples/trek.bas` (or `basic.exe examples\trek.bas` on Windows) from the unpacked directory.
 
 <img width="599" height="835" alt="image" src="https://github.com/user-attachments/assets/1a91c6ab-fed8-436d-a3ea-cd8ad6f224af" />
 
