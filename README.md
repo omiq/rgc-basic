@@ -24,11 +24,11 @@ See `CHANGELOG.md` for a versioned history of changes (starting from **1.0.0 –
 
 ## 💾 DOWNLOADS
 
-[The latest binaries for Win/Mac/Linux are in ***Releases***](https://github.com/omiq/cbm-basic/releases/). 
+[The latest binaries for Win/Mac/Linux are in ***Releases](https://github.com/omiq/cbm-basic/releases/)***. 
 
 Extract the files after downloading.
 
-Each release archive includes the interpreter binary and the `examples*`* folder so you can run programs such as `./basic examples/trek.bas` (or `basic.exe examples\trek.bas` on Windows) from the unpacked directory.
+Each release archive includes the interpreter binary and the `examples`** folder so you can run programs such as `./basic examples/trek.bas` (or `basic.exe examples\trek.bas` on Windows) from the unpacked directory.
 
 ---
 
@@ -110,7 +110,7 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
   - **Command-line arguments and shell** (for scripting):
     - `ARGC()` — returns the number of arguments passed after the script path (e.g. `./basic script.bas a b` → `ARGC()` = 2). Use `ARGC()` with parentheses.
     - `ARG$(n)` — returns the *n*th argument as a string. `ARG$(0)` is the script path; `ARG$(1)` … `ARG$(ARGC())` are the arguments. Out-of-range returns `""`.
-    - `SYSTEM(cmd$)*`* — runs a shell command (e.g. `SYSTEM("ls -l")`), waits for it to finish, and returns its exit status (0 = success).
+    - `SYSTEM(cmd$)`** — runs a shell command (e.g. `SYSTEM("ls -l")`), waits for it to finish, and returns its exit status (0 = success).
     - `EXEC$(cmd$)` — runs a shell command and returns its standard output as a string (up to 255 characters; trailing newline trimmed). Use for scripting (e.g. `U$ = EXEC$("whoami")`).
 
 ### Additional/Non-Standard BASIC Commands
@@ -220,23 +220,24 @@ In `-petscii` mode, `CHR$` behaves in a C64-like way: control and color codes ar
 - **Basic text colors** (ANSI approximations of C64 colors)
 
   | C64 index (`COLOR`/`BACKGROUND`) | PETSCII `CHR$()` | Token(s) you can use in `{TOKENS}` | Approximate colour |
-  | -------------------------------- | ---------------- | ----------------------------------- | ------------------- |
-  | 0                                | `CHR$(144)`      | `BLACK`                             | black               |
-  | 1                                | `CHR$(5)`        | `WHITE`                             | white               |
-  | 2                                | `CHR$(28)`       | `RED`                               | red                 |
-  | 3                                | `CHR$(159)`      | `CYAN`                              | cyan                |
-  | 4                                | `CHR$(156)`      | `PURPLE`                            | purple              |
-  | 5                                | `CHR$(30)`       | `GREEN`                             | green               |
-  | 6                                | `CHR$(31)`       | `BLUE`                              | blue                |
-  | 7                                | `CHR$(158)`      | `YELLOW`                            | yellow              |
-  | 8                                | `CHR$(129)`      | `ORANGE`                            | orange              |
-  | 9                                | `CHR$(149)`      | `BROWN`                             | brown               |
-  | 10                               | `CHR$(150)`      | `PINK` / light red                  | light red           |
-  | 11                               | `CHR$(151)`      | `GRAY1` / `GREY1`                   | dark gray           |
-  | 12                               | `CHR$(152)`      | `GRAY2` / `GREY2`                   | medium gray         |
-  | 13                               | `CHR$(153)`      | `LIGHTGREEN` / `LIGHT GREEN`        | light green         |
-  | 14                               | `CHR$(154)`      | `LIGHTBLUE` / `LIGHT BLUE`          | light blue          |
-  | 15                               | `CHR$(155)`      | `GRAY3` / `GREY3`                   | light gray          |
+  | -------------------------------- | ---------------- | ---------------------------------- | ------------------ |
+  | 0                                | `CHR$(144)`      | `BLACK`                            | black              |
+  | 1                                | `CHR$(5)`        | `WHITE`                            | white              |
+  | 2                                | `CHR$(28)`       | `RED`                              | red                |
+  | 3                                | `CHR$(159)`      | `CYAN`                             | cyan               |
+  | 4                                | `CHR$(156)`      | `PURPLE`                           | purple             |
+  | 5                                | `CHR$(30)`       | `GREEN`                            | green              |
+  | 6                                | `CHR$(31)`       | `BLUE`                             | blue               |
+  | 7                                | `CHR$(158)`      | `YELLOW`                           | yellow             |
+  | 8                                | `CHR$(129)`      | `ORANGE`                           | orange             |
+  | 9                                | `CHR$(149)`      | `BROWN`                            | brown              |
+  | 10                               | `CHR$(150)`      | `PINK` / light red                 | light red          |
+  | 11                               | `CHR$(151)`      | `GRAY1` / `GREY1`                  | dark gray          |
+  | 12                               | `CHR$(152)`      | `GRAY2` / `GREY2`                  | medium gray        |
+  | 13                               | `CHR$(153)`      | `LIGHTGREEN` / `LIGHT GREEN`       | light green        |
+  | 14                               | `CHR$(154)`      | `LIGHTBLUE` / `LIGHT BLUE`         | light blue         |
+  | 15                               | `CHR$(155)`      | `GRAY3` / `GREY3`                  | light gray         |
+
 
 If you do not pass a file name, the interpreter will print usage information:
 
@@ -264,6 +265,47 @@ Example: `examples/scripting.bas` demonstrates `ARGC()`, `ARG$()`, `SYSTEM()`, a
 ### Source normalization (compact CBM style)
 
 Program text is normalized at load time so **compact CBM BASIC** without spaces around keywords is accepted. For example: `IFX<0THEN`, `FORI=1TO9`, `GOTO410`, `GOSUB5400`, and similar forms are rewritten with spaces so the parser recognises `IF`/`THEN`, `FOR`/`TO`/`NEXT`, `GOTO`, and `GOSUB`. This helps run listings that were saved with minimal whitespace.
+
+---
+
+### PETSCII GRAPHICS (using Raylib)
+
+Using BASIC-GFX, you have can have full PETSCII symbols (upper/lower or upper and graphic) and `POKE / PEEK` screen memory reading and writing:
+
+(building requires Raylib to be installed - build the graphics target via `make basic-gfx)`
+
+- `./basic-gfx examples/gfx_poke_demo.bas`
+- `./basic-gfx examples/gfx_charset_demo.bas`
+- `./basic-gfx examples/gfx_key_demo.bas`
+- `./basic-gfx -petscii examples/gfx_text_demo.bas`
+- `./basic-gfx -petscii examples/gfx_inkey_demo.bas`
+- `./basic-gfx -petscii examples/gfx_jiffy_game_demo.bas`
+- `./basic-gfx -petscii examples/gfx_colaburger_viewer.bas`
+
+**Keyboard polling (basic-gfx)**:
+
+- BASIC can poll a simple key-down map via `PEEK(56320 + code)` where 56320 is 0xDC00.
+- Supported codes include ASCII `A`–`Z`, `0`–`9`, Space (32), Enter (13), Esc (27), and C64 cursor codes Up (145), Down (17), Left (157), Right (29).
+
+**INKEY$() (basic-gfx)**:
+
+- `INKEY$()` is **non-blocking**: it returns a 1-character string for the next queued keypress, or `""` if none.
+- This is driven by the raylib host; it is currently available in `basic-gfx` (gfx build) and returns `""` in the terminal build.
+- Example: `./basic-gfx -petscii examples/gfx_inkey_demo.bas`
+
+**TI / TI$ (basic-gfx)**:
+
+- `TI` is a **60 Hz “jiffy” counter** (like C64 BASIC), incremented by the gfx host each frame and wrapping every 24 hours (24*60*60*60 = 5184000).
+- `TI$` is a string formatted as `HHMMSS`.
+- Terminal build: currently not driven by a host tick source (use `SLEEP` or your OS clock instead).
+
+**SCREENCODES ON|OFF (basic-gfx)**:
+
+- In gfx builds, `SCREENCODES ON` makes `PRINT` treat bytes as **raw screen codes** (0–255) rather than ASCII→screen-code mapping.
+- This is useful for displaying `.seq` screen-code art streams (e.g. `examples/gfx_colaburger_viewer.bas`).
+- Use `SCREENCODES OFF` to restore the default behavior (ASCII strings like `PRINT \"HELLO\"` map naturally).
+
+---
 
 ### Included example programs
 
@@ -333,30 +375,6 @@ You can either use the provided `Makefile` (recommended) or compile manually.
       - Build/install: `git clone https://github.com/raysan5/raylib.git && cd raylib && cmake -B build -DBUILD_SHARED_LIBS=ON && cmake --build build --config Release && sudo cmake --install build`
       - If you installed to `/usr/local/lib`, you may need: `echo '/usr/local/lib' | sudo tee /etc/ld.so.conf.d/raylib.conf && sudo ldconfig`
   - **macOS** (Homebrew): `brew install raylib`
-  - Once installed, you can build the graphics targets via `make gfx-demo` and `make basic-gfx`:
-    - `./gfx-demo`
-    - `./basic-gfx examples/gfx_poke_demo.bas`
-    - `./basic-gfx examples/gfx_charset_demo.bas`
-    - `./basic-gfx examples/gfx_key_demo.bas`
-    - `./basic-gfx -petscii examples/gfx_text_demo.bas`
-    - `./basic-gfx -petscii examples/gfx_inkey_demo.bas`
-    - `./basic-gfx -petscii examples/gfx_jiffy_game_demo.bas`
-    - `./basic-gfx -petscii examples/gfx_colaburger_viewer.bas`
-  - **Keyboard polling (basic-gfx)**:
-    - BASIC can poll a simple key-down map via `PEEK(56320 + code)` where 56320 is \(0xDC00\).
-    - Supported codes include ASCII `A`–`Z`, `0`–`9`, Space (32), Enter (13), Esc (27), and C64 cursor codes Up (145), Down (17), Left (157), Right (29).
-  - **INKEY$() (basic-gfx)**:
-    - `INKEY$()` is **non-blocking**: it returns a 1-character string for the next queued keypress, or `""` if none.
-    - This is driven by the raylib host; it is currently available in `basic-gfx` (gfx build) and returns `""` in the terminal build.
-    - Example: `./basic-gfx -petscii examples/gfx_inkey_demo.bas`
-  - **TI / TI$ (basic-gfx)**:
-    - `TI` is a **60 Hz “jiffy” counter** (like C64 BASIC), incremented by the gfx host each frame and wrapping every 24 hours (\(24*60*60*60 = 5184000\)).
-    - `TI$` is a string formatted as `HHMMSS`.
-    - Terminal build: currently not driven by a host tick source (use `SLEEP` or your OS clock instead).
-  - **SCREENCODES ON|OFF (basic-gfx)**:
-    - In gfx builds, `SCREENCODES ON` makes `PRINT` treat bytes as **raw screen codes** (0–255) rather than ASCII→screen-code mapping.
-    - This is useful for displaying `.seq` screen-code art streams (e.g. `examples/gfx_colaburger_viewer.bas`).
-    - Use `SCREENCODES OFF` to restore the default behavior (ASCII strings like `PRINT \"HELLO\"` map naturally).
 
 #### Using `make` (recommended)
 
@@ -390,7 +408,7 @@ If you prefer to invoke the compiler directly:
   clang -std=c99 -Wall -O2 basic.c -lm -o basic
   ```
 - **macOS**
-  Install the Xcode command line tools if you have not already:
+Install the Xcode command line tools if you have not already:
   ```bash
   xcode-select --install
   ```
@@ -399,13 +417,13 @@ If you prefer to invoke the compiler directly:
   clang -std=c99 -Wall -O2 basic.c -lm -o basic
   ```
 - **Windows (MSVC)**
-  From a “Developer Command Prompt for VS”:
+From a “Developer Command Prompt for VS”:
   ```bat
   cl /std:c11 /W4 /O2 basic.c
   ```
   This will produce `basic.exe`.
 - **Windows (MinGW‑w64)**
-  In a MinGW‑w64 shell:
+In a MinGW‑w64 shell:
   ```bash
   gcc -std=c99 -Wall -O2 basic.c -lm -o basic.exe
   ```
@@ -414,4 +432,4 @@ If you prefer to invoke the compiler directly:
 
 The original idea was based on a BASIC project by David Plummer. His video is worth watching:
 
-https://www.youtube.com/watch?v=PyUuLYJLhUA
+[https://www.youtube.com/watch?v=PyUuLYJLhUA](https://www.youtube.com/watch?v=PyUuLYJLhUA)
