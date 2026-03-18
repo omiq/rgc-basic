@@ -622,6 +622,7 @@ static void init_console_ansi(void)
 #define MAX_LINES 1024
 #define MAX_LINE_LEN 256
 #define MAX_VARS 128
+#define VAR_NAME_MAX 32
 #define MAX_GOSUB 64
 #define MAX_FOR 32
 #define MAX_STR_LEN 256
@@ -651,8 +652,7 @@ struct line {
 #define MAX_DIMS 3
 
 struct var {
-    char name1;
-    char name2;
+    char name[VAR_NAME_MAX];
     int is_string;
     int is_array;
     int dims;                      /* 0 for scalar, >=1 for arrays */
@@ -668,8 +668,7 @@ struct gosub_frame {
 };
 
 struct for_frame {
-    char name1;
-    char name2;
+    char name[VAR_NAME_MAX];
     int is_string;
     double end_value;
     double step;
@@ -992,7 +991,7 @@ static void execute_statement(char **p);
 static struct value *get_var_reference(char **p, int *is_array_out, int *is_string_out);
 static struct value make_num(double v);
 static struct value make_str(const char *s);
-static struct var *find_or_create_var(char name1, char name2, int is_string, int want_array, int dims, const int *dim_sizes, int total_size);
+static struct var *find_or_create_var(const char *name, int is_string, int want_array, int dims, const int *dim_sizes, int total_size);
 static struct value eval_function(const char *name, char **p);
 static int user_func_lookup(const char *name);
 static void collect_data_from_program(void);
@@ -1186,6 +1185,37 @@ static char *dupstr_local(const char *s)
     }
     memcpy(p, s, len);
     return p;
+}
+
+/* Reserved words: identifiers that cannot be used as variable or label names. */
+static const char *const reserved_words[] = {
+    "AND", "ARG", "ARGC", "ASC", "BACKGROUND", "CHR", "CLOSE", "CLR", "COLOR",
+    "COLOUR", "COS", "CURSOR", "DATA", "DEC", "DEF", "DIM", "DOWN", "END",
+    "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
+    "INKEY", "INPUT", "INSTR", "INT", "LEFT", "LEN", "LET", "LOCATE", "LOG",
+    "LCASE", "MID", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PRINT",
+    "READ", "REM", "RESTORE", "RETURN", "RIGHT", "RND", "RVS", "SCREENCODES",
+    "SGN", "SIN", "SLEEP", "SPC", "SQR", "STEP", "STOP", "STR", "STRING",
+    "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "UCASE", "VAL",
+    NULL
+};
+
+static int is_reserved_word(const char *name)
+{
+    int i;
+    char up[VAR_NAME_MAX];
+    size_t len;
+    if (!name || !name[0]) return 0;
+    len = strlen(name);
+    if (len >= VAR_NAME_MAX) return 0;
+    for (i = 0; (unsigned char)name[i]; i++) {
+        up[i] = (char)toupper((unsigned char)name[i]);
+    }
+    up[i] = '\0';
+    for (i = 0; reserved_words[i]; i++) {
+        if (strcmp(up, reserved_words[i]) == 0) return 1;
+    }
+    return 0;
 }
 
 /* Check if the input starts with the keyword (case-insensitive). */
@@ -1499,6 +1529,7 @@ static void build_label_table(void)
                     (char)toupper((unsigned char)label_table[label_count].name[k]);
             }
         }
+        /* Labels may share names with keywords (e.g. CLR: in trek.bas); context is unambiguous. */
         label_table[label_count].line_index = i;
         label_count++;
 
@@ -2772,35 +2803,29 @@ static struct value eval_function(const char *name, char **p)
     }
 }
 
-/* Break a BASIC variable name into two-letter uppercase key and detect strings. */
-static void uppercase_name(const char *src, char *n1, char *n2, int *is_string)
+/* Normalize variable name to uppercase in dest, strip trailing $ and set is_string. */
+static void uppercase_name(const char *src, char *dest, int dest_size, int *is_string)
 {
-    int len;
+    int i, len;
     len = (int)strlen(src);
     *is_string = 0;
     if (len > 0 && src[len - 1] == '$') {
         *is_string = 1;
         len--;
     }
-    if (len < 1) {
-        *n1 = ' ';
-        *n2 = ' ';
-        return;
+    if (len >= dest_size) len = dest_size - 1;
+    for (i = 0; i < len; i++) {
+        dest[i] = (char)toupper((unsigned char)src[i]);
     }
-    *n1 = toupper((unsigned char)src[0]);
-    if (len > 1) {
-        *n2 = toupper((unsigned char)src[1]);
-    } else {
-        *n2 = ' ';
-    }
+    dest[i] = '\0';
 }
 
-static struct var *find_or_create_var(char name1, char name2, int is_string, int want_array, int dims, const int *dim_sizes, int total_size)
+static struct var *find_or_create_var(const char *name, int is_string, int want_array, int dims, const int *dim_sizes, int total_size)
 {
     int i, idx;
     struct var *v;
     for (i = 0; i < var_count; i++) {
-        if (vars[i].name1 == name1 && vars[i].name2 == name2 && vars[i].is_string == is_string) {
+        if (strcmp(vars[i].name, name) == 0 && vars[i].is_string == is_string) {
             v = &vars[i];
             if (want_array && !v->is_array) {
                 v->is_array = 1;
@@ -2827,8 +2852,8 @@ static struct var *find_or_create_var(char name1, char name2, int is_string, int
     }
     idx = var_count++;
     v = &vars[idx];
-    v->name1 = name1;
-    v->name2 = name2;
+    strncpy(v->name, name, VAR_NAME_MAX - 1);
+    v->name[VAR_NAME_MAX - 1] = '\0';
     v->is_string = is_string;
     v->is_array = want_array;
     v->dims = want_array ? dims : 0;
@@ -2876,8 +2901,7 @@ static int read_identifier(char **p, char *buf, int buf_size)
 /* Resolve a variable (and optional array index) creating it if needed. */
 static struct value *get_var_reference(char **p, int *is_array_out, int *is_string_out)
 {
-    char namebuf[8];
-    char n1, n2;
+    char namebuf[VAR_NAME_MAX];
     int is_string;
     struct var *v;
     struct value *valp;
@@ -2894,7 +2918,11 @@ static struct value *get_var_reference(char **p, int *is_array_out, int *is_stri
         return NULL;
     }
     read_identifier(p, namebuf, sizeof(namebuf));
-    uppercase_name(namebuf, &n1, &n2, &is_string);
+    uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
+    if (is_reserved_word(namebuf)) {
+        runtime_error("Reserved word cannot be used as variable");
+        return NULL;
+    }
     if (is_string_out) {
         *is_string_out = is_string;
     }
@@ -2933,7 +2961,7 @@ static struct value *get_var_reference(char **p, int *is_array_out, int *is_stri
     if (is_array_out) {
         *is_array_out = is_array;
     }
-    v = find_or_create_var(n1, n2, is_string, is_array, 0, NULL, 0);
+    v = find_or_create_var(namebuf, is_string, is_array, 0, NULL, 0);
     if (!v) {
         return NULL;
     }
@@ -3088,9 +3116,7 @@ static struct value eval_factor(char **p)
                 struct value result;
                 struct var *param_var;
                 struct value saved_scalar;
-                char pname_buf[8];
-                char n1, n2;
-                int dummy_is_string;
+                char pname_buf[VAR_NAME_MAX];
 
                 uf = &user_funcs[uf_index];
 
@@ -3113,8 +3139,7 @@ static struct value eval_factor(char **p)
                 /* Bind parameter variable, evaluate body, then restore */
                 strncpy(pname_buf, uf->param_name, sizeof(pname_buf) - 1);
                 pname_buf[sizeof(pname_buf) - 1] = '\0';
-                uppercase_name(pname_buf, &n1, &n2, &dummy_is_string);
-                param_var = find_or_create_var(n1, n2, uf->param_is_string, 0, 0, NULL, 0);
+                param_var = find_or_create_var(pname_buf, uf->param_is_string, 0, 0, NULL, 0);
                 if (!param_var) {
                     return make_num(0.0);
                 }
@@ -3692,7 +3717,7 @@ static void statement_clr(char **p)
 /* Set ST (I/O status) variable for file operations: 0=ok, 64=EOF, 1=error. */
 static void set_io_status(int st)
 {
-    struct var *v = find_or_create_var('S', 'T', 0, 0, 0, NULL, 0);
+    struct var *v = find_or_create_var("ST", 0, 0, 0, NULL, 0);
     if (v) {
         v->scalar.type = VAL_NUM;
         v->scalar.num = (double)st;
@@ -4169,15 +4194,14 @@ static void statement_for(char **p)
     }
     *vp = startv;
 
-    /* Recover loop variable name (two-letter key) from vp by searching var table. */
-    for_stack[for_top].name1 = ' ';
-    for_stack[for_top].name2 = ' ';
+    /* Recover loop variable name from vp by searching var table. */
+    for_stack[for_top].name[0] = '\0';
     if (var_count > 0) {
         for (i = 0; i < var_count; i++) {
             if (&vars[i].scalar == vp ||
                 (vars[i].is_array && vp >= vars[i].array && vp < vars[i].array + vars[i].size)) {
-                for_stack[for_top].name1 = vars[i].name1;
-                for_stack[for_top].name2 = vars[i].name2;
+                strncpy(for_stack[for_top].name, vars[i].name, VAR_NAME_MAX - 1);
+                for_stack[for_top].name[VAR_NAME_MAX - 1] = '\0';
                 break;
             }
         }
@@ -4189,8 +4213,7 @@ static void statement_for(char **p)
      * grow the FOR stack without bound.
      */
     for (i = for_top - 1; i >= 0; i--) {
-        if (for_stack[i].name1 == for_stack[for_top].name1 &&
-            for_stack[i].name2 == for_stack[for_top].name2) {
+        if (strcmp(for_stack[i].name, for_stack[for_top].name) == 0) {
             for_top = i;
             break;
         }
@@ -4211,20 +4234,19 @@ static void statement_for(char **p)
 
 static void statement_next(char **p)
 {
-    char namebuf[8];
-    char n1, n2;
+    char namebuf[VAR_NAME_MAX];
     int i;
     struct value *vp;
     int is_string;
     skip_spaces(p);
     if (isalpha((unsigned char)**p)) {
         read_identifier(p, namebuf, sizeof(namebuf));
+        uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
     } else {
         namebuf[0] = '\0';
     }
-    uppercase_name(namebuf, &n1, &n2, &is_string);
     for (i = for_top - 1; i >= 0; i--) {
-        if (namebuf[0] == '\0' || (for_stack[i].name1 == n1 && for_stack[i].name2 == n2)) {
+        if (namebuf[0] == '\0' || strcmp(for_stack[i].name, namebuf) == 0) {
             break;
         }
     }
@@ -4251,8 +4273,7 @@ static void statement_next(char **p)
 static void statement_dim(char **p)
 {
     for (;;) {
-        char namebuf[8];
-        char n1, n2;
+        char namebuf[VAR_NAME_MAX];
         int is_string;
         int dims = 0;
         int dim_sizes[MAX_DIMS];
@@ -4265,7 +4286,11 @@ static void statement_dim(char **p)
             return;
         }
         read_identifier(p, namebuf, sizeof(namebuf));
-        uppercase_name(namebuf, &n1, &n2, &is_string);
+        uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
+        if (is_reserved_word(namebuf)) {
+            runtime_error("Reserved word cannot be used as variable");
+            return;
+        }
         skip_spaces(p);
         if (**p != '(') {
             runtime_error("DIM requires size");
@@ -4304,7 +4329,7 @@ static void statement_dim(char **p)
                 total_size *= dim_sizes[d];
             }
         }
-        v = find_or_create_var(n1, n2, is_string, 1, dims, dim_sizes, total_size);
+        v = find_or_create_var(namebuf, is_string, 1, dims, dim_sizes, total_size);
         (void)v;
         skip_spaces(p);
         if (**p == ',') {

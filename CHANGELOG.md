@@ -2,6 +2,9 @@
 
 ### Unreleased
 
+- **Variable naming**
+  - Full variable names (up to 31 chars) are now significant; `SALE` and `SAFE` are distinct.
+  - Reserved-word check: keywords cannot be used as variables; clear error on misuse. Labels may match keywords (e.g. `CLR:`).
 - **basic-gfx PETSCII / .seq viewer**
   - PETSCII→screen code conversion when `SCREENCODES ON`; `.seq` streams display correctly.
   - Reverse-video rendering fixed (W, P, etc. in “Welcome”, “Press”) via renderer fg/bg swap.
