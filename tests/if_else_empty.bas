@@ -1,0 +1,7 @@
+10 REM Empty THEN branch
+20 X = 0
+30 IF X THEN
+40 ELSE
+50   PRINT "ELSE";
+60 END IF
+70 PRINT " OK"
