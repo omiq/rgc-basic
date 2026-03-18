@@ -616,19 +616,22 @@ static void render_text_screen(const GfxVideoState *s,
             uint8_t ci = s->color[idx] & 0x0F;
             const uint8_t *glyph;
             Color fg = c64_palette[ci];
+            Color bg = c64_palette[s->bg_color & 0x0F];
+            int reversed = (sc & 0x80) ? 1 : 0;
 
-            /* Screen RAM holds C64 screen codes 0–255. When charset is lowercase,
+            /* Screen RAM holds C64 screen codes 0–255. For reversed (128–255),
              * screen 65–90 (A–Z) use the uppercase font’s 1–26 glyphs—font_lower
-             * has wrong/inverted glyphs for P and W at 80 and 87. */
-            glyph = &s->chars[(uint8_t)sc * 8];
+             * use base glyph and swap fg/bg (font_lower wrong at 208/215). */
+            glyph = &s->chars[(uint8_t)(sc & 0x7F) * 8];
 
             for (y = 0; y < CELL_H; y++) {
                 uint8_t bits = glyph[y];
                 for (x = 0; x < CELL_W; x++) {
                     int px = col * CELL_W + x;
                     int py = row * CELL_H + y;
-                    if (bits & (0x80 >> x))
-                        DrawPixel(px, py, fg);
+                    int on = (bits & (0x80 >> x)) ? 1 : 0;
+                    Color c = (on ^ reversed) ? fg : bg;
+                    DrawPixel(px, py, c);
                 }
             }
         }
