@@ -336,6 +336,10 @@ You can either use the provided `Makefile` (recommended) or compile manually.
   - **Keyboard polling (basic-gfx)**:
     - BASIC can poll a simple key-down map via `PEEK(56320 + code)` where 56320 is \(0xDC00\).
     - Supported codes include ASCII `A`–`Z`, `0`–`9`, Space (32), Enter (13), Esc (27), and C64 cursor codes Up (145), Down (17), Left (157), Right (29).
+  - **INKEY$() (basic-gfx)**:
+    - `INKEY$()` is **non-blocking**: it returns a 1-character string for the next queued keypress, or `""` if none.
+    - This is driven by the raylib host; it is currently available in `basic-gfx` (gfx build) and returns `""` in the terminal build.
+    - Example: `./basic-gfx -petscii examples/gfx_inkey_demo.bas`
 
 #### Using `make` (recommended)
 

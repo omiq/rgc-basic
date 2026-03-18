@@ -383,6 +383,18 @@ static void *interpreter_thread(void *arg)
     return NULL;
 }
 
+static void keyq_push(GfxVideoState *vs, uint8_t b)
+{
+    uint8_t next = (uint8_t)(vs->key_q_tail + 1);
+    if (next >= (uint8_t)sizeof(vs->key_queue)) next = 0;
+    if (next == vs->key_q_head) {
+        /* full: drop */
+        return;
+    }
+    vs->key_queue[vs->key_q_tail] = b;
+    vs->key_q_tail = next;
+}
+
 int main(int argc, char **argv)
 {
     GfxVideoState vs;
@@ -412,6 +424,8 @@ int main(int argc, char **argv)
     ia.nargs     = argc - (prog_idx + 1);
     ia.args      = (argc > (prog_idx + 1)) ? (argv + (prog_idx + 1)) : NULL;
 
+    /* Suppress raylib INFO trace logs (e.g. timer messages). */
+    SetTraceLogLevel(LOG_WARNING);
     InitWindow(WIN_W, WIN_H, "CBM-BASIC GFX");
     SetTargetFPS(60);
     target = LoadRenderTexture(NATIVE_W, NATIVE_H);
@@ -472,6 +486,65 @@ int main(int argc, char **argv)
         if (IsKeyDown(KEY_SEVEN)) vs.key_state['7'] = 1;
         if (IsKeyDown(KEY_EIGHT)) vs.key_state['8'] = 1;
         if (IsKeyDown(KEY_NINE))  vs.key_state['9'] = 1;
+
+        /* Keypress FIFO for INKEY$(): collect typed characters and a few
+         * special keys as single-byte codes. */
+        {
+            int ch;
+            while ((ch = GetCharPressed()) > 0) {
+                if (ch >= 1 && ch <= 255) {
+                    if (ch >= 'a' && ch <= 'z') ch = (ch - 'a') + 'A';
+                    keyq_push(&vs, (uint8_t)ch);
+                }
+            }
+            if (IsKeyPressed(KEY_ENTER))     keyq_push(&vs, 13);
+            if (IsKeyPressed(KEY_BACKSPACE)) keyq_push(&vs, 20);  /* DEL */
+            if (IsKeyPressed(KEY_ESCAPE))    keyq_push(&vs, 27);
+            if (IsKeyPressed(KEY_UP))        keyq_push(&vs, 145);
+            if (IsKeyPressed(KEY_DOWN))      keyq_push(&vs, 17);
+            if (IsKeyPressed(KEY_LEFT))      keyq_push(&vs, 157);
+            if (IsKeyPressed(KEY_RIGHT))     keyq_push(&vs, 29);
+
+            /* Some environments (e.g., WSLg) may not deliver printable
+             * characters via GetCharPressed(). Also enqueue common keypresses
+             * via IsKeyPressed so INKEY$() works reliably for gameplay. */
+            if (IsKeyPressed(KEY_A)) keyq_push(&vs, 'A');
+            if (IsKeyPressed(KEY_B)) keyq_push(&vs, 'B');
+            if (IsKeyPressed(KEY_C)) keyq_push(&vs, 'C');
+            if (IsKeyPressed(KEY_D)) keyq_push(&vs, 'D');
+            if (IsKeyPressed(KEY_E)) keyq_push(&vs, 'E');
+            if (IsKeyPressed(KEY_F)) keyq_push(&vs, 'F');
+            if (IsKeyPressed(KEY_G)) keyq_push(&vs, 'G');
+            if (IsKeyPressed(KEY_H)) keyq_push(&vs, 'H');
+            if (IsKeyPressed(KEY_I)) keyq_push(&vs, 'I');
+            if (IsKeyPressed(KEY_J)) keyq_push(&vs, 'J');
+            if (IsKeyPressed(KEY_K)) keyq_push(&vs, 'K');
+            if (IsKeyPressed(KEY_L)) keyq_push(&vs, 'L');
+            if (IsKeyPressed(KEY_M)) keyq_push(&vs, 'M');
+            if (IsKeyPressed(KEY_N)) keyq_push(&vs, 'N');
+            if (IsKeyPressed(KEY_O)) keyq_push(&vs, 'O');
+            if (IsKeyPressed(KEY_P)) keyq_push(&vs, 'P');
+            if (IsKeyPressed(KEY_Q)) keyq_push(&vs, 'Q');
+            if (IsKeyPressed(KEY_R)) keyq_push(&vs, 'R');
+            if (IsKeyPressed(KEY_S)) keyq_push(&vs, 'S');
+            if (IsKeyPressed(KEY_T)) keyq_push(&vs, 'T');
+            if (IsKeyPressed(KEY_U)) keyq_push(&vs, 'U');
+            if (IsKeyPressed(KEY_V)) keyq_push(&vs, 'V');
+            if (IsKeyPressed(KEY_W)) keyq_push(&vs, 'W');
+            if (IsKeyPressed(KEY_X)) keyq_push(&vs, 'X');
+            if (IsKeyPressed(KEY_Y)) keyq_push(&vs, 'Y');
+            if (IsKeyPressed(KEY_Z)) keyq_push(&vs, 'Z');
+            if (IsKeyPressed(KEY_ZERO))  keyq_push(&vs, '0');
+            if (IsKeyPressed(KEY_ONE))   keyq_push(&vs, '1');
+            if (IsKeyPressed(KEY_TWO))   keyq_push(&vs, '2');
+            if (IsKeyPressed(KEY_THREE)) keyq_push(&vs, '3');
+            if (IsKeyPressed(KEY_FOUR))  keyq_push(&vs, '4');
+            if (IsKeyPressed(KEY_FIVE))  keyq_push(&vs, '5');
+            if (IsKeyPressed(KEY_SIX))   keyq_push(&vs, '6');
+            if (IsKeyPressed(KEY_SEVEN)) keyq_push(&vs, '7');
+            if (IsKeyPressed(KEY_EIGHT)) keyq_push(&vs, '8');
+            if (IsKeyPressed(KEY_NINE))  keyq_push(&vs, '9');
+        }
 
         render_text_screen(&vs, target);
 
@@ -586,6 +659,8 @@ int main(void)
     load_default_charrom(&vs);
     setup_demo(&vs);
 
+    /* Suppress raylib INFO trace logs (e.g. timer messages). */
+    SetTraceLogLevel(LOG_WARNING);
     InitWindow(WIN_W, WIN_H, "CBM-BASIC GFX \xe2\x80\x93 Phase 1 Demo");
     SetTargetFPS(60);
     target = LoadRenderTexture(NATIVE_W, NATIVE_H);

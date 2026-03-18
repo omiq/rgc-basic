@@ -876,6 +876,21 @@ static void gfx_put_byte(unsigned char b)
         print_col = gfx_x;
     }
 }
+
+static int gfx_keyq_pop(uint8_t *out)
+{
+    uint8_t head;
+    if (!gfx_vs) return 0;
+    head = gfx_vs->key_q_head;
+    if (head == gfx_vs->key_q_tail) {
+        return 0; /* empty */
+    }
+    *out = gfx_vs->key_queue[head];
+    head++;
+    if (head >= (uint8_t)sizeof(gfx_vs->key_queue)) head = 0;
+    gfx_vs->key_q_head = head;
+    return 1;
+}
 #endif
 
 /* PETSCII/ANSI configuration */
@@ -1006,7 +1021,8 @@ enum func_code {
     FN_DEC = 28,
     FN_HEX = 29,
     FN_STRINGFN = 30,
-    FN_PEEK = 31
+    FN_PEEK = 31,
+    FN_INKEY = 32
 };
 
 /* Report an error and halt further execution.
@@ -1724,6 +1740,8 @@ static int function_lookup(const char *name, int len)
     case 'I':
         if (len == 3 && name[0] == 'I' && name[1] == 'N' && name[2] == 'T') return FN_INT;
         if (len == 5 && name[0] == 'I' && name[1] == 'N' && name[2] == 'S' && name[3] == 'T' && name[4] == 'R') return FN_INSTR;
+        if (len == 5 && name[0] == 'I' && name[1] == 'N' && name[2] == 'K' && name[3] == 'E' && name[4] == 'Y') return FN_INKEY;
+        if (len == 6 && name[0] == 'I' && name[1] == 'N' && name[2] == 'K' && name[3] == 'E' && name[4] == 'Y' && name[5] == '$') return FN_INKEY;
         return FN_NONE;
     case 'E':
         if (len == 3 && name[0] == 'E' && name[1] == 'X' && name[2] == 'P') return FN_EXP;
@@ -2055,6 +2073,27 @@ static struct value eval_function(const char *name, char **p)
         (*p)++;
         skip_spaces(p);
         return make_num((double)script_argc);
+    }
+    if (code == FN_INKEY) {
+        if (**p != ')') {
+            runtime_error("INKEY$ takes no arguments");
+            return make_str("");
+        }
+        (*p)++;
+        skip_spaces(p);
+#ifdef GFX_VIDEO
+        if (gfx_vs) {
+            uint8_t b;
+            if (gfx_keyq_pop(&b)) {
+                outbuf[0] = (char)b;
+                outbuf[1] = '\0';
+                return make_str(outbuf);
+            }
+            return make_str("");
+        }
+#endif
+        /* Terminal build: no non-blocking key queue. */
+        return make_str("");
     }
     arg = eval_expr(p);
     skip_spaces(p);
@@ -2896,7 +2935,7 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "INSTR") || starts_with_kw(*p, "DEC") || starts_with_kw(*p, "HEX") ||
             starts_with_kw(*p, "ARGC") || starts_with_kw(*p, "ARG") ||
             starts_with_kw(*p, "SYSTEM") || starts_with_kw(*p, "EXEC") ||
-            starts_with_kw(*p, "PEEK")) {
+            starts_with_kw(*p, "PEEK") || starts_with_kw(*p, "INKEY")) {
             char namebuf[8];
             char *q;
             q = *p;
