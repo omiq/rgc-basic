@@ -816,6 +816,18 @@ static int gfx_apply_control_code(unsigned char code)
     case 146: /* reverse off */
         gfx_reverse = 0;
         return 1;
+    case 20:  /* DEL: backspace — cursor left and erase (like C64) */
+        if (gfx_x > 0 && gfx_vs) {
+            int del_idx;
+            gfx_x--;
+            del_idx = gfx_y * GFX_COLS + gfx_x;
+            if (del_idx >= 0 && del_idx < (int)GFX_TEXT_SIZE) {
+                gfx_vs->screen[del_idx] = 32;
+                gfx_vs->color[del_idx] = (uint8_t)(gfx_fg & 0x0F);
+            }
+            print_col = gfx_x;
+        }
+        return 1;
     /* PETSCII colour control codes -> set current foreground colour index. */
     case 144: gfx_fg = 0;  return 1; /* black */
     case 5:   gfx_fg = 1;  return 1; /* white */
