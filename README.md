@@ -87,6 +87,11 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
   - `END` / `STOP`: terminate program execution.
   - `READ` / `DATA`: load numeric and string literals from `DATA` statements into variables. `RESTORE` resets the DATA pointer so the next `READ` uses the first value again (C64-style).
   - `DEF FN`: define simple user functions, e.g. `DEF FNY(X) = SIN(X)`.
+  - **User-defined FUNCTIONS**: multi-line, multi-parameter functions:
+    - `FUNCTION name [(param1, param2, ...)]` … `RETURN [expr]` … `END FUNCTION`.
+    - Call with brackets always: `result = add(3, 5)` or `sayhi()` for side effects.
+    - `RETURN expr` returns a value; `RETURN` or `END FUNCTION` with no prior RETURN yields 0/`""` in expression context.
+    - Parameters are local; recursion supported. See `docs/user-functions-plan.md`.
   - `POKE`: accepted as a no‑op (for compatibility with old listings; it does not touch real memory).
   - `CLR`: resets all variables to 0/empty, clears GOSUB/FOR stacks and DATA pointer; DEF FN definitions are kept.
   - **File I/O (CBM-style)**:
