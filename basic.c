@@ -718,7 +718,7 @@ static void set_io_status(int st);
 
 static int current_line = 0;
 static char *statement_pos = NULL;
-static int halted = 0;
+static volatile int halted = 0;
 static int print_col = 0;
 
 #ifdef GFX_VIDEO
@@ -794,7 +794,9 @@ static int gfx_apply_control_code(unsigned char code)
         return 1;
     case 13: /* CR */
     case 10: /* LF */
-        gfx_newline();
+        /* Avoid double newline: gfx_put_byte already wraps at col 40, so when
+         * the viewer sends CR after wrapping, we're already at col 0. */
+        if (gfx_x != 0) gfx_newline();
         return 1;
     case 19: /* HOME */
         gfx_x = 0;
@@ -823,6 +825,18 @@ static int gfx_apply_control_code(unsigned char code)
         return 1;
     case 146: /* reverse off */
         gfx_reverse = 0;
+        return 1;
+    case 20:  /* DEL: backspace — cursor left and erase (like C64) */
+        if (gfx_x > 0 && gfx_vs) {
+            int del_idx;
+            gfx_x--;
+            del_idx = gfx_y * GFX_COLS + gfx_x;
+            if (del_idx >= 0 && del_idx < (int)GFX_TEXT_SIZE) {
+                gfx_vs->screen[del_idx] = 32;
+                gfx_vs->color[del_idx] = (uint8_t)(gfx_fg & 0x0F);
+            }
+            print_col = gfx_x;
+        }
         return 1;
     /* PETSCII colour control codes -> set current foreground colour index. */
     case 144: gfx_fg = 0;  return 1; /* black */
@@ -856,10 +870,11 @@ static void gfx_put_byte(unsigned char b)
     if (gfx_apply_control_code(b)) return;
 
     /* By default, map printable ASCII to C64 screen codes for convenience.
-     * For .seq viewers and other screen-code streams, gfx_raw_screen_codes can
-     * be enabled so bytes are treated as direct screen codes 0–255. */
+     * With SCREENCODES ON (gfx_raw_screen_codes): bytes are PETSCII from .seq
+     * streams—same as CHR$/PRINT. Convert PETSCII→screen code; the font (like
+     * gfx_charset_demo via POKE) expects screen codes 0–255. */
     if (gfx_raw_screen_codes) {
-        sc = (uint8_t)b;
+        sc = petscii_to_screencode(b);
     } else if (b >= 32 && b <= 126) {
         sc = gfx_ascii_to_screencode(b);
     } else {
