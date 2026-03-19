@@ -1,0 +1,8 @@
+10 REM DO...LOOP - simple counter
+20 I=0
+30 DO
+40   I=I+1
+50   PRINT I
+60 LOOP UNTIL I>=3
+70 PRINT "DONE"
+80 END

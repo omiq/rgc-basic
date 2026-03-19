@@ -710,6 +710,15 @@ struct while_frame {
 static struct while_frame while_stack[MAX_WHILE_DEPTH];
 static int while_top = 0;
 
+/* DO LOOP block stack */
+#define MAX_DO_DEPTH 16
+struct do_frame {
+    int line_index;
+    char *position;
+};
+static struct do_frame do_stack[MAX_DO_DEPTH];
+static int do_top = 0;
+
 #define MAX_UDF_PARAMS 16
 #define MAX_UDF_FUNCS  32
 #define MAX_UDF_DEPTH  16
@@ -1131,8 +1140,12 @@ static void statement_end_function(char **p);
 static void skip_function_block(char **p);
 static void statement_while(char **p, char *while_pos);
 static void statement_wend(char **p);
+static void statement_do(char **p);
+static void statement_loop(char **p);
+static void statement_exit_do(char **p);
 static void skip_if_block_to_target(char **p, int want_else);
 static void skip_while_to_wend(char **p);
+static void skip_do_to_after_loop(char **p);
 
 enum func_code {
     FN_NONE = 0,
@@ -1314,6 +1327,7 @@ static const char *const reserved_words[] = {
     "READ", "REM", "RESTORE", "RETURN", "RIGHT", "RND", "RVS", "SCREENCODES",
     "SGN", "SIN", "SLEEP", "SPC", "SQR", "STEP", "STOP", "STR", "STRING",
     "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "UCASE",     "VAL", "WEND", "WHILE",
+    "DO", "LOOP", "UNTIL", "EXIT",
     NULL
 };
 
@@ -4059,6 +4073,7 @@ static void statement_clr(char **p)
     gosub_top = 0;
     for_top = 0;
     while_top = 0;
+    do_top = 0;
     if_depth = 0;
     data_index = 0;
 }
@@ -4778,6 +4793,122 @@ static void statement_wend(char **p)
     }
 }
 
+/* Skip forward from current position to after the matching LOOP. Handles nested DO/LOOP. */
+static void skip_do_to_after_loop(char **p)
+{
+    int line = current_line;
+    char *pos = *p;
+    int nesting = 1;
+
+    while (line >= 0 && line < line_count && program_lines[line]) {
+        if (!pos) pos = program_lines[line]->text;
+        while (pos && *pos) {
+            char *q = pos;
+            skip_spaces(&q);
+            if (!*q) break;
+            if (starts_with_kw(q, "DO")) {
+                nesting++;
+                q += 2;
+                skip_spaces(&q);
+                pos = q;
+                continue;
+            }
+            if (starts_with_kw(q, "LOOP")) {
+                char *r = q + 4;
+                skip_spaces(&r);
+                nesting--;
+                if (nesting == 0) {
+                    /* Skip past LOOP [UNTIL expr] */
+                    if (starts_with_kw(r, "UNTIL")) {
+                        r += 5;
+                        skip_spaces(&r);
+                        if (*r && *r != ':') {
+                            struct value dummy = eval_expr(&r);
+                            (void)dummy;
+                        }
+                    }
+                    skip_spaces(&r);
+                    if (!*r && line + 1 < line_count) {
+                        current_line = line + 1;
+                        statement_pos = program_lines[line + 1]->text;
+                        *p = statement_pos;
+                    } else {
+                        current_line = line;
+                        statement_pos = r;
+                        *p = r;
+                    }
+                    return;
+                }
+                pos = r;
+                continue;
+            }
+            pos = strchr(pos, ':');
+            pos = pos ? pos + 1 : NULL;
+        }
+        line++;
+        pos = NULL;
+    }
+    runtime_error("LOOP expected");
+}
+
+static void statement_do(char **p)
+{
+    skip_spaces(p);
+    if (do_top >= MAX_DO_DEPTH) {
+        runtime_error("DO nesting too deep");
+        return;
+    }
+    do_stack[do_top].line_index = current_line;
+    do_stack[do_top].position = *p;
+    do_top++;
+}
+
+static void statement_loop(char **p)
+{
+    int cond_true = 0;
+    int has_until = 0;
+
+    if (do_top <= 0) {
+        runtime_error("LOOP without DO");
+        return;
+    }
+    skip_spaces(p);
+    if (starts_with_kw(*p, "UNTIL")) {
+        has_until = 1;
+        *p += 5;
+        skip_spaces(p);
+        cond_true = eval_condition(p);
+    }
+    if (has_until && cond_true) {
+        /* Exit loop: pop and continue after LOOP UNTIL expr */
+        do_top--;
+        skip_spaces(p);
+        if (!**p && current_line + 1 < line_count) {
+            current_line++;
+            statement_pos = program_lines[current_line]->text;
+            *p = statement_pos;
+        }
+        return;
+    }
+    /* Loop back to DO (do not pop - we will hit this LOOP again) */
+    {
+        int idx = do_top - 1;
+        current_line = do_stack[idx].line_index;
+        statement_pos = do_stack[idx].position;
+        *p = statement_pos;
+    }
+}
+
+static void statement_exit_do(char **p)
+{
+    if (do_top <= 0) {
+        runtime_error("EXIT without DO");
+        return;
+    }
+    do_top--;
+    skip_do_to_after_loop(p);
+}
+
 static void statement_for(char **p)
 {
     struct value *vp;
@@ -5105,12 +5236,19 @@ static void execute_statement(char **p)
         statement_input(p);
         return;
     }
-    if (c == 'L' && starts_with_kw(*p, "LET")) {
-        *p += 3;
-        statement_let(p);
-        return;
+    if (c == 'L') {
+        if (starts_with_kw(*p, "LOOP")) {
+            *p += 4;
+            statement_loop(p);
+            return;
+        }
+        if (starts_with_kw(*p, "LET")) {
+            *p += 3;
+            statement_let(p);
+            return;
+        }
     }
-    if (c == 'T' && starts_with_kw(*p, "TEXTAT")) {
+    if (c == 'L' && starts_with_kw(*p, "LOCATE")) {
         *p += 6;
         statement_textat(p);
         return;
@@ -5180,6 +5318,11 @@ static void execute_statement(char **p)
         }
     }
     if (c == 'D') {
+        if (starts_with_kw(*p, "DO")) {
+            *p += 2;
+            statement_do(p);
+            return;
+        }
         /* DATA lines are non-executable (values were collected at load time). */
         if (starts_with_kw(*p, "DATA")) {
             *p += strlen(*p);
@@ -5211,6 +5354,11 @@ static void execute_statement(char **p)
         return;
     }
     if (c == 'E') {
+        if (starts_with_kw(*p, "EXIT")) {
+            *p += 4;  /* consume EXIT */
+            statement_exit_do(p);
+            return;
+        }
         if (starts_with_kw(*p, "ELSE")) {
             *p += 4;
             statement_else(p);
@@ -5641,6 +5789,7 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
     print_col = 0;
     for_top = 0;
     while_top = 0;
+    do_top = 0;
     if_depth = 0;
     while (!halted && current_line >= 0 && current_line < line_count) {
         char *p;
