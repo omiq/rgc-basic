@@ -70,7 +70,14 @@ run_get "SRS" "SRS" || exit 1
 echo "GET test 7: NAV"
 run_get "NAV" "NAV" || exit 1
 
-echo "GET test 8: via pty (simulates real terminal - catches echo/trailing bugs)"
+echo "GET test 8: WHILE K$<>Q loop (user pattern)"
+# WHILE GET loop: printf "AB\nQ\n" - expect A, B, then DONE
+out=$(printf 'AB\nQ\n' | $BASIC -petscii tests/get_while_test.bas 2>/dev/null)
+if ! echo "$out" | grep -q "A"; then echo "FAIL: missing A"; echo "$out"; exit 1; fi
+if ! echo "$out" | grep -q "B"; then echo "FAIL: missing B"; echo "$out"; exit 1; fi
+if ! echo "$out" | grep -q "DONE"; then echo "FAIL: missing DONE"; echo "$out"; exit 1; fi
+
+echo "GET test 9: via pty (simulates real terminal - catches echo/trailing bugs)"
 # Use script -q -c to run with a pseudo-TTY; some environments don't have script
 if command -v script >/dev/null 2>&1; then
     pty_out=$(script -q -c 'printf "sls\n" | '"$BASIC"' -petscii tests/get_input_loop.bas' /dev/null 2>/dev/null)
@@ -88,6 +95,13 @@ if command -v script >/dev/null 2>&1; then
             exit 1
         fi
     done
+    # Also test WHILE/GET loop with pty
+    pty_while=$(script -q -c 'printf "AB\nQ\n" | '"$BASIC"' -petscii tests/get_while_test.bas' /dev/null 2>/dev/null)
+    if ! echo "$pty_while" | grep -q "DONE"; then
+        echo "FAIL: pty WHILE test - expected DONE"
+        echo "$pty_while"
+        exit 1
+    fi
 else
     echo "Skipping pty test (script not available)"
 fi
