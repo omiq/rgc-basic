@@ -1632,17 +1632,18 @@ static void build_label_table(void)
         /* Skip optional spaces/tabs between label and ':' */
         {
             char *r = q;
+            char *label_end = q;  /* end of identifier only, not including spaces */
             while (*r == ' ' || *r == '\t') {
                 r++;
             }
             if (*r != ':') {
                 continue;
             }
+            len = (size_t)(label_end - p);
             q = r; /* q now points at ':' */
         }
 
         /* We have LABEL: at start of line. Extract the name. */
-        len = (size_t)(q - p);
         if (len >= sizeof(label_table[0].name)) {
             len = sizeof(label_table[0].name) - 1;
         }
@@ -1650,13 +1651,16 @@ static void build_label_table(void)
             /* Too many labels; ignore extras. */
             continue;
         }
-        /* Check for duplicate label (case-insensitive). */
+        /* Keywords like PRINT/CLR followed by ':' are statements, not labels. */
         {
             char tmp[32];
             size_t k;
             if (len >= sizeof(tmp)) tmp[sizeof(tmp)-1] = '\0';
             memcpy(tmp, p, len);
             tmp[len] = '\0';
+            if (is_reserved_word(tmp)) {
+                continue;
+            }
             for (k = 0; k < len; k++) tmp[k] = (char)toupper((unsigned char)tmp[k]);
             for (k = 0; k < (size_t)label_count; k++) {
                 if (strcmp(label_table[k].name, tmp) == 0) {
@@ -3408,8 +3412,7 @@ static struct value eval_factor(char **p)
         /* System jiffy clock (C64-style): TI and TI$.
          * CBM BASIC resolves TIME, TICKS, etc. to TI due to 2-char name matching;
          * we do the same by keying off the first two characters. */
-#ifdef GFX_VIDEO
-        if (gfx_vs) {
+        {
             char namebuf[8];
             char *q = *p;
             int i, len;
@@ -3420,22 +3423,37 @@ static struct value eval_factor(char **p)
             len = i;
             if (len >= 2 && namebuf[0] == 'T' && namebuf[1] == 'I') {
                 int is_str = (len > 0 && namebuf[len - 1] == '$');
-                uint32_t t = gfx_vs->ticks60;
-                *p = q;
-                if (!is_str) {
-                    return make_num((double)t);
-                } else {
-                    /* Format like C64 TI$: "HHMMSS" (based on 60Hz jiffies). */
-                    unsigned long sec = (unsigned long)(t / 60u);
-                    unsigned long h = (sec / 3600u) % 24u;
-                    unsigned long m = (sec / 60u) % 60u;
-                    unsigned long s = sec % 60u;
-                    sprintf(buf, "%02lu%02lu%02lu", h, m, s);
-                    return make_str(buf);
+#ifdef GFX_VIDEO
+                if (gfx_vs) {
+                    uint32_t t = gfx_vs->ticks60;
+                    *p = q;
+                    if (!is_str) {
+                        return make_num((double)t);
+                    } else {
+                        unsigned long sec = (unsigned long)(t / 60u);
+                        unsigned long h = (sec / 3600u) % 24u;
+                        unsigned long m = (sec / 60u) % 60u;
+                        unsigned long s = sec % 60u;
+                        sprintf(buf, "%02lu%02lu%02lu", h, m, s);
+                        return make_str(buf);
+                    }
+                } else
+#endif
+                {
+                    /* Terminal fallback: use wall-clock time (e.g. for RND(-TI)). */
+                    time_t tt = time(NULL);
+                    *p = q;
+                    if (is_str) {
+                        struct tm *tm = localtime(&tt);
+                        sprintf(buf, "%02d%02d%02d",
+                                tm->tm_hour, tm->tm_min, tm->tm_sec);
+                        return make_str(buf);
+                    } else {
+                        return make_num((double)(unsigned long)tt);
+                    }
                 }
             }
         }
-#endif
     /* Function call? */
     if (starts_with_kw(*p, "SIN") || starts_with_kw(*p, "COS") || starts_with_kw(*p, "TAN") ||
             starts_with_kw(*p, "ABS") || starts_with_kw(*p, "INT") || starts_with_kw(*p, "SQR") ||
