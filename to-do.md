@@ -33,6 +33,10 @@
   5. **Tilemap handling** — `LOADSPRITE slot, "path", "tilemap"`; define tile size (e.g. 16×16); render tile grid from sprite sheet. Efficient level/world rendering.
   6. **Sprite animation** — Multiple frames per slot; `SPRITEFRAME slot, n` or frame parameter in `DRAWSPRITE`; optional frame rate / timing.
 
+* **Browser / WASM target** (after bitmap; see `docs/browser-wasm-plan.md`)
+  * Compile to WebAssembly via Emscripten; pluggable I/O (terminal div, canvas, compute-only).
+  * **Tutorial embedding**: Example code blocks with output in embedded divs, interpreted in real time (Run / live / step-by-step).
+
 * ~~Subroutines and Functions~~
   * **User-defined FUNCTIONS** implemented — `FUNCTION name[(params)]` … `RETURN [expr]` … `END FUNCTION`; call with `name()` or `name(a,b)`; recursion supported. See `docs/user-functions-plan.md`.
 
