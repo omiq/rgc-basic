@@ -961,14 +961,14 @@ static int unicode_to_petscii(int u)
     case 0x00A3: return 109;  /* £ → backslash (user preference for trek) */
     case 0x2500: return 0x60;  /* ─ */
     case 0x2502: return 0x7D;  /* │ (was 0x9E: control range, wrong glyph) */
-    case 0x250C: return 0xA4;  /* ┌ */
-    case 0x2510: return 0xAE;  /* ┐ */
-    case 0x2514: return 0xAD;  /* └ */
-    case 0x2518: return 0xBD;  /* ┘ */
-    case 0x251C: return 0xAB;  /* ├ */
-    case 0x2524: return 0xA7;  /* ┤ */
-    case 0x252C: return 0xA6;  /* ┬ */
-    case 0x2534: return 0xA5;  /* ┴ */
+    case 0x250C: return 0xB0;  /* ┌ (176) */
+    case 0x2510: return 0xAE;  /* ┐ (174) */
+    case 0x2514: return 0xAD;  /* └ (173) */
+    case 0x2518: return 0xBD;  /* ┘ (189) */
+    case 0x251C: return 0xAB;  /* ├ (171) */
+    case 0x2524: return 0xB3;  /* ┤ (179) */
+    case 0x252C: return 0xB2;  /* ┬ (178) */
+    case 0x2534: return 0xB1;  /* ┴ (177) */
     case 0x253C: return 0x7B;  /* ┼ (was 0x9B: control range, wrong glyph) */
     default:     return -1;
     }
