@@ -36,6 +36,10 @@ void basic_set_video(GfxVideoState *vs);
 /* Window title for basic-gfx. NULL = use default "CBM-BASIC GFX". */
 void basic_set_gfx_window_title(const char *title);
 const char *basic_get_gfx_window_title(void);
+
+/* Border padding (pixels) around the graphical area. 0 = no border (edge-to-edge). */
+void basic_set_gfx_border(int pixels);
+int basic_get_gfx_border(void);
 #endif
 
 #endif /* BASIC_API_H */

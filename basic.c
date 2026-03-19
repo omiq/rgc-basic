@@ -785,6 +785,7 @@ static int print_col = 0;
 #ifdef GFX_VIDEO
 static GfxVideoState *gfx_vs = NULL;
 void basic_set_gfx_window_title(const char *);  /* forward, for #OPTION gfx_title */
+void basic_set_gfx_border(int);                 /* forward, for #OPTION border */
 
 /* GFX text output state (mirrors a C64-like 40x25 text screen). */
 #define GFX_COLS 40
@@ -1119,6 +1120,14 @@ static int apply_option_directive(const char *name, const char *value)
                 basic_set_gfx_window_title(buf);
             }
         }
+        return 0;
+    }
+    if (str_eq_ci(name, "border")) {
+        int n;
+        if (!value || !value[0]) return -1;
+        n = atoi(value);
+        if (n < 0 || n > 256) return -1;
+        basic_set_gfx_border(n);
         return 0;
     }
 #endif
@@ -6083,6 +6092,19 @@ int basic_parse_args(int argc, char **argv)
                 return -1;
             }
             basic_set_gfx_window_title(argv[++i]);
+        } else if (strcmp(argv[i], "-gfx-border") == 0 || strcmp(argv[i], "--gfx-border") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Missing value for -gfx-border\n");
+                return -1;
+            }
+            {
+                int b = atoi(argv[++i]);
+                if (b < 0 || b > 256) {
+                    fprintf(stderr, "Invalid -gfx-border value (0-256)\n");
+                    return -1;
+                }
+                basic_set_gfx_border(b);
+            }
 #endif
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
@@ -6121,6 +6143,20 @@ void basic_set_gfx_window_title(const char *title)
 const char *basic_get_gfx_window_title(void)
 {
     return gfx_window_title[0] ? gfx_window_title : NULL;
+}
+
+static int gfx_border_pixels = 0;
+
+void basic_set_gfx_border(int pixels)
+{
+    if (pixels < 0) pixels = 0;
+    if (pixels > 256) pixels = 256;
+    gfx_border_pixels = pixels;
+}
+
+int basic_get_gfx_border(void)
+{
+    return gfx_border_pixels;
 }
 #endif
 

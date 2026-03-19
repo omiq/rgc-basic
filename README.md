@@ -333,6 +333,10 @@ Releases include **basic-gfx** — a full graphical version of the interpreter b
 
 - Set the window title via `#OPTION gfx_title "My Game"` or the CLI `-gfx-title "My Game"`. Default is `CBM-BASIC GFX`.
 
+**Border padding (basic-gfx)**:
+
+- Add padding around the graphical area for better legibility: `#OPTION border 24` or `-gfx-border 24`. The value is pixels on each side; the screen is centered in the window with the background colour filling the border. Default is 0 (edge-to-edge).
+
 ---
 
 ### Included example programs

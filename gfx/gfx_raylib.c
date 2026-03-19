@@ -684,7 +684,7 @@ int main(int argc, char **argv)
     prog_idx = basic_parse_args(argc, argv);
     if (prog_idx < 0) {
         fprintf(stderr,
-                "Usage: %s [-petscii] [-palette ansi|c64] [-gfx-title \"title\"] <program.bas> [args...]\n",
+                "Usage: %s [-petscii] [-palette ansi|c64] [-gfx-title \"title\"] [-gfx-border N] <program.bas> [args...]\n",
                 argv[0]);
         return 1;
     }
@@ -856,11 +856,25 @@ int main(int argc, char **argv)
         render_text_screen(&vs, target);
 
         BeginDrawing();
-        DrawTexturePro(
-            target.texture,
-            (Rectangle){ 0, 0, (float)NATIVE_W, -(float)NATIVE_H },
-            (Rectangle){ 0, 0, (float)WIN_W, (float)WIN_H },
-            (Vector2){ 0, 0 }, 0.0f, WHITE);
+        {
+            int border = basic_get_gfx_border();
+            if (border > 0) {
+                ClearBackground(c64_palette[vs.bg_color & 0x0F]);
+            }
+            {
+                float dx = (float)border;
+                float dy = (float)border;
+                float dw = (float)(WIN_W - 2 * border);
+                float dh = (float)(WIN_H - 2 * border);
+                if (dw < 1) dw = 1;
+                if (dh < 1) dh = 1;
+                DrawTexturePro(
+                    target.texture,
+                    (Rectangle){ 0, 0, (float)NATIVE_W, -(float)NATIVE_H },
+                    (Rectangle){ dx, dy, dw, dh },
+                    (Vector2){ 0, 0 }, 0.0f, WHITE);
+            }
+        }
         EndDrawing();
     }
 
