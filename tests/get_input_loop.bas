@@ -1,0 +1,17 @@
+1 REM GET input loop test - mimics trek.bas COMMAND input (5860)
+2 REM Pipe input: printf "ABC\n" | ./basic -petscii tests/get_input_loop.bas
+10 LX=3
+20 LII$=""
+30 GET Y$
+40 Y$=UCASE$(Y$)
+50 IF Y$="" THEN GOTO 30
+60 IF ASC(Y$)=0 THEN Y$=CHR$(13)
+70 IF ASC(Y$)=13 THEN GOTO 110
+80 IF ASC(Y$)=32 THEN GOTO 100
+90 IF ASC(Y$)<46 OR ASC(Y$)>90 THEN GOTO 30
+100 IF LEN(LII$)<LX THEN PRINT Y$;
+101 IF LEN(LII$)<LX THEN LII$=LII$+Y$
+102 GOTO 30
+110 PRINT
+120 PRINT "GOT:";LII$
+130 END

@@ -78,6 +78,12 @@ jobs:
             make basic-gfx
           fi
 
+      - name: Run GET tests (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          set -e
+          sh tests/get_test.sh
+
       - name: Run tests (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -86,8 +92,8 @@ jobs:
             # Skip interactive tests that require keyboard input.
             # Skip meta tests that are expected to fail (negative tests).
             case "$(basename "$t")" in
-              codes-replaced.bas|locate.bas)
-                echo "Skipping interactive test $t"
+              codes-replaced.bas|locate.bas|get_input_loop.bas)
+                echo "Skipping interactive/GET test $t"
                 continue
                 ;;
               meta_include_dup_line.bas|meta_include_dup_label.bas|meta_include_circular_a.bas|meta_include_circular_b.bas)
@@ -121,6 +127,13 @@ jobs:
             mingw32-make basic-gfx
           fi
 
+      - name: Run GET tests (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -e
+          sh tests/get_test.sh
+
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
@@ -130,8 +143,8 @@ jobs:
             # Skip interactive tests that require keyboard input.
             # Skip meta tests that are expected to fail (negative tests).
             case "$(basename "$t")" in
-              codes-replaced.bas|locate.bas)
-                echo "Skipping interactive test $t"
+              codes-replaced.bas|locate.bas|get_input_loop.bas)
+                echo "Skipping interactive/GET test $t"
                 continue
                 ;;
               meta_include_dup_line.bas|meta_include_dup_label.bas|meta_include_circular_a.bas|meta_include_circular_b.bas)

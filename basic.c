@@ -2421,7 +2421,17 @@ static void statement_screencodes(char **p)
 /* GET statement: GET A$ reads a single character into a string variable.
  * This is a blocking read from standard input. Newlines are returned as
  * an empty string so programs can poll if they wish.
+ *
+ * We stay in raw mode (no echo) across successive GET calls until Enter is
+ * read. Otherwise the terminal would echo each key in cooked mode between
+ * GETs, causing duplicate/trailing characters (e.g. trek.bas "sls" showing
+ * extra "s" on next line).
  */
+#ifndef _WIN32
+static struct termios get_saved_termios;
+static int get_raw_mode_active = 0;
+#endif
+
 static int read_single_char(void)
 {
 #if defined(_WIN32)
@@ -2441,31 +2451,40 @@ static int read_single_char(void)
     if (tcgetattr(STDIN_FILENO, &oldt) != 0) {
         return getchar();
     }
-    newt = oldt;
-    newt.c_lflag &= ~(ICANON | ECHO);
-    newt.c_cc[VMIN] = 1;
-    newt.c_cc[VTIME] = 0;
-    if (tcsetattr(STDIN_FILENO, TCSANOW, &newt) != 0) {
-        return getchar();
+    /* If we're not yet in raw mode, set it. Keep it across GET calls. */
+    if (!get_raw_mode_active) {
+        get_saved_termios = oldt;
+        newt = oldt;
+        newt.c_lflag &= ~(ICANON | ECHO);
+        newt.c_cc[VMIN] = 1;
+        newt.c_cc[VTIME] = 0;
+        if (tcsetattr(STDIN_FILENO, TCSANOW, &newt) != 0) {
+            return getchar();
+        }
+        get_raw_mode_active = 1;
     }
     ch = getchar();
-    /* Consume trailing LF after CR (or CR after LF) so it does not leak as a
-     * trailing character when returning to cooked mode (fixes e.g. trek.bas
-     * COMMAND prompt showing extra character on Enter). */
+    /* On Enter: restore cooked mode and consume CR/LF pair. */
     if (ch == '\r' || ch == '\n') {
-        int pair = (ch == '\r') ? '\n' : '\r';
-        fd_set rfds;
-        struct timeval tv = { 0, 0 };
-        FD_ZERO(&rfds);
-        FD_SET(STDIN_FILENO, &rfds);
-        if (select(STDIN_FILENO + 1, &rfds, (fd_set *)0, (fd_set *)0, &tv) > 0) {
-            int c2 = getchar();
-            if (c2 != pair && c2 != EOF) {
-                ungetc(c2, stdin);
+        if (get_raw_mode_active) {
+            get_raw_mode_active = 0;
+            tcsetattr(STDIN_FILENO, TCSANOW, &get_saved_termios);
+        }
+        /* Consume trailing LF after CR (or CR after LF) so it does not leak. */
+        {
+            int pair = (ch == '\r') ? '\n' : '\r';
+            fd_set rfds;
+            struct timeval tv = { 0, 0 };
+            FD_ZERO(&rfds);
+            FD_SET(STDIN_FILENO, &rfds);
+            if (select(STDIN_FILENO + 1, &rfds, (fd_set *)0, (fd_set *)0, &tv) > 0) {
+                int c2 = getchar();
+                if (c2 != pair && c2 != EOF) {
+                    ungetc(c2, stdin);
+                }
             }
         }
     }
-    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
     return ch;
 #endif
 }
