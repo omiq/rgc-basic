@@ -2430,6 +2430,27 @@ static void statement_screencodes(char **p)
 #ifndef _WIN32
 static struct termios get_saved_termios;
 static int get_raw_mode_active = 0;
+
+/* Set raw mode before we wait for input. Called at start of GET so
+ * interactive TTY is in raw mode before user types; otherwise stdin
+ * stays cooked and we only see input after Enter. */
+static void ensure_get_raw_mode(void)
+{
+    struct termios oldt, newt;
+    if (!isatty(STDIN_FILENO))
+        return;
+    if (get_raw_mode_active)
+        return;
+    if (tcgetattr(STDIN_FILENO, &oldt) != 0)
+        return;
+    get_saved_termios = oldt;
+    newt = oldt;
+    newt.c_lflag &= ~(ICANON | ECHO);
+    newt.c_cc[VMIN] = 1;
+    newt.c_cc[VTIME] = 0;
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &newt) == 0)
+        get_raw_mode_active = 1;
+}
 #endif
 
 static int read_single_char(void)
@@ -2547,6 +2568,9 @@ static void statement_get(char **p)
     } else
 #endif
     {
+#ifndef _WIN32
+        ensure_get_raw_mode();
+#endif
         ch = read_single_char_nonblock();
     }
     if (ch == EOF) {

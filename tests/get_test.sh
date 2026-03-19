@@ -106,4 +106,11 @@ else
     echo "Skipping pty test (script not available)"
 fi
 
+echo "GET test 10: kbuffer.bas with piped input (each char on new line)"
+# text.txt: abc, def, ghi, Q - each char printed on own line (Q exits without printing)
+out=$( $BASIC -petscii tests/kbuffer.bas < tests/text.txt 2>/dev/null )
+if ! echo "$out" | grep -q "^a$"; then echo "FAIL: kbuffer expected 'a' on own line"; echo "$out"; exit 1; fi
+if ! echo "$out" | grep -q "^b$"; then echo "FAIL: kbuffer expected 'b' on own line"; exit 1; fi
+if ! echo "$out" | grep -q "^i$"; then echo "FAIL: kbuffer expected 'i' on own line"; exit 1; fi
+
 echo "All GET tests passed."
