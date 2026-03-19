@@ -131,6 +131,9 @@ static const TokenMap token_map[] = {
     {NULL, 0}
 };
 
+/* PETSCII/ANSI mode (set by -petscii, #OPTION); declared early for gfx_put_byte. */
+static int petscii_mode = 0;
+
 static void sb_init(StrBuf *sb)
 {
     sb->cap = 256;
@@ -927,11 +930,10 @@ static void gfx_put_byte(unsigned char b)
     if (!gfx_vs) return;
     if (gfx_apply_control_code(b)) return;
 
-    /* By default, map printable ASCII to C64 screen codes for convenience.
-     * With SCREENCODES ON (gfx_raw_screen_codes): bytes are PETSCII from .seq
-     * streams—same as CHR$/PRINT. Convert PETSCII→screen code; the font (like
-     * gfx_charset_demo via POKE) expects screen codes 0–255. */
-    if (gfx_raw_screen_codes) {
+    /* Convert to C64 screen code. petscii_to_screencode respects charset
+     * (lower/upper) and handles the full PETSCII range. gfx_ascii_to_screencode
+     * is a simple ASCII fallback when not in petscii mode. */
+    if (gfx_raw_screen_codes || petscii_mode) {
         sc = petscii_to_screencode(b);
     } else if (b >= 32 && b <= 126) {
         sc = gfx_ascii_to_screencode(b);
@@ -978,8 +980,7 @@ static int gfx_keyq_pop(uint8_t *out)
 }
 #endif
 
-/* PETSCII/ANSI configuration */
-static int petscii_mode = 0;
+/* PETSCII/ANSI configuration (petscii_mode declared earlier for gfx_put_byte) */
 /* When set, do not output ANSI (color/reverse/cursor); output is paste-friendly, no extra bytes. */
 static int petscii_plain = 0;
 /* When set (e.g. stdout is a pipe), do not insert newlines at PRINT_WIDTH. */
@@ -2370,6 +2371,22 @@ static int read_single_char(void)
         return getchar();
     }
     ch = getchar();
+    /* Consume trailing LF after CR (or CR after LF) so it does not leak as a
+     * trailing character when returning to cooked mode (fixes e.g. trek.bas
+     * COMMAND prompt showing extra character on Enter). */
+    if (ch == '\r' || ch == '\n') {
+        int pair = (ch == '\r') ? '\n' : '\r';
+        fd_set rfds;
+        struct timeval tv = { 0, 0 };
+        FD_ZERO(&rfds);
+        FD_SET(STDIN_FILENO, &rfds);
+        if (select(STDIN_FILENO + 1, &rfds, (fd_set *)0, (fd_set *)0, &tv) > 0) {
+            int c2 = getchar();
+            if (c2 != pair && c2 != EOF) {
+                ungetc(c2, stdin);
+            }
+        }
+    }
     tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
     return ch;
 #endif
