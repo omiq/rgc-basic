@@ -2,7 +2,11 @@
 
 ### Unreleased
 
-(Future changes go here.)
+- **DO … LOOP [UNTIL cond]** and **EXIT**
+  - `DO` … `LOOP` — infinite loop (until `EXIT`).
+  - `DO` … `LOOP UNTIL cond` — post-test loop; exits when condition is true.
+  - `EXIT` — leaves the innermost DO loop.
+  - Nested DO/LOOP supported. Tests: `tests/do_loop_simple.bas`, `tests/do_loop_until.bas`, `tests/do_exit.bas`, `tests/do_nested.bas`.
 
 ### 1.4.0 – 2026-03-18
 
