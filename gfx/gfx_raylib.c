@@ -684,7 +684,7 @@ int main(int argc, char **argv)
     prog_idx = basic_parse_args(argc, argv);
     if (prog_idx < 0) {
         fprintf(stderr,
-                "Usage: %s [-petscii] [-palette ansi|c64] <program.bas> [args...]\n",
+                "Usage: %s [-petscii] [-palette ansi|c64] [-gfx-title \"title\"] <program.bas> [args...]\n",
                 argv[0]);
         return 1;
     }
@@ -704,7 +704,10 @@ int main(int argc, char **argv)
 
     /* Suppress raylib INFO trace logs (e.g. timer messages). */
     SetTraceLogLevel(LOG_WARNING);
-    InitWindow(WIN_W, WIN_H, "CBM-BASIC GFX");
+    {
+        const char *title = basic_get_gfx_window_title();
+        InitWindow(WIN_W, WIN_H, title ? title : "CBM-BASIC GFX");
+    }
     SetTargetFPS(60);
     target = LoadRenderTexture(NATIVE_W, NATIVE_H);
 
@@ -718,6 +721,16 @@ int main(int argc, char **argv)
      * visible (e.g., via SLEEP) and then exit cleanly without requiring
      * manual ESC presses. */
     while (!WindowShouldClose() && !basic_halted()) {
+        /* Apply #OPTION gfx_title if set during load */
+        {
+            static char last_title[128];
+            const char *t = basic_get_gfx_window_title();
+            if (t && strcmp(t, last_title) != 0) {
+                SetWindowTitle(t);
+                strncpy(last_title, t, sizeof(last_title) - 1);
+                last_title[sizeof(last_title) - 1] = '\0';
+            }
+        }
         static uint8_t last_charset = 0xFF;
         if (last_charset != vs.charset_lowercase) {
             load_default_charrom(&vs);

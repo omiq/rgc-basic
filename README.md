@@ -329,6 +329,10 @@ Releases include **basic-gfx** — a full graphical version of the interpreter b
 - Use `SCREENCODES OFF` to restore the default (ASCII strings like `PRINT "HELLO"` map naturally).
 - The window closes automatically when the program reaches `END`.
 
+**Window title (basic-gfx)**:
+
+- Set the window title via `#OPTION gfx_title "My Game"` or the CLI `-gfx-title "My Game"`. Default is `CBM-BASIC GFX`.
+
 ---
 
 ### Included example programs
