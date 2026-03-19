@@ -60,7 +60,7 @@ Each option behaves **exactly as if** the user had passed that argument on the c
 | `#OPTION palette ansi` | ANSI palette | `-palette ansi` |
 | `#OPTION palette c64` | C64-style 8-bit palette | `-palette c64` |
 | `#OPTION gfx_title "title"` | Window title (basic-gfx) | `-gfx-title "title"` |
-| `#OPTION border N` | Border padding in pixels (basic-gfx) | `-gfx-border N` |
+| `#OPTION border N [colour]` | Border padding in pixels, optional colour (basic-gfx) | `-gfx-border "N"` or `-gfx-border "N colour"` |
 
 **Syntax**: `#OPTION name [value]`
 
