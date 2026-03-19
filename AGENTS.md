@@ -35,7 +35,7 @@ done
 
 ### Caveats
 
-- Several example programs (`dartmouth.bas`, `guess.bas`, `adventure.bas`, `get-input.bas`, `test_get.bas`) and two test files (`codes-replaced.bas`, `locate.bas`) require interactive keyboard input — skip these in automated runs.
+- Several example programs (`dartmouth.bas`, `guess.bas`, `adventure.bas`, `get-input.bas`, `test_get.bas`) and test files (`codes-replaced.bas`, `locate.bas`, `kbuffer.bas`) require interactive or piped keyboard input — skip these in automated runs.
 - The `petscii_plain_output_test.sh` has a pre-existing failure on the `feature/raylib-gfx` branch; this is not an environment issue.
 - Build produces compiler warnings for unused variables in `basic.c` — these are benign and expected on this branch.
 - `xxd` may not be pre-installed; it is needed by `tests/40col_test.sh`. Install via `sudo apt-get install -y xxd` if missing.

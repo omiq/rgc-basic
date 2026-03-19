@@ -92,7 +92,7 @@ jobs:
             # Skip interactive tests that require keyboard input.
             # Skip meta tests that are expected to fail (negative tests).
             case "$(basename "$t")" in
-              codes-replaced.bas|locate.bas|get_input_loop.bas|get_while_test.bas)
+              codes-replaced.bas|locate.bas|get_input_loop.bas|get_while_test.bas|kbuffer.bas)
                 echo "Skipping interactive/GET test $t"
                 continue
                 ;;
@@ -143,7 +143,7 @@ jobs:
             # Skip interactive tests that require keyboard input.
             # Skip meta tests that are expected to fail (negative tests).
             case "$(basename "$t")" in
-              codes-replaced.bas|locate.bas|get_input_loop.bas|get_while_test.bas)
+              codes-replaced.bas|locate.bas|get_input_loop.bas|get_while_test.bas|kbuffer.bas)
                 echo "Skipping interactive/GET test $t"
                 continue
                 ;;
