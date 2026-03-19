@@ -10,9 +10,9 @@
 * ~IF THEN ELSE END IF~
   * ~Multi-line IF/ELSE/END IF blocks with nesting; backward compatible with IF X THEN 100~
 
-* Structured loops: DO,LOOP,UNTIL,EXIT
+* ~Structured loops: DO,LOOP,UNTIL,EXIT~
   * ~WHILE … WEND~ implemented.
-  * Remaining: DO/LOOP with UNTIL, EXIT.
+  * ~DO … LOOP [UNTIL cond]~ and ~EXIT~ implemented. Nested DO/LOOP supported.
 
 * ~Colour without pokes~
   * ~background command for setting screen colour~
@@ -82,5 +82,6 @@
 
 - **IF ELSE END IF** — Multi-line `IF cond THEN` … `ELSE` … `END IF` blocks; nested blocks supported.
 - **WHILE WEND** — Pre-test loop `WHILE cond` … `WEND`; nested loops supported.
+- **DO LOOP UNTIL EXIT** — `DO` … `LOOP [UNTIL cond]`; `EXIT` leaves the innermost DO; nested loops supported.
 - **Meta directives** — Shebang, #OPTION (petscii, charset, palette), #INCLUDE; duplicate line/label errors; circular include detection. See `docs/meta-directives-plan.md`.
 
