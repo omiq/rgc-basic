@@ -2031,6 +2031,10 @@ static void print_value(struct value *v)
                         }
                         /* Unknown Unicode: output space to avoid garbage */
                         gfx_put_byte(' ');
+                    } else {
+                        /* UTF-8 decode failed (e.g. lone 0xDD from CHR$(221));
+                         * output raw byte as PETSCII. */
+                        gfx_put_byte(c);
                     }
                     continue;
                 }
