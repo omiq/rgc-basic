@@ -859,7 +859,9 @@ int main(int argc, char **argv)
         {
             int border = basic_get_gfx_border();
             if (border > 0) {
-                ClearBackground(c64_palette[vs.bg_color & 0x0F]);
+                int bc = basic_get_gfx_border_color();
+                uint8_t ci = (bc >= 0 && bc <= 15) ? (uint8_t)bc : (vs.bg_color & 0x0F);
+                ClearBackground(c64_palette[ci]);
             }
             {
                 float dx = (float)border;

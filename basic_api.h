@@ -40,6 +40,9 @@ const char *basic_get_gfx_window_title(void);
 /* Border padding (pixels) around the graphical area. 0 = no border (edge-to-edge). */
 void basic_set_gfx_border(int pixels);
 int basic_get_gfx_border(void);
+/* Border colour: palette index 0-15, or -1 to use background colour. */
+void basic_set_gfx_border_color(int idx);
+int basic_get_gfx_border_color(void);
 #endif
 
 #endif /* BASIC_API_H */
