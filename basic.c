@@ -951,13 +951,15 @@ static int gfx_decode_utf8(const char **s)
     return -1;
 }
 
-/* Unicode box-drawing and £ → PETSCII (for UTF-8 source like trek.bas). */
+/* Unicode box-drawing and £ → PETSCII (for UTF-8 source like trek.bas).
+ * Must match petscii.c petscii_to_utf8 reverse mapping so GFX glyphs
+ * match terminal output (clean │─┌┐└┘├┤┬┴┼, not wavy/control chars). */
 static int unicode_to_petscii(int u)
 {
     switch (u) {
     case 0x00A3: return 0x5C;  /* £ */
     case 0x2500: return 0x60;  /* ─ */
-    case 0x2502: return 0x9E;  /* │ */
+    case 0x2502: return 0x7D;  /* │ (was 0x9E: control range, wrong glyph) */
     case 0x250C: return 0xA4;  /* ┌ */
     case 0x2510: return 0xAE;  /* ┐ */
     case 0x2514: return 0xAD;  /* └ */
@@ -966,7 +968,7 @@ static int unicode_to_petscii(int u)
     case 0x2524: return 0xA7;  /* ┤ */
     case 0x252C: return 0xA6;  /* ┬ */
     case 0x2534: return 0xA5;  /* ┴ */
-    case 0x253C: return 0x9B;  /* ┼ */
+    case 0x253C: return 0x7B;  /* ┼ (was 0x9B: control range, wrong glyph) */
     default:     return -1;
     }
 }
