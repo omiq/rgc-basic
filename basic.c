@@ -958,7 +958,7 @@ static int unicode_to_petscii(int u)
 {
     switch (u) {
     case 0x005C: return 109;   /* \ → CHR$(109) */
-    case 0x00A3: return 0x5C;  /* £ */
+    case 0x00A3: return 109;  /* £ → backslash (user preference for trek) */
     case 0x2500: return 0x60;  /* ─ */
     case 0x2502: return 0x7D;  /* │ (was 0x9E: control range, wrong glyph) */
     case 0x250C: return 0xA4;  /* ┌ */
@@ -982,10 +982,12 @@ static void gfx_put_byte(unsigned char b)
     if (!gfx_vs) return;
     if (gfx_apply_control_code(b)) return;
 
-    /* Convert to C64 screen code. petscii_to_screencode respects charset
-     * (lower/upper) and handles the full PETSCII range. gfx_ascii_to_screencode
-     * is a simple ASCII fallback when not in petscii mode. */
-    if (gfx_raw_screen_codes || petscii_mode) {
+    /* Byte 92 (0x5C): In ASCII it's backslash; in C64 PETSCII it's £.
+     * Terminal outputs raw bytes so 92→\. GFX uses C64 font so 92→£.
+     * Use screen code 109 (diagonal glyph) so GFX matches terminal. */
+    if (b == 0x5C) {
+        sc = 109;
+    } else if (gfx_raw_screen_codes || petscii_mode) {
         sc = petscii_to_screencode(b);
     } else if (b >= 32 && b <= 126) {
         sc = gfx_ascii_to_screencode(b);
