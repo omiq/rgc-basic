@@ -298,6 +298,7 @@ Releases include **basic-gfx** — a full graphical version of the interpreter b
 (building requires Raylib to be installed - build the graphics target via `make basic-gfx)`
 
 - `./basic-gfx examples/gfx_poke_demo.bas`
+- `./basic-gfx examples/gfx_border_demo.bas` — border padding with colour (`#OPTION border 32 cyan`)
 - `./basic-gfx examples/gfx_charset_demo.bas`
 - `./basic-gfx examples/gfx_key_demo.bas`
 - `./basic-gfx -petscii examples/gfx_text_demo.bas`
