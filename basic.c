@@ -5285,12 +5285,12 @@ static void execute_statement(char **p)
     }
     if (c == 'L' && starts_with_kw(*p, "LOCATE")) {
         *p += 6;
-        statement_textat(p);
+        statement_locate(p);
         return;
     }
-    if (c == 'L' && starts_with_kw(*p, "LOCATE")) {
+    if (c == 'T' && starts_with_kw(*p, "TEXTAT")) {
         *p += 6;
-        statement_locate(p);
+        statement_textat(p);
         return;
     }
     if (c == 'G' && starts_with_kw(*p, "GET")) {
