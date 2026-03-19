@@ -786,6 +786,7 @@ static int print_col = 0;
 static GfxVideoState *gfx_vs = NULL;
 void basic_set_gfx_window_title(const char *);  /* forward, for #OPTION gfx_title */
 void basic_set_gfx_border(int);                 /* forward, for #OPTION border */
+void basic_set_gfx_border_color(int);           /* forward, for #OPTION border */
 
 /* GFX text output state (mirrors a C64-like 40x25 text screen). */
 #define GFX_COLS 40
@@ -1123,11 +1124,41 @@ static int apply_option_directive(const char *name, const char *value)
         return 0;
     }
     if (str_eq_ci(name, "border")) {
-        int n;
+        int n, cidx = -1;
+        char *end, buf[64];
         if (!value || !value[0]) return -1;
-        n = atoi(value);
+        n = (int)strtol(value, &end, 10);
         if (n < 0 || n > 256) return -1;
         basic_set_gfx_border(n);
+        while (*end == ' ' || *end == '\t' || *end == ',') end++;
+        if (*end) {
+            size_t j = 0;
+            while (*end && j < sizeof(buf) - 1) buf[j++] = (char)*end++;
+            buf[j] = '\0';
+            if (buf[0] >= '0' && buf[0] <= '9') {
+                char *e2;
+                cidx = (int)strtol(buf, &e2, 10);
+                if (cidx < 0 || cidx > 15) cidx = -1;
+            } else {
+                static const struct { const char *name; int idx; } bc[] = {
+                    {"black", 0}, {"white", 1}, {"red", 2}, {"cyan", 3},
+                    {"purple", 4}, {"green", 5}, {"blue", 6}, {"yellow", 7},
+                    {"orange", 8}, {"brown", 9}, {"pink", 10}, {"light red", 10},
+                    {"dark gray", 11}, {"grey1", 11}, {"gray1", 11},
+                    {"medium gray", 12}, {"grey2", 12}, {"gray2", 12},
+                    {"light green", 13}, {"light blue", 14},
+                    {"light gray", 15}, {"grey3", 15}, {"gray3", 15},
+                    {NULL, -1}
+                };
+                int k;
+                for (k = 0; bc[k].name; k++) {
+                    if (str_eq_ci(buf, bc[k].name)) { cidx = bc[k].idx; break; }
+                }
+            }
+            basic_set_gfx_border_color(cidx);
+        } else {
+            basic_set_gfx_border_color(-1);
+        }
         return 0;
     }
 #endif
@@ -6098,12 +6129,11 @@ int basic_parse_args(int argc, char **argv)
                 return -1;
             }
             {
-                int b = atoi(argv[++i]);
-                if (b < 0 || b > 256) {
-                    fprintf(stderr, "Invalid -gfx-border value (0-256)\n");
+                const char *val = argv[++i];
+                if (apply_option_directive("border", val) != 0) {
+                    fprintf(stderr, "Invalid -gfx-border value (e.g. 24 or 24 cyan)\n");
                     return -1;
                 }
-                basic_set_gfx_border(b);
             }
 #endif
         } else if (argv[i][0] == '-') {
@@ -6146,6 +6176,7 @@ const char *basic_get_gfx_window_title(void)
 }
 
 static int gfx_border_pixels = 0;
+static int gfx_border_color = -1;  /* -1 = use background colour */
 
 void basic_set_gfx_border(int pixels)
 {
@@ -6157,6 +6188,16 @@ void basic_set_gfx_border(int pixels)
 int basic_get_gfx_border(void)
 {
     return gfx_border_pixels;
+}
+
+void basic_set_gfx_border_color(int idx)
+{
+    gfx_border_color = (idx >= 0 && idx <= 15) ? idx : -1;
+}
+
+int basic_get_gfx_border_color(void)
+{
+    return gfx_border_color;
 }
 #endif
 

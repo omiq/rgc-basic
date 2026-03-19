@@ -335,7 +335,7 @@ Releases include **basic-gfx** — a full graphical version of the interpreter b
 
 **Border padding (basic-gfx)**:
 
-- Add padding around the graphical area for better legibility: `#OPTION border 24` or `-gfx-border 24`. The value is pixels on each side; the screen is centered in the window with the background colour filling the border. Default is 0 (edge-to-edge).
+- Add padding around the graphical area for better legibility: `#OPTION border 24` or `-gfx-border 24`. The value is pixels on each side; the screen is centered in the window. Optionally specify a colour: `#OPTION border 10 cyan` or `-gfx-border "10 cyan"` (uses background colour if omitted). Colour can be a name (black, white, red, cyan, purple, green, blue, yellow, etc.) or palette index 0–15.
 
 ---
 
