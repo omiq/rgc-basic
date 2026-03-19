@@ -23,11 +23,15 @@
 * PETSCII symbols & graphics
   * ~Unicode stand-ins~
   * ~Bitmap rendering of 40×25 characters (raylib)~ — **basic-gfx** merged to main.
-  * **raylib-based graphics** (see `docs/bitmap-graphics-plan.md`):
-    * ~Separate `basic-gfx` binary using raylib for a windowed 40×25 PETSCII text screen~
-    * ~Memory-mapped screen/colour/char RAM, readable/writable via `PEEK`/`POKE`~
-    * ~PETSCII control codes, colours, reverse video; `.seq` viewer with SCREENCODES ON~
-    * **Remaining**: `SCREEN` modes for text vs 320×200 bitmap; bitmap RAM.
+  * ~Memory-mapped screen/colour/char RAM, POKE/PEEK, PETSCII, `.seq` viewer with SCREENCODES ON~
+
+* **Bitmap graphics & sprites** (incremental; see `docs/bitmap-graphics-plan.md`, `docs/sprite-features-plan.md`)
+  1. **Bitmap mode** — `SCREEN 1` (320×200 hires), bitmap RAM at BITMAP_BASE; monochrome renderer. Enables pixel drawing via POKE, later `PSET`/`LINE` helpers.
+  2. **Sprites (minimal)** — `LOADSPRITE slot, "path"`, `DRAWSPRITE slot, x, y [, z]`, `SPRITEVISIBLE slot, on`. PNG load, Z-ordered draw queue. Collision: `SPRITECOLLIDE(slot1, slot2)`.
+  3. **Joystick / joypad / controller input** — Poll gamepad via raylib; expose to BASIC as `JOY(port)` or similar read API for D-pad, buttons, axes. Support keyboards-as-joystick and real controllers.
+  4. **Graphic layers and scrolling** — Layer stack (background, tiles, sprites, text) with independent scroll offsets; `SCROLL x, y` or per-layer scroll; camera/viewport for games.
+  5. **Tilemap handling** — `LOADSPRITE slot, "path", "tilemap"`; define tile size (e.g. 16×16); render tile grid from sprite sheet. Efficient level/world rendering.
+  6. **Sprite animation** — Multiple frames per slot; `SPRITEFRAME slot, n` or frame parameter in `DRAWSPRITE`; optional frame rate / timing.
 
 * ~~Subroutines and Functions~~
   * **User-defined FUNCTIONS** implemented — `FUNCTION name[(params)]` … `RETURN [expr]` … `END FUNCTION`; call with `name()` or `name(a,b)`; recursion supported. See `docs/user-functions-plan.md`.
