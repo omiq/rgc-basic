@@ -951,12 +951,13 @@ static int gfx_decode_utf8(const char **s)
     return -1;
 }
 
-/* Unicode box-drawing and £ → PETSCII (for UTF-8 source like trek.bas).
+/* Unicode box-drawing, £, \ → PETSCII (for UTF-8 source like trek.bas).
  * Must match petscii.c petscii_to_utf8 reverse mapping so GFX glyphs
  * match terminal output (clean │─┌┐└┘├┤┬┴┼, not wavy/control chars). */
 static int unicode_to_petscii(int u)
 {
     switch (u) {
+    case 0x005C: return 109;   /* \ → CHR$(109) */
     case 0x00A3: return 0x5C;  /* £ */
     case 0x2500: return 0x60;  /* ─ */
     case 0x2502: return 0x7D;  /* │ (was 0x9E: control range, wrong glyph) */
@@ -2565,7 +2566,8 @@ static void statement_get(char **p)
         if (gfx_keyq_pop(&b)) {
             ch = (int)b;
         } else {
-            ch = EOF;
+            /* Fallback to stdin when queue empty (allows pipe/redirect). */
+            ch = read_single_char_nonblock();
         }
     } else
 #endif
@@ -2637,6 +2639,15 @@ static struct value eval_function(const char *name, char **p)
                 outbuf[0] = (char)b;
                 outbuf[1] = '\0';
                 return make_str(outbuf);
+            }
+            /* Fallback to stdin (allows pipe/redirect). */
+            {
+                int c = read_single_char_nonblock();
+                if (c != EOF && c != '\n' && c != '\r') {
+                    outbuf[0] = (char)c;
+                    outbuf[1] = '\0';
+                    return make_str(outbuf);
+                }
             }
             return make_str("");
         }
