@@ -4489,18 +4489,23 @@ static void skip_if_block_to_target(char **p, int want_else)
             char *q = pos;
             skip_spaces(&q);
             if (!*q) break;
+            /* Nested IF: any IF ... THEN (block or inline) increments nesting. */
             if (starts_with_kw(q, "IF")) {
                 char *r = q + 2;
-                skip_spaces(&r);
-                if (starts_with_kw(r, "THEN")) {
-                    r += 4;
+                while (*r) {
                     skip_spaces(&r);
-                    if (!*r || *r == ':') {
+                    if (!*r) break;
+                    if (starts_with_kw(r, "THEN")) {
                         nesting++;
-                        pos = (*r == ':') ? r + 1 : r;
-                        continue;
+                        r += 4;
+                        break;
                     }
+                    if (*r == '\"') { r++; while (*r && *r != '\"') r++; if (*r) r++; continue; }
+                    if (*r == '(') { int pn = 1; r++; while (pn && *r) { if (*r == '(') pn++; else if (*r == ')') pn--; r++; } continue; }
+                    r++;
                 }
+                pos = r;
+                continue;
             }
             if (starts_with_kw(q, "END")) {
                 char *r = q + 3;
@@ -4649,7 +4654,6 @@ static void statement_else(char **p)
         runtime_error("ELSE without IF");
         return;
     }
-    *p += 4;
     skip_spaces(p);
     if (if_stack[if_depth - 1].took_then) {
         skip_if_block_to_target(p, 0);
@@ -5208,11 +5212,9 @@ static void execute_statement(char **p)
     }
     if (c == 'E') {
         if (starts_with_kw(*p, "ELSE")) {
-            if (if_depth > 0) {
-                *p += 4;
-                statement_else(p);
-                return;
-            }
+            *p += 4;
+            statement_else(p);
+            return;
         }
         if (starts_with_kw(*p, "END")) {
             char *q = *p + 3;
