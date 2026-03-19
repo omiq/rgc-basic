@@ -24,7 +24,7 @@ See `CHANGELOG.md` for a versioned history of changes (starting from **1.0.0 –
 
 ## 💾 DOWNLOADS
 
-[The latest binaries for Win/Mac/Linux are in Releases](https://github.com/omiq/cbm-basic/releases/). 
+[The latest binaries for Win/Mac/Linux are in Releases](https://github.com/omiq/cbm-basic/releases/). For bleeding-edge builds from `main`, use the [**nightly** release](https://github.com/omiq/cbm-basic/releases/tag/nightly) (built automatically every night).
 
 Extract the files after downloading.
 

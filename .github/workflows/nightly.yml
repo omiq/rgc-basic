@@ -1,0 +1,211 @@
+name: Nightly build
+
+on:
+  schedule:
+    # Run at 00:00 UTC every day
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    # Allow manual trigger from Actions tab
+
+permissions:
+  contents: write
+
+jobs:
+  tag-and-build:
+    name: Tag nightly and build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: basic-linux
+            archive: basic-linux.tar.gz
+            outdir: linux
+            bin: basic
+            build_gfx: true
+          - os: macos-latest
+            artifact: basic-macos
+            archive: basic-macos.tar.gz
+            outdir: mac
+            bin: basic
+            build_gfx: true
+          - os: windows-latest
+            artifact: basic-windows
+            archive: basic-windows.zip
+            outdir: windows
+            bin: basic.exe
+            build_gfx: true
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Update nightly tag
+        if: runner.os == 'Linux'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f nightly
+          git push -f origin nightly
+
+      - name: Install raylib (Linux)
+        if: runner.os == 'Linux' && matrix.build_gfx
+        run: |
+          set -e
+          sudo apt-get update
+          if sudo apt-get install -y libraylib-dev; then
+            echo "Installed libraylib-dev from apt"
+          else
+            echo "libraylib-dev not available; building raylib from source"
+            sudo apt-get install -y build-essential cmake git pkg-config \
+              libasound2-dev libx11-dev libxrandr-dev libxi-dev \
+              libxinerama-dev libxcursor-dev libgl1-mesa-dev libglu1-mesa-dev
+            git clone --depth 1 https://github.com/raysan5/raylib.git /tmp/raylib
+            cmake -S /tmp/raylib -B /tmp/raylib/build -DBUILD_SHARED_LIBS=ON
+            cmake --build /tmp/raylib/build --config Release
+            sudo cmake --install /tmp/raylib/build
+            echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/raylib.conf
+            sudo ldconfig
+          fi
+
+      - name: Install raylib (macOS)
+        if: runner.os == 'macOS' && matrix.build_gfx
+        run: |
+          set -e
+          export HOMEBREW_NO_AUTO_UPDATE=1
+          brew install raylib
+
+      - name: Build (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          make
+          if [ "${{ matrix.build_gfx }}" = "true" ]; then
+            make basic-gfx
+          fi
+
+      - name: Run tests (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          set -e
+          for t in tests/*.bas; do
+            case "$(basename "$t")" in
+              codes-replaced.bas|locate.bas)
+                echo "Skipping interactive test $t"
+                continue
+                ;;
+              meta_include_dup_line.bas|meta_include_dup_label.bas|meta_include_circular_a.bas|meta_include_circular_b.bas)
+                echo "Skipping expected-fail meta test $t"
+                continue
+                ;;
+            esac
+            echo "Running $t"
+            ./basic -petscii "$t" >/dev/null
+          done
+
+      - name: Setup MSYS2 (Windows, for raylib)
+        if: runner.os == 'Windows' && matrix.build_gfx
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-make
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-raylib
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -e
+          mingw32-make
+          if [ "${{ matrix.build_gfx }}" = "true" ]; then
+            mingw32-make basic-gfx
+          fi
+
+      - name: Run tests (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -e
+          for t in tests/*.bas; do
+            case "$(basename "$t")" in
+              codes-replaced.bas|locate.bas)
+                echo "Skipping interactive test $t"
+                continue
+                ;;
+              meta_include_dup_line.bas|meta_include_dup_label.bas|meta_include_circular_a.bas|meta_include_circular_b.bas)
+                echo "Skipping expected-fail meta test $t"
+                continue
+                ;;
+            esac
+            echo "Running $t"
+            ./basic.exe -petscii "$t" >/dev/null
+          done
+
+      - name: Package artifact (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p out/${{ matrix.outdir }}
+          cp ${{ matrix.bin }} out/${{ matrix.outdir }}/basic
+          if [ "${{ matrix.build_gfx }}" = "true" ] && [ -f basic-gfx ]; then
+            cp basic-gfx out/${{ matrix.outdir }}/basic-gfx
+          fi
+          cp -r examples out/${{ matrix.outdir }}/
+          cd out
+          tar czf ${{ matrix.archive }} ${{ matrix.outdir }}
+
+      - name: Package artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p out/${{ matrix.outdir }}
+          cp ${{ matrix.bin }} out/${{ matrix.outdir }}/basic.exe
+          if [ "${{ matrix.build_gfx }}" = "true" ] && [ -f basic-gfx.exe ]; then
+            cp basic-gfx.exe out/${{ matrix.outdir }}/basic-gfx.exe
+          fi
+          cp -r examples out/${{ matrix.outdir }}/
+          cd out
+          powershell -Command "Compress-Archive -Path '${{ matrix.outdir }}' -DestinationPath '${{ matrix.archive }}'"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: out/${{ matrix.archive }}
+
+  release:
+    name: Publish nightly release
+    needs: tag-and-build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Delete existing nightly release
+        run: |
+          gh release delete nightly --yes 2>/dev/null || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create nightly release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: nightly
+          name: Nightly
+          body: |
+            Bleeding-edge build from `main`. Updated automatically every night.
+            **Use stable [releases](https://github.com/${{ github.repository }}/releases) for production.**
+          draft: false
+          files: dist/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
