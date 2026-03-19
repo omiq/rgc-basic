@@ -922,6 +922,55 @@ static int gfx_apply_control_code(unsigned char code)
     return 0;
 }
 
+/* Decode one UTF-8 character from *s, advance *s, return Unicode codepoint or -1. */
+static int gfx_decode_utf8(const char **s)
+{
+    unsigned char c = (unsigned char)**s;
+    int u;
+    if (c < 0x80) {
+        u = c;
+        (*s)++;
+        return u;
+    }
+    if ((c & 0xE0) == 0xC0 && (*s)[1]) {
+        u = ((c & 0x1F) << 6) | ((*s)[1] & 0x3F);
+        *s += 2;
+        return u;
+    }
+    if ((c & 0xF0) == 0xE0 && (*s)[1] && (*s)[2]) {
+        u = ((c & 0x0F) << 12) | (((*s)[1] & 0x3F) << 6) | ((*s)[2] & 0x3F);
+        *s += 3;
+        return u;
+    }
+    if ((c & 0xF8) == 0xF0 && (*s)[1] && (*s)[2] && (*s)[3]) {
+        u = ((c & 0x07) << 18) | (((*s)[1] & 0x3F) << 12) | (((*s)[2] & 0x3F) << 6) | ((*s)[3] & 0x3F);
+        *s += 4;
+        return u;
+    }
+    (*s)++;
+    return -1;
+}
+
+/* Unicode box-drawing and £ → PETSCII (for UTF-8 source like trek.bas). */
+static int unicode_to_petscii(int u)
+{
+    switch (u) {
+    case 0x00A3: return 0x5C;  /* £ */
+    case 0x2500: return 0x60;  /* ─ */
+    case 0x2502: return 0x9E;  /* │ */
+    case 0x250C: return 0xA4;  /* ┌ */
+    case 0x2510: return 0xAE;  /* ┐ */
+    case 0x2514: return 0xAD;  /* └ */
+    case 0x2518: return 0xBD;  /* ┘ */
+    case 0x251C: return 0xAB;  /* ├ */
+    case 0x2524: return 0xA7;  /* ┤ */
+    case 0x252C: return 0xA6;  /* ┬ */
+    case 0x2534: return 0xA5;  /* ┴ */
+    case 0x253C: return 0x9B;  /* ┼ */
+    default:     return -1;
+    }
+}
+
 static void gfx_put_byte(unsigned char b)
 {
     int idx;
@@ -1953,6 +2002,35 @@ static void print_value(struct value *v)
             unsigned char c = (unsigned char)*s;
 #ifdef GFX_VIDEO
             if (gfx_vs) {
+                /* Decode UTF-8 so Unicode box-drawing (┌─┐ etc.) and £
+                 * from trek.bas and similar sources map to C64 PETSCII. */
+                if (c >= 0xC2 && c <= 0xF4) {
+                    int u = gfx_decode_utf8((const char **)&s);
+                    if (u >= 0) {
+                        int pet = unicode_to_petscii(u);
+                        if (pet >= 0) {
+                            uint8_t sc = (uint8_t)petscii_to_screencode((unsigned char)pet);
+                            int idx;
+                            if (gfx_reverse && sc < 128) sc |= 0x80;
+                            if (gfx_x < 0) gfx_x = 0;
+                            if (gfx_x >= GFX_COLS) gfx_newline();
+                            if (gfx_y < 0) gfx_y = 0;
+                            if (gfx_y >= GFX_ROWS) gfx_y = GFX_ROWS - 1;
+                            idx = gfx_y * GFX_COLS + gfx_x;
+                            if (idx >= 0 && idx < (int)GFX_TEXT_SIZE) {
+                                gfx_vs->screen[idx] = sc;
+                                gfx_vs->color[idx]  = (uint8_t)(gfx_fg & 0x0F);
+                            }
+                            gfx_x++;
+                            if (gfx_x >= GFX_COLS) gfx_newline();
+                            else print_col = gfx_x;
+                            continue;
+                        }
+                        /* Unknown Unicode: output space to avoid garbage */
+                        gfx_put_byte(' ');
+                    }
+                    continue;
+                }
                 gfx_put_byte(c);
                 s++;
                 continue;
