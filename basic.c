@@ -784,6 +784,7 @@ static int print_col = 0;
 
 #ifdef GFX_VIDEO
 static GfxVideoState *gfx_vs = NULL;
+void basic_set_gfx_window_title(const char *);  /* forward, for #OPTION gfx_title */
 
 /* GFX text output state (mirrors a C64-like 40x25 text screen). */
 #define GFX_COLS 40
@@ -1102,6 +1103,25 @@ static int apply_option_directive(const char *name, const char *value)
         }
         return -1;
     }
+#ifdef GFX_VIDEO
+    if (str_eq_ci(name, "gfx_title") || str_eq_ci(name, "gfx-title")) {
+        if (!value) return -1;
+        /* Strip surrounding quotes if present */
+        while (*value == '"' || *value == '\'') value++;
+        {
+            size_t len = strlen(value);
+            while (len > 0 && (value[len - 1] == '"' || value[len - 1] == '\'')) len--;
+            if (len > 127) len = 127;
+            {
+                char buf[128];
+                memcpy(buf, value, len);
+                buf[len] = '\0';
+                basic_set_gfx_window_title(buf);
+            }
+        }
+        return 0;
+    }
+#endif
     return -1;
 }
 
@@ -6056,6 +6076,14 @@ int basic_parse_args(int argc, char **argv)
                 fprintf(stderr, "Unknown palette '%s' (expected ansi or c64)\n", name);
                 return -1;
             }
+#ifdef GFX_VIDEO
+        } else if (strcmp(argv[i], "-gfx-title") == 0 || strcmp(argv[i], "--gfx-title") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Missing value for -gfx-title\n");
+                return -1;
+            }
+            basic_set_gfx_window_title(argv[++i]);
+#endif
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             return -1;
@@ -6077,6 +6105,23 @@ int basic_halted(void) { return halted; }
 
 #ifdef GFX_VIDEO
 void basic_set_video(GfxVideoState *vs) { gfx_vs = vs; }
+
+static char gfx_window_title[128];
+
+void basic_set_gfx_window_title(const char *title)
+{
+    if (!title || !title[0]) {
+        gfx_window_title[0] = '\0';
+        return;
+    }
+    strncpy(gfx_window_title, title, sizeof(gfx_window_title) - 1);
+    gfx_window_title[sizeof(gfx_window_title) - 1] = '\0';
+}
+
+const char *basic_get_gfx_window_title(void)
+{
+    return gfx_window_title[0] ? gfx_window_title : NULL;
+}
 #endif
 
 /* ── Terminal-mode entry point (not used when GFX_VIDEO is defined) ── */

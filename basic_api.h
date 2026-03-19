@@ -32,6 +32,10 @@ int basic_halted(void);
 /* Set the shared video state pointer so POKE/PEEK in the interpreter
  * can reach the graphics memory.  Must be called before basic_run(). */
 void basic_set_video(GfxVideoState *vs);
+
+/* Window title for basic-gfx. NULL = use default "CBM-BASIC GFX". */
+void basic_set_gfx_window_title(const char *title);
+const char *basic_get_gfx_window_title(void);
 #endif
 
 #endif /* BASIC_API_H */
