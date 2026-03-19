@@ -20,6 +20,11 @@
 
 * ~Cursor On/Off~
 
+* **80-column option** (terminal and basic-gfx)
+  * `#OPTION columns 80` / `-columns 80`; default 40.
+  * **Terminal**: Configurable `print_width`; wrap, TAB, comma zones (10 vs 20). ~1–2 hrs.
+  * **basic-gfx**: 80×25 screen buffer (2000 bytes); configurable cols; raylib window 640×200 or scaled. ~4–8 hrs.
+
 * PETSCII symbols & graphics
   * ~Unicode stand-ins~
   * ~Bitmap rendering of 40×25 characters (raylib)~ — **basic-gfx** merged to main.
