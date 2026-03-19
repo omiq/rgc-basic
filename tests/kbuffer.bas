@@ -1,0 +1,8 @@
+WHILE K$ <> "Q"
+
+IF K$<>"" THEN PRINT K$
+GET K$
+
+WEND
+END
+
