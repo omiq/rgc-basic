@@ -2663,6 +2663,7 @@ static void statement_get(char **p)
 /* Evaluate BASIC intrinsic functions (math/string/tab). */
 static struct value eval_function(const char *name, char **p)
 {
+    (void)name;  /* caller passes it; we re-read via read_identifier for consistency */
     char tmp[8];
     struct value arg;
     char outbuf[MAX_STR_LEN];

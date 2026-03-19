@@ -20,7 +20,7 @@ GFX_BIN_SRCS = basic.c petscii.c gfx/gfx_video.c gfx/gfx_raylib.c
 
 # Reasonable defaults for modern systems; can be overridden on the command line.
 CC      ?= cc
-CFLAGS  ?= -Wall -std=c99 -O2
+CFLAGS  ?= -Wall -Wextra -std=c99 -O2
 LDFLAGS ?= -lm
 
 # Basic cross-platform tweaks for Windows vs POSIX
