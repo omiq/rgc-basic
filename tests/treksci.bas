@@ -1,13 +1,12 @@
 #OPTION PETSCII
-#OPTION charset lower
 SCREENCODES ON : BACKGROUND 0
 PRINT "{CLR}"
 PRINT "-{GREEN}{125}{WHITE}-"
 PRINT CHR$(5);CHR$(125)
 PRINT "                    ,------*-------,"
 PRINT "    ,-------------,  '---  -------'"
-PRINT "    '--------\--'      / /"
-PRINT "          ,---\-------/ /--,"
+PRINT "    '--------{109}{109}--'      / /"
+PRINT "          ,---{109}{109}-------/ /--,"
 PRINT "          '----------------'" 
 PRINT "    THE USS ENTERPRISE --- NCC-1701"
 PRINT : PRINT "           GENERATING GALAXY";
@@ -19,3 +18,15 @@ PRINT "  {171}───{123}───{123}───{123}───{123}───{
 PRINT "  {125}   {125}   {125}   {125}   {125}   {125}   {125}   {125}   {125}"
 PRINT "  {171}───{123}───{123}───{123}───{123}───{123}───{123}───{123}───{179}"
 PRINT "  {173}───{177}───{177}───{177}───{177}───{177}───{177}───{177}───{189}"
+PRINT : 
+O1$=" ┌─────┬─────┬─────┐"  
+PRINT "{13}{GREEN}";O1$
+O2$=" ├─────┼─────┼─────┤"
+O3$=" {173}─────{177}─────{177}─────{189}" 
+PRINT O2$
+PRINT O3$
+PRINT " ┌ SHOULD BE SAME AS {176}"
+PRINT
+PRINT " ┤ SHOULD BE SAME AS {179}"
+PRINT
+PRINT " ┬ SHOULD BE SAME AS {178}"
