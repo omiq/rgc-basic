@@ -78,8 +78,8 @@ if ! echo "$out" | grep -q "B"; then echo "FAIL: missing B"; echo "$out"; exit 1
 if ! echo "$out" | grep -q "DONE"; then echo "FAIL: missing DONE"; echo "$out"; exit 1; fi
 
 echo "GET test 9: via pty (simulates real terminal - catches echo/trailing bugs)"
-# Use script -q -c to run with a pseudo-TTY; some environments don't have script
-if command -v script >/dev/null 2>&1; then
+# Use script -q -c to run with a pseudo-TTY. macOS BSD script lacks -c, so skip there.
+if command -v script >/dev/null 2>&1 && script -q -c 'true' /dev/null 2>/dev/null; then
     pty_out=$(script -q -c 'printf "sls\n" | '"$BASIC"' -petscii tests/get_input_loop.bas' /dev/null 2>/dev/null)
     if ! echo "$pty_out" | grep -q "^GOT:SLS"; then
         echo "FAIL: pty test - expected GOT:SLS"
@@ -103,7 +103,7 @@ if command -v script >/dev/null 2>&1; then
         exit 1
     fi
 else
-    echo "Skipping pty test (script not available)"
+    echo "Skipping pty test (script -c not available on this platform)"
 fi
 
 echo "GET test 10: kbuffer.bas with piped input (each char on new line)"
