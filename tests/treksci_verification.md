@@ -3,7 +3,7 @@
 ## Test Setup
 - **Command**: `./basic-gfx tests/treksci.bas`
 - **Environment**: Xvfb :93 (1920x1080x24)
-- **Screenshot**: `/workspace/treksci_output.png`
+- **Screenshot**: `tests/treksci_output.png`
 
 ## Program Description
 Star Trek-themed ASCII art displaying the USS Enterprise ship outline and a grid using box-drawing characters from the PETSCII character set.

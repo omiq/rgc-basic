@@ -3,7 +3,7 @@
 ## Test Setup
 - **Command**: `./basic-gfx tests/unicode_box_test.bas`
 - **Environment**: Xvfb :92 (1920x1080x24)
-- **Screenshot**: `/workspace/unicode_box_test_output.png`
+- **Screenshot**: `tests/unicode_box_test_output.png`
 
 ## Program Description
 Tests whether Unicode box-drawing characters in the source code render identically to their PETSCII equivalents when displayed.
