@@ -398,9 +398,11 @@ static char *normalize_keywords_line(const char *input)
             }
 
             /* FOR followed immediately by identifier/digit: FORI=1TO9 -> FOR I=1TO9 */
+            /* Do not split PLATFORM, BEFORE, etc. — only when FOR is a whole word. */
             if (c1 == 'F' && c2 == 'O' && c3 == 'R') {
                 char next = input[i + 3];
-                if (next != '\0' && !isspace((unsigned char)next) && next != ':' ) {
+                int prev_ident = (i > 0 && (isalnum((unsigned char)input[i-1]) || input[i-1] == '$' || input[i-1] == '_'));
+                if (!prev_ident && next != '\0' && !isspace((unsigned char)next) && next != ':' ) {
                     if (out.len > 0) {
                         char prev = out.buf[out.len - 1];
                         if (!isspace((unsigned char)prev) && prev != ':' && prev != '(') {
@@ -1321,7 +1323,9 @@ enum func_code {
     FN_RTRIM = 36,
     FN_FIELD = 37,
     FN_INDEXOF = 38,
-    FN_LASTINDEXOF = 39
+    FN_LASTINDEXOF = 39,
+    FN_ENV = 40,
+    FN_PLATFORM = 41
 };
 
 /* Report an error and halt further execution.
@@ -1462,9 +1466,9 @@ static char *dupstr_local(const char *s)
 static const char *const reserved_words[] = {
     "AND", "ARG", "ARGC", "ASC", "BACKGROUND", "CHR", "CLOSE", "CLR", "COLOR",
     "COLOUR", "COS", "CURSOR", "DATA", "DEC", "DEF", "DIM", "DOWN", "END", "FUNCTION",
-    "ELSE", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
+    "ELSE", "ENV", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
     "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "LEFT", "LEN", "LET", "LOAD", "LOCATE", "LOG",
-    "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PRINT",
+    "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRINT",
     "XOR",
     "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCREENCODES",
     "JOIN",
@@ -2284,6 +2288,9 @@ static int function_lookup(const char *name, int len)
         return FN_NONE;
     case 'E':
         if (len == 3 && name[0] == 'E' && name[1] == 'X' && name[2] == 'P') return FN_EXP;
+        if ((len == 4 && name[0] == 'E' && name[1] == 'N' && name[2] == 'V') ||
+            (len == 5 && name[0] == 'E' && name[1] == 'N' && name[2] == 'V' && name[3] == '$'))
+            return FN_ENV;
         if ((len == 4 && name[0] == 'E' && name[1] == 'X' && name[2] == 'E' && name[3] == 'C') ||
             (len == 5 && name[0] == 'E' && name[1] == 'X' && name[2] == 'E' && name[3] == 'C' && name[4] == '$'))
             return FN_EXEC;
@@ -2332,6 +2339,9 @@ static int function_lookup(const char *name, int len)
         return FN_NONE;
     case 'P':
         if (len == 4 && name[0] == 'P' && name[1] == 'E' && name[2] == 'E' && name[3] == 'K') return FN_PEEK;
+        if ((len == 8 && name[0] == 'P' && name[1] == 'L' && name[2] == 'A' && name[3] == 'T' && name[4] == 'F' && name[5] == 'O' && name[6] == 'R' && name[7] == 'M') ||
+            (len == 9 && name[0] == 'P' && name[1] == 'L' && name[2] == 'A' && name[3] == 'T' && name[4] == 'F' && name[5] == 'O' && name[6] == 'R' && name[7] == 'M' && name[8] == '$'))
+            return FN_PLATFORM;
         return FN_NONE;
     case 'U':
         if ((len == 5 && name[0] == 'U' && name[1] == 'C' && name[2] == 'A' && name[3] == 'S' && name[4] == 'E') ||
@@ -2781,6 +2791,36 @@ static struct value eval_function(const char *name, char **p)
         /* Terminal build: no non-blocking key queue. */
         return make_str("");
     }
+    if (code == FN_PLATFORM) {
+        if (**p != ')') {
+            runtime_error("PLATFORM$ takes no arguments");
+            return make_str("");
+        }
+        (*p)++;
+        skip_spaces(p);
+        {
+            const char *plat;
+#if defined(_WIN32)
+            plat = "windows-terminal";
+#elif defined(__APPLE__)
+            plat = "mac-terminal";
+#else
+            plat = "linux-terminal";
+#endif
+#ifdef GFX_VIDEO
+            if (gfx_vs) {
+#if defined(_WIN32)
+                plat = "windows-gfx";
+#elif defined(__APPLE__)
+                plat = "mac-gfx";
+#else
+                plat = "linux-gfx";
+#endif
+            }
+#endif
+            return make_str(plat);
+        }
+    }
     if (code == FN_INDEXOF || code == FN_LASTINDEXOF) {
         /* INDEXOF(arr, value) / LASTINDEXOF(arr, value) - 1-based index, 0 if not found. */
         char namebuf[VAR_NAME_MAX];
@@ -2864,7 +2904,7 @@ static struct value eval_function(const char *name, char **p)
      */
     if (code != FN_MID && code != FN_LEFT && code != FN_RIGHT && code != FN_INSTR && code != FN_STRINGFN &&
         code != FN_REPLACE && code != FN_TRIM && code != FN_LTRIM && code != FN_RTRIM &&
-        code != FN_FIELD) {
+        code != FN_FIELD && code != FN_PLATFORM) {
         if (**p == ')') {
             (*p)++;
         } else {
@@ -3530,6 +3570,12 @@ static struct value eval_function(const char *name, char **p)
         do_exec(arg.str, outbuf, sizeof(outbuf));
         return make_str(outbuf);
     }
+    case FN_ENV: {
+        const char *val;
+        ensure_str(&arg);
+        val = getenv(arg.str);
+        return make_str(val ? val : "");
+    }
     case FN_FIELD: {
         /* FIELD$(str$, delim$, n) - get Nth field (1-based), awk-like. */
         struct value v_str = arg;
@@ -3974,6 +4020,7 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "INSTR") || starts_with_kw(*p, "DEC") || starts_with_kw(*p, "HEX") ||
             starts_with_kw(*p, "REPLACE") || starts_with_kw(*p, "TRIM") || starts_with_kw(*p, "LTRIM") || starts_with_kw(*p, "RTRIM") ||
             starts_with_kw(*p, "FIELD") || starts_with_kw(*p, "INDEXOF") || starts_with_kw(*p, "LASTINDEXOF") ||
+            starts_with_kw(*p, "ENV") || starts_with_kw(*p, "PLATFORM") ||
             starts_with_kw(*p, "ARGC") || starts_with_kw(*p, "ARG") ||
             starts_with_kw(*p, "SYSTEM") || starts_with_kw(*p, "EXEC") ||
             starts_with_kw(*p, "PEEK") || starts_with_kw(*p, "INKEY")) {

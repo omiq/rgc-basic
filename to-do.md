@@ -111,7 +111,7 @@
 | ~**5**~ | ~String utils batch 2: SORT, SPLIT, JOIN, FIELD$~ | Done. |
 | ~**6**~ | ~INDEXOF, LASTINDEXOF~ | Done. |
 | ~**7**~ | ~MEMSET, MEMCPY~ | Done. |
-| **8** | ENV$, PLATFORM$, JSON$ | ENV$ and PLATFORM$ trivial; JSON$ needs parser. PLATFORM$() returns "linux-terminal", "mac-gfx", etc. |
+| **8** | ENV$, PLATFORM$, JSON$ | ENV$ and PLATFORM$ done. JSON$ needs parser. |
 | **9** | 80-column option | Improves legibility. |
 | **10** | Bitmap/sprites | Bigger phase; depends on LOAD. |
 | **Later** | Program preprocessor, #OPTION memory, Browser/WASM | Polish; niche; different target. |
