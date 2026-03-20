@@ -91,7 +91,7 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
   - `DIM`: declare 1‑D or multi‑dimensional numeric or string arrays (e.g. `DIM A(10)`, `DIM B(2,3)`).
   - `REM` and `'`: comments to end of line.
   - `END` / `STOP`: terminate program execution.
-  - `READ` / `DATA`: load numeric and string literals from `DATA` statements into variables. `RESTORE` resets the DATA pointer so the next `READ` uses the first value again (C64-style).
+  - `READ` / `DATA`: load numeric and string literals from `DATA` statements into variables. `RESTORE` resets the DATA pointer so the next `READ` uses the first value again (C64-style). `RESTORE [line]` resets to the first DATA at or after the given line number.
   - `DEF FN`: define simple user functions, e.g. `DEF FNY(X) = SIN(X)`.
   - **User-defined FUNCTIONS** (implemented): multi-line, multi-parameter functions:
     - `FUNCTION name [(param1, param2, ...)]` … `RETURN [expr]` … `END FUNCTION`.
@@ -99,6 +99,11 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
     - `RETURN expr` returns a value; `RETURN` or `END FUNCTION` with no prior RETURN yields 0/`""` in expression context.
     - Parameters are local; recursion supported. See `docs/user-functions-plan.md` for the design.
   - `POKE`: accepted as a no‑op (for compatibility with old listings; it does not touch real memory).
+  - `SORT arr [, mode]`: in-place sort of a 1‑D array. `mode` is `1` or `"asc"` (default) for ascending, `-1` or `"desc"` for descending. Works on numeric and string arrays.
+  - `SPLIT str$, delim$ INTO arr$`: split a string by delimiter into a pre-dimmed 1‑D string array.
+  - `JOIN arr$, delim$ INTO result$ [, count]`: join array elements with a delimiter into a string. Uses the count from the last `SPLIT` if `count` is omitted.
+  - `LOAD "path" INTO addr [, length]` / `LOAD @label INTO addr [, length]`: (basic-gfx only) load raw bytes from a file or from a `DATA` block at a label into virtual memory. Terminal build reports an error.
+  - `MEMSET addr, len, val` / `MEMCPY dest, src, len`: (basic-gfx only) fill or copy bytes in virtual memory. Terminal build reports an error.
   - `CLR`: resets all variables to 0/empty, clears GOSUB/FOR stacks and DATA pointer; DEF FN definitions are kept.
   - **File I/O (CBM-style)**:
     - `OPEN lfn, device, secondary, "filename"` — open a file (device 1 = disk/file; secondary 0 = read, 1 = write, 2 = append). Filename is a path in the current directory.
@@ -116,12 +121,24 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
   - **Math**: `SIN`, `COS`, `TAN`, `ABS`, `INT`, `SQR`, `SGN`, `EXP`, `LOG`, `RND`.
   - **Strings**:
     - `LEN`, `VAL`, `STR$`, `CHR$`, `ASC`, `INSTR`.
+    - `INSTR(source$, search$ [, start])` – 1‑based index of `search$` in `source$`, or `0` if not found. Optional `start` (1‑based) begins the search from that position.
+    - `REPLACE(str$, find$, repl$)` – replace all occurrences of `find$` with `repl$`.
+    - `TRIM$(s$)`, `LTRIM$(s$)`, `RTRIM$(s$)` – strip leading, trailing, or both whitespace.
+    - `FIELD$(str$, delim$, n)` – extract the *n*th field (1‑based) from a delimited string (awk‑like).
     - `UCASE$`, `LCASE$`: convert string to upper or lower case (ASCII).
     - `MID$`, `LEFT$`, `RIGHT$` with C64‑style semantics:
       - `MID$(S$, start)` or `MID$(S$, start, len)` (1‑based `start`).
       - `LEFT$(S$, n)` – first `n` characters.
       - `RIGHT$(S$, n)` – last `n` characters.
-    - `INSTR(source$, search$)` – returns the 1‑based index of `search$` in `source$`, or `0` if not found.
+  - **Arrays**:
+    - `INDEXOF(arr, value)` / `LASTINDEXOF(arr, value)` – 1‑based index of first/last element equal to `value`, or `0` if not found. Works on numeric and string arrays.
+  - **JSON**:
+    - `JSON$(json$, path$)` – path-based extraction from a JSON string. Returns the value at `path` as a string. Path format: `"key"`, `"key[0]"`, `"key.subkey"`, etc. Use `VAL(JSON$(j$, "count"))` for numeric values.
+  - **Environment & platform**:
+    - `ENV$(name$)` – returns the value of environment variable `name$`, or `""` if not set.
+    - `PLATFORM$()` – returns `"linux-terminal"`, `"linux-gfx"`, `"windows-terminal"`, `"windows-gfx"`, `"mac-terminal"`, or `"mac-gfx"` depending on OS and build.
+  - **Runtime evaluation**:
+    - `EVAL(expr$)` – evaluates the string `expr$` as a BASIC expression and returns the result (numeric or string). Useful for interactive testing and dynamic expressions.
   - **Formatting**: `TAB` and `SPC` for horizontal positioning in `PRINT`.
   - **Numeric/string conversion**:
     - `DEC(s$)` – parse a hexadecimal string to a numeric value (e.g. `DEC("FF")` = 255, invalid strings yield 0).
@@ -221,7 +238,7 @@ viewing .seq files or pasting output into a fixed-width editor).
   - `lower`: C64 **lowercase/uppercase** character set (useful for `.seq` art that uses lowercase letters).
 - `-palette ansi|c64`: choose how PETSCII colors are mapped (only in `-petscii` mode):
   - `ansi` (default): map colors to standard 16-color ANSI SGR codes.
-- `-maxstr N`: maximum string length (1–4096); default 4096. Use `-maxstr 255` for C64 compatibility. Can also be set with `#OPTION maxstr 255`.
+- `-maxstr N`: maximum string length (1–4096); default 4096. Use `-maxstr 255` for C64 compatibility. Can also be set with `#OPTION maxstr 255`. Affects string literals, concatenation, `STRING$`, and related operations.
   - `c64` or `c64-8bit`: use 8‑bit (`38;5;N`) color indices chosen to approximate
   the classic C64 palette. This is most consistent on terminals that support 256 colors.
 
@@ -287,6 +304,8 @@ Anything after the script path is available to the program:
 - **Running shell commands**  
 `SYSTEM("command")` runs the command and returns its exit code. `EXEC$("command")` runs the command and returns its stdout as a string (e.g. `PRINT EXEC$("date")`).  
 Example: `examples/scripting.bas` demonstrates `ARGC()`, `ARG$()`, `SYSTEM()`, and `EXEC$()`.
+- **Interactive expression testing**  
+`EVAL(expr$)` evaluates a string as a BASIC expression. Use it to try functions and operators without writing a full program: e.g. `PRINT EVAL("2+3")`, `PRINT EVAL("TRIM$(\"  x  \")")`, or build expressions in variables and pass them to `EVAL`. Use `CHR$(34)` for quotes inside EVAL strings.
 
 ### Source normalization (compact CBM style)
 
@@ -373,6 +392,7 @@ The `examples` folder (included in release archives) contains:
   - With `-petscii` you get ANSI colors and cursor codes; with `-petscii-plain` you get
   strict character alignment and no escape sequences, ideal for art and fixed-width paste.
 - `examples/scripting.bas`: shell-scripting style — command-line arguments (`ARGC()`, `ARG$(0)` … `ARG$(n)`), running commands (`SYSTEM("date")`, `EXEC$("whoami")`). Run: `./basic examples/scripting.bas [name]`.
+- **String & array utilities** (in `tests/`): `field_test.bas`, `sort_test.bas`, `split_join_test.bas`, `indexof_test.bas`, `json_test.bas`, `eval_test.bas`, `env_platform_test.bas` — demos of `FIELD$`, `SORT`, `SPLIT`, `JOIN`, `INDEXOF`, `LASTINDEXOF`, `JSON$`, `EVAL`, `ENV$`, `PLATFORM$`.
 - **Tutorial (FUNCTIONS, #INCLUDE, WHILE, IF ELSE END IF)**:
   - `examples/tutorial_functions.bas` — non-interactive demo of user-defined functions, `#INCLUDE`, `WHILE` … `WEND`, and `IF` … `ELSE` … `END IF`. Run: `./basic examples/tutorial_functions.bas`.
   - `examples/tutorial_lib.bas` — library included by the tutorial (`is_prime`, `gcd`, `factorial`, `greet`).
