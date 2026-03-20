@@ -31,6 +31,10 @@ done
 
 **Shell test scripts**: `sh tests/40col_test.sh` and `sh tests/petscii_plain_output_test.sh` (requires `xxd` and `python3`).
 
+**Trek demo** (interactive, piped): `sh tests/trek_test.sh` — runs `examples/trek.bas` with `tests/trek.txt` plus `xxx` and `no` appended (resign and don't restart).
+
+**IF AND/OR THEN**: `tests/if_and_or_then_test.bas` — regression test for `IF X=13 AND Y=0 THEN` (trek.bas line 5930 pattern); ensures AND/OR in conditions are not parsed as bitwise.
+
 **GFX unit test**: `./gfx_video_test` (headless, no display needed).
 
 ### Caveats
