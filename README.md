@@ -337,6 +337,10 @@ Releases include **basic-gfx** — a full graphical version of the interpreter b
 - BASIC can poll a simple key-down map via `PEEK(56320 + code)` where 56320 is 0xDC00.
 - Supported codes include ASCII `A`–`Z`, `0`–`9`, Space (32), Enter (13), Esc (27), and C64 cursor codes Up (145), Down (17), Left (157), Right (29).
 
+**INPUT (basic-gfx)**:
+
+- `INPUT` and `INPUT "prompt"; var` read from the raylib window key queue, not the terminal. The prompt and your typing appear in the 40×25 window. Backspace works. Press Enter to submit.
+
 **INKEY$() (basic-gfx)**:
 
 - `INKEY$()` is **non-blocking**: it returns a 1-character string for the next queued keypress, or `""` if none.
