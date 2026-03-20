@@ -1242,6 +1242,8 @@ static int user_func_lookup(const char *name);
 static void collect_data_from_program(void);
 static void statement_read(char **p);
 static void statement_load(char **p);
+static void statement_memset(char **p);
+static void statement_memcpy(char **p);
 static void print_value(struct value *v);
 static void print_spaces(int count);
 static void statement_sleep(char **p);
@@ -1462,7 +1464,7 @@ static const char *const reserved_words[] = {
     "COLOUR", "COS", "CURSOR", "DATA", "DEC", "DEF", "DIM", "DOWN", "END", "FUNCTION",
     "ELSE", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
     "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "LEFT", "LEN", "LET", "LOAD", "LOCATE", "LOG",
-    "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PRINT",
+    "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PRINT",
     "XOR",
     "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCREENCODES",
     "JOIN",
@@ -4711,6 +4713,114 @@ static void statement_load(char **p)
 #endif
 }
 
+/* MEMSET addr, len, val — fill len bytes at addr with val (GFX-only). */
+static void statement_memset(char **p)
+{
+    struct value v_addr, v_len, v_val;
+    skip_spaces(p);
+    v_addr = eval_expr(p);
+    ensure_num(&v_addr);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error("MEMSET requires 3 arguments");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    v_len = eval_expr(p);
+    ensure_num(&v_len);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error("MEMSET requires 3 arguments");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    v_val = eval_expr(p);
+    ensure_num(&v_val);
+#ifdef GFX_VIDEO
+    {
+        int addr, len, i;
+        unsigned char b;
+        if (!gfx_vs) {
+            runtime_error("MEMSET requires basic-gfx (graphics build)");
+            return;
+        }
+        addr = (int)v_addr.num & 0xFFFF;
+        len = (int)v_len.num;
+        if (len < 0) len = 0;
+        b = (unsigned char)((int)v_val.num & 0xFF);
+        for (i = 0; i < len; i++) {
+            gfx_poke(gfx_vs, (uint16_t)(addr + i), (uint8_t)b);
+        }
+    }
+#else
+    (void)v_addr;
+    (void)v_len;
+    (void)v_val;
+    runtime_error("MEMSET requires basic-gfx (graphics build)");
+#endif
+}
+
+/* MEMCPY dest, src, len — copy len bytes from src to dest; overlap-safe (GFX-only). */
+static void statement_memcpy(char **p)
+{
+    struct value v_dest, v_src, v_len;
+    skip_spaces(p);
+    v_dest = eval_expr(p);
+    ensure_num(&v_dest);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error("MEMCPY requires 3 arguments");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    v_src = eval_expr(p);
+    ensure_num(&v_src);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error("MEMCPY requires 3 arguments");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    v_len = eval_expr(p);
+    ensure_num(&v_len);
+#ifdef GFX_VIDEO
+    {
+        int dest, src, len, i;
+        unsigned char buf[256];
+        if (!gfx_vs) {
+            runtime_error("MEMCPY requires basic-gfx (graphics build)");
+            return;
+        }
+        dest = (int)v_dest.num & 0xFFFF;
+        src = (int)v_src.num & 0xFFFF;
+        len = (int)v_len.num;
+        if (len < 0) len = 0;
+        /* Overlap-safe: read into buffer then write. For large len, do in chunks. */
+        for (i = 0; i < len; ) {
+            int chunk = len - i;
+            if (chunk > (int)sizeof(buf)) chunk = (int)sizeof(buf);
+            {
+                int j;
+                for (j = 0; j < chunk; j++)
+                    buf[j] = (unsigned char)gfx_peek(gfx_vs, (uint16_t)(src + i + j));
+                for (j = 0; j < chunk; j++)
+                    gfx_poke(gfx_vs, (uint16_t)(dest + i + j), (uint8_t)buf[j]);
+            }
+            i += chunk;
+        }
+    }
+#else
+    (void)v_dest;
+    (void)v_src;
+    (void)v_len;
+    runtime_error("MEMCPY requires basic-gfx (graphics build)");
+#endif
+}
+
 /* RESTORE [line]: reset DATA pointer. No arg = first DATA; line number = first DATA at or after that line (C64-style). */
 static void statement_restore(char **p)
 {
@@ -6175,6 +6285,18 @@ static void execute_statement(char **p)
         if (starts_with_kw(*p, "LOAD")) {
             *p += 4;
             statement_load(p);
+            return;
+        }
+    }
+    if (c == 'M') {
+        if (starts_with_kw(*p, "MEMSET")) {
+            *p += 6;
+            statement_memset(p);
+            return;
+        }
+        if (starts_with_kw(*p, "MEMCPY")) {
+            *p += 6;
+            statement_memcpy(p);
             return;
         }
     }

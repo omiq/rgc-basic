@@ -1,0 +1,15 @@
+1 REM Test MEMSET and MEMCPY (GFX build only)
+2 REM Terminal: expects "MEMSET/MEMCPY requires basic-gfx"
+3 REM GFX: fills memory, copies, verifies with PEEK
+10 BASE = 0
+20 MEMSET BASE, 5, 42
+30 IF PEEK(BASE) = 42 AND PEEK(BASE+1) = 42 AND PEEK(BASE+4) = 42 THEN PRINT "OK: MEMSET"
+40 DEST = 10
+50 MEMCPY DEST, BASE, 5
+60 IF PEEK(DEST) = 42 AND PEEK(DEST+4) = 42 THEN PRINT "OK: MEMCPY"
+70 REM Overlap test: copy 3 bytes from 0 to 2 (forward)
+80 MEMSET 0, 6, 0
+90 MEMSET 0, 3, 99
+100 MEMCPY 2, 0, 3
+110 IF PEEK(0) = 99 AND PEEK(2) = 99 AND PEEK(4) = 99 THEN PRINT "OK: MEMCPY overlap"
+120 PRINT "MEMSET/MEMCPY test done."
