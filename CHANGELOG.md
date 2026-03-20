@@ -4,7 +4,7 @@
 
 (Next version.)
 
-### 1.5.0 – 2026-03-18
+### 1.5.0 – 2026-03-20
 
 - **String length limit**
   - `#OPTION maxstr N` / `-maxstr N` (1–4096); default 4096. Use `maxstr 255` for C64 compatibility.
