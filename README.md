@@ -30,7 +30,7 @@ Extract the files after downloading.
 
 Each release archive includes the terminal interpreter (`basic`), the graphical interpreter (`basic-gfx`), and the `examples` folder. Run programs such as `./basic examples/trek.bas` or `./basic-gfx -petscii examples/gfx_colaburger_viewer.bas` (Windows: `basic.exe`, `basic-gfx.exe`).
 
-![gitscreenshot1.png](https://github.com/omiq/cbm-basic/blob/main/git-screenshot1.png)
+![gitscreenshot1.png](https://github.com/omiq/cbm-basic/blob/main/docs/git-screenshot1.png)
 
 
 
@@ -297,7 +297,7 @@ Program text is normalized at load time so **compact CBM BASIC** without spaces 
 
 Releases include **basic-gfx** — a full graphical version of the interpreter built with Raylib. It provides a 40×25 PETSCII windowed display with `POKE`/`PEEK` screen memory, `INKEY$`, `TI`/`TI$`, `.seq` art viewers, and full PETSCII symbols:
 
-![Cola Burger](https://github.com/omiq/cbm-basic/blob/main/git-screenshot2.png)
+![Cola Burger](https://github.com/omiq/cbm-basic/blob/main/docs/git-screenshot2.png)
 
 
 
