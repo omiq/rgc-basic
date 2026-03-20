@@ -632,7 +632,7 @@ static char include_path_store[MAX_INCLUDE_DEPTH][MAX_INCLUDE_PATH];
 #define VAR_NAME_MAX 32
 #define MAX_GOSUB 64
 #define MAX_FOR 32
-#define MAX_STR_LEN 256
+#define MAX_STR_LEN 4096  /* default max; #OPTION maxstr N can reduce for C64 compatibility */
 #define DEFAULT_ARRAY_SIZE 11
 #define PRINT_WIDTH 40
 #ifndef TICKS_PER_SEC_FALLBACK
@@ -1048,6 +1048,8 @@ enum {
 static int palette_mode = PALETTE_ANSI;
 static int cursor_hidden = 0;
 static int petscii_lowercase_opt = 0;
+/* Max string length (1..MAX_STR_LEN); default 4096; #OPTION maxstr 255 for C64 compatibility. */
+static int max_str_limit = 4096;
 
 /* Case-insensitive string compare. */
 static int str_eq_ci(const char *a, const char *b)
@@ -1102,6 +1104,72 @@ static int apply_option_directive(const char *name, const char *value)
         }
         return -1;
     }
+    if (str_eq_ci(name, "maxstr")) {
+        int n;
+        char *end;
+        if (!value || !value[0]) return -1;
+        n = (int)strtol(value, &end, 10);
+        if (end == value || *end != '\0' || n < 1 || n > MAX_STR_LEN) return -1;
+        max_str_limit = n;
+        return 0;
+    }
+#ifdef GFX_VIDEO
+    if (str_eq_ci(name, "gfx_title") || str_eq_ci(name, "gfx-title")) {
+        if (!value) return -1;
+        /* Strip surrounding quotes if present */
+        while (*value == '"' || *value == '\'') value++;
+        {
+            size_t len = strlen(value);
+            while (len > 0 && (value[len - 1] == '"' || value[len - 1] == '\'')) len--;
+            if (len > 127) len = 127;
+            {
+                char buf[128];
+                memcpy(buf, value, len);
+                buf[len] = '\0';
+                basic_set_gfx_window_title(buf);
+            }
+        }
+        return 0;
+    }
+    if (str_eq_ci(name, "border")) {
+        int n, cidx = -1;
+        char *end, buf[64];
+        if (!value || !value[0]) return -1;
+        n = (int)strtol(value, &end, 10);
+        if (n < 0 || n > 256) return -1;
+        basic_set_gfx_border(n);
+        while (*end == ' ' || *end == '\t' || *end == ',') end++;
+        if (*end) {
+            size_t j = 0;
+            while (*end && j < sizeof(buf) - 1) buf[j++] = (char)*end++;
+            buf[j] = '\0';
+            if (buf[0] >= '0' && buf[0] <= '9') {
+                char *e2;
+                cidx = (int)strtol(buf, &e2, 10);
+                if (cidx < 0 || cidx > 15) cidx = -1;
+            } else {
+                static const struct { const char *name; int idx; } bc[] = {
+                    {"black", 0}, {"white", 1}, {"red", 2}, {"cyan", 3},
+                    {"purple", 4}, {"green", 5}, {"blue", 6}, {"yellow", 7},
+                    {"orange", 8}, {"brown", 9}, {"pink", 10}, {"light red", 10},
+                    {"dark gray", 11}, {"grey1", 11}, {"gray1", 11},
+                    {"medium gray", 12}, {"grey2", 12}, {"gray2", 12},
+                    {"light green", 13}, {"light blue", 14},
+                    {"light gray", 15}, {"grey3", 15}, {"gray3", 15},
+                    {NULL, -1}
+                };
+                int k;
+                for (k = 0; bc[k].name; k++) {
+                    if (str_eq_ci(buf, bc[k].name)) { cidx = bc[k].idx; break; }
+                }
+            }
+            basic_set_gfx_border_color(cidx);
+        } else {
+            basic_set_gfx_border_color(-1);
+        }
+        return 0;
+    }
+#endif
     return -1;
 }
 
@@ -1235,7 +1303,11 @@ enum func_code {
     FN_HEX = 29,
     FN_STRINGFN = 30,
     FN_PEEK = 31,
-    FN_INKEY = 32
+    FN_INKEY = 32,
+    FN_REPLACE = 33,
+    FN_TRIM = 34,
+    FN_LTRIM = 35,
+    FN_RTRIM = 36
 };
 
 /* Report an error and halt further execution.
@@ -1378,10 +1450,11 @@ static const char *const reserved_words[] = {
     "COLOUR", "COS", "CURSOR", "DATA", "DEC", "DEF", "DIM", "DOWN", "END", "FUNCTION",
     "ELSE", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
     "INKEY", "INPUT", "INSTR", "INT", "LEFT", "LEN", "LET", "LOCATE", "LOG",
-    "LCASE", "MID", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PRINT",
-    "READ", "REM", "RESTORE", "RETURN", "RIGHT", "RND", "RVS", "SCREENCODES",
+    "LCASE", "LTRIM", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PRINT",
+    "XOR",
+    "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCREENCODES",
     "SGN", "SIN", "SLEEP", "SPC", "SQR", "STEP", "STOP", "STR", "STRING",
-    "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "UCASE",     "VAL", "WEND", "WHILE",
+    "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "TRIM", "UCASE", "VAL", "WEND", "WHILE",
     "DO", "LOOP", "UNTIL", "EXIT",
     NULL
 };
@@ -1433,10 +1506,17 @@ static struct value make_num(double v)
 static struct value make_str(const char *s)
 {
     struct value out;
+    size_t lim;
     out.type = VAL_STR;
     out.num = 0.0;
-    strncpy(out.str, s, MAX_STR_LEN - 1);
-    out.str[MAX_STR_LEN - 1] = '\0';
+    lim = (size_t)max_str_limit;
+    if (lim > MAX_STR_LEN - 1) lim = MAX_STR_LEN - 1;
+    {
+        size_t len = strlen(s);
+        if (len > lim) len = lim;
+        memcpy(out.str, s, len);
+        out.str[len] = '\0';
+    }
     return out;
 }
 
@@ -2163,6 +2243,9 @@ static int function_lookup(const char *name, int len)
     case 'T':
         if (len == 3 && name[0] == 'T' && name[1] == 'A' && name[2] == 'N') return FN_TAN;
         if (len == 3 && name[0] == 'T' && name[1] == 'A' && name[2] == 'B') return FN_TAB;
+        if ((len == 4 && name[0] == 'T' && name[1] == 'R' && name[2] == 'I' && name[3] == 'M') ||
+            (len == 5 && name[0] == 'T' && name[1] == 'R' && name[2] == 'I' && name[3] == 'M' && name[4] == '$'))
+            return FN_TRIM;
         return FN_NONE;
     case 'A':
         if (len == 3 && name[0] == 'A' && name[1] == 'B' && name[2] == 'S') return FN_ABS;
@@ -2192,6 +2275,9 @@ static int function_lookup(const char *name, int len)
         if ((len == 5 && name[0] == 'L' && name[1] == 'C' && name[2] == 'A' && name[3] == 'S' && name[4] == 'E') ||
             (len == 6 && name[0] == 'L' && name[1] == 'C' && name[2] == 'A' && name[3] == 'S' && name[4] == 'E' && name[5] == '$'))
             return FN_LCASE;
+        if ((len == 5 && name[0] == 'L' && name[1] == 'T' && name[2] == 'R' && name[3] == 'I' && name[4] == 'M') ||
+            (len == 6 && name[0] == 'L' && name[1] == 'T' && name[2] == 'R' && name[3] == 'I' && name[4] == 'M' && name[5] == '$'))
+            return FN_LTRIM;
         return FN_NONE;
     case 'M':
         if ((len == 3 && name[0] == 'M' && name[1] == 'I' && name[2] == 'D') ||
@@ -2203,6 +2289,12 @@ static int function_lookup(const char *name, int len)
         if ((len == 5 && name[0] == 'R' && name[1] == 'I' && name[2] == 'G' && name[3] == 'H' && name[4] == 'T') ||
             (len == 6 && name[0] == 'R' && name[1] == 'I' && name[2] == 'G' && name[3] == 'H' && name[4] == 'T' && name[5] == '$'))
             return FN_RIGHT;
+        if ((len == 7 && name[0] == 'R' && name[1] == 'E' && name[2] == 'P' && name[3] == 'L' && name[4] == 'A' && name[5] == 'C' && name[6] == 'E') ||
+            (len == 8 && name[0] == 'R' && name[1] == 'E' && name[2] == 'P' && name[3] == 'L' && name[4] == 'A' && name[5] == 'C' && name[6] == 'E' && name[7] == '$'))
+            return FN_REPLACE;
+        if ((len == 5 && name[0] == 'R' && name[1] == 'T' && name[2] == 'R' && name[3] == 'I' && name[4] == 'M') ||
+            (len == 6 && name[0] == 'R' && name[1] == 'T' && name[2] == 'R' && name[3] == 'I' && name[4] == 'M' && name[5] == '$'))
+            return FN_RTRIM;
         return FN_NONE;
     case 'V':
         if (len == 3 && name[0] == 'V' && name[1] == 'A' && name[2] == 'L') return FN_VAL;
@@ -2669,7 +2761,8 @@ static struct value eval_function(const char *name, char **p)
      * the closing ')'. For all other intrinsics we expect exactly one
      * argument and consume ')' here so the caller resumes after it.
      */
-    if (code != FN_MID && code != FN_LEFT && code != FN_RIGHT && code != FN_INSTR && code != FN_STRINGFN) {
+    if (code != FN_MID && code != FN_LEFT && code != FN_RIGHT && code != FN_INSTR && code != FN_STRINGFN &&
+        code != FN_REPLACE && code != FN_TRIM && code != FN_LTRIM && code != FN_RTRIM) {
         if (**p == ')') {
             (*p)++;
         } else {
@@ -3078,17 +3171,18 @@ static struct value eval_function(const char *name, char **p)
         }
     }
     case FN_INSTR: {
-        /* INSTR(source$, search$) -> 1-based index or 0 if not found. */
+        /* INSTR(source$, search$ [, start]) -> 1-based index or 0 if not found. */
         struct value v_source = arg;
         struct value v_search;
         int s_len;
         int sub_len;
+        int start_pos = 0;  /* 0-based; default 0 = search from beginning */
         int i;
 
         ensure_str(&v_source);
         skip_spaces(p);
         if (**p != ',') {
-            runtime_error("INSTR requires 2 arguments");
+            runtime_error("INSTR requires at least 2 arguments");
             return make_num(0.0);
         }
         (*p)++;
@@ -3096,6 +3190,16 @@ static struct value eval_function(const char *name, char **p)
         v_search = eval_expr(p);
         ensure_str(&v_search);
         skip_spaces(p);
+        if (**p == ',') {
+            struct value v_start;
+            (*p)++;
+            skip_spaces(p);
+            v_start = eval_expr(p);
+            ensure_num(&v_start);
+            start_pos = (int)v_start.num - 1;  /* convert 1-based to 0-based */
+            if (start_pos < 0) start_pos = 0;
+            skip_spaces(p);
+        }
         if (**p == ')') {
             (*p)++;
         } else {
@@ -3105,15 +3209,100 @@ static struct value eval_function(const char *name, char **p)
 
         s_len = (int)strlen(v_source.str);
         sub_len = (int)strlen(v_search.str);
-        if (sub_len == 0 || s_len == 0) {
+        if (sub_len == 0 || s_len == 0 || start_pos >= s_len) {
             return make_num(0.0);
         }
-        for (i = 0; i <= s_len - sub_len; i++) {
+        if (start_pos + sub_len > s_len) {
+            return make_num(0.0);
+        }
+        for (i = start_pos; i <= s_len - sub_len; i++) {
             if (strncmp(v_source.str + i, v_search.str, (size_t)sub_len) == 0) {
                 return make_num((double)(i + 1));
             }
         }
         return make_num(0.0);
+    }
+    case FN_REPLACE: {
+        /* REPLACE(str$, find$, repl$) - replace all occurrences. */
+        struct value v_str = arg;
+        struct value v_find;
+        struct value v_repl;
+        char out[MAX_STR_LEN];
+        int pos, len, flen, rlen;
+        size_t out_len;
+
+        ensure_str(&v_str);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error("REPLACE requires 3 arguments");
+            return make_str("");
+        }
+        (*p)++;
+        skip_spaces(p);
+        v_find = eval_expr(p);
+        ensure_str(&v_find);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error("REPLACE requires 3 arguments");
+            return make_str("");
+        }
+        (*p)++;
+        skip_spaces(p);
+        v_repl = eval_expr(p);
+        ensure_str(&v_repl);
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error("Missing ')'");
+            return make_str("");
+        }
+        (*p)++;
+
+        len = (int)strlen(v_str.str);
+        flen = (int)strlen(v_find.str);
+        rlen = (int)strlen(v_repl.str);
+        if (flen == 0) return make_str(v_str.str);
+        out_len = 0;
+        pos = 0;
+        while (pos <= len - flen && out_len < (size_t)(max_str_limit - 1)) {
+            if (strncmp(v_str.str + pos, v_find.str, (size_t)flen) == 0) {
+                for (int j = 0; j < rlen && out_len < (size_t)(max_str_limit - 1); j++)
+                    out[out_len++] = v_repl.str[j];
+                pos += flen;
+            } else {
+                out[out_len++] = v_str.str[pos++];
+            }
+        }
+        while (pos < len && out_len < (size_t)(max_str_limit - 1))
+            out[out_len++] = v_str.str[pos++];
+        out[out_len] = '\0';
+        return make_str(out);
+    }
+    case FN_TRIM:
+    case FN_LTRIM:
+    case FN_RTRIM: {
+        /* TRIM$(s$), LTRIM$(s$), RTRIM$(s$) - remove leading/trailing whitespace. */
+        const char *s;
+        const char *start, *end;
+        size_t n;
+
+        ensure_str(&arg);
+        s = arg.str;
+        start = s;
+        end = s + strlen(s);
+        if (code != FN_RTRIM) {
+            while (start < end && isspace((unsigned char)*start)) start++;
+        }
+        if (code != FN_LTRIM) {
+            while (end > start && isspace((unsigned char)end[-1])) end--;
+        }
+        n = (size_t)(end - start);
+        if (n > (size_t)(max_str_limit - 1)) n = (size_t)(max_str_limit - 1);
+        memcpy(outbuf, start, n);
+        outbuf[n] = '\0';
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        return make_str(outbuf);
     }
     case FN_DEC: {
         /* DEC(s$): parse hexadecimal string into numeric value. */
@@ -3164,9 +3353,8 @@ static struct value eval_function(const char *name, char **p)
         if (count <= 0) {
             return make_str("");
         }
-        if (count >= MAX_STR_LEN) {
-            count = MAX_STR_LEN - 1;
-        }
+        if (count > max_str_limit) count = max_str_limit;
+        if (count >= MAX_STR_LEN) count = MAX_STR_LEN - 1;
 
         if (v_ch.type == VAL_STR) {
             if (v_ch.str[0] == '\0') {
@@ -3553,7 +3741,7 @@ static struct value eval_factor(char **p)
         int i;
         (*p)++;
         i = 0;
-        while (**p && **p != '\"' && i < MAX_STR_LEN - 1) {
+        while (**p && **p != '\"' && i < MAX_LINE_LEN - 1) {
             buf[i++] = **p;
             (*p)++;
         }
@@ -3621,10 +3809,11 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "LEFT") || starts_with_kw(*p, "RIGHT") || starts_with_kw(*p, "STRING") ||
             starts_with_kw(*p, "UCASE") || starts_with_kw(*p, "LCASE") ||
             starts_with_kw(*p, "INSTR") || starts_with_kw(*p, "DEC") || starts_with_kw(*p, "HEX") ||
+            starts_with_kw(*p, "REPLACE") || starts_with_kw(*p, "TRIM") || starts_with_kw(*p, "LTRIM") || starts_with_kw(*p, "RTRIM") ||
             starts_with_kw(*p, "ARGC") || starts_with_kw(*p, "ARG") ||
             starts_with_kw(*p, "SYSTEM") || starts_with_kw(*p, "EXEC") ||
             starts_with_kw(*p, "PEEK") || starts_with_kw(*p, "INKEY")) {
-            char namebuf[8];
+            char namebuf[32];
             char *q;
             q = *p;
             read_identifier(&q, namebuf, sizeof(namebuf));
@@ -3786,9 +3975,14 @@ static struct value eval_expr(char **p)
             right = eval_term(p);
             if (op == '+') {
                 if (left.type == VAL_STR || right.type == VAL_STR) {
+                    size_t cur, avail;
                     ensure_str(&left);
                     ensure_str(&right);
-                    strncat(left.str, right.str, MAX_STR_LEN - strlen(left.str) - 1);
+                    cur = strlen(left.str);
+                    avail = (size_t)max_str_limit - cur;
+                    if (avail > MAX_STR_LEN - 1 - cur) avail = MAX_STR_LEN - 1 - cur;
+                    if (avail > 0) strncat(left.str, right.str, avail);
+                    left.str[max_str_limit] = '\0';
                 } else {
                     left.num += right.num;
                 }
@@ -6056,6 +6250,39 @@ int basic_parse_args(int argc, char **argv)
                 fprintf(stderr, "Unknown palette '%s' (expected ansi or c64)\n", name);
                 return -1;
             }
+        } else if (strcmp(argv[i], "-maxstr") == 0 || strcmp(argv[i], "--maxstr") == 0) {
+            int n;
+            char *end;
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Missing value for -maxstr\n");
+                return -1;
+            }
+            n = (int)strtol(argv[++i], &end, 10);
+            if (end == argv[i] || *end != '\0' || n < 1 || n > MAX_STR_LEN) {
+                fprintf(stderr, "Invalid -maxstr value (expected 1..%d)\n", MAX_STR_LEN);
+                return -1;
+            }
+            max_str_limit = n;
+#ifdef GFX_VIDEO
+        } else if (strcmp(argv[i], "-gfx-title") == 0 || strcmp(argv[i], "--gfx-title") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Missing value for -gfx-title\n");
+                return -1;
+            }
+            basic_set_gfx_window_title(argv[++i]);
+        } else if (strcmp(argv[i], "-gfx-border") == 0 || strcmp(argv[i], "--gfx-border") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Missing value for -gfx-border\n");
+                return -1;
+            }
+            {
+                const char *val = argv[++i];
+                if (apply_option_directive("border", val) != 0) {
+                    fprintf(stderr, "Invalid -gfx-border value (e.g. 24 or 24 cyan)\n");
+                    return -1;
+                }
+            }
+#endif
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             return -1;
@@ -6091,7 +6318,7 @@ int main(int argc, char **argv)
     init_console_ansi();
 
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] <program.bas>\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] [-maxstr N] <program.bas>\n", argv[0]);
         return 1;
     }
 
@@ -6139,9 +6366,22 @@ int main(int argc, char **argv)
                 fprintf(stderr, "Unknown palette '%s' (expected ansi or c64)\n", name);
                 return 1;
             }
+        } else if (strcmp(argv[i], "-maxstr") == 0 || strcmp(argv[i], "--maxstr") == 0) {
+            int n;
+            char *end;
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Missing value for -maxstr\n");
+                return 1;
+            }
+            n = (int)strtol(argv[++i], &end, 10);
+            if (end == argv[i] || *end != '\0' || n < 1 || n > MAX_STR_LEN) {
+                fprintf(stderr, "Invalid -maxstr value (expected 1..%d)\n", MAX_STR_LEN);
+                return 1;
+            }
+            max_str_limit = n;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] <program.bas>\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] [-maxstr N] <program.bas>\n", argv[0]);
             return 1;
         } else {
             prog_path = argv[i];
@@ -6150,7 +6390,7 @@ int main(int argc, char **argv)
     }
 
     if (!prog_path) {
-        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] <program.bas>\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] [-maxstr N] <program.bas>\n", argv[0]);
         return 1;
     }
 
