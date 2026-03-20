@@ -1,6 +1,15 @@
 # Features to add/to-do
 
+## Phase status: "Bash replacement" + "Full PETSCII" — mostly complete ✓
+
+**Bash replacement:** ARGC/ARG$, stdin/stdout, pipes, SYSTEM, EXEC$ — done.  
+**PETSCII experience:** basic-gfx (40×25 window, POKE/PEEK, INKEY$, TI, .seq), {TOKENS}, Unicode→PETSCII, COLORS/BACKGROUND, GET fix, {RESET}/{DEFAULT} — done.
+
+---
+
 * ~INSTR~
+
+* ~**String length limit**~ — Implemented: default 4096; `#OPTION maxstr 255` or `-maxstr 255` for C64 compatibility.
 
 * Flexible DATA read
   * RESTORE [line number]
@@ -19,6 +28,25 @@
   * ~colour/color for text colour~
 
 * ~Cursor On/Off~
+
+* **#OPTION memory addresses** (basic-gfx)
+  * Configurable base addresses for screen, colour, charset so POKE/PEEK match different machines.
+  * E.g. `#OPTION screen 32768` (PET: $8000) vs default 1024 (C64: $0400). PET programs can be pasted and run with screen address changed.
+  * Presets: `#OPTION memory c64` (default) / `#OPTION memory pet`.
+
+* **MEMSET, MEMCPY** (basic-gfx; see `docs/memory-commands-plan.md`)
+  * XC=BASIC-style: `MEMSET addr, len, val`; `MEMCPY dest, src, len`. Operate via gfx_peek/gfx_poke on virtual address space.
+  * **MEMSHIFT not needed**: Implement MEMCPY with overlap handling (like memmove); covers both directions.
+
+* **LOAD INTO memory** (basic-gfx; see `docs/load-into-memory-plan.md`)
+  * `LOAD "path" INTO addr [, length]` — load raw binary from file into memory (chars, screen, bitmap). Works for any data.
+  * `LOAD @label INTO addr [, length]` — load from DATA block at label (data stays in program listing).
+  * Optional: `CHAR_BASE` constant, `CHARSET addr` for multi-charset switching.
+
+* **80-column option** (terminal and basic-gfx)
+  * `#OPTION columns 80` / `-columns 80`; default 40.
+  * **Terminal**: Configurable `print_width`; wrap, TAB, comma zones (10 vs 20). ~1–2 hrs.
+  * **basic-gfx**: 80×25 screen buffer (2000 bytes); configurable cols; raylib window 640×200 or scaled. ~4–8 hrs.
 
 * PETSCII symbols & graphics
   * ~Unicode stand-ins~
@@ -56,6 +84,37 @@
   * Labels may match keywords (e.g. `CLR:` in trek.bas); context distinguishes.
   * ~Underscores in identifiers~ — `is_prime`, `my_var` etc. now allowed.
   * Improve error messages where possible
+
+* **String & array utilities** (see `docs/string-array-utils-plan.md`) — SPLIT, REPLACE, INSTR start, INDEXOF, SORT, TRIM$, JOIN, FIELD$, ENV$, JSON$. Key-value emulation via SPLIT+FIELD$; no dedicated DICT type for now.
+  * **SPLIT** — `arr$ = SPLIT(csv$, ",")` — split string by delimiter into array.
+  * **REPLACE** — `result$ = REPLACE(original$, "yes", "no")`.
+  * **INSTR start** — `INSTR(str$, find$, start)` — optional start position for find-next loops.
+  * **INDEXOF / LASTINDEXOF** — `INDEXOF(arr, value)` — 1-based index in array, 0 if not found.
+  * **SORT** — `SORT arr [, mode]` — in-place sort; asc/desc, alpha/numeric.
+  * **TRIM$** — strip leading/trailing whitespace (CSV, input).
+  * **JOIN** — inverse of SPLIT: `JOIN(arr$, ",")`.
+  * **FIELD$** — `FIELD$(str$, delim$, n)` — get Nth field (awk-like).
+  * **ENV$** — `ENV$(name$)` — environment variable.
+  * **PLATFORM$** — `PLATFORM$()` — returns `"linux-terminal"`, `"linux-gfx"`, `"windows-terminal"`, `"windows-gfx"`, `"mac-terminal"`, `"mac-gfx"`. Enables conditional code for paths/behavior.
+  * **JSON$** — `JSON$(json$, path$)` — path-based extraction from JSON string (no new types); e.g. `JSON$(j$, "users[0].name")`.
+
+---
+
+## Suggested priorities & sequence (post bash/PETSCII)
+
+| Order | Item | Rationale |
+|-------|------|------------|
+| **1** | String length limit | Foundation; SPLIT, JSON, file I/O need larger strings. Small change. |
+| **2** | String utils batch 1: INSTR start, REPLACE, TRIM$ | Quick wins; no new types; high impact for CSV/shell. |
+| **3** | RESTORE [line] | Tiny; useful for DATA-heavy programs. |
+| **4** | LOAD INTO memory | GFX; unblocks charsets/sprites. Can parallel with string work. |
+| **5** | String utils batch 2: SORT, SPLIT, JOIN, FIELD$ | SORT first (simpler); SPLIT needs array semantics. |
+| **6** | INDEXOF, LASTINDEXOF | After SPLIT; array search. |
+| **7** | MEMSET, MEMCPY | GFX; complements LOAD. |
+| **8** | ENV$, PLATFORM$, JSON$ | ENV$ and PLATFORM$ trivial; JSON$ needs parser. PLATFORM$() returns "linux-terminal", "mac-gfx", etc. |
+| **9** | 80-column option | Improves legibility. |
+| **10** | Bitmap/sprites | Bigger phase; depends on LOAD. |
+| **Later** | Program preprocessor, #OPTION memory, Browser/WASM | Polish; niche; different target. |
 
 ---
 
