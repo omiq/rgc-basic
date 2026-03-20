@@ -1,9 +1,9 @@
 print "press a key"
 
 
-LOOP:
+LP:
 get i$
-if i$ = "" then goto LOOP
+if i$ = "" then goto LP
 print "you pressed: " + i$
 
 
