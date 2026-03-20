@@ -24,7 +24,7 @@ for t in tests/*.bas; do
   case "$(basename "$t")" in
     codes-replaced.bas|locate.bas|get_input_loop.bas|get_while_test.bas|kbuffer.bas|border_option_test.bas|gfx_title_test.bas) continue ;;
     meta_include_dup_line.bas|meta_include_dup_label.bas|meta_include_circular_a.bas|meta_include_circular_b.bas) continue ;;
-    load_into_test.bas) continue ;;  # GFX-only
+    load_into_test.bas|memset_memcpy_test.bas) continue ;;  # GFX-only
   esac
   ./basic -petscii "$t" >/dev/null
 done
