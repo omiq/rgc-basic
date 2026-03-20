@@ -444,6 +444,7 @@ You can either use the provided `Makefile` (recommended) or compile manually.
       - Build/install: `git clone https://github.com/raysan5/raylib.git && cd raylib && cmake -B build -DBUILD_SHARED_LIBS=ON && cmake --build build --config Release && sudo cmake --install build`
       - If you installed to `/usr/local/lib`, you may need: `echo '/usr/local/lib' | sudo tee /etc/ld.so.conf.d/raylib.conf && sudo ldconfig`
   - **macOS** (Homebrew): `brew install raylib`
+  - **Windows (MinGW)**: `basic-gfx` is built with static winpthread so it does not require `libwinpthread-1.dll`. If you have an older build that reports "libwinpthread-1.dll was not found", either rebuild with `make basic-gfx` or copy `libwinpthread-1.dll` from your MinGW `bin` folder (e.g. `C:\msys64\mingw64\bin\`) into the same directory as `basic-gfx.exe`.
 
 #### Using `make` (recommended)
 

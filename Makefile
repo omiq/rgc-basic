@@ -27,8 +27,8 @@ LDFLAGS ?= -lm
 ifeq ($(OS),Windows_NT)
   EXE := .exe
   RM  := del /F /Q
-  # MinGW does not provide libdl; pthreads come from winpthreads.
-  RAYLIB_LDFLAGS = $(shell pkg-config --libs raylib 2>/dev/null) -lwinpthread
+  # MinGW: use static winpthread so basic-gfx.exe does not require libwinpthread-1.dll.
+  RAYLIB_LDFLAGS = $(shell pkg-config --libs raylib 2>/dev/null) -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic
 else
   EXE :=
   RM  := rm -f
