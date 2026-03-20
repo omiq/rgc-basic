@@ -100,7 +100,7 @@ jobs:
           set -e
           for t in tests/*.bas; do
             case "$(basename "$t")" in
-              codes-replaced.bas|locate.bas|border_option_test.bas|c64_control_codes_demo.bas|gfx_title_test.bas)
+              codes-replaced.bas|locate.bas|border_option_test.bas|gfx_title_test.bas)
                 echo "Skipping interactive/GFX-only test $t"
                 continue
                 ;;
@@ -142,7 +142,7 @@ jobs:
           set -e
           for t in tests/*.bas; do
             case "$(basename "$t")" in
-              codes-replaced.bas|locate.bas|border_option_test.bas|c64_control_codes_demo.bas|gfx_title_test.bas)
+              codes-replaced.bas|locate.bas|border_option_test.bas|gfx_title_test.bas)
                 echo "Skipping interactive/GFX-only test $t"
                 continue
                 ;;
