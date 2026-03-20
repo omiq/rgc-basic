@@ -144,6 +144,7 @@ The tokenizer accepts the following brace substitutions (case-insensitive), incl
 - Cursor: `{up}`, `{down}`, `{left}`, `{right}`, and `{cursor up/down/left/right}` or `{crsr up/down/left/right}`
 - Function keys: `{f1}` … `{f8}`
 - Symbol: `{pi}`
+- **ANSI reset** (terminal only): `{reset}` / `{default}` — outputs ANSI `ESC [ 0 m` to reset terminal colors/attributes to default. Use when you cannot query current settings.
 
 Notes:
 - Numeric forms inside braces are also supported, e.g. `{147}`, `{$93}`, `{0x93}`, `{%10010011}`.

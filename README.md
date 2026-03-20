@@ -149,6 +149,7 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
   - Screen: `{HOME}`, `{CLR}`, `{DEL}`, `{INS}`, `{CURSOR UP}`, `{CRSR RIGHT}`, etc.
   - Reverse: `{RVS}`, `{RVS ON}`, `{RVS OFF}`, `{REVERSE OFF}`.
   - Function keys: `{F1}` … `{F8}`. Symbol: `{PI}`.
+  - **ANSI reset** (terminal): `{RESET}` / `{DEFAULT}` — `ESC [ 0 m` to reset to default colors.
   - This lets you write readable code such as:
 
 ```basic
@@ -358,6 +359,7 @@ The `examples` folder (included in release archives) contains:
 - `examples/fileio_basics.bas`: write and read a file (OPEN, PRINT#, INPUT#, CLOSE) with step-by-step comments.
 - `examples/fileio_loop.bas`: read until end of file using the ST status variable (ST=0/64/1).
 - `examples/fileio_get.bas`: read one character at a time with GET#.
+- `examples/c64_control_codes_demo.bas`: expanded demo of `{TOKEN}` brace substitutions (colors, screen controls, reverse video, `{RESET}`). Run: `./basic -petscii examples/c64_control_codes_demo.bas`.
 - `examples/colaburger_viewer.bas`, `examples/gfx_colaburger_viewer.bas`, and `examples/colaburger.seq`: PETSCII .seq file viewer.
   - **.seq files** are sequential dumps of PETSCII screen codes (e.g. from BBS logs or PETSCII art).
   - The terminal viewer reads the file byte-by-byte with `GET#`, prints each byte via `CHR$`, and wraps after
