@@ -445,6 +445,7 @@ You can either use the provided `Makefile` (recommended) or compile manually.
       - If you installed to `/usr/local/lib`, you may need: `echo '/usr/local/lib' | sudo tee /etc/ld.so.conf.d/raylib.conf && sudo ldconfig`
   - **macOS** (Homebrew): `brew install raylib`
   - **Windows (MinGW)**: `basic-gfx` is built with static winpthread so it does not require `libwinpthread-1.dll`. The nightly and release builds bundle `libraylib.dll` and `glfw3.dll` with `basic-gfx.exe`. If you build locally, copy both DLLs from your MinGW `bin` folder (e.g. `C:\msys64\mingw64\bin\`) into the same directory as `basic-gfx.exe`.
+  - **Linux (downloads)**: Pre-built `basic-gfx` needs `libraylib.so` matching the build (e.g. `libraylib.so.600`). If you see "cannot open shared object file", install raylib from your distro (`libraylib-dev` or equivalent) or build from source with `make basic-gfx`.
 
 #### Using `make` (recommended)
 
