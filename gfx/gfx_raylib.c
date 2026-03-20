@@ -793,26 +793,28 @@ int main(int argc, char **argv)
          * special keys as single-byte codes. */
         {
             int ch;
+            int got_any = 0;
             int got_printable = 0;
             while ((ch = GetCharPressed()) > 0) {
                 if (ch >= 1 && ch <= 255) {
                     if (ch >= 'a' && ch <= 'z') ch = (ch - 'a') + 'A';
                     keyq_push(&vs, (uint8_t)ch);
+                    got_any = 1;
                     if (ch >= ' ' && ch <= '~') got_printable = 1;
                 }
             }
+            /* Skip IsKeyPressed when GetCharPressed already delivered—avoids
+             * duplicate keys (both can report the same press on e.g. Enter). */
+            if (!got_any) {
             if (IsKeyPressed(KEY_ENTER))     keyq_push(&vs, 13);
             if (IsKeyPressed(KEY_BACKSPACE)) keyq_push(&vs, 20);  /* DEL */
             if (IsKeyPressed(KEY_ESCAPE))    keyq_push(&vs, 27);
             if (IsKeyPressed(KEY_UP))        keyq_push(&vs, 145);
             if (IsKeyPressed(KEY_DOWN))      keyq_push(&vs, 17);
             if (IsKeyPressed(KEY_LEFT))      keyq_push(&vs, 157);
-            if (IsKeyPressed(KEY_RIGHT))    keyq_push(&vs, 29);
-
-            /* Some environments (e.g., WSLg) may not deliver printable
-             * characters via GetCharPressed(). Use IsKeyPressed as fallback
-             * ONLY when GetCharPressed delivered nothing—otherwise we get
-             * duplicate keys (e.g. X showing as XX). */
+            if (IsKeyPressed(KEY_RIGHT))     keyq_push(&vs, 29);
+            }
+            /* WSLg may not deliver printable chars via GetCharPressed. */
             if (!got_printable) {
             if (IsKeyPressed(KEY_A)) keyq_push(&vs, 'A');
             if (IsKeyPressed(KEY_B)) keyq_push(&vs, 'B');
