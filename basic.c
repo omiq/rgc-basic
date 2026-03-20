@@ -2924,6 +2924,7 @@ static struct value eval_function(const char *name, char **p)
                 /* -petscii-plain: no ANSI; control/color output nothing (invisible, like C64 - no visible space). */
                 if (petscii_plain) {
                     if (code == 13) return make_str("\n");
+                    if (code == 27) return make_str("\033");  /* ESC for {RESET}/{DEFAULT} */
                     if (code <= 31 && code != 10) return make_str("");
                     if (code >= 128 && code <= 159) return make_str("");
                     if (code == 127) return make_str("");
@@ -3018,6 +3019,8 @@ static struct value eval_function(const char *name, char **p)
                     return make_str("\033[7m");
                 case 146: /* reverse off */
                     return make_str("\033[27m");
+                case 27:  /* ESC — needed for ANSI sequences like {RESET}/{DEFAULT} -> ESC[0m */
+                    return make_str("\033");
                 case 13:  /* carriage return -> newline */
                     return make_str("\n");
                 /* Base colors */
