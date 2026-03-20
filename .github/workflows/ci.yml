@@ -182,9 +182,9 @@ jobs:
           cp ${{ matrix.bin }} out/${{ matrix.outdir }}/basic.exe
           if [ "${{ matrix.build_gfx }}" = "true" ] && [ -f basic-gfx.exe ]; then
             cp basic-gfx.exe out/${{ matrix.outdir }}/basic-gfx.exe
-            if [ -f /mingw64/bin/libraylib.dll ]; then
-              cp /mingw64/bin/libraylib.dll out/${{ matrix.outdir }}/
-            fi
+            for dll in libraylib.dll glfw3.dll; do
+              [ -f /mingw64/bin/$dll ] && cp /mingw64/bin/$dll out/${{ matrix.outdir }}/
+            done
           fi
           cp -r examples out/${{ matrix.outdir }}/
           cd out
