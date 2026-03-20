@@ -176,12 +176,15 @@ jobs:
 
       - name: Package artifact (Windows)
         if: runner.os == 'Windows'
-        shell: bash
+        shell: msys2 {0}
         run: |
           mkdir -p out/${{ matrix.outdir }}
           cp ${{ matrix.bin }} out/${{ matrix.outdir }}/basic.exe
           if [ "${{ matrix.build_gfx }}" = "true" ] && [ -f basic-gfx.exe ]; then
             cp basic-gfx.exe out/${{ matrix.outdir }}/basic-gfx.exe
+            if [ -f /mingw64/bin/libraylib.dll ]; then
+              cp /mingw64/bin/libraylib.dll out/${{ matrix.outdir }}/
+            fi
           fi
           cp -r examples out/${{ matrix.outdir }}/
           cd out
