@@ -1443,7 +1443,8 @@ enum func_code {
     FN_INDEXOF = 38,
     FN_LASTINDEXOF = 39,
     FN_ENV = 40,
-    FN_PLATFORM = 41
+    FN_PLATFORM = 41,
+    FN_JSON = 42
 };
 
 /* Report an error and halt further execution.
@@ -1585,7 +1586,7 @@ static const char *const reserved_words[] = {
     "AND", "ARG", "ARGC", "ASC", "BACKGROUND", "CHR", "CLOSE", "CLR", "COLOR",
     "COLOUR", "COS", "CURSOR", "DATA", "DEC", "DEF", "DIM", "DOWN", "END", "FUNCTION",
     "ELSE", "ENV", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
-    "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "LEFT", "LEN", "LET", "LOAD", "LOCATE", "LOG",
+    "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LOAD", "LOCATE", "LOG",
     "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRINT",
     "XOR",
     "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCREENCODES",
@@ -2414,6 +2415,11 @@ static int function_lookup(const char *name, int len)
         if ((len == 3 && name[0] == 'A' && name[1] == 'R' && name[2] == 'G') ||
             (len == 4 && name[0] == 'A' && name[1] == 'R' && name[2] == 'G' && name[3] == '$')) return FN_ARG;
         return FN_NONE;
+    case 'J':
+        if ((len == 4 && name[0] == 'J' && name[1] == 'S' && name[2] == 'O' && name[3] == 'N') ||
+            (len == 5 && name[0] == 'J' && name[1] == 'S' && name[2] == 'O' && name[3] == 'N' && name[4] == '$'))
+            return FN_JSON;
+        return FN_NONE;
     case 'I':
         if (len == 3 && name[0] == 'I' && name[1] == 'N' && name[2] == 'T') return FN_INT;
         if (len == 5 && name[0] == 'I' && name[1] == 'N' && name[2] == 'S' && name[3] == 'T' && name[4] == 'R') return FN_INSTR;
@@ -2864,6 +2870,218 @@ static void statement_get(char **p)
     }
 }
 
+/* JSON path extraction: JSON$(json$, path$) returns value at path as string.
+ * Path format: "key", "key[0]", "key.sub", "key[0].sub" etc. */
+static int json_skip_ws(const char **p)
+{
+    while (**p == ' ' || **p == '\t' || **p == '\n' || **p == '\r') (*p)++;
+    return 1;
+}
+static void json_skip_value(const char **pp);
+static const char *json_parse_value(const char **pp, char *out, size_t out_size);
+static const char *json_parse_string(const char **pp, char *out, size_t out_size)
+{
+    const char *p = *pp;
+    size_t i = 0;
+    if (*p != '\"') return NULL;
+    p++;
+    while (*p && *p != '\"' && i < out_size - 1) {
+        if (*p == '\\') {
+            p++;
+            if (*p == 'n') { out[i++] = '\n'; p++; }
+            else if (*p == 't') { out[i++] = '\t'; p++; }
+            else if (*p == 'r') { out[i++] = '\r'; p++; }
+            else if (*p == '\"' || *p == '\\' || *p == '/') { out[i++] = *p++; }
+            else if (*p == 'u' && p[1] && p[2] && p[3] && p[4]) {
+                /* \uXXXX - skip for now, put placeholder */
+                out[i++] = '?';
+                p += 5;
+            } else { out[i++] = *p++; }
+        } else {
+            out[i++] = *p++;
+        }
+    }
+    out[i] = '\0';
+    if (*p == '\"') p++;
+    *pp = p;
+    return out;
+}
+static const char *json_parse_value(const char **pp, char *out, size_t out_size)
+{
+    const char *p = *pp;
+    json_skip_ws(&p);
+    if (!*p) return NULL;
+    if (*p == '\"') {
+        json_parse_string(&p, out, out_size);
+        *pp = p;
+        return out;
+    }
+    if (*p == 'n' && p[1]=='u' && p[2]=='l' && p[3]=='l') {
+        if (out_size > 0) { out[0] = '\0'; }
+        *pp = p + 4;
+        return out;
+    }
+    if (*p == 't' && p[1]=='r' && p[2]=='u' && p[3]=='e') {
+        if (out_size > 5) strcpy(out, "true"); else if (out_size > 0) out[0] = '\0';
+        *pp = p + 4;
+        return out;
+    }
+    if (*p == 'f' && p[1]=='a' && p[2]=='l' && p[3]=='s' && p[4]=='e') {
+        if (out_size > 6) strcpy(out, "false"); else if (out_size > 0) out[0] = '\0';
+        *pp = p + 5;
+        return out;
+    }
+    if (*p == '-' || (*p >= '0' && *p <= '9')) {
+        size_t i = 0;
+        while (*p && i < out_size - 1 && (*p == '-' || *p == '+' || *p == 'e' || *p == 'E' || *p == '.' || (*p >= '0' && *p <= '9'))) {
+            out[i++] = *p++;
+        }
+        out[i] = '\0';
+        *pp = p;
+        return out;
+    }
+    if (*p == '{' || *p == '[') {
+        json_skip_value(&p);
+        *pp = p;
+        return NULL;  /* caller should use out for primitive; for struct we return NULL */
+    }
+    return NULL;
+}
+static void json_skip_value(const char **pp)
+{
+    const char *p = *pp;
+    json_skip_ws(&p);
+    if (*p == '\"') {
+        p++;
+        while (*p && *p != '\"') { if (*p == '\\') p++; p++; }
+        if (*p) p++;
+    } else if (*p == '{') {
+        p++;
+        for (;;) {
+            json_skip_ws(&p);
+            if (*p == '}') { p++; break; }
+            if (*p == '\"') {
+                p++;
+                while (*p && *p != '\"') { if (*p == '\\') p++; p++; }
+                if (*p) p++;
+            }
+            json_skip_ws(&p);
+            if (*p == ':') { p++; json_skip_value(&p); }
+            json_skip_ws(&p);
+            if (*p == ',') { p++; continue; }
+            break;
+        }
+    } else if (*p == '[') {
+        p++;
+        for (;;) {
+            json_skip_ws(&p);
+            if (*p == ']') { p++; break; }
+            json_skip_value(&p);
+            json_skip_ws(&p);
+            if (*p == ',') { p++; continue; }
+            break;
+        }
+    } else if ((*p >= '0' && *p <= '9') || *p == '-' || *p == '+') {
+        while (*p && (*p == '-' || *p == '+' || *p == 'e' || *p == 'E' || *p == '.' || (*p >= '0' && *p <= '9'))) p++;
+    } else if ((p[0]=='n'&&p[1]=='u'&&p[2]=='l'&&p[3]=='l') || (p[0]=='t'&&p[1]=='r'&&p[2]=='u'&&p[3]=='e') || (p[0]=='f'&&p[1]=='a'&&p[2]=='l'&&p[3]=='s'&&p[4]=='e')) {
+        if (p[0]=='n') p+=4; else if (p[0]=='t') p+=4; else p+=5;
+    }
+    *pp = p;
+}
+static int json_find_key(const char **pp, const char *key)
+{
+    const char *p = *pp;
+    json_skip_ws(&p);
+    if (*p != '{') return 0;
+    p++;
+    for (;;) {
+        json_skip_ws(&p);
+        if (*p == '}') { *pp = p; return 0; }
+        if (*p == '\"') {
+            char kbuf[128];
+            size_t i = 0;
+            p++;
+            while (*p && *p != '\"' && i < sizeof(kbuf)-1) {
+                if (*p == '\\') p++;
+                kbuf[i++] = *p++;
+            }
+            kbuf[i] = '\0';
+            if (*p == '\"') p++;
+            json_skip_ws(&p);
+            if (*p == ':') {
+                p++;
+                if (strcmp(kbuf, key) == 0) {
+                    *pp = p;
+                    return 1;
+                }
+            }
+            /* skip value */
+            json_skip_value(&p);
+            json_skip_ws(&p);
+            if (*p == ',') { p++; continue; }
+        }
+        break;
+    }
+    *pp = p;
+    return 0;
+}
+static int json_array_index(const char **pp, int idx)
+{
+    const char *p = *pp;
+    json_skip_ws(&p);
+    if (*p != '[') return 0;
+    p++;
+    for (int i = 0; i <= idx; i++) {
+        json_skip_ws(&p);
+        if (*p == ']') { *pp = p; return 0; }
+        if (i == idx) {
+            *pp = p;
+            return 1;
+        }
+        /* skip value */
+        json_skip_value(&p);
+        json_skip_ws(&p);
+        if (*p == ',') p++;
+    }
+    *pp = p;
+    return 0;
+}
+static int json_extract_path(const char *json, const char *path, char *out, size_t out_size)
+{
+    const char *p = json;
+    json_skip_ws(&p);
+    if (!*p || !path || !*path) return 0;
+    for (;;) {
+        const char *seg = path;
+        char keybuf[128];
+        size_t ki = 0;
+        while (*seg && *seg != '.' && *seg != '[' && ki < sizeof(keybuf)-1) {
+            keybuf[ki++] = *seg++;
+        }
+        keybuf[ki] = '\0';
+        if (ki > 0) {
+            if (*p == '{') {
+                if (!json_find_key(&p, keybuf)) return 0;
+            } else {
+                return 0;
+            }
+        }
+        if (*seg == '[') {
+            seg++;
+            int idx = 0;
+            while (*seg >= '0' && *seg <= '9') { idx = idx * 10 + (*seg++ - '0'); }
+            if (*seg == ']') seg++;
+            if (!json_array_index(&p, idx)) return 0;
+        }
+        json_skip_ws(&p);
+        if (!*seg) {
+            return json_parse_value(&p, out, out_size) != NULL;
+        }
+        if (*seg == '.') seg++;
+        path = seg;
+    }
+}
+
 /* Case-insensitive string match helper for function names. */
 /* Evaluate BASIC intrinsic functions (math/string/tab). */
 static struct value eval_function(const char *name, char **p)
@@ -3040,7 +3258,7 @@ static struct value eval_function(const char *name, char **p)
      */
     if (code != FN_MID && code != FN_LEFT && code != FN_RIGHT && code != FN_INSTR && code != FN_STRINGFN &&
         code != FN_REPLACE && code != FN_TRIM && code != FN_LTRIM && code != FN_RTRIM &&
-        code != FN_FIELD && code != FN_PLATFORM) {
+        code != FN_FIELD && code != FN_PLATFORM && code != FN_JSON) {
         if (**p == ')') {
             (*p)++;
         } else {
@@ -3715,6 +3933,27 @@ static struct value eval_function(const char *name, char **p)
         val = getenv(arg.str);
         return make_str(val ? val : "");
     }
+    case FN_JSON: {
+        struct value v_json = arg;
+        struct value v_path;
+        ensure_str(&v_json);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error("JSON$ requires 2 arguments");
+            return make_str("");
+        }
+        (*p)++;
+        skip_spaces(p);
+        v_path = eval_expr(p);
+        ensure_str(&v_path);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        if (json_extract_path(v_json.str, v_path.str, outbuf, sizeof(outbuf))) {
+            return make_str(outbuf);
+        }
+        return make_str("");
+    }
     case FN_FIELD: {
         /* FIELD$(str$, delim$, n) - get Nth field (1-based), awk-like. */
         struct value v_str = arg;
@@ -4159,7 +4398,7 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "INSTR") || starts_with_kw(*p, "DEC") || starts_with_kw(*p, "HEX") ||
             starts_with_kw(*p, "REPLACE") || starts_with_kw(*p, "TRIM") || starts_with_kw(*p, "LTRIM") || starts_with_kw(*p, "RTRIM") ||
             starts_with_kw(*p, "FIELD") || starts_with_kw(*p, "INDEXOF") || starts_with_kw(*p, "LASTINDEXOF") ||
-            starts_with_kw(*p, "ENV") || starts_with_kw(*p, "PLATFORM") ||
+            starts_with_kw(*p, "ENV") || starts_with_kw(*p, "PLATFORM") || starts_with_kw(*p, "JSON") ||
             starts_with_kw(*p, "ARGC") || starts_with_kw(*p, "ARG") ||
             starts_with_kw(*p, "SYSTEM") || starts_with_kw(*p, "EXEC") ||
             starts_with_kw(*p, "PEEK") || starts_with_kw(*p, "INKEY")) {
