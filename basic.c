@@ -1251,6 +1251,9 @@ static void do_sleep_ticks(double ticks);
 static void statement_locate(char **p);
 static void statement_on(char **p);
 static void statement_clr(char **p);
+static void statement_sort(char **p);
+static void statement_split(char **p);
+static void statement_join(char **p);
 static void statement_open(char **p);
 static void statement_close(char **p);
 static void statement_print_hash(char **p);
@@ -1312,7 +1315,8 @@ enum func_code {
     FN_REPLACE = 33,
     FN_TRIM = 34,
     FN_LTRIM = 35,
-    FN_RTRIM = 36
+    FN_RTRIM = 36,
+    FN_FIELD = 37
 };
 
 /* Report an error and halt further execution.
@@ -1455,10 +1459,11 @@ static const char *const reserved_words[] = {
     "COLOUR", "COS", "CURSOR", "DATA", "DEC", "DEF", "DIM", "DOWN", "END", "FUNCTION",
     "ELSE", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
     "INKEY", "INPUT", "INSTR", "INT", "LEFT", "LEN", "LET", "LOAD", "LOCATE", "LOG",
-    "LCASE", "LTRIM", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PRINT",
+    "LCASE", "FIELD", "LTRIM", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PRINT",
     "XOR",
     "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCREENCODES",
-    "SGN", "SIN", "SLEEP", "SPC", "SQR", "STEP", "STOP", "STR", "STRING",
+    "JOIN",
+    "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SQR", "STEP", "STOP", "STR", "STRING",
     "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "TRIM", "UCASE", "VAL", "WEND", "WHILE",
     "DO", "LOOP", "UNTIL", "EXIT",
     NULL
@@ -2326,6 +2331,11 @@ static int function_lookup(const char *name, int len)
             (len == 6 && name[0] == 'U' && name[1] == 'C' && name[2] == 'A' && name[3] == 'S' && name[4] == 'E' && name[5] == '$'))
             return FN_UCASE;
         return FN_NONE;
+    case 'F':
+        if ((len == 5 && name[0] == 'F' && name[1] == 'I' && name[2] == 'E' && name[3] == 'L' && name[4] == 'D') ||
+            (len == 6 && name[0] == 'F' && name[1] == 'I' && name[2] == 'E' && name[3] == 'L' && name[4] == 'D' && name[5] == '$'))
+            return FN_FIELD;
+        return FN_NONE;
     default:
         return FN_NONE;
     }
@@ -2773,7 +2783,8 @@ static struct value eval_function(const char *name, char **p)
      * argument and consume ')' here so the caller resumes after it.
      */
     if (code != FN_MID && code != FN_LEFT && code != FN_RIGHT && code != FN_INSTR && code != FN_STRINGFN &&
-        code != FN_REPLACE && code != FN_TRIM && code != FN_LTRIM && code != FN_RTRIM) {
+        code != FN_REPLACE && code != FN_TRIM && code != FN_LTRIM && code != FN_RTRIM &&
+        code != FN_FIELD) {
         if (**p == ')') {
             (*p)++;
         } else {
@@ -3439,6 +3450,67 @@ static struct value eval_function(const char *name, char **p)
         do_exec(arg.str, outbuf, sizeof(outbuf));
         return make_str(outbuf);
     }
+    case FN_FIELD: {
+        /* FIELD$(str$, delim$, n) - get Nth field (1-based), awk-like. */
+        struct value v_str = arg;
+        struct value v_delim;
+        struct value v_n;
+        const char *s;
+        const char *delim;
+        size_t dlen;
+        int n, idx;
+        const char *start, *end;
+
+        ensure_str(&v_str);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error("FIELD$ requires 3 arguments");
+            return make_str("");
+        }
+        (*p)++;
+        skip_spaces(p);
+        v_delim = eval_expr(p);
+        ensure_str(&v_delim);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error("FIELD$ requires 3 arguments");
+            return make_str("");
+        }
+        (*p)++;
+        skip_spaces(p);
+        v_n = eval_expr(p);
+        ensure_num(&v_n);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+
+        n = (int)v_n.num;
+        if (n < 1) return make_str("");
+        s = v_str.str;
+        delim = v_delim.str;
+        dlen = strlen(delim);
+        if (dlen == 0) return make_str("");
+        idx = 0;
+        start = s;
+        for (;;) {
+            if (idx + 1 == n) {
+                end = strstr(start, delim);
+                if (end == NULL) end = s + strlen(s);
+                {
+                    size_t len = (size_t)(end - start);
+                    if (len >= MAX_STR_LEN) len = MAX_STR_LEN - 1;
+                    if (len > (size_t)(max_str_limit - 1)) len = (size_t)(max_str_limit - 1);
+                    memcpy(outbuf, start, len);
+                    outbuf[len] = '\0';
+                    return make_str(outbuf);
+                }
+            }
+            end = strstr(start, delim);
+            if (end == NULL) return make_str("");
+            idx++;
+            start = end + dlen;
+        }
+    }
     default:
         runtime_error("Unknown function");
         return make_num(0.0);
@@ -3821,6 +3893,7 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "UCASE") || starts_with_kw(*p, "LCASE") ||
             starts_with_kw(*p, "INSTR") || starts_with_kw(*p, "DEC") || starts_with_kw(*p, "HEX") ||
             starts_with_kw(*p, "REPLACE") || starts_with_kw(*p, "TRIM") || starts_with_kw(*p, "LTRIM") || starts_with_kw(*p, "RTRIM") ||
+            starts_with_kw(*p, "FIELD") ||
             starts_with_kw(*p, "ARGC") || starts_with_kw(*p, "ARG") ||
             starts_with_kw(*p, "SYSTEM") || starts_with_kw(*p, "EXEC") ||
             starts_with_kw(*p, "PEEK") || starts_with_kw(*p, "INKEY")) {
@@ -4606,6 +4679,250 @@ static void statement_clr(char **p)
     do_top = 0;
     if_depth = 0;
     data_index = 0;
+}
+
+/* SORT arr [, mode]: in-place sort. mode: 1 or "asc" (default), -1 or "desc". */
+static int sort_desc = 0;
+
+static int sort_cmp_num(const void *a, const void *b)
+{
+    double x = ((const struct value *)a)->num;
+    double y = ((const struct value *)b)->num;
+    int r = (x < y) ? -1 : (x > y) ? 1 : 0;
+    return sort_desc ? -r : r;
+}
+
+static int sort_cmp_str(const void *a, const void *b)
+{
+    int r = strcmp(((const struct value *)a)->str, ((const struct value *)b)->str);
+    return sort_desc ? -r : r;
+}
+
+static void statement_sort(char **p)
+{
+    char namebuf[VAR_NAME_MAX];
+    int is_string = 0;
+    struct var *v = NULL;
+    int i, mode = 1;
+
+    skip_spaces(p);
+    if (!isalpha((unsigned char)**p)) {
+        runtime_error("SORT requires array variable");
+        return;
+    }
+    read_identifier(p, namebuf, sizeof(namebuf));
+    uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
+    for (i = 0; i < var_count; i++) {
+        if (strcmp(vars[i].name, namebuf) == 0 && vars[i].is_string == is_string) {
+            v = &vars[i];
+            break;
+        }
+    }
+    if (!v || !v->is_array || !v->array || v->size <= 0) {
+        runtime_error("SORT requires 1-D array");
+        return;
+    }
+    if (v->dims != 1) {
+        runtime_error("SORT requires 1-D array");
+        return;
+    }
+    skip_spaces(p);
+    if (**p == ',') {
+        (*p)++;
+        skip_spaces(p);
+        {
+            struct value vm = eval_expr(p);
+            if (vm.type == VAL_NUM) {
+                mode = (int)vm.num;
+            } else {
+                ensure_str(&vm);
+                if (str_eq_ci(vm.str, "asc") || str_eq_ci(vm.str, "ascending")) mode = 1;
+                else if (str_eq_ci(vm.str, "desc") || str_eq_ci(vm.str, "descending")) mode = -1;
+                else mode = 1;
+            }
+        }
+    }
+    sort_desc = (mode < 0) ? 1 : 0;
+    if (v->is_string)
+        qsort(v->array, (size_t)v->size, sizeof(struct value), sort_cmp_str);
+    else
+        qsort(v->array, (size_t)v->size, sizeof(struct value), sort_cmp_num);
+}
+
+/* SPLIT str$, delim$ INTO arr$: split string by delimiter, fill pre-dimmed 1-D string array. */
+static int split_count = 0;  /* set by SPLIT, used by JOIN when count omitted */
+
+static void statement_split(char **p)
+{
+    struct value v_str, v_delim;
+    struct var *arr_var = NULL;
+    const char *s, *delim;
+    size_t dlen;
+    int i, count, arr_size;
+    char *start, *end;
+
+    v_str = eval_expr(p);
+    ensure_str(&v_str);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error("SPLIT: expected ,");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    v_delim = eval_expr(p);
+    ensure_str(&v_delim);
+    skip_spaces(p);
+    if (!starts_with_kw(*p, "INTO")) {
+        runtime_error("SPLIT: expected INTO");
+        return;
+    }
+    *p += 4;
+    skip_spaces(p);
+    if (!isalpha((unsigned char)**p)) {
+        runtime_error("SPLIT: expected array variable");
+        return;
+    }
+    {
+        char namebuf[VAR_NAME_MAX];
+        int is_string = 0;
+        read_identifier(p, namebuf, sizeof(namebuf));
+        uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
+        if (!is_string) {
+            runtime_error("SPLIT: expected string array");
+            return;
+        }
+        for (i = 0; i < var_count; i++) {
+            if (strcmp(vars[i].name, namebuf) == 0 && vars[i].is_string) {
+                arr_var = &vars[i];
+                break;
+            }
+        }
+    }
+    if (!arr_var || !arr_var->is_array || !arr_var->array || arr_var->dims != 1) {
+        runtime_error("SPLIT: requires 1-D string array (DIM first)");
+        return;
+    }
+    s = v_str.str;
+    delim = v_delim.str;
+    dlen = strlen(delim);
+    if (dlen == 0) {
+        runtime_error("SPLIT: empty delimiter");
+        return;
+    }
+    arr_size = arr_var->size;
+    count = 0;
+    start = (char *)s;
+    while (count < arr_size) {
+        end = strstr(start, delim);
+        if (end == NULL) end = (char *)(s + strlen(s));
+        {
+            size_t len = (size_t)(end - start);
+            if (len >= MAX_STR_LEN) len = MAX_STR_LEN - 1;
+            if (len > (size_t)(max_str_limit - 1)) len = (size_t)(max_str_limit - 1);
+            memcpy(arr_var->array[count].str, start, len);
+            arr_var->array[count].str[len] = '\0';
+            arr_var->array[count].type = VAL_STR;
+            arr_var->array[count].num = 0.0;
+        }
+        count++;
+        if (*end == '\0') break;
+        start = end + dlen;
+    }
+    for (; count < arr_size; count++) {
+        arr_var->array[count].type = VAL_STR;
+        arr_var->array[count].str[0] = '\0';
+        arr_var->array[count].num = 0.0;
+    }
+    split_count = count;
+}
+
+/* JOIN arr$, delim$ INTO result$ [, count]: join array elements. Optional count limits elements. */
+static void statement_join(char **p)
+{
+    struct var *arr_var = NULL;
+    struct value v_delim;
+    char namebuf[VAR_NAME_MAX];
+    int i, is_string, n_elems;
+
+    skip_spaces(p);
+    if (!isalpha((unsigned char)**p)) {
+        runtime_error("JOIN: expected array variable");
+        return;
+    }
+    read_identifier(p, namebuf, sizeof(namebuf));
+    uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
+    if (!is_string) {
+        runtime_error("JOIN: expected string array");
+        return;
+    }
+    for (i = 0; i < var_count; i++) {
+        if (strcmp(vars[i].name, namebuf) == 0 && vars[i].is_string) {
+            arr_var = &vars[i];
+            break;
+        }
+    }
+    if (!arr_var || !arr_var->is_array || !arr_var->array || arr_var->dims != 1) {
+        runtime_error("JOIN: requires 1-D string array");
+        return;
+    }
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error("JOIN: expected ,");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    v_delim = eval_expr(p);
+    ensure_str(&v_delim);
+    skip_spaces(p);
+    if (!starts_with_kw(*p, "INTO")) {
+        runtime_error("JOIN: expected INTO");
+        return;
+    }
+    *p += 4;
+    skip_spaces(p);
+    {
+        struct value *out = get_var_reference(p, &i, &is_string);
+        if (!out || !is_string) {
+            runtime_error("JOIN: expected string variable for result");
+            return;
+        }
+        skip_spaces(p);
+        if (**p == ',') {
+            (*p)++;
+            skip_spaces(p);
+            {
+                struct value vc = eval_expr(p);
+                ensure_num(&vc);
+                n_elems = (int)vc.num;
+                if (n_elems < 0) n_elems = 0;
+                if (n_elems > arr_var->size) n_elems = arr_var->size;
+            }
+        } else {
+            n_elems = (split_count > 0 && split_count <= arr_var->size) ? split_count : arr_var->size;
+        }
+        {
+            size_t total = 0;
+            out->type = VAL_STR;
+            out->str[0] = '\0';
+            for (i = 0; i < n_elems && total < (size_t)(max_str_limit - 1); i++) {
+                if (i > 0) {
+                    size_t dlen = strlen(v_delim.str);
+                    if (total + dlen < (size_t)(max_str_limit - 1)) {
+                        strncat(out->str, v_delim.str, max_str_limit - 1 - (int)total);
+                        total += dlen;
+                    }
+                }
+                size_t elen = strlen(arr_var->array[i].str);
+                if (total + elen < (size_t)(max_str_limit - 1)) {
+                    strncat(out->str, arr_var->array[i].str, max_str_limit - 1 - (int)total);
+                    total += elen;
+                }
+            }
+            out->num = 0.0;
+        }
+    }
 }
 
 /* Set ST (I/O status) variable for file operations: 0=ok, 64=EOF, 1=error. */
@@ -5883,9 +6200,26 @@ static void execute_statement(char **p)
             }
         }
     }
-    if (c == 'S' && starts_with_kw(*p, "SLEEP")) {
-        *p += 5;
-        statement_sleep(p);
+    if (c == 'S') {
+        if (starts_with_kw(*p, "SLEEP")) {
+            *p += 5;
+            statement_sleep(p);
+            return;
+        }
+        if (starts_with_kw(*p, "SORT")) {
+            *p += 4;
+            statement_sort(p);
+            return;
+        }
+        if (starts_with_kw(*p, "SPLIT")) {
+            *p += 5;
+            statement_split(p);
+            return;
+        }
+    }
+    if (c == 'J' && starts_with_kw(*p, "JOIN")) {
+        *p += 4;
+        statement_join(p);
         return;
     }
     if (c == 'E') {
