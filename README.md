@@ -305,7 +305,7 @@ Anything after the script path is available to the program:
 `SYSTEM("command")` runs the command and returns its exit code. `EXEC$("command")` runs the command and returns its stdout as a string (e.g. `PRINT EXEC$("date")`).  
 Example: `examples/scripting.bas` demonstrates `ARGC()`, `ARG$()`, `SYSTEM()`, and `EXEC$()`.
 - **Interactive expression testing**  
-`EVAL(expr$)` evaluates a string as a BASIC expression. Use it to try functions and operators without writing a full program: e.g. `PRINT EVAL("2+3")`, `PRINT EVAL("TRIM$(\"  x  \")")`, or build expressions in variables and pass them to `EVAL`. Use `CHR$(34)` for quotes inside EVAL strings.
+`EVAL(expr$)` evaluates a string as a BASIC expression. Use it to try functions and operators without writing a full program: e.g. `PRINT EVAL("2+3")`, or build expressions in variables (`E$ = "SIN(3.14)" : PRINT EVAL(E$)`) and pass them to `EVAL`. Use `CHR$(34)` for quotes inside EVAL strings.
 
 ### Source normalization (compact CBM style)
 
