@@ -98,7 +98,7 @@ jobs:
             # Skip interactive tests that require keyboard input.
             # Skip meta tests that are expected to fail (negative tests).
             case "$(basename "$t")" in
-              codes-replaced.bas|locate.bas|get_input_loop.bas|get_while_test.bas|kbuffer.bas|border_option_test.bas|c64_control_codes_demo.bas|gfx_title_test.bas)
+              codes-replaced.bas|locate.bas|get_input_loop.bas|get_while_test.bas|kbuffer.bas|border_option_test.bas|gfx_title_test.bas)
                 echo "Skipping interactive/GET/GFX-only test $t"
                 continue
                 ;;
@@ -149,7 +149,7 @@ jobs:
             # Skip interactive tests that require keyboard input.
             # Skip meta tests that are expected to fail (negative tests).
             case "$(basename "$t")" in
-              codes-replaced.bas|locate.bas|get_input_loop.bas|get_while_test.bas|kbuffer.bas|border_option_test.bas|c64_control_codes_demo.bas|gfx_title_test.bas)
+              codes-replaced.bas|locate.bas|get_input_loop.bas|get_while_test.bas|kbuffer.bas|border_option_test.bas|gfx_title_test.bas)
                 echo "Skipping interactive/GET/GFX-only test $t"
                 continue
                 ;;

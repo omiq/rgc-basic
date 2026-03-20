@@ -57,14 +57,15 @@ dkms.conf
 # Windows alternate data stream metadata accidentally committed on some systems
 dartmouth.bas:Zone.Identifier
 .DS_Store
-basic
 *:Zone.Identifier
 examples/trek64.bas:Zone.Identifier
+
+# Build outputs
 basic
-CHARS.DAT
-.gitignore
-*.DAT
-*.exe
 basic-gfx
 gfx-demo
 gfx_video_test
+
+# Test artifacts
+CHARS.DAT
+*.DAT
