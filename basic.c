@@ -880,7 +880,7 @@ static struct user_func user_funcs[MAX_USER_FUNCS];
 static int user_func_count = 0;
 
 /* DATA/READ support */
-#define MAX_DATA_ITEMS 256
+#define MAX_DATA_ITEMS 4096
 static struct value data_items[MAX_DATA_ITEMS];
 static int data_count = 0;
 static int data_index = 0;
