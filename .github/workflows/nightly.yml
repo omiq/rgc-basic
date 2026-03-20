@@ -88,14 +88,20 @@ jobs:
             make basic-gfx
           fi
 
+      - name: Run trek demo (piped)
+        if: runner.os != 'Windows'
+        run: |
+          set -e
+          sh tests/trek_test.sh >/dev/null
+
       - name: Run tests (Unix)
         if: runner.os != 'Windows'
         run: |
           set -e
           for t in tests/*.bas; do
             case "$(basename "$t")" in
-              codes-replaced.bas|locate.bas|border_option_test.bas|c64_control_codes_demo.bas)
-                echo "Skipping interactive test $t"
+              codes-replaced.bas|locate.bas|border_option_test.bas|c64_control_codes_demo.bas|gfx_title_test.bas)
+                echo "Skipping interactive/GFX-only test $t"
                 continue
                 ;;
               meta_include_dup_line.bas|meta_include_dup_label.bas|meta_include_circular_a.bas|meta_include_circular_b.bas)
@@ -136,8 +142,8 @@ jobs:
           set -e
           for t in tests/*.bas; do
             case "$(basename "$t")" in
-              codes-replaced.bas|locate.bas|border_option_test.bas|c64_control_codes_demo.bas)
-                echo "Skipping interactive test $t"
+              codes-replaced.bas|locate.bas|border_option_test.bas|c64_control_codes_demo.bas|gfx_title_test.bas)
+                echo "Skipping interactive/GFX-only test $t"
                 continue
                 ;;
               meta_include_dup_line.bas|meta_include_dup_label.bas|meta_include_circular_a.bas|meta_include_circular_b.bas)
