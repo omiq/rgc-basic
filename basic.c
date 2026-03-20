@@ -766,9 +766,13 @@ static int user_func_count = 0;
 
 /* DATA/READ support */
 #define MAX_DATA_ITEMS 256
+#define MAX_DATA_LINES 128
 static struct value data_items[MAX_DATA_ITEMS];
 static int data_count = 0;
 static int data_index = 0;
+static int data_line_count = 0;
+static int data_line_numbers[MAX_DATA_LINES];
+static int data_line_start_index[MAX_DATA_LINES];
 
 /* File I/O: logical file numbers 1-255, CBM-style OPEN/CLOSE/PRINT#/INPUT#/GET#.
  * Device 1 = disk/file (filename required). Secondary: 0=read, 1=write, 2=append.
@@ -1236,6 +1240,7 @@ static struct value eval_function(const char *name, char **p);
 static int user_func_lookup(const char *name);
 static void collect_data_from_program(void);
 static void statement_read(char **p);
+static void statement_load(char **p);
 static void print_value(struct value *v);
 static void print_spaces(int count);
 static void statement_sleep(char **p);
@@ -1449,7 +1454,7 @@ static const char *const reserved_words[] = {
     "AND", "ARG", "ARGC", "ASC", "BACKGROUND", "CHR", "CLOSE", "CLR", "COLOR",
     "COLOUR", "COS", "CURSOR", "DATA", "DEC", "DEF", "DIM", "DOWN", "END", "FUNCTION",
     "ELSE", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
-    "INKEY", "INPUT", "INSTR", "INT", "LEFT", "LEN", "LET", "LOCATE", "LOG",
+    "INKEY", "INPUT", "INSTR", "INT", "LEFT", "LEN", "LET", "LOAD", "LOCATE", "LOG",
     "LCASE", "LTRIM", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PRINT",
     "XOR",
     "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCREENCODES",
@@ -2005,6 +2010,7 @@ static void collect_data_from_program(void)
     int i;
     data_count = 0;
     data_index = 0;
+    data_line_count = 0;
     for (i = 0; i < line_count && data_count < MAX_DATA_ITEMS; i++) {
         char *p;
         if (!program_lines[i] || !program_lines[i]->text) {
@@ -2016,6 +2022,11 @@ static void collect_data_from_program(void)
         }
         if (!starts_with_kw(p, "DATA")) {
             continue;
+        }
+        if (data_line_count < MAX_DATA_LINES) {
+            data_line_numbers[data_line_count] = program_lines[i]->number;
+            data_line_start_index[data_line_count] = data_count;
+            data_line_count++;
         }
         p += 4;
         for (;;) {
@@ -4421,11 +4432,156 @@ static void statement_on(char **p)
     /* If index is out of range, ON expression simply falls through. */
 }
 
-/* RESTORE: reset DATA pointer so the next READ gets the first DATA value (C64 BASIC V2). */
+/* LOAD "path" INTO addr [, length] or LOAD @label INTO addr [, length].
+ * GFX-only: loads raw bytes into virtual memory via gfx_poke. */
+static void statement_load(char **p)
+{
+    char pathbuf[MAX_INCLUDE_PATH];
+    int from_label = 0;
+    char labelbuf[32];
+    int addr, len_limit = -1;
+    int i, count = 0;
+    skip_spaces(p);
+    if (**p == '@') {
+        from_label = 1;
+        (*p)++;
+        skip_spaces(p);
+        if (!isalpha((unsigned char)**p)) {
+            runtime_error("LOAD @label: expected label name");
+            return;
+        }
+        {
+            char *q = *p;
+            int j = 0;
+            while ((isalpha((unsigned char)*q) || isdigit((unsigned char)*q) || *q == '$' || *q == '_') && j < (int)sizeof(labelbuf) - 1)
+                labelbuf[j++] = (char)*q++;
+            labelbuf[j] = '\0';
+            *p = q;
+            for (j = 0; labelbuf[j]; j++)
+                labelbuf[j] = (char)toupper((unsigned char)labelbuf[j]);
+        }
+    } else if (**p == '"' || **p == '\'') {
+        char quote = **p;
+        (*p)++;
+        i = 0;
+        while (**p && **p != quote && i < (int)sizeof(pathbuf) - 1)
+            pathbuf[i++] = (char)*(*p)++;
+        pathbuf[i] = '\0';
+        if (**p == quote) (*p)++;
+    } else {
+        runtime_error("LOAD: expected \"path\" or @label");
+        return;
+    }
+    skip_spaces(p);
+    if (!starts_with_kw(*p, "INTO")) {
+        runtime_error("LOAD: expected INTO");
+        return;
+    }
+    *p += 4;
+    skip_spaces(p);
+    {
+        struct value v = eval_expr(p);
+        ensure_num(&v);
+        addr = (int)v.num & 0xFFFF;
+    }
+    skip_spaces(p);
+    if (**p == ',') {
+        (*p)++;
+        skip_spaces(p);
+        {
+            struct value v = eval_expr(p);
+            ensure_num(&v);
+            len_limit = (int)v.num;
+            if (len_limit < 0) len_limit = 0;
+        }
+    }
+#ifdef GFX_VIDEO
+    if (!gfx_vs) {
+        runtime_error("LOAD INTO: no graphics context");
+        return;
+    }
+    if (from_label) {
+        int label_line_idx, label_line_no, next_label_line_no, di_start, di_end;
+        label_line_idx = find_label_line(labelbuf);
+        if (label_line_idx < 0) {
+            runtime_error("LOAD @label: label not found");
+            return;
+        }
+        label_line_no = program_lines[label_line_idx] ? program_lines[label_line_idx]->number : 0;
+        next_label_line_no = 999999;
+        for (i = 0; i < label_count; i++) {
+            if (label_table[i].line_index == label_line_idx) continue;
+            {
+                int ln = program_lines[label_table[i].line_index] ? program_lines[label_table[i].line_index]->number : 0;
+                if (ln > label_line_no && ln < next_label_line_no)
+                    next_label_line_no = ln;
+            }
+        }
+        di_start = data_count;
+        di_end = data_count;
+        for (i = 0; i < data_line_count; i++) {
+            if (data_line_numbers[i] >= label_line_no && data_line_numbers[i] < next_label_line_no) {
+                if (di_start == data_count) di_start = data_line_start_index[i];
+                di_end = (i + 1 < data_line_count) ? data_line_start_index[i + 1] : data_count;
+            }
+        }
+        count = di_end - di_start;
+        if (len_limit >= 0 && count > len_limit) count = len_limit;
+        for (i = 0; i < count; i++) {
+            struct value *v = &data_items[di_start + i];
+            uint8_t b;
+            if (v->type == VAL_NUM)
+                b = (uint8_t)((int)v->num & 0xFF);
+            else
+                b = (uint8_t)(v->str[0] ? (unsigned char)v->str[0] : 0);
+            gfx_poke(gfx_vs, (uint16_t)(addr + i), b);
+        }
+    } else {
+        FILE *f;
+        int c;
+        count = 0;
+        f = fopen(pathbuf, "rb");
+        if (!f) {
+            runtime_error("LOAD: cannot open file");
+            return;
+        }
+        while ((c = fgetc(f)) != EOF && (len_limit < 0 || count < len_limit)) {
+            gfx_poke(gfx_vs, (uint16_t)(addr + count), (uint8_t)(c & 0xFF));
+            count++;
+        }
+        fclose(f);
+    }
+#else
+    (void)addr;
+    (void)len_limit;
+    (void)from_label;
+    (void)count;
+    runtime_error("LOAD INTO requires basic-gfx (graphics build)");
+#endif
+}
+
+/* RESTORE [line]: reset DATA pointer. No arg = first DATA; line number = first DATA at or after that line (C64-style). */
 static void statement_restore(char **p)
 {
-    (void)p;
-    data_index = 0;
+    skip_spaces(p);
+    if (**p == '\0' || **p == ':') {
+        data_index = 0;
+        return;
+    }
+    {
+        struct value v;
+        int target_line, i;
+        v = eval_expr(p);
+        ensure_num(&v);
+        target_line = (int)v.num;
+        data_index = 0;
+        for (i = 0; i < data_line_count; i++) {
+            if (data_line_numbers[i] >= target_line) {
+                data_index = data_line_start_index[i];
+                return;
+            }
+        }
+    }
 }
 
 /* CLR: reset all variables to 0/empty, clear GOSUB/FOR stacks, reset DATA pointer.
@@ -5619,6 +5775,11 @@ static void execute_statement(char **p)
         if (starts_with_kw(*p, "LET")) {
             *p += 3;
             statement_let(p);
+            return;
+        }
+        if (starts_with_kw(*p, "LOAD")) {
+            *p += 4;
+            statement_load(p);
             return;
         }
     }

@@ -12,7 +12,7 @@
 * ~**String length limit**~ — Implemented: default 4096; `#OPTION maxstr 255` or `-maxstr 255` for C64 compatibility.
 
 * Flexible DATA read
-  * RESTORE [line number]
+  * ~RESTORE [line number]~ — implemented; RESTORE resets to first DATA; RESTORE 50 to first DATA at or after line 50.
 
 * ~Decimal ↔ hexadecimal conversion: DEC(),HEX$()~
 
@@ -38,10 +38,10 @@
   * XC=BASIC-style: `MEMSET addr, len, val`; `MEMCPY dest, src, len`. Operate via gfx_peek/gfx_poke on virtual address space.
   * **MEMSHIFT not needed**: Implement MEMCPY with overlap handling (like memmove); covers both directions.
 
-* **LOAD INTO memory** (basic-gfx; see `docs/load-into-memory-plan.md`)
-  * `LOAD "path" INTO addr [, length]` — load raw binary from file into memory (chars, screen, bitmap). Works for any data.
-  * `LOAD @label INTO addr [, length]` — load from DATA block at label (data stays in program listing).
-  * Optional: `CHAR_BASE` constant, `CHARSET addr` for multi-charset switching.
+* ~**LOAD INTO memory**~ (basic-gfx; see `docs/load-into-memory-plan.md`) — implemented:
+  * `LOAD "path" INTO addr [, length]` — load raw binary from file.
+  * `LOAD @label INTO addr [, length]` — load from DATA block at label.
+  * Terminal build: runtime error "LOAD INTO requires basic-gfx".
 
 * **80-column option** (terminal and basic-gfx)
   * `#OPTION columns 80` / `-columns 80`; default 40.
