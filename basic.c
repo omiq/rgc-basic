@@ -4008,6 +4008,11 @@ static int eval_simple_condition(char **p)
     skip_spaces(p);
     left = eval_expr(p);
     skip_spaces(p);
+    /* Workaround: TRIM$, REPLACE etc. may leave ')' unconsumed; consume before relational op */
+    if (**p == ')') {
+        (*p)++;
+        skip_spaces(p);
+    }
     op1 = **p;
     op2 = *(*p + 1);
 
