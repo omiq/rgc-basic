@@ -22,7 +22,7 @@ See the `README.md` and `Makefile` for standard commands. Quick reference:
 ```sh
 for t in tests/*.bas; do
   case "$(basename "$t")" in
-    codes-replaced.bas|locate.bas|border_option_test.bas) continue ;;
+    codes-replaced.bas|locate.bas|border_option_test.bas|c64_control_codes_demo.bas) continue ;;
     meta_include_dup_line.bas|meta_include_dup_label.bas|meta_include_circular_a.bas|meta_include_circular_b.bas) continue ;;
   esac
   ./basic -petscii "$t" >/dev/null

@@ -88,7 +88,10 @@ static int is_ident_char(int c)
     return isalpha((unsigned char)c) || isdigit((unsigned char)c) || c == '$' || c == '_';
 }
 
+/* Token map: C64 control/color codes. See docs/c64-color-codes.md for reference.
+ * Multiple names may map to the same code (case-insensitive). */
 static const TokenMap token_map[] = {
+    /* Colors (full names) */
     {"WHITE", 5},
     {"RED", 28},
     {"CYAN", 159},
@@ -99,18 +102,35 @@ static const TokenMap token_map[] = {
     {"ORANGE", 129},
     {"BROWN", 149},
     {"PINK", 150},
+    {"BLACK", 144},
+    /* Colors (abbreviations) */
+    {"WHT", 5},
+    {"BLK", 144},
+    {"CYN", 159},
+    {"PUR", 156},
+    {"GRN", 30},
+    {"BLU", 31},
+    {"YEL", 158},
+    /* Greys */
     {"GRAY1", 151},
     {"GREY1", 151},
+    {"DARKGREY", 151},
+    {"DARKGRAY", 151},
     {"GRAY2", 152},
     {"GREY2", 152},
+    {"GREY", 152},
+    {"GRAY", 152},
+    {"GRAY3", 155},
+    {"GREY3", 155},
+    {"LIGHTGREY", 155},
+    {"LIGHTGRAY", 155},
     {"LIGHTGREEN", 153},
     {"LIGHT GREEN", 153},
     {"LIGHTBLUE", 154},
     {"LIGHT BLUE", 154},
-    {"GRAY3", 155},
-    {"GREY3", 155},
-    {"BLACK", 144},
+    {"LIGHT-RED", 150},
 
+    /* Screen/control */
     {"HOME", 19},
     {"DOWN", 17},
     {"UP", 145},
@@ -119,14 +139,41 @@ static const TokenMap token_map[] = {
     {"DEL", 20},
     {"DELETE", 20},
     {"INS", 148},
+    {"INST", 148},
     {"INSERT", 148},
     {"CLR", 147},
     {"CLEAR", 147},
-
+    {"SPACE", 32},
+    {"RETURN", 13},
+    {"SHIFT RETURN", 141},
+    /* Cursor variants */
+    {"CURSOR UP", 145},
+    {"CURSOR DOWN", 17},
+    {"CURSOR LEFT", 157},
+    {"CURSOR RIGHT", 29},
+    {"CRSR UP", 145},
+    {"CRSR DOWN", 17},
+    {"CRSR LEFT", 157},
+    {"CRSR RIGHT", 29},
+    /* Reverse video */
     {"RVS", 18},
+    {"RVS ON", 18},
+    {"RVSON", 18},
     {"REVERSE ON", 18},
     {"RVS OFF", 146},
+    {"RVSOFF", 146},
     {"REVERSE OFF", 146},
+    /* Function keys */
+    {"F1", 133},
+    {"F2", 137},
+    {"F3", 134},
+    {"F4", 138},
+    {"F5", 135},
+    {"F6", 139},
+    {"F7", 136},
+    {"F8", 140},
+    /* Symbol */
+    {"PI", 126},
 
     {NULL, 0}
 };
@@ -216,6 +263,7 @@ static int lookup_token_code(const char *token, int *code_out)
     char *endptr = NULL;
     long n;
 
+    /* Decimal: {147} */
     n = strtol(token, &endptr, 10);
     if (*token != '\0' && *endptr == '\0') {
         if (n >= 0 && n <= 255) {
@@ -223,6 +271,31 @@ static int lookup_token_code(const char *token, int *code_out)
             return 1;
         }
         return 0;
+    }
+
+    /* Hex: {$93} or {0x93} */
+    if (*token == '$') {
+        n = strtol(token + 1, &endptr, 16);
+        if (endptr && *endptr == '\0' && n >= 0 && n <= 255) {
+            *code_out = (int)n;
+            return 1;
+        }
+    }
+    if ((token[0] == '0' && (token[1] == 'x' || token[1] == 'X'))) {
+        n = strtol(token + 2, &endptr, 16);
+        if (endptr && *endptr == '\0' && n >= 0 && n <= 255) {
+            *code_out = (int)n;
+            return 1;
+        }
+    }
+
+    /* Binary: {%10010011} */
+    if (*token == '%') {
+        n = strtol(token + 1, &endptr, 2);
+        if (endptr && *endptr == '\0' && n >= 0 && n <= 255) {
+            *code_out = (int)n;
+            return 1;
+        }
     }
 
     {
