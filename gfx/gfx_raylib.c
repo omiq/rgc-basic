@@ -606,8 +606,8 @@ static void render_text_screen(const GfxVideoState *s,
 {
     int row, col, y, x;
 
-    BeginTextureMode(target);
-    ClearBackground(c64_palette[s->bg_color & 0x0F]);
+    static unsigned char buf[NATIVE_W * NATIVE_H * 4];
+    unsigned char *p = buf;
 
     for (row = 0; row < SCREEN_ROWS; row++) {
         for (col = 0; col < SCREEN_COLS; col++) {
@@ -616,7 +616,6 @@ static void render_text_screen(const GfxVideoState *s,
             uint8_t ci = s->color[idx] & 0x0F;
             const uint8_t *glyph;
             Color fg = c64_palette[ci];
-            Color bg = c64_palette[s->bg_color & 0x0F];
             int reversed = (sc & 0x80) ? 1 : 0;
 
             /* Screen RAM holds C64 screen codes 0–255. For reversed (128–255),
@@ -627,16 +626,17 @@ static void render_text_screen(const GfxVideoState *s,
             for (y = 0; y < CELL_H; y++) {
                 uint8_t bits = glyph[y];
                 for (x = 0; x < CELL_W; x++) {
-                    int px = col * CELL_W + x;
-                    int py = row * CELL_H + y;
                     int on = (bits & (0x80 >> x)) ? 1 : 0;
-                    Color c = (on ^ reversed) ? fg : bg;
-                    DrawPixel(px, py, c);
+                    Color c = (on ^ reversed) ? fg : c64_palette[s->bg_color & 0x0F];
+                    *p++ = (unsigned char)c.r;
+                    *p++ = (unsigned char)c.g;
+                    *p++ = (unsigned char)c.b;
+                    *p++ = (unsigned char)c.a;
                 }
             }
         }
     }
-    EndTextureMode();
+    UpdateTexture(target.texture, buf);
 }
 
 /* ══════════════════════════════════════════════════════════════════════
