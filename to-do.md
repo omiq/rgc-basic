@@ -20,6 +20,10 @@
 
 * ~Cursor On/Off~
 
+* **MEMSET, MEMCPY** (basic-gfx; see `docs/memory-commands-plan.md`)
+  * XC=BASIC-style: `MEMSET addr, len, val`; `MEMCPY dest, src, len`. Operate via gfx_peek/gfx_poke on virtual address space.
+  * **MEMSHIFT not needed**: Implement MEMCPY with overlap handling (like memmove); covers both directions.
+
 * **80-column option** (terminal and basic-gfx)
   * `#OPTION columns 80` / `-columns 80`; default 40.
   * **Terminal**: Configurable `print_width`; wrap, TAB, comma zones (10 vs 20). ~1–2 hrs.
