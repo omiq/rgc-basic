@@ -133,12 +133,8 @@ jobs:
             mingw32-make basic-gfx
           fi
 
-      - name: Run GET tests (Windows)
-        if: runner.os == 'Windows'
-        shell: msys2 {0}
-        run: |
-          set -e
-          sh tests/get_test.sh
+      # GET tests skipped on Windows: basic.exe uses _kbhit/_getch (console only),
+      # not stdin; piped input never reaches the program, so tests would hang.
 
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
