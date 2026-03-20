@@ -1228,6 +1228,7 @@ static int starts_with_kw(char *p, const char *kw);
 static void skip_spaces(char **p);
 static int parse_number_literal(char **p, double *out);
 static int read_identifier(char **p, char *buf, int buf_size);
+static void uppercase_name(const char *src, char *dest, int dest_size, int *is_string);
 static char *dupstr_local(const char *s);
 static struct value eval_expr(char **p);
 static int eval_condition(char **p);
@@ -1316,7 +1317,9 @@ enum func_code {
     FN_TRIM = 34,
     FN_LTRIM = 35,
     FN_RTRIM = 36,
-    FN_FIELD = 37
+    FN_FIELD = 37,
+    FN_INDEXOF = 38,
+    FN_LASTINDEXOF = 39
 };
 
 /* Report an error and halt further execution.
@@ -1458,8 +1461,8 @@ static const char *const reserved_words[] = {
     "AND", "ARG", "ARGC", "ASC", "BACKGROUND", "CHR", "CLOSE", "CLR", "COLOR",
     "COLOUR", "COS", "CURSOR", "DATA", "DEC", "DEF", "DIM", "DOWN", "END", "FUNCTION",
     "ELSE", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
-    "INKEY", "INPUT", "INSTR", "INT", "LEFT", "LEN", "LET", "LOAD", "LOCATE", "LOG",
-    "LCASE", "FIELD", "LTRIM", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PRINT",
+    "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "LEFT", "LEN", "LET", "LOAD", "LOCATE", "LOG",
+    "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PRINT",
     "XOR",
     "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCREENCODES",
     "JOIN",
@@ -2273,6 +2276,7 @@ static int function_lookup(const char *name, int len)
     case 'I':
         if (len == 3 && name[0] == 'I' && name[1] == 'N' && name[2] == 'T') return FN_INT;
         if (len == 5 && name[0] == 'I' && name[1] == 'N' && name[2] == 'S' && name[3] == 'T' && name[4] == 'R') return FN_INSTR;
+        if (len == 7 && name[0] == 'I' && name[1] == 'N' && name[2] == 'D' && name[3] == 'E' && name[4] == 'X' && name[5] == 'O' && name[6] == 'F') return FN_INDEXOF;
         if (len == 5 && name[0] == 'I' && name[1] == 'N' && name[2] == 'K' && name[3] == 'E' && name[4] == 'Y') return FN_INKEY;
         if (len == 6 && name[0] == 'I' && name[1] == 'N' && name[2] == 'K' && name[3] == 'E' && name[4] == 'Y' && name[5] == '$') return FN_INKEY;
         return FN_NONE;
@@ -2283,6 +2287,7 @@ static int function_lookup(const char *name, int len)
             return FN_EXEC;
         return FN_NONE;
     case 'L':
+        if (len == 11 && name[0] == 'L' && name[1] == 'A' && name[2] == 'S' && name[3] == 'T' && name[4] == 'I' && name[5] == 'N' && name[6] == 'D' && name[7] == 'E' && name[8] == 'X' && name[9] == 'O' && name[10] == 'F') return FN_LASTINDEXOF;
         if (len == 3 && name[0] == 'L' && name[1] == 'O' && name[2] == 'G') return FN_LOG;
         if (len == 3 && name[0] == 'L' && name[1] == 'E' && name[2] == 'N') return FN_LEN;
         if ((len == 4 && name[0] == 'L' && name[1] == 'E' && name[2] == 'F' && name[3] == 'T') ||
@@ -2716,7 +2721,7 @@ static void statement_get(char **p)
 /* Evaluate BASIC intrinsic functions (math/string/tab). */
 static struct value eval_function(const char *name, char **p)
 {
-    char tmp[8];
+    char tmp[32];
     struct value arg;
     char outbuf[MAX_STR_LEN];
     int code;
@@ -2773,6 +2778,79 @@ static struct value eval_function(const char *name, char **p)
 #endif
         /* Terminal build: no non-blocking key queue. */
         return make_str("");
+    }
+    if (code == FN_INDEXOF || code == FN_LASTINDEXOF) {
+        /* INDEXOF(arr, value) / LASTINDEXOF(arr, value) - 1-based index, 0 if not found. */
+        char namebuf[VAR_NAME_MAX];
+        int is_string = 0;
+        struct var *arr_var = NULL;
+        struct value v_search;
+        int i;
+
+        if (!isalpha((unsigned char)**p)) {
+            runtime_error("INDEXOF/LASTINDEXOF requires array name");
+            return make_num(0.0);
+        }
+        read_identifier(p, namebuf, sizeof(namebuf));
+        uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
+        for (i = 0; i < var_count; i++) {
+            if (strcmp(vars[i].name, namebuf) == 0 && vars[i].is_string == is_string) {
+                arr_var = &vars[i];
+                break;
+            }
+        }
+        if (!arr_var || !arr_var->is_array || !arr_var->array || arr_var->size <= 0) {
+            runtime_error("INDEXOF/LASTINDEXOF requires 1-D array");
+            return make_num(0.0);
+        }
+        if (arr_var->dims != 1) {
+            runtime_error("INDEXOF/LASTINDEXOF requires 1-D array");
+            return make_num(0.0);
+        }
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error("INDEXOF/LASTINDEXOF requires 2 arguments");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        v_search = eval_expr(p);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+
+        if (arr_var->is_string) {
+            ensure_str(&v_search);
+            if (code == FN_INDEXOF) {
+                for (i = 0; i < arr_var->size; i++) {
+                    if (strcmp(arr_var->array[i].str, v_search.str) == 0) {
+                        return make_num((double)(i + 1));
+                    }
+                }
+            } else {
+                for (i = arr_var->size - 1; i >= 0; i--) {
+                    if (strcmp(arr_var->array[i].str, v_search.str) == 0) {
+                        return make_num((double)(i + 1));
+                    }
+                }
+            }
+        } else {
+            ensure_num(&v_search);
+            if (code == FN_INDEXOF) {
+                for (i = 0; i < arr_var->size; i++) {
+                    if (arr_var->array[i].num == v_search.num) {
+                        return make_num((double)(i + 1));
+                    }
+                }
+            } else {
+                for (i = arr_var->size - 1; i >= 0; i--) {
+                    if (arr_var->array[i].num == v_search.num) {
+                        return make_num((double)(i + 1));
+                    }
+                }
+            }
+        }
+        return make_num(0.0);
     }
     arg = eval_expr(p);
     skip_spaces(p);
@@ -3893,7 +3971,7 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "UCASE") || starts_with_kw(*p, "LCASE") ||
             starts_with_kw(*p, "INSTR") || starts_with_kw(*p, "DEC") || starts_with_kw(*p, "HEX") ||
             starts_with_kw(*p, "REPLACE") || starts_with_kw(*p, "TRIM") || starts_with_kw(*p, "LTRIM") || starts_with_kw(*p, "RTRIM") ||
-            starts_with_kw(*p, "FIELD") ||
+            starts_with_kw(*p, "FIELD") || starts_with_kw(*p, "INDEXOF") || starts_with_kw(*p, "LASTINDEXOF") ||
             starts_with_kw(*p, "ARGC") || starts_with_kw(*p, "ARG") ||
             starts_with_kw(*p, "SYSTEM") || starts_with_kw(*p, "EXEC") ||
             starts_with_kw(*p, "PEEK") || starts_with_kw(*p, "INKEY")) {

@@ -109,7 +109,7 @@
 | **3** | RESTORE [line] | Tiny; useful for DATA-heavy programs. |
 | **4** | LOAD INTO memory | GFX; unblocks charsets/sprites. Can parallel with string work. |
 | ~**5**~ | ~String utils batch 2: SORT, SPLIT, JOIN, FIELD$~ | Done. |
-| **6** | INDEXOF, LASTINDEXOF | After SPLIT; array search. |
+| ~**6**~ | ~INDEXOF, LASTINDEXOF~ | Done. |
 | **7** | MEMSET, MEMCPY | GFX; complements LOAD. |
 | **8** | ENV$, PLATFORM$, JSON$ | ENV$ and PLATFORM$ trivial; JSON$ needs parser. PLATFORM$() returns "linux-terminal", "mac-gfx", etc. |
 | **9** | 80-column option | Improves legibility. |
