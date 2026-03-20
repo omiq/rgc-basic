@@ -2216,6 +2216,23 @@ static void print_value(struct value *v)
                     }
                     continue;
                 }
+                /* Consume ANSI escape sequences (e.g. {RESET} -> ESC[0m); don't render as glyphs. */
+                if (c == 0x1b) {
+                    s++;
+                    if (*s == '[') {
+                        s++;
+                        while (*s && (*s < 0x40 || *s > 0x7E)) s++;
+                        if (*s == 'm') {
+                            /* SGR sequence — treat [0m as reset to default */
+                            gfx_fg = 1;  /* white */
+                            gfx_reverse = 0;
+                        }
+                        if (*s) s++;
+                    } else if (*s) {
+                        s++;  /* skip one byte for non-CSI escape */
+                    }
+                    continue;
+                }
                 gfx_put_byte(c);
                 s++;
                 continue;
