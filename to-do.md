@@ -108,7 +108,7 @@
 | **2** | String utils batch 1: INSTR start, REPLACE, TRIM$ | Quick wins; no new types; high impact for CSV/shell. |
 | **3** | RESTORE [line] | Tiny; useful for DATA-heavy programs. |
 | **4** | LOAD INTO memory | GFX; unblocks charsets/sprites. Can parallel with string work. |
-| **5** | String utils batch 2: SORT, SPLIT, JOIN, FIELD$ | SORT first (simpler); SPLIT needs array semantics. |
+| ~**5**~ | ~String utils batch 2: SORT, SPLIT, JOIN, FIELD$~ | Done. |
 | **6** | INDEXOF, LASTINDEXOF | After SPLIT; array search. |
 | **7** | MEMSET, MEMCPY | GFX; complements LOAD. |
 | **8** | ENV$, PLATFORM$, JSON$ | ENV$ and PLATFORM$ trivial; JSON$ needs parser. PLATFORM$() returns "linux-terminal", "mac-gfx", etc. |
