@@ -68,7 +68,7 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
 
 - **Meta directives** (load-time, `#` prefix) — see `docs/meta-directives-plan.md`:
   - Shebang: `#!/usr/bin/env basic` on first line (ignored).
-  - `#OPTION petscii` / `#OPTION charset lower` / `#OPTION palette c64` — mirror command-line options; file overrides CLI.
+  - `#OPTION petscii` / `#OPTION charset lower` / `#OPTION palette c64` / `#OPTION maxstr 255` — mirror command-line options; file overrides CLI.
   - `#INCLUDE "path"` — splice another file at that point. Recommend numberless mode when using includes; duplicate line numbers and labels error.
 - **Programs with or without line numbers**
   - Classic **line-numbered programs** loaded from a text file (`10 ...`, `20 ...`, etc.).
@@ -221,6 +221,7 @@ viewing .seq files or pasting output into a fixed-width editor).
   - `lower`: C64 **lowercase/uppercase** character set (useful for `.seq` art that uses lowercase letters).
 - `-palette ansi|c64`: choose how PETSCII colors are mapped (only in `-petscii` mode):
   - `ansi` (default): map colors to standard 16-color ANSI SGR codes.
+- `-maxstr N`: maximum string length (1–4096); default 4096. Use `-maxstr 255` for C64 compatibility. Can also be set with `#OPTION maxstr 255`.
   - `c64` or `c64-8bit`: use 8‑bit (`38;5;N`) color indices chosen to approximate
   the classic C64 palette. This is most consistent on terminals that support 256 colors.
 
@@ -267,7 +268,7 @@ In `-petscii` mode, `CHR$` behaves in a C64-like way: control and color codes ar
 If you do not pass a file name, the interpreter will print usage information:
 
 ```text
-Usage: basic [-petscii] [-petscii-plain] [-palette ansi|c64] <program.bas>
+Usage: basic [-petscii] [-petscii-plain] [-palette ansi|c64] [-maxstr N] <program.bas>
 ```
 
 ### Shell scripting: standard I/O and arguments

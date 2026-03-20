@@ -477,9 +477,11 @@ static char *normalize_keywords_line(const char *input)
             }
 
             /* FOR followed immediately by identifier/digit: FORI=1TO9 -> FOR I=1TO9 */
+            /* Do not split PLATFORM, BEFORE, etc. — only when FOR is a whole word. */
             if (c1 == 'F' && c2 == 'O' && c3 == 'R') {
                 char next = input[i + 3];
-                if (next != '\0' && !isspace((unsigned char)next) && next != ':' ) {
+                int prev_ident = (i > 0 && (isalnum((unsigned char)input[i-1]) || input[i-1] == '$' || input[i-1] == '_'));
+                if (!prev_ident && next != '\0' && !isspace((unsigned char)next) && next != ':' ) {
                     if (out.len > 0) {
                         char prev = out.buf[out.len - 1];
                         if (!isspace((unsigned char)prev) && prev != ':' && prev != '(') {
@@ -747,7 +749,7 @@ static char include_path_store[MAX_INCLUDE_DEPTH][MAX_INCLUDE_PATH];
 #define VAR_NAME_MAX 32
 #define MAX_GOSUB 64
 #define MAX_FOR 32
-#define MAX_STR_LEN 256
+#define MAX_STR_LEN 4096  /* default max; #OPTION maxstr N can reduce for C64 compatibility */
 #define DEFAULT_ARRAY_SIZE 11
 #define PRINT_WIDTH 40
 #ifndef TICKS_PER_SEC_FALLBACK
@@ -881,9 +883,13 @@ static int user_func_count = 0;
 
 /* DATA/READ support */
 #define MAX_DATA_ITEMS 4096
+#define MAX_DATA_LINES 128
 static struct value data_items[MAX_DATA_ITEMS];
 static int data_count = 0;
 static int data_index = 0;
+static int data_line_count = 0;
+static int data_line_numbers[MAX_DATA_LINES];
+static int data_line_start_index[MAX_DATA_LINES];
 
 /* File I/O: logical file numbers 1-255, CBM-style OPEN/CLOSE/PRINT#/INPUT#/GET#.
  * Device 1 = disk/file (filename required). Secondary: 0=read, 1=write, 2=append.
@@ -1166,6 +1172,8 @@ enum {
 static int palette_mode = PALETTE_ANSI;
 static int cursor_hidden = 0;
 static int petscii_lowercase_opt = 0;
+/* Max string length (1..MAX_STR_LEN); default 4096; #OPTION maxstr 255 for C64 compatibility. */
+static int max_str_limit = 4096;
 
 /* Case-insensitive string compare. */
 static int str_eq_ci(const char *a, const char *b)
@@ -1219,6 +1227,15 @@ static int apply_option_directive(const char *name, const char *value)
             return 0;
         }
         return -1;
+    }
+    if (str_eq_ci(name, "maxstr")) {
+        int n;
+        char *end;
+        if (!value || !value[0]) return -1;
+        n = (int)strtol(value, &end, 10);
+        if (end == value || *end != '\0' || n < 1 || n > MAX_STR_LEN) return -1;
+        max_str_limit = n;
+        return 0;
     }
 #ifdef GFX_VIDEO
     if (str_eq_ci(name, "gfx_title") || str_eq_ci(name, "gfx-title")) {
@@ -1331,6 +1348,7 @@ static int starts_with_kw(char *p, const char *kw);
 static void skip_spaces(char **p);
 static int parse_number_literal(char **p, double *out);
 static int read_identifier(char **p, char *buf, int buf_size);
+static void uppercase_name(const char *src, char *dest, int dest_size, int *is_string);
 static char *dupstr_local(const char *s);
 static struct value eval_expr(char **p);
 static int eval_condition(char **p);
@@ -1343,6 +1361,9 @@ static struct value eval_function(const char *name, char **p);
 static int user_func_lookup(const char *name);
 static void collect_data_from_program(void);
 static void statement_read(char **p);
+static void statement_load(char **p);
+static void statement_memset(char **p);
+static void statement_memcpy(char **p);
 static void print_value(struct value *v);
 static void print_spaces(int count);
 static void statement_sleep(char **p);
@@ -1353,6 +1374,9 @@ static void do_sleep_ticks(double ticks);
 static void statement_locate(char **p);
 static void statement_on(char **p);
 static void statement_clr(char **p);
+static void statement_sort(char **p);
+static void statement_split(char **p);
+static void statement_join(char **p);
 static void statement_open(char **p);
 static void statement_close(char **p);
 static void statement_print_hash(char **p);
@@ -1410,7 +1434,16 @@ enum func_code {
     FN_HEX = 29,
     FN_STRINGFN = 30,
     FN_PEEK = 31,
-    FN_INKEY = 32
+    FN_INKEY = 32,
+    FN_REPLACE = 33,
+    FN_TRIM = 34,
+    FN_LTRIM = 35,
+    FN_RTRIM = 36,
+    FN_FIELD = 37,
+    FN_INDEXOF = 38,
+    FN_LASTINDEXOF = 39,
+    FN_ENV = 40,
+    FN_PLATFORM = 41
 };
 
 /* Report an error and halt further execution.
@@ -1551,13 +1584,14 @@ static char *dupstr_local(const char *s)
 static const char *const reserved_words[] = {
     "AND", "ARG", "ARGC", "ASC", "BACKGROUND", "CHR", "CLOSE", "CLR", "COLOR",
     "COLOUR", "COS", "CURSOR", "DATA", "DEC", "DEF", "DIM", "DOWN", "END", "FUNCTION",
-    "ELSE", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
-    "INKEY", "INPUT", "INSTR", "INT", "LEFT", "LEN", "LET", "LOCATE", "LOG",
-    "LCASE", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PRINT",
+    "ELSE", "ENV", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
+    "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "LEFT", "LEN", "LET", "LOAD", "LOCATE", "LOG",
+    "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRINT",
     "XOR",
-    "READ", "REM", "RESTORE", "RETURN", "RIGHT", "RND", "RVS", "SCREENCODES",
-    "SGN", "SIN", "SLEEP", "SPC", "SQR", "STEP", "STOP", "STR", "STRING",
-    "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "UCASE",     "VAL", "WEND", "WHILE",
+    "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCREENCODES",
+    "JOIN",
+    "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SQR", "STEP", "STOP", "STR", "STRING",
+    "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "TRIM", "UCASE", "VAL", "WEND", "WHILE",
     "DO", "LOOP", "UNTIL", "EXIT",
     NULL
 };
@@ -1609,10 +1643,17 @@ static struct value make_num(double v)
 static struct value make_str(const char *s)
 {
     struct value out;
+    size_t lim;
     out.type = VAL_STR;
     out.num = 0.0;
-    strncpy(out.str, s, MAX_STR_LEN - 1);
-    out.str[MAX_STR_LEN - 1] = '\0';
+    lim = (size_t)max_str_limit;
+    if (lim > MAX_STR_LEN - 1) lim = MAX_STR_LEN - 1;
+    {
+        size_t len = strlen(s);
+        if (len > lim) len = lim;
+        memcpy(out.str, s, len);
+        out.str[len] = '\0';
+    }
     return out;
 }
 
@@ -2101,6 +2142,7 @@ static void collect_data_from_program(void)
     int i;
     data_count = 0;
     data_index = 0;
+    data_line_count = 0;
     for (i = 0; i < line_count && data_count < MAX_DATA_ITEMS; i++) {
         char *p;
         if (!program_lines[i] || !program_lines[i]->text) {
@@ -2112,6 +2154,11 @@ static void collect_data_from_program(void)
         }
         if (!starts_with_kw(p, "DATA")) {
             continue;
+        }
+        if (data_line_count < MAX_DATA_LINES) {
+            data_line_numbers[data_line_count] = program_lines[i]->number;
+            data_line_start_index[data_line_count] = data_count;
+            data_line_count++;
         }
         p += 4;
         for (;;) {
@@ -2356,6 +2403,9 @@ static int function_lookup(const char *name, int len)
     case 'T':
         if (len == 3 && name[0] == 'T' && name[1] == 'A' && name[2] == 'N') return FN_TAN;
         if (len == 3 && name[0] == 'T' && name[1] == 'A' && name[2] == 'B') return FN_TAB;
+        if ((len == 4 && name[0] == 'T' && name[1] == 'R' && name[2] == 'I' && name[3] == 'M') ||
+            (len == 5 && name[0] == 'T' && name[1] == 'R' && name[2] == 'I' && name[3] == 'M' && name[4] == '$'))
+            return FN_TRIM;
         return FN_NONE;
     case 'A':
         if (len == 3 && name[0] == 'A' && name[1] == 'B' && name[2] == 'S') return FN_ABS;
@@ -2367,16 +2417,21 @@ static int function_lookup(const char *name, int len)
     case 'I':
         if (len == 3 && name[0] == 'I' && name[1] == 'N' && name[2] == 'T') return FN_INT;
         if (len == 5 && name[0] == 'I' && name[1] == 'N' && name[2] == 'S' && name[3] == 'T' && name[4] == 'R') return FN_INSTR;
+        if (len == 7 && name[0] == 'I' && name[1] == 'N' && name[2] == 'D' && name[3] == 'E' && name[4] == 'X' && name[5] == 'O' && name[6] == 'F') return FN_INDEXOF;
         if (len == 5 && name[0] == 'I' && name[1] == 'N' && name[2] == 'K' && name[3] == 'E' && name[4] == 'Y') return FN_INKEY;
         if (len == 6 && name[0] == 'I' && name[1] == 'N' && name[2] == 'K' && name[3] == 'E' && name[4] == 'Y' && name[5] == '$') return FN_INKEY;
         return FN_NONE;
     case 'E':
         if (len == 3 && name[0] == 'E' && name[1] == 'X' && name[2] == 'P') return FN_EXP;
+        if ((len == 4 && name[0] == 'E' && name[1] == 'N' && name[2] == 'V') ||
+            (len == 5 && name[0] == 'E' && name[1] == 'N' && name[2] == 'V' && name[3] == '$'))
+            return FN_ENV;
         if ((len == 4 && name[0] == 'E' && name[1] == 'X' && name[2] == 'E' && name[3] == 'C') ||
             (len == 5 && name[0] == 'E' && name[1] == 'X' && name[2] == 'E' && name[3] == 'C' && name[4] == '$'))
             return FN_EXEC;
         return FN_NONE;
     case 'L':
+        if (len == 11 && name[0] == 'L' && name[1] == 'A' && name[2] == 'S' && name[3] == 'T' && name[4] == 'I' && name[5] == 'N' && name[6] == 'D' && name[7] == 'E' && name[8] == 'X' && name[9] == 'O' && name[10] == 'F') return FN_LASTINDEXOF;
         if (len == 3 && name[0] == 'L' && name[1] == 'O' && name[2] == 'G') return FN_LOG;
         if (len == 3 && name[0] == 'L' && name[1] == 'E' && name[2] == 'N') return FN_LEN;
         if ((len == 4 && name[0] == 'L' && name[1] == 'E' && name[2] == 'F' && name[3] == 'T') ||
@@ -2385,6 +2440,9 @@ static int function_lookup(const char *name, int len)
         if ((len == 5 && name[0] == 'L' && name[1] == 'C' && name[2] == 'A' && name[3] == 'S' && name[4] == 'E') ||
             (len == 6 && name[0] == 'L' && name[1] == 'C' && name[2] == 'A' && name[3] == 'S' && name[4] == 'E' && name[5] == '$'))
             return FN_LCASE;
+        if ((len == 5 && name[0] == 'L' && name[1] == 'T' && name[2] == 'R' && name[3] == 'I' && name[4] == 'M') ||
+            (len == 6 && name[0] == 'L' && name[1] == 'T' && name[2] == 'R' && name[3] == 'I' && name[4] == 'M' && name[5] == '$'))
+            return FN_LTRIM;
         return FN_NONE;
     case 'M':
         if ((len == 3 && name[0] == 'M' && name[1] == 'I' && name[2] == 'D') ||
@@ -2396,6 +2454,12 @@ static int function_lookup(const char *name, int len)
         if ((len == 5 && name[0] == 'R' && name[1] == 'I' && name[2] == 'G' && name[3] == 'H' && name[4] == 'T') ||
             (len == 6 && name[0] == 'R' && name[1] == 'I' && name[2] == 'G' && name[3] == 'H' && name[4] == 'T' && name[5] == '$'))
             return FN_RIGHT;
+        if ((len == 7 && name[0] == 'R' && name[1] == 'E' && name[2] == 'P' && name[3] == 'L' && name[4] == 'A' && name[5] == 'C' && name[6] == 'E') ||
+            (len == 8 && name[0] == 'R' && name[1] == 'E' && name[2] == 'P' && name[3] == 'L' && name[4] == 'A' && name[5] == 'C' && name[6] == 'E' && name[7] == '$'))
+            return FN_REPLACE;
+        if ((len == 5 && name[0] == 'R' && name[1] == 'T' && name[2] == 'R' && name[3] == 'I' && name[4] == 'M') ||
+            (len == 6 && name[0] == 'R' && name[1] == 'T' && name[2] == 'R' && name[3] == 'I' && name[4] == 'M' && name[5] == '$'))
+            return FN_RTRIM;
         return FN_NONE;
     case 'V':
         if (len == 3 && name[0] == 'V' && name[1] == 'A' && name[2] == 'L') return FN_VAL;
@@ -2410,11 +2474,19 @@ static int function_lookup(const char *name, int len)
         return FN_NONE;
     case 'P':
         if (len == 4 && name[0] == 'P' && name[1] == 'E' && name[2] == 'E' && name[3] == 'K') return FN_PEEK;
+        if ((len == 8 && name[0] == 'P' && name[1] == 'L' && name[2] == 'A' && name[3] == 'T' && name[4] == 'F' && name[5] == 'O' && name[6] == 'R' && name[7] == 'M') ||
+            (len == 9 && name[0] == 'P' && name[1] == 'L' && name[2] == 'A' && name[3] == 'T' && name[4] == 'F' && name[5] == 'O' && name[6] == 'R' && name[7] == 'M' && name[8] == '$'))
+            return FN_PLATFORM;
         return FN_NONE;
     case 'U':
         if ((len == 5 && name[0] == 'U' && name[1] == 'C' && name[2] == 'A' && name[3] == 'S' && name[4] == 'E') ||
             (len == 6 && name[0] == 'U' && name[1] == 'C' && name[2] == 'A' && name[3] == 'S' && name[4] == 'E' && name[5] == '$'))
             return FN_UCASE;
+        return FN_NONE;
+    case 'F':
+        if ((len == 5 && name[0] == 'F' && name[1] == 'I' && name[2] == 'E' && name[3] == 'L' && name[4] == 'D') ||
+            (len == 6 && name[0] == 'F' && name[1] == 'I' && name[2] == 'E' && name[3] == 'L' && name[4] == 'D' && name[5] == '$'))
+            return FN_FIELD;
         return FN_NONE;
     default:
         return FN_NONE;
@@ -2796,8 +2868,8 @@ static void statement_get(char **p)
 /* Evaluate BASIC intrinsic functions (math/string/tab). */
 static struct value eval_function(const char *name, char **p)
 {
-    (void)name;  /* caller passes it; we re-read via read_identifier for consistency */
-    char tmp[8];
+    (void)name;
+    char tmp[32];
     struct value arg;
     char outbuf[MAX_STR_LEN];
     int code;
@@ -2855,6 +2927,109 @@ static struct value eval_function(const char *name, char **p)
         /* Terminal build: no non-blocking key queue. */
         return make_str("");
     }
+    if (code == FN_PLATFORM) {
+        if (**p != ')') {
+            runtime_error("PLATFORM$ takes no arguments");
+            return make_str("");
+        }
+        (*p)++;
+        skip_spaces(p);
+        {
+            const char *plat;
+#if defined(_WIN32)
+            plat = "windows-terminal";
+#elif defined(__APPLE__)
+            plat = "mac-terminal";
+#else
+            plat = "linux-terminal";
+#endif
+#ifdef GFX_VIDEO
+            if (gfx_vs) {
+#if defined(_WIN32)
+                plat = "windows-gfx";
+#elif defined(__APPLE__)
+                plat = "mac-gfx";
+#else
+                plat = "linux-gfx";
+#endif
+            }
+#endif
+            return make_str(plat);
+        }
+    }
+    if (code == FN_INDEXOF || code == FN_LASTINDEXOF) {
+        /* INDEXOF(arr, value) / LASTINDEXOF(arr, value) - 1-based index, 0 if not found. */
+        char namebuf[VAR_NAME_MAX];
+        int is_string = 0;
+        struct var *arr_var = NULL;
+        struct value v_search;
+        int i;
+
+        if (!isalpha((unsigned char)**p)) {
+            runtime_error("INDEXOF/LASTINDEXOF requires array name");
+            return make_num(0.0);
+        }
+        read_identifier(p, namebuf, sizeof(namebuf));
+        uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
+        for (i = 0; i < var_count; i++) {
+            if (strcmp(vars[i].name, namebuf) == 0 && vars[i].is_string == is_string) {
+                arr_var = &vars[i];
+                break;
+            }
+        }
+        if (!arr_var || !arr_var->is_array || !arr_var->array || arr_var->size <= 0) {
+            runtime_error("INDEXOF/LASTINDEXOF requires 1-D array");
+            return make_num(0.0);
+        }
+        if (arr_var->dims != 1) {
+            runtime_error("INDEXOF/LASTINDEXOF requires 1-D array");
+            return make_num(0.0);
+        }
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error("INDEXOF/LASTINDEXOF requires 2 arguments");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        v_search = eval_expr(p);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+
+        if (arr_var->is_string) {
+            ensure_str(&v_search);
+            if (code == FN_INDEXOF) {
+                for (i = 0; i < arr_var->size; i++) {
+                    if (strcmp(arr_var->array[i].str, v_search.str) == 0) {
+                        return make_num((double)(i + 1));
+                    }
+                }
+            } else {
+                for (i = arr_var->size - 1; i >= 0; i--) {
+                    if (strcmp(arr_var->array[i].str, v_search.str) == 0) {
+                        return make_num((double)(i + 1));
+                    }
+                }
+            }
+        } else {
+            ensure_num(&v_search);
+            if (code == FN_INDEXOF) {
+                for (i = 0; i < arr_var->size; i++) {
+                    if (arr_var->array[i].num == v_search.num) {
+                        return make_num((double)(i + 1));
+                    }
+                }
+            } else {
+                for (i = arr_var->size - 1; i >= 0; i--) {
+                    if (arr_var->array[i].num == v_search.num) {
+                        return make_num((double)(i + 1));
+                    }
+                }
+            }
+        }
+        return make_num(0.0);
+    }
     arg = eval_expr(p);
     skip_spaces(p);
 
@@ -2863,7 +3038,9 @@ static struct value eval_function(const char *name, char **p)
      * the closing ')'. For all other intrinsics we expect exactly one
      * argument and consume ')' here so the caller resumes after it.
      */
-    if (code != FN_MID && code != FN_LEFT && code != FN_RIGHT && code != FN_INSTR && code != FN_STRINGFN) {
+    if (code != FN_MID && code != FN_LEFT && code != FN_RIGHT && code != FN_INSTR && code != FN_STRINGFN &&
+        code != FN_REPLACE && code != FN_TRIM && code != FN_LTRIM && code != FN_RTRIM &&
+        code != FN_FIELD && code != FN_PLATFORM) {
         if (**p == ')') {
             (*p)++;
         } else {
@@ -3275,17 +3452,18 @@ static struct value eval_function(const char *name, char **p)
         }
     }
     case FN_INSTR: {
-        /* INSTR(source$, search$) -> 1-based index or 0 if not found. */
+        /* INSTR(source$, search$ [, start]) -> 1-based index or 0 if not found. */
         struct value v_source = arg;
         struct value v_search;
         int s_len;
         int sub_len;
+        int start_pos = 0;  /* 0-based; default 0 = search from beginning */
         int i;
 
         ensure_str(&v_source);
         skip_spaces(p);
         if (**p != ',') {
-            runtime_error("INSTR requires 2 arguments");
+            runtime_error("INSTR requires at least 2 arguments");
             return make_num(0.0);
         }
         (*p)++;
@@ -3293,6 +3471,16 @@ static struct value eval_function(const char *name, char **p)
         v_search = eval_expr(p);
         ensure_str(&v_search);
         skip_spaces(p);
+        if (**p == ',') {
+            struct value v_start;
+            (*p)++;
+            skip_spaces(p);
+            v_start = eval_expr(p);
+            ensure_num(&v_start);
+            start_pos = (int)v_start.num - 1;  /* convert 1-based to 0-based */
+            if (start_pos < 0) start_pos = 0;
+            skip_spaces(p);
+        }
         if (**p == ')') {
             (*p)++;
         } else {
@@ -3302,15 +3490,100 @@ static struct value eval_function(const char *name, char **p)
 
         s_len = (int)strlen(v_source.str);
         sub_len = (int)strlen(v_search.str);
-        if (sub_len == 0 || s_len == 0) {
+        if (sub_len == 0 || s_len == 0 || start_pos >= s_len) {
             return make_num(0.0);
         }
-        for (i = 0; i <= s_len - sub_len; i++) {
+        if (start_pos + sub_len > s_len) {
+            return make_num(0.0);
+        }
+        for (i = start_pos; i <= s_len - sub_len; i++) {
             if (strncmp(v_source.str + i, v_search.str, (size_t)sub_len) == 0) {
                 return make_num((double)(i + 1));
             }
         }
         return make_num(0.0);
+    }
+    case FN_REPLACE: {
+        /* REPLACE(str$, find$, repl$) - replace all occurrences. */
+        struct value v_str = arg;
+        struct value v_find;
+        struct value v_repl;
+        char out[MAX_STR_LEN];
+        int pos, len, flen, rlen;
+        size_t out_len;
+
+        ensure_str(&v_str);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error("REPLACE requires 3 arguments");
+            return make_str("");
+        }
+        (*p)++;
+        skip_spaces(p);
+        v_find = eval_expr(p);
+        ensure_str(&v_find);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error("REPLACE requires 3 arguments");
+            return make_str("");
+        }
+        (*p)++;
+        skip_spaces(p);
+        v_repl = eval_expr(p);
+        ensure_str(&v_repl);
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error("Missing ')'");
+            return make_str("");
+        }
+        (*p)++;
+
+        len = (int)strlen(v_str.str);
+        flen = (int)strlen(v_find.str);
+        rlen = (int)strlen(v_repl.str);
+        if (flen == 0) return make_str(v_str.str);
+        out_len = 0;
+        pos = 0;
+        while (pos <= len - flen && out_len < (size_t)(max_str_limit - 1)) {
+            if (strncmp(v_str.str + pos, v_find.str, (size_t)flen) == 0) {
+                for (int j = 0; j < rlen && out_len < (size_t)(max_str_limit - 1); j++)
+                    out[out_len++] = v_repl.str[j];
+                pos += flen;
+            } else {
+                out[out_len++] = v_str.str[pos++];
+            }
+        }
+        while (pos < len && out_len < (size_t)(max_str_limit - 1))
+            out[out_len++] = v_str.str[pos++];
+        out[out_len] = '\0';
+        return make_str(out);
+    }
+    case FN_TRIM:
+    case FN_LTRIM:
+    case FN_RTRIM: {
+        /* TRIM$(s$), LTRIM$(s$), RTRIM$(s$) - remove leading/trailing whitespace. */
+        const char *s;
+        const char *start, *end;
+        size_t n;
+
+        ensure_str(&arg);
+        s = arg.str;
+        start = s;
+        end = s + strlen(s);
+        if (code != FN_RTRIM) {
+            while (start < end && isspace((unsigned char)*start)) start++;
+        }
+        if (code != FN_LTRIM) {
+            while (end > start && isspace((unsigned char)end[-1])) end--;
+        }
+        n = (size_t)(end - start);
+        if (n > (size_t)(max_str_limit - 1)) n = (size_t)(max_str_limit - 1);
+        memcpy(outbuf, start, n);
+        outbuf[n] = '\0';
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        return make_str(outbuf);
     }
     case FN_DEC: {
         /* DEC(s$): parse hexadecimal string into numeric value. */
@@ -3361,9 +3634,8 @@ static struct value eval_function(const char *name, char **p)
         if (count <= 0) {
             return make_str("");
         }
-        if (count >= MAX_STR_LEN) {
-            count = MAX_STR_LEN - 1;
-        }
+        if (count > max_str_limit) count = max_str_limit;
+        if (count >= MAX_STR_LEN) count = MAX_STR_LEN - 1;
 
         if (v_ch.type == VAL_STR) {
             if (v_ch.str[0] == '\0') {
@@ -3436,6 +3708,73 @@ static struct value eval_function(const char *name, char **p)
         ensure_str(&arg);
         do_exec(arg.str, outbuf, sizeof(outbuf));
         return make_str(outbuf);
+    }
+    case FN_ENV: {
+        const char *val;
+        ensure_str(&arg);
+        val = getenv(arg.str);
+        return make_str(val ? val : "");
+    }
+    case FN_FIELD: {
+        /* FIELD$(str$, delim$, n) - get Nth field (1-based), awk-like. */
+        struct value v_str = arg;
+        struct value v_delim;
+        struct value v_n;
+        const char *s;
+        const char *delim;
+        size_t dlen;
+        int n, idx;
+        const char *start, *end;
+
+        ensure_str(&v_str);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error("FIELD$ requires 3 arguments");
+            return make_str("");
+        }
+        (*p)++;
+        skip_spaces(p);
+        v_delim = eval_expr(p);
+        ensure_str(&v_delim);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error("FIELD$ requires 3 arguments");
+            return make_str("");
+        }
+        (*p)++;
+        skip_spaces(p);
+        v_n = eval_expr(p);
+        ensure_num(&v_n);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+
+        n = (int)v_n.num;
+        if (n < 1) return make_str("");
+        s = v_str.str;
+        delim = v_delim.str;
+        dlen = strlen(delim);
+        if (dlen == 0) return make_str("");
+        idx = 0;
+        start = s;
+        for (;;) {
+            if (idx + 1 == n) {
+                end = strstr(start, delim);
+                if (end == NULL) end = s + strlen(s);
+                {
+                    size_t len = (size_t)(end - start);
+                    if (len >= MAX_STR_LEN) len = MAX_STR_LEN - 1;
+                    if (len > (size_t)(max_str_limit - 1)) len = (size_t)(max_str_limit - 1);
+                    memcpy(outbuf, start, len);
+                    outbuf[len] = '\0';
+                    return make_str(outbuf);
+                }
+            }
+            end = strstr(start, delim);
+            if (end == NULL) return make_str("");
+            idx++;
+            start = end + dlen;
+        }
     }
     default:
         runtime_error("Unknown function");
@@ -3750,7 +4089,7 @@ static struct value eval_factor(char **p)
         int i;
         (*p)++;
         i = 0;
-        while (**p && **p != '\"' && i < MAX_STR_LEN - 1) {
+        while (**p && **p != '\"' && i < MAX_LINE_LEN - 1) {
             buf[i++] = **p;
             (*p)++;
         }
@@ -3818,10 +4157,13 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "LEFT") || starts_with_kw(*p, "RIGHT") || starts_with_kw(*p, "STRING") ||
             starts_with_kw(*p, "UCASE") || starts_with_kw(*p, "LCASE") ||
             starts_with_kw(*p, "INSTR") || starts_with_kw(*p, "DEC") || starts_with_kw(*p, "HEX") ||
+            starts_with_kw(*p, "REPLACE") || starts_with_kw(*p, "TRIM") || starts_with_kw(*p, "LTRIM") || starts_with_kw(*p, "RTRIM") ||
+            starts_with_kw(*p, "FIELD") || starts_with_kw(*p, "INDEXOF") || starts_with_kw(*p, "LASTINDEXOF") ||
+            starts_with_kw(*p, "ENV") || starts_with_kw(*p, "PLATFORM") ||
             starts_with_kw(*p, "ARGC") || starts_with_kw(*p, "ARG") ||
             starts_with_kw(*p, "SYSTEM") || starts_with_kw(*p, "EXEC") ||
             starts_with_kw(*p, "PEEK") || starts_with_kw(*p, "INKEY")) {
-            char namebuf[8];
+            char namebuf[32];
             char *q;
             q = *p;
             read_identifier(&q, namebuf, sizeof(namebuf));
@@ -4027,9 +4369,14 @@ static struct value eval_addsub(char **p)
             right = eval_term(p);
             if (op == '+') {
                 if (left.type == VAL_STR || right.type == VAL_STR) {
+                    size_t cur, avail;
                     ensure_str(&left);
                     ensure_str(&right);
-                    strncat(left.str, right.str, MAX_STR_LEN - strlen(left.str) - 1);
+                    cur = strlen(left.str);
+                    avail = (size_t)max_str_limit - cur;
+                    if (avail > MAX_STR_LEN - 1 - cur) avail = MAX_STR_LEN - 1 - cur;
+                    if (avail > 0) strncat(left.str, right.str, avail);
+                    left.str[max_str_limit] = '\0';
                 } else {
                     left.num += right.num;
                 }
@@ -4124,6 +4471,11 @@ static int eval_simple_condition(char **p)
     skip_spaces(p);
     left = eval_expr(p);
     skip_spaces(p);
+    /* Workaround: TRIM$, REPLACE etc. may leave ')' unconsumed; consume before relational op */
+    if (**p == ')') {
+        (*p)++;
+        skip_spaces(p);
+    }
     op1 = **p;
     op2 = *(*p + 1);
 
@@ -4532,11 +4884,264 @@ static void statement_on(char **p)
     /* If index is out of range, ON expression simply falls through. */
 }
 
-/* RESTORE: reset DATA pointer so the next READ gets the first DATA value (C64 BASIC V2). */
+/* LOAD "path" INTO addr [, length] or LOAD @label INTO addr [, length].
+ * GFX-only: loads raw bytes into virtual memory via gfx_poke. */
+static void statement_load(char **p)
+{
+    char pathbuf[MAX_INCLUDE_PATH];
+    int from_label = 0;
+    char labelbuf[32];
+    int addr, len_limit = -1;
+    int i, count = 0;
+    skip_spaces(p);
+    if (**p == '@') {
+        from_label = 1;
+        (*p)++;
+        skip_spaces(p);
+        if (!isalpha((unsigned char)**p)) {
+            runtime_error("LOAD @label: expected label name");
+            return;
+        }
+        {
+            char *q = *p;
+            int j = 0;
+            while ((isalpha((unsigned char)*q) || isdigit((unsigned char)*q) || *q == '$' || *q == '_') && j < (int)sizeof(labelbuf) - 1)
+                labelbuf[j++] = (char)*q++;
+            labelbuf[j] = '\0';
+            *p = q;
+            for (j = 0; labelbuf[j]; j++)
+                labelbuf[j] = (char)toupper((unsigned char)labelbuf[j]);
+        }
+    } else if (**p == '"' || **p == '\'') {
+        char quote = **p;
+        (*p)++;
+        i = 0;
+        while (**p && **p != quote && i < (int)sizeof(pathbuf) - 1)
+            pathbuf[i++] = (char)*(*p)++;
+        pathbuf[i] = '\0';
+        if (**p == quote) (*p)++;
+    } else {
+        runtime_error("LOAD: expected \"path\" or @label");
+        return;
+    }
+    skip_spaces(p);
+    if (!starts_with_kw(*p, "INTO")) {
+        runtime_error("LOAD: expected INTO");
+        return;
+    }
+    *p += 4;
+    skip_spaces(p);
+    {
+        struct value v = eval_expr(p);
+        ensure_num(&v);
+        addr = (int)v.num & 0xFFFF;
+    }
+    skip_spaces(p);
+    if (**p == ',') {
+        (*p)++;
+        skip_spaces(p);
+        {
+            struct value v = eval_expr(p);
+            ensure_num(&v);
+            len_limit = (int)v.num;
+            if (len_limit < 0) len_limit = 0;
+        }
+    }
+#ifdef GFX_VIDEO
+    if (!gfx_vs) {
+        runtime_error("LOAD INTO: no graphics context");
+        return;
+    }
+    if (from_label) {
+        int label_line_idx, label_line_no, next_label_line_no, di_start, di_end;
+        label_line_idx = find_label_line(labelbuf);
+        if (label_line_idx < 0) {
+            runtime_error("LOAD @label: label not found");
+            return;
+        }
+        label_line_no = program_lines[label_line_idx] ? program_lines[label_line_idx]->number : 0;
+        next_label_line_no = 999999;
+        for (i = 0; i < label_count; i++) {
+            if (label_table[i].line_index == label_line_idx) continue;
+            {
+                int ln = program_lines[label_table[i].line_index] ? program_lines[label_table[i].line_index]->number : 0;
+                if (ln > label_line_no && ln < next_label_line_no)
+                    next_label_line_no = ln;
+            }
+        }
+        di_start = data_count;
+        di_end = data_count;
+        for (i = 0; i < data_line_count; i++) {
+            if (data_line_numbers[i] >= label_line_no && data_line_numbers[i] < next_label_line_no) {
+                if (di_start == data_count) di_start = data_line_start_index[i];
+                di_end = (i + 1 < data_line_count) ? data_line_start_index[i + 1] : data_count;
+            }
+        }
+        count = di_end - di_start;
+        if (len_limit >= 0 && count > len_limit) count = len_limit;
+        for (i = 0; i < count; i++) {
+            struct value *v = &data_items[di_start + i];
+            uint8_t b;
+            if (v->type == VAL_NUM)
+                b = (uint8_t)((int)v->num & 0xFF);
+            else
+                b = (uint8_t)(v->str[0] ? (unsigned char)v->str[0] : 0);
+            gfx_poke(gfx_vs, (uint16_t)(addr + i), b);
+        }
+    } else {
+        FILE *f;
+        int c;
+        count = 0;
+        f = fopen(pathbuf, "rb");
+        if (!f) {
+            runtime_error("LOAD: cannot open file");
+            return;
+        }
+        while ((c = fgetc(f)) != EOF && (len_limit < 0 || count < len_limit)) {
+            gfx_poke(gfx_vs, (uint16_t)(addr + count), (uint8_t)(c & 0xFF));
+            count++;
+        }
+        fclose(f);
+    }
+#else
+    (void)addr;
+    (void)len_limit;
+    (void)from_label;
+    (void)count;
+    runtime_error("LOAD INTO requires basic-gfx (graphics build)");
+#endif
+}
+
+/* MEMSET addr, len, val — fill len bytes at addr with val (GFX-only). */
+static void statement_memset(char **p)
+{
+    struct value v_addr, v_len, v_val;
+    skip_spaces(p);
+    v_addr = eval_expr(p);
+    ensure_num(&v_addr);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error("MEMSET requires 3 arguments");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    v_len = eval_expr(p);
+    ensure_num(&v_len);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error("MEMSET requires 3 arguments");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    v_val = eval_expr(p);
+    ensure_num(&v_val);
+#ifdef GFX_VIDEO
+    {
+        int addr, len, i;
+        unsigned char b;
+        if (!gfx_vs) {
+            runtime_error("MEMSET requires basic-gfx (graphics build)");
+            return;
+        }
+        addr = (int)v_addr.num & 0xFFFF;
+        len = (int)v_len.num;
+        if (len < 0) len = 0;
+        b = (unsigned char)((int)v_val.num & 0xFF);
+        for (i = 0; i < len; i++) {
+            gfx_poke(gfx_vs, (uint16_t)(addr + i), (uint8_t)b);
+        }
+    }
+#else
+    (void)v_addr;
+    (void)v_len;
+    (void)v_val;
+    runtime_error("MEMSET requires basic-gfx (graphics build)");
+#endif
+}
+
+/* MEMCPY dest, src, len — copy len bytes from src to dest; overlap-safe (GFX-only). */
+static void statement_memcpy(char **p)
+{
+    struct value v_dest, v_src, v_len;
+    skip_spaces(p);
+    v_dest = eval_expr(p);
+    ensure_num(&v_dest);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error("MEMCPY requires 3 arguments");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    v_src = eval_expr(p);
+    ensure_num(&v_src);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error("MEMCPY requires 3 arguments");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    v_len = eval_expr(p);
+    ensure_num(&v_len);
+#ifdef GFX_VIDEO
+    {
+        int dest, src, len, i;
+        unsigned char buf[256];
+        if (!gfx_vs) {
+            runtime_error("MEMCPY requires basic-gfx (graphics build)");
+            return;
+        }
+        dest = (int)v_dest.num & 0xFFFF;
+        src = (int)v_src.num & 0xFFFF;
+        len = (int)v_len.num;
+        if (len < 0) len = 0;
+        /* Overlap-safe: read into buffer then write. For large len, do in chunks. */
+        for (i = 0; i < len; ) {
+            int chunk = len - i;
+            if (chunk > (int)sizeof(buf)) chunk = (int)sizeof(buf);
+            {
+                int j;
+                for (j = 0; j < chunk; j++)
+                    buf[j] = (unsigned char)gfx_peek(gfx_vs, (uint16_t)(src + i + j));
+                for (j = 0; j < chunk; j++)
+                    gfx_poke(gfx_vs, (uint16_t)(dest + i + j), (uint8_t)buf[j]);
+            }
+            i += chunk;
+        }
+    }
+#else
+    (void)v_dest;
+    (void)v_src;
+    (void)v_len;
+    runtime_error("MEMCPY requires basic-gfx (graphics build)");
+#endif
+}
+
+/* RESTORE [line]: reset DATA pointer. No arg = first DATA; line number = first DATA at or after that line (C64-style). */
 static void statement_restore(char **p)
 {
-    (void)p;
-    data_index = 0;
+    skip_spaces(p);
+    if (**p == '\0' || **p == ':') {
+        data_index = 0;
+        return;
+    }
+    {
+        struct value v;
+        int target_line, i;
+        v = eval_expr(p);
+        ensure_num(&v);
+        target_line = (int)v.num;
+        data_index = 0;
+        for (i = 0; i < data_line_count; i++) {
+            if (data_line_numbers[i] >= target_line) {
+                data_index = data_line_start_index[i];
+                return;
+            }
+        }
+    }
 }
 
 /* CLR: reset all variables to 0/empty, clear GOSUB/FOR stacks, reset DATA pointer.
@@ -4561,6 +5166,250 @@ static void statement_clr(char **p)
     do_top = 0;
     if_depth = 0;
     data_index = 0;
+}
+
+/* SORT arr [, mode]: in-place sort. mode: 1 or "asc" (default), -1 or "desc". */
+static int sort_desc = 0;
+
+static int sort_cmp_num(const void *a, const void *b)
+{
+    double x = ((const struct value *)a)->num;
+    double y = ((const struct value *)b)->num;
+    int r = (x < y) ? -1 : (x > y) ? 1 : 0;
+    return sort_desc ? -r : r;
+}
+
+static int sort_cmp_str(const void *a, const void *b)
+{
+    int r = strcmp(((const struct value *)a)->str, ((const struct value *)b)->str);
+    return sort_desc ? -r : r;
+}
+
+static void statement_sort(char **p)
+{
+    char namebuf[VAR_NAME_MAX];
+    int is_string = 0;
+    struct var *v = NULL;
+    int i, mode = 1;
+
+    skip_spaces(p);
+    if (!isalpha((unsigned char)**p)) {
+        runtime_error("SORT requires array variable");
+        return;
+    }
+    read_identifier(p, namebuf, sizeof(namebuf));
+    uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
+    for (i = 0; i < var_count; i++) {
+        if (strcmp(vars[i].name, namebuf) == 0 && vars[i].is_string == is_string) {
+            v = &vars[i];
+            break;
+        }
+    }
+    if (!v || !v->is_array || !v->array || v->size <= 0) {
+        runtime_error("SORT requires 1-D array");
+        return;
+    }
+    if (v->dims != 1) {
+        runtime_error("SORT requires 1-D array");
+        return;
+    }
+    skip_spaces(p);
+    if (**p == ',') {
+        (*p)++;
+        skip_spaces(p);
+        {
+            struct value vm = eval_expr(p);
+            if (vm.type == VAL_NUM) {
+                mode = (int)vm.num;
+            } else {
+                ensure_str(&vm);
+                if (str_eq_ci(vm.str, "asc") || str_eq_ci(vm.str, "ascending")) mode = 1;
+                else if (str_eq_ci(vm.str, "desc") || str_eq_ci(vm.str, "descending")) mode = -1;
+                else mode = 1;
+            }
+        }
+    }
+    sort_desc = (mode < 0) ? 1 : 0;
+    if (v->is_string)
+        qsort(v->array, (size_t)v->size, sizeof(struct value), sort_cmp_str);
+    else
+        qsort(v->array, (size_t)v->size, sizeof(struct value), sort_cmp_num);
+}
+
+/* SPLIT str$, delim$ INTO arr$: split string by delimiter, fill pre-dimmed 1-D string array. */
+static int split_count = 0;  /* set by SPLIT, used by JOIN when count omitted */
+
+static void statement_split(char **p)
+{
+    struct value v_str, v_delim;
+    struct var *arr_var = NULL;
+    const char *s, *delim;
+    size_t dlen;
+    int i, count, arr_size;
+    char *start, *end;
+
+    v_str = eval_expr(p);
+    ensure_str(&v_str);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error("SPLIT: expected ,");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    v_delim = eval_expr(p);
+    ensure_str(&v_delim);
+    skip_spaces(p);
+    if (!starts_with_kw(*p, "INTO")) {
+        runtime_error("SPLIT: expected INTO");
+        return;
+    }
+    *p += 4;
+    skip_spaces(p);
+    if (!isalpha((unsigned char)**p)) {
+        runtime_error("SPLIT: expected array variable");
+        return;
+    }
+    {
+        char namebuf[VAR_NAME_MAX];
+        int is_string = 0;
+        read_identifier(p, namebuf, sizeof(namebuf));
+        uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
+        if (!is_string) {
+            runtime_error("SPLIT: expected string array");
+            return;
+        }
+        for (i = 0; i < var_count; i++) {
+            if (strcmp(vars[i].name, namebuf) == 0 && vars[i].is_string) {
+                arr_var = &vars[i];
+                break;
+            }
+        }
+    }
+    if (!arr_var || !arr_var->is_array || !arr_var->array || arr_var->dims != 1) {
+        runtime_error("SPLIT: requires 1-D string array (DIM first)");
+        return;
+    }
+    s = v_str.str;
+    delim = v_delim.str;
+    dlen = strlen(delim);
+    if (dlen == 0) {
+        runtime_error("SPLIT: empty delimiter");
+        return;
+    }
+    arr_size = arr_var->size;
+    count = 0;
+    start = (char *)s;
+    while (count < arr_size) {
+        end = strstr(start, delim);
+        if (end == NULL) end = (char *)(s + strlen(s));
+        {
+            size_t len = (size_t)(end - start);
+            if (len >= MAX_STR_LEN) len = MAX_STR_LEN - 1;
+            if (len > (size_t)(max_str_limit - 1)) len = (size_t)(max_str_limit - 1);
+            memcpy(arr_var->array[count].str, start, len);
+            arr_var->array[count].str[len] = '\0';
+            arr_var->array[count].type = VAL_STR;
+            arr_var->array[count].num = 0.0;
+        }
+        count++;
+        if (*end == '\0') break;
+        start = end + dlen;
+    }
+    for (; count < arr_size; count++) {
+        arr_var->array[count].type = VAL_STR;
+        arr_var->array[count].str[0] = '\0';
+        arr_var->array[count].num = 0.0;
+    }
+    split_count = count;
+}
+
+/* JOIN arr$, delim$ INTO result$ [, count]: join array elements. Optional count limits elements. */
+static void statement_join(char **p)
+{
+    struct var *arr_var = NULL;
+    struct value v_delim;
+    char namebuf[VAR_NAME_MAX];
+    int i, is_string, n_elems;
+
+    skip_spaces(p);
+    if (!isalpha((unsigned char)**p)) {
+        runtime_error("JOIN: expected array variable");
+        return;
+    }
+    read_identifier(p, namebuf, sizeof(namebuf));
+    uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
+    if (!is_string) {
+        runtime_error("JOIN: expected string array");
+        return;
+    }
+    for (i = 0; i < var_count; i++) {
+        if (strcmp(vars[i].name, namebuf) == 0 && vars[i].is_string) {
+            arr_var = &vars[i];
+            break;
+        }
+    }
+    if (!arr_var || !arr_var->is_array || !arr_var->array || arr_var->dims != 1) {
+        runtime_error("JOIN: requires 1-D string array");
+        return;
+    }
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error("JOIN: expected ,");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    v_delim = eval_expr(p);
+    ensure_str(&v_delim);
+    skip_spaces(p);
+    if (!starts_with_kw(*p, "INTO")) {
+        runtime_error("JOIN: expected INTO");
+        return;
+    }
+    *p += 4;
+    skip_spaces(p);
+    {
+        struct value *out = get_var_reference(p, &i, &is_string);
+        if (!out || !is_string) {
+            runtime_error("JOIN: expected string variable for result");
+            return;
+        }
+        skip_spaces(p);
+        if (**p == ',') {
+            (*p)++;
+            skip_spaces(p);
+            {
+                struct value vc = eval_expr(p);
+                ensure_num(&vc);
+                n_elems = (int)vc.num;
+                if (n_elems < 0) n_elems = 0;
+                if (n_elems > arr_var->size) n_elems = arr_var->size;
+            }
+        } else {
+            n_elems = (split_count > 0 && split_count <= arr_var->size) ? split_count : arr_var->size;
+        }
+        {
+            size_t total = 0;
+            out->type = VAL_STR;
+            out->str[0] = '\0';
+            for (i = 0; i < n_elems && total < (size_t)(max_str_limit - 1); i++) {
+                if (i > 0) {
+                    size_t dlen = strlen(v_delim.str);
+                    if (total + dlen < (size_t)(max_str_limit - 1)) {
+                        strncat(out->str, v_delim.str, max_str_limit - 1 - (int)total);
+                        total += dlen;
+                    }
+                }
+                size_t elen = strlen(arr_var->array[i].str);
+                if (total + elen < (size_t)(max_str_limit - 1)) {
+                    strncat(out->str, arr_var->array[i].str, max_str_limit - 1 - (int)total);
+                    total += elen;
+                }
+            }
+            out->num = 0.0;
+        }
+    }
 }
 
 /* Set ST (I/O status) variable for file operations: 0=ok, 64=EOF, 1=error. */
@@ -5732,6 +6581,23 @@ static void execute_statement(char **p)
             statement_let(p);
             return;
         }
+        if (starts_with_kw(*p, "LOAD")) {
+            *p += 4;
+            statement_load(p);
+            return;
+        }
+    }
+    if (c == 'M') {
+        if (starts_with_kw(*p, "MEMSET")) {
+            *p += 6;
+            statement_memset(p);
+            return;
+        }
+        if (starts_with_kw(*p, "MEMCPY")) {
+            *p += 6;
+            statement_memcpy(p);
+            return;
+        }
     }
     if (c == 'L' && starts_with_kw(*p, "LOCATE")) {
         *p += 6;
@@ -5833,9 +6699,26 @@ static void execute_statement(char **p)
             }
         }
     }
-    if (c == 'S' && starts_with_kw(*p, "SLEEP")) {
-        *p += 5;
-        statement_sleep(p);
+    if (c == 'S') {
+        if (starts_with_kw(*p, "SLEEP")) {
+            *p += 5;
+            statement_sleep(p);
+            return;
+        }
+        if (starts_with_kw(*p, "SORT")) {
+            *p += 4;
+            statement_sort(p);
+            return;
+        }
+        if (starts_with_kw(*p, "SPLIT")) {
+            *p += 5;
+            statement_split(p);
+            return;
+        }
+    }
+    if (c == 'J' && starts_with_kw(*p, "JOIN")) {
+        *p += 4;
+        statement_join(p);
         return;
     }
     if (c == 'E') {
@@ -6366,6 +7249,19 @@ int basic_parse_args(int argc, char **argv)
                 fprintf(stderr, "Unknown palette '%s' (expected ansi or c64)\n", name);
                 return -1;
             }
+        } else if (strcmp(argv[i], "-maxstr") == 0 || strcmp(argv[i], "--maxstr") == 0) {
+            int n;
+            char *end;
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Missing value for -maxstr\n");
+                return -1;
+            }
+            n = (int)strtol(argv[++i], &end, 10);
+            if (end == argv[i] || *end != '\0' || n < 1 || n > MAX_STR_LEN) {
+                fprintf(stderr, "Invalid -maxstr value (expected 1..%d)\n", MAX_STR_LEN);
+                return -1;
+            }
+            max_str_limit = n;
 #ifdef GFX_VIDEO
         } else if (strcmp(argv[i], "-gfx-title") == 0 || strcmp(argv[i], "--gfx-title") == 0) {
             if (i + 1 >= argc) {
@@ -6463,7 +7359,7 @@ int main(int argc, char **argv)
     init_console_ansi();
 
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] <program.bas>\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] [-maxstr N] <program.bas>\n", argv[0]);
         return 1;
     }
 
@@ -6511,9 +7407,22 @@ int main(int argc, char **argv)
                 fprintf(stderr, "Unknown palette '%s' (expected ansi or c64)\n", name);
                 return 1;
             }
+        } else if (strcmp(argv[i], "-maxstr") == 0 || strcmp(argv[i], "--maxstr") == 0) {
+            int n;
+            char *end;
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Missing value for -maxstr\n");
+                return 1;
+            }
+            n = (int)strtol(argv[++i], &end, 10);
+            if (end == argv[i] || *end != '\0' || n < 1 || n > MAX_STR_LEN) {
+                fprintf(stderr, "Invalid -maxstr value (expected 1..%d)\n", MAX_STR_LEN);
+                return 1;
+            }
+            max_str_limit = n;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] <program.bas>\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] [-maxstr N] <program.bas>\n", argv[0]);
             return 1;
         } else {
             prog_path = argv[i];
@@ -6522,7 +7431,7 @@ int main(int argc, char **argv)
     }
 
     if (!prog_path) {
-        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] <program.bas>\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] [-maxstr N] <program.bas>\n", argv[0]);
         return 1;
     }
 
