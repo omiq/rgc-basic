@@ -1,0 +1,9 @@
+REM Test MOD, <<, >>, AND, OR, XOR
+PRINT "MOD 10,3 ="; 10 MOD 3
+PRINT "MOD -5,3 ="; -5 MOD 3
+PRINT "1 << 4 ="; 1 << 4
+PRINT "16 >> 2 ="; 16 >> 2
+PRINT "7 AND 3 ="; 7 AND 3
+PRINT "7 OR 3 ="; 7 OR 3
+PRINT "7 XOR 3 ="; 7 XOR 3
+PRINT "PEEK(1) AND 128 ="; PEEK(1) AND 128

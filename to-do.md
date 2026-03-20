@@ -6,6 +6,7 @@
   * RESTORE [line number]
 
 * ~Decimal ↔ hexadecimal conversion: DEC(),HEX$()~
+* ~MOD, <<, >>, AND, OR, XOR (bitwise operators)~
 
 * ~IF THEN ELSE END IF~
   * ~Multi-line IF/ELSE/END IF blocks with nesting; backward compatible with IF X THEN 100~

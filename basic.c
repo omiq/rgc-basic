@@ -563,7 +563,7 @@ static char *normalize_keywords_line(const char *input)
             }
             if (c1 == 'O' && c2 == 'R') {
                 char prev_in = (i > 0) ? input[i - 1] : ' ';
-                char next_in = input[i + 2];
+                char next_in = (input[i + 2] != '\0') ? input[i + 2] : ' ';
                 if (!is_ident_char(prev_in) && !is_ident_char(next_in)) {
                     if (out.len > 0) {
                         char prev = out.buf[out.len - 1];
@@ -573,6 +573,42 @@ static char *normalize_keywords_line(const char *input)
                     }
                     sb_append_str(&out, "OR");
                     i += 2;
+                    if (input[i] != '\0' && !isspace((unsigned char)input[i]) && input[i] != ')') {
+                        sb_append_char(&out, ' ');
+                    }
+                    continue;
+                }
+            }
+            if (c1 == 'M' && c2 == 'O' && (input[i + 2] == 'D' || input[i + 2] == 'd')) {
+                char prev_in = (i > 0) ? input[i - 1] : ' ';
+                char next_in = (input[i + 3] != '\0') ? input[i + 3] : ' ';
+                if (!isalpha((unsigned char)prev_in) && !isalpha((unsigned char)next_in)) {
+                    if (out.len > 0) {
+                        char prev = out.buf[out.len - 1];
+                        if (!isspace((unsigned char)prev) && prev != '(') {
+                            sb_append_char(&out, ' ');
+                        }
+                    }
+                    sb_append_str(&out, "MOD");
+                    i += 3;
+                    if (input[i] != '\0' && !isspace((unsigned char)input[i]) && input[i] != ')') {
+                        sb_append_char(&out, ' ');
+                    }
+                    continue;
+                }
+            }
+            if (c1 == 'X' && c2 == 'O' && (input[i + 2] == 'R' || input[i + 2] == 'r')) {
+                char prev_in = (i > 0) ? input[i - 1] : ' ';
+                char next_in = input[i + 3];
+                if (!is_ident_char(prev_in) && !is_ident_char(next_in)) {
+                    if (out.len > 0) {
+                        char prev = out.buf[out.len - 1];
+                        if (!isspace((unsigned char)prev) && prev != '(') {
+                            sb_append_char(&out, ' ');
+                        }
+                    }
+                    sb_append_str(&out, "XOR");
+                    i += 3;
                     if (input[i] != '\0' && !isspace((unsigned char)input[i]) && input[i] != ')') {
                         sb_append_char(&out, ' ');
                     }
@@ -1438,7 +1474,8 @@ static const char *const reserved_words[] = {
     "COLOUR", "COS", "CURSOR", "DATA", "DEC", "DEF", "DIM", "DOWN", "END", "FUNCTION",
     "ELSE", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
     "INKEY", "INPUT", "INSTR", "INT", "LEFT", "LEN", "LET", "LOCATE", "LOG",
-    "LCASE", "MID", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PRINT",
+    "LCASE", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PRINT",
+    "XOR",
     "READ", "REM", "RESTORE", "RETURN", "RIGHT", "RND", "RVS", "SCREENCODES",
     "SGN", "SIN", "SLEEP", "SPC", "SQR", "STEP", "STOP", "STR", "STRING",
     "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "UCASE",     "VAL", "WEND", "WHILE",
@@ -3805,25 +3842,33 @@ static struct value eval_power(char **p)
     return left;
 }
 
-/* Parse *,/ terms. */
-static struct value eval_term(char **p)
+/* Parse <<, >> shift operators. */
+static struct value eval_shift(char **p)
 {
     struct value left, right;
     skip_spaces(p);
     left = eval_power(p);
     for (;;) {
         skip_spaces(p);
-        if (**p == '*' || **p == '/') {
-            char op;
-            op = **p;
-            (*p)++;
+        if (**p == '<' && *(*p + 1) == '<') {
+            *p += 2;
             right = eval_power(p);
             ensure_num(&left);
             ensure_num(&right);
-            if (op == '*') {
-                left.num *= right.num;
-            } else {
-                left.num /= right.num;
+            {
+                int a = (int)left.num;
+                unsigned int b = (unsigned int)((int)right.num & 0x1F); /* 0-31 */
+                left.num = (double)(a << b);
+            }
+        } else if (**p == '>' && *(*p + 1) == '>') {
+            *p += 2;
+            right = eval_power(p);
+            ensure_num(&left);
+            ensure_num(&right);
+            {
+                int a = (int)left.num;
+                unsigned int b = (unsigned int)((int)right.num & 0x1F);
+                left.num = (double)(a >> b);
             }
         } else {
             break;
@@ -3832,8 +3877,44 @@ static struct value eval_term(char **p)
     return left;
 }
 
-/* Parse + and - expressions (with string concatenation on +). */
-static struct value eval_expr(char **p)
+/* Parse *, /, MOD terms. */
+static struct value eval_term(char **p)
+{
+    struct value left, right;
+    skip_spaces(p);
+    left = eval_shift(p);
+    for (;;) {
+        skip_spaces(p);
+        if (**p == '*' || **p == '/') {
+            char op;
+            op = **p;
+            (*p)++;
+            right = eval_shift(p);
+            ensure_num(&left);
+            ensure_num(&right);
+            if (op == '*') {
+                left.num *= right.num;
+            } else {
+                left.num /= right.num;
+            }
+        } else if (starts_with_kw(*p, "MOD")) {
+            *p += 3;
+            right = eval_shift(p);
+            ensure_num(&left);
+            ensure_num(&right);
+            {
+                double a = left.num, b = right.num;
+                left.num = (b != 0) ? (a - floor(a / b) * b) : 0.0;
+            }
+        } else {
+            break;
+        }
+    }
+    return left;
+}
+
+/* Parse + and - (with string concatenation on +). */
+static struct value eval_addsub(char **p)
 {
     struct value left, right;
     skip_spaces(p);
@@ -3863,6 +3944,75 @@ static struct value eval_expr(char **p)
         }
     }
     return left;
+}
+
+/* Parse bitwise AND. */
+static struct value eval_bit_and(char **p)
+{
+    struct value left, right;
+    skip_spaces(p);
+    left = eval_addsub(p);
+    for (;;) {
+        skip_spaces(p);
+        if (starts_with_kw(*p, "AND")) {
+            *p += 3;
+            right = eval_addsub(p);
+            ensure_num(&left);
+            ensure_num(&right);
+            left.num = (double)((int)left.num & (int)right.num);
+        } else {
+            break;
+        }
+    }
+    return left;
+}
+
+/* Parse bitwise XOR. */
+static struct value eval_bit_xor(char **p)
+{
+    struct value left, right;
+    skip_spaces(p);
+    left = eval_bit_and(p);
+    for (;;) {
+        skip_spaces(p);
+        if (starts_with_kw(*p, "XOR")) {
+            *p += 3;
+            right = eval_bit_and(p);
+            ensure_num(&left);
+            ensure_num(&right);
+            left.num = (double)((int)left.num ^ (int)right.num);
+        } else {
+            break;
+        }
+    }
+    return left;
+}
+
+/* Parse bitwise OR. */
+static struct value eval_bit_or(char **p)
+{
+    struct value left, right;
+    skip_spaces(p);
+    left = eval_bit_xor(p);
+    for (;;) {
+        skip_spaces(p);
+        if (starts_with_kw(*p, "OR")) {
+            *p += 2;
+            right = eval_bit_xor(p);
+            ensure_num(&left);
+            ensure_num(&right);
+            left.num = (double)((int)left.num | (int)right.num);
+        } else {
+            break;
+        }
+    }
+    return left;
+}
+
+/* Top-level expression parser (bitwise OR has lowest precedence). */
+static struct value eval_expr(char **p)
+{
+    return eval_bit_or(p);
 }
 
 /* Evaluate IF conditions with BASIC relational operators. */
