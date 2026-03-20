@@ -5008,6 +5008,43 @@ static void statement_locate(char **p)
     fflush(stdout);
 }
 
+#ifdef GFX_VIDEO
+/* Read a line from gfx key queue; echo to screen; handle backspace (20). */
+static int gfx_read_line(char *buf, int size)
+{
+    int len = 0;
+    uint8_t b;
+    buf[0] = '\0';
+    if (size <= 0) return 0;
+    while (len < size - 1) {
+        if (gfx_keyq_pop(&b)) {
+            if (b == 13 || b == 10) {
+                buf[len] = '\0';
+                gfx_put_byte('\n');
+                return 1;
+            }
+            if (b == 20) { /* DEL / backspace */
+                if (len > 0) {
+                    len--;
+                    buf[len] = '\0';
+                    gfx_put_byte((unsigned char)b);
+                }
+                continue;
+            }
+            if (b >= 32 && b <= 126) {
+                buf[len++] = (char)b;
+                buf[len] = '\0';
+                gfx_put_byte((unsigned char)b);
+            }
+        } else {
+            do_sleep_ticks(1.0 / 60.0);
+        }
+    }
+    buf[len] = '\0';
+    return 1;
+}
+#endif
+
 static void statement_input(char **p)
 {
     char prompt[MAX_STR_LEN];
@@ -5044,16 +5081,31 @@ static void statement_input(char **p)
         if (!vp) {
             return;
         }
-        if (prompt[0] != '\0' && first_prompt) {
-            printf("%s", prompt);
+#ifdef GFX_VIDEO
+        if (gfx_vs) {
+            const char *s;
+            if (prompt[0] != '\0' && first_prompt) {
+                for (s = prompt; *s; s++) gfx_put_byte((unsigned char)*s);
+            }
+            for (s = "? "; *s; s++) gfx_put_byte((unsigned char)*s);
+            if (!gfx_read_line(linebuf, (int)sizeof(linebuf))) {
+                runtime_error("Unexpected end of input");
+                return;
+            }
+        } else
+#endif
+        {
+            if (prompt[0] != '\0' && first_prompt) {
+                printf("%s", prompt);
+            }
+            printf("? ");
+            fflush(stdout);
+            if (!fgets(linebuf, sizeof(linebuf), stdin)) {
+                runtime_error("Unexpected end of input");
+                return;
+            }
+            trim_newline(linebuf);
         }
-        printf("? ");
-        fflush(stdout);
-        if (!fgets(linebuf, sizeof(linebuf), stdin)) {
-            runtime_error("Unexpected end of input");
-            return;
-        }
-        trim_newline(linebuf);
         if (is_string) {
             *vp = make_str(linebuf);
         } else {
