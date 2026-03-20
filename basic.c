@@ -737,7 +737,7 @@ static void init_console_ansi(void)
 
 // DEFINES
 
-#define MAX_LINES 1024
+#define MAX_LINES 65536  /* 64K; classic BASIC line-number range; trek.bas ~680 lines */
 #define MAX_LINE_LEN 256
 #define MAX_INCLUDE_DEPTH 16
 #define MAX_INCLUDE_PATH  512
@@ -4129,7 +4129,7 @@ static int eval_simple_condition(char **p)
 
     if (op1 == '<' && op2 == '>') {
         *p += 2;
-        right = eval_expr(p);
+        right = eval_addsub(p);  /* stop before AND/OR so condition "X<>Y AND Z" parses correctly */
         if (left.type == VAL_STR || right.type == VAL_STR) {
             ensure_str(&left);
             ensure_str(&right);
@@ -4140,21 +4140,21 @@ static int eval_simple_condition(char **p)
     }
     if (op1 == '<' && op2 == '=') {
         *p += 2;
-        right = eval_expr(p);
+        right = eval_addsub(p);
         ensure_num(&left);
         ensure_num(&right);
         return left.num <= right.num;
     }
     if (op1 == '>' && op2 == '=') {
         *p += 2;
-        right = eval_expr(p);
+        right = eval_addsub(p);
         ensure_num(&left);
         ensure_num(&right);
         return left.num >= right.num;
     }
     if (op1 == '<' || op1 == '>' || op1 == '=') {
         (*p)++;
-        right = eval_expr(p);
+        right = eval_addsub(p);  /* stop before AND/OR so "X=13 AND Y=0 THEN" parses correctly */
         if (left.type == VAL_STR || right.type == VAL_STR) {
             ensure_str(&left);
             ensure_str(&right);
