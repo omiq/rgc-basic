@@ -20,6 +20,11 @@
 
 * ~Cursor On/Off~
 
+* **#OPTION memory addresses** (basic-gfx)
+  * Configurable base addresses for screen, colour, charset so POKE/PEEK match different machines.
+  * E.g. `#OPTION screen 32768` (PET: $8000) vs default 1024 (C64: $0400). PET programs can be pasted and run with screen address changed.
+  * Presets: `#OPTION memory c64` (default) / `#OPTION memory pet`.
+
 * **MEMSET, MEMCPY** (basic-gfx; see `docs/memory-commands-plan.md`)
   * XC=BASIC-style: `MEMSET addr, len, val`; `MEMCPY dest, src, len`. Operate via gfx_peek/gfx_poke on virtual address space.
   * **MEMSHIFT not needed**: Implement MEMCPY with overlap handling (like memmove); covers both directions.
