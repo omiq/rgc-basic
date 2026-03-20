@@ -2,11 +2,35 @@
 
 ### Unreleased
 
+(Next version.)
+
+### 1.5.0 – 2026-03-18
+
+- **String length limit**
+  - `#OPTION maxstr N` / `-maxstr N` (1–4096); default 4096. Use `maxstr 255` for C64 compatibility.
+- **String utilities**
+  - `INSTR(source$, search$ [, start])` — optional 1-based start position.
+  - `REPLACE(str$, find$, repl$)` — replace all occurrences.
+  - `TRIM$(s$)`, `LTRIM$(s$)`, `RTRIM$(s$)` — strip whitespace.
+  - `FIELD$(str$, delim$, n)` — extract Nth field from delimited string.
+- **Array utilities**
+  - `SORT arr [, mode]` — in-place sort (asc/desc, alpha/numeric).
+  - `SPLIT str$, delim$ INTO arr$` / `JOIN arr$, delim$ INTO result$ [, count]`.
+  - `INDEXOF(arr, value)` / `LASTINDEXOF(arr, value)` — 1-based index, 0 if not found.
+- **RESTORE [line]** — reset DATA pointer to first DATA at or after the given line.
+- **LOAD INTO** (basic-gfx) — `LOAD "path" INTO addr` or `LOAD @label INTO addr`; load raw bytes from file or DATA block.
+- **MEMSET / MEMCPY** (basic-gfx) — fill or copy bytes in virtual memory.
+- **ENV$(name$)** — environment variable lookup.
+- **PLATFORM$()** — returns `"linux-terminal"`, `"windows-gfx"`, `"mac-terminal"`, etc.
+- **JSON$(json$, path$)** — path-based extraction from JSON (e.g. `"users[0].name"`).
+- **EVAL(expr$)** — evaluate a string as a BASIC expression at runtime.
 - **DO … LOOP [UNTIL cond]** and **EXIT**
   - `DO` … `LOOP` — infinite loop (until `EXIT`).
-  - `DO` … `LOOP UNTIL cond` — post-test loop; exits when condition is true.
-  - `EXIT` — leaves the innermost DO loop.
-  - Nested DO/LOOP supported. Tests: `tests/do_loop_simple.bas`, `tests/do_loop_until.bas`, `tests/do_exit.bas`, `tests/do_nested.bas`.
+  - `DO` … `LOOP UNTIL cond` — post-test loop.
+  - `EXIT` — leaves the innermost DO loop. Nested DO/LOOP supported.
+- **CI**
+  - Skip pty GET test when `script -c` unavailable (macOS BSD).
+  - Skip GET tests on Windows (console input only; piped stdin would hang).
 
 ### 1.4.0 – 2026-03-18
 

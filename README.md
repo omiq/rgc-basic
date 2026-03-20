@@ -20,7 +20,7 @@ Unlike emulators, this is a BASIC interpreter that can already do real work: rea
 
 The project started as an expansion on an original LLM-generated demo project by [David Plummer](https://github.com/davepl/pdpsrc/tree/main/bsd/basic). As I played with it, and added to it, I had fun. That's enough reason for me, and nobody is going to take your favourite toolchain away because this exists so calm down, sheesh.
 
-See `CHANGELOG.md` for a versioned history of changes (starting from **1.0.0 – 2026-03-09**).
+Current release: **1.5.0** (2026-03-18). See `CHANGELOG.md` for the full versioned history.
 
 ## 💾 DOWNLOADS
 

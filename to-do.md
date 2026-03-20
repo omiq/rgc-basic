@@ -90,7 +90,7 @@
   * ~Underscores in identifiers~ — `is_prime`, `my_var` etc. now allowed.
   * Improve error messages where possible
 
-* **String & array utilities** (see `docs/string-array-utils-plan.md`) — SPLIT, REPLACE, INSTR start, INDEXOF, SORT, TRIM$, JOIN, FIELD$, ENV$, JSON$. Key-value emulation via SPLIT+FIELD$; no dedicated DICT type for now.
+* **String & array utilities** (see `docs/string-array-utils-plan.md`) — ~SPLIT~, ~REPLACE~, ~INSTR start~, ~INDEXOF~, ~SORT~, ~TRIM$~, ~JOIN~, ~FIELD$~, ~ENV$~, ~JSON$~, ~EVAL~. Key-value emulation via SPLIT+FIELD$; no dedicated DICT type for now.
   * **SPLIT** — `arr$ = SPLIT(csv$, ",")` — split string by delimiter into array.
   * **REPLACE** — `result$ = REPLACE(original$, "yes", "no")`.
   * **INSTR start** — `INSTR(str$, find$, start)` — optional start position for find-next loops.
@@ -102,6 +102,7 @@
   * **ENV$** — `ENV$(name$)` — environment variable.
   * **PLATFORM$** — `PLATFORM$()` — returns `"linux-terminal"`, `"linux-gfx"`, `"windows-terminal"`, `"windows-gfx"`, `"mac-terminal"`, `"mac-gfx"`. Enables conditional code for paths/behavior.
   * **JSON$** — `JSON$(json$, path$)` — path-based extraction from JSON string (no new types); e.g. `JSON$(j$, "users[0].name")`.
+  * **EVAL** — `EVAL(expr$)` — evaluate string as BASIC expression at runtime; useful for interactive testing.
 
 ---
 
@@ -116,7 +117,7 @@
 | ~**5**~ | ~String utils batch 2: SORT, SPLIT, JOIN, FIELD$~ | Done. |
 | ~**6**~ | ~INDEXOF, LASTINDEXOF~ | Done. |
 | ~**7**~ | ~MEMSET, MEMCPY~ | Done. |
-| ~**8**~ | ~ENV$, PLATFORM$, JSON$~ | Done. |
+| ~**8**~ | ~ENV$, PLATFORM$, JSON$, EVAL~ | Done. |
 | **9** | 80-column option | Improves legibility. |
 | **10** | Bitmap/sprites | Bigger phase; depends on LOAD. |
 | **Later** | Program preprocessor, #OPTION memory, Browser/WASM | Polish; niche; different target. |
