@@ -106,7 +106,7 @@
 
 ---
 
-## Suggested priorities & sequence (post bash/PETSCII)
+## Potential priorities & sequence (post bash/PETSCII)
 
 | Order | Item | Rationale |
 |-------|------|------------|
