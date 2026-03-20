@@ -142,8 +142,13 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
 
 ### Tokenised PETSCII shortcuts inside strings
 
-- Inline `{TOKENS}`:
+- Inline `{TOKENS}` (see `docs/c64-color-codes.md` for full reference):
   - Within double-quoted strings, the interpreter recognises `{...}` patterns and expands them to `CHR$()` calls **at load time**.
+  - Numeric: `{147}`, `{$93}`, `{0x93}`, `{%10010011}` (decimal, hex, binary).
+  - Colors: `{RED}`, `{CYN}`, `{BLACK}`, `{LIGHTBLUE}`, etc. (full and abbrev).
+  - Screen: `{HOME}`, `{CLR}`, `{DEL}`, `{INS}`, `{CURSOR UP}`, `{CRSR RIGHT}`, etc.
+  - Reverse: `{RVS}`, `{RVS ON}`, `{RVS OFF}`, `{REVERSE OFF}`.
+  - Function keys: `{F1}` … `{F8}`. Symbol: `{PI}`.
   - This lets you write readable code such as:
 
 ```basic
