@@ -100,8 +100,8 @@ jobs:
           set -e
           for t in tests/*.bas; do
             case "$(basename "$t")" in
-              codes-replaced.bas|locate.bas|border_option_test.bas|gfx_title_test.bas)
-                echo "Skipping interactive/GFX-only test $t"
+              codes-replaced.bas|locate.bas|get_input_loop.bas|get_while_test.bas|kbuffer.bas|border_option_test.bas|gfx_title_test.bas)
+                echo "Skipping interactive/GET/GFX-only test $t"
                 continue
                 ;;
               meta_include_dup_line.bas|meta_include_dup_label.bas|meta_include_circular_a.bas|meta_include_circular_b.bas)
@@ -142,8 +142,8 @@ jobs:
           set -e
           for t in tests/*.bas; do
             case "$(basename "$t")" in
-              codes-replaced.bas|locate.bas|border_option_test.bas|gfx_title_test.bas)
-                echo "Skipping interactive/GFX-only test $t"
+              codes-replaced.bas|locate.bas|get_input_loop.bas|get_while_test.bas|kbuffer.bas|border_option_test.bas|gfx_title_test.bas)
+                echo "Skipping interactive/GET/GFX-only test $t"
                 continue
                 ;;
               meta_include_dup_line.bas|meta_include_dup_label.bas|meta_include_circular_a.bas|meta_include_circular_b.bas)
