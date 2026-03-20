@@ -2,6 +2,8 @@
 
 * ~INSTR~
 
+* **String length limit** — Larger default (e.g. 4096) with `#OPTION maxstr 255` to reduce for strict C64 emulation. C64 programs don't fail when strings are allowed to be larger; 255 was a hardware limit, not a semantic requirement.
+
 * Flexible DATA read
   * RESTORE [line number]
 
