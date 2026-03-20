@@ -1444,7 +1444,8 @@ enum func_code {
     FN_LASTINDEXOF = 39,
     FN_ENV = 40,
     FN_PLATFORM = 41,
-    FN_JSON = 42
+    FN_JSON = 42,
+    FN_EVAL = 43
 };
 
 /* Report an error and halt further execution.
@@ -1585,7 +1586,7 @@ static char *dupstr_local(const char *s)
 static const char *const reserved_words[] = {
     "AND", "ARG", "ARGC", "ASC", "BACKGROUND", "CHR", "CLOSE", "CLR", "COLOR",
     "COLOUR", "COS", "CURSOR", "DATA", "DEC", "DEF", "DIM", "DOWN", "END", "FUNCTION",
-    "ELSE", "ENV", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
+    "ELSE", "ENV", "EVAL", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
     "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LOAD", "LOCATE", "LOG",
     "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRINT",
     "XOR",
@@ -2428,6 +2429,7 @@ static int function_lookup(const char *name, int len)
         if (len == 6 && name[0] == 'I' && name[1] == 'N' && name[2] == 'K' && name[3] == 'E' && name[4] == 'Y' && name[5] == '$') return FN_INKEY;
         return FN_NONE;
     case 'E':
+        if (len == 4 && name[0] == 'E' && name[1] == 'V' && name[2] == 'A' && name[3] == 'L') return FN_EVAL;
         if (len == 3 && name[0] == 'E' && name[1] == 'X' && name[2] == 'P') return FN_EXP;
         if ((len == 4 && name[0] == 'E' && name[1] == 'N' && name[2] == 'V') ||
             (len == 5 && name[0] == 'E' && name[1] == 'N' && name[2] == 'V' && name[3] == '$'))
@@ -3933,6 +3935,23 @@ static struct value eval_function(const char *name, char **p)
         val = getenv(arg.str);
         return make_str(val ? val : "");
     }
+    case FN_EVAL: {
+        char *ep;
+        struct value result;
+        ensure_str(&arg);
+        if (strlen(arg.str) >= MAX_STR_LEN - 1) {
+            runtime_error("EVAL: expression too long");
+            return make_num(0.0);
+        }
+        {
+            char buf[MAX_STR_LEN];
+            strncpy(buf, arg.str, sizeof(buf) - 1);
+            buf[sizeof(buf) - 1] = '\0';
+            ep = buf;
+            result = eval_expr(&ep);
+        }
+        return result;
+    }
     case FN_JSON: {
         struct value v_json = arg;
         struct value v_path;
@@ -4398,7 +4417,7 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "INSTR") || starts_with_kw(*p, "DEC") || starts_with_kw(*p, "HEX") ||
             starts_with_kw(*p, "REPLACE") || starts_with_kw(*p, "TRIM") || starts_with_kw(*p, "LTRIM") || starts_with_kw(*p, "RTRIM") ||
             starts_with_kw(*p, "FIELD") || starts_with_kw(*p, "INDEXOF") || starts_with_kw(*p, "LASTINDEXOF") ||
-            starts_with_kw(*p, "ENV") || starts_with_kw(*p, "PLATFORM") || starts_with_kw(*p, "JSON") ||
+            starts_with_kw(*p, "ENV") || starts_with_kw(*p, "EVAL") || starts_with_kw(*p, "PLATFORM") || starts_with_kw(*p, "JSON") ||
             starts_with_kw(*p, "ARGC") || starts_with_kw(*p, "ARG") ||
             starts_with_kw(*p, "SYSTEM") || starts_with_kw(*p, "EXEC") ||
             starts_with_kw(*p, "PEEK") || starts_with_kw(*p, "INKEY")) {
