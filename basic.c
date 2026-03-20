@@ -174,6 +174,9 @@ static const TokenMap token_map[] = {
     {"F8", 140},
     /* Symbol */
     {"PI", 126},
+    /* ANSI reset (terminal only): resets colors/attributes to default. No C64 equivalent. */
+    {"RESET", 256},
+    {"DEFAULT", 256},
 
     {NULL, 0}
 };
@@ -374,7 +377,10 @@ static char *transform_basic_line(const char *input)
                         sb_append_char(&out, '+');
                     }
 
-                    {
+                    if (code == 256) {
+                        /* ANSI reset: ESC [ 0 m — resets terminal to default colors/attributes */
+                        sb_append_str(&out, "CHR$(27)+\"[0m\"");
+                    } else {
                         char tmp[32];
                         sprintf(tmp, "CHR$(%d)", code);
                         sb_append_str(&out, tmp);
