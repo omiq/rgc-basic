@@ -2,10 +2,9 @@
 
 ### Unreleased
 
-- **80-column option (terminal)**
-  - `#OPTION columns N` / `-columns N` (1–255); default 40. Comma/TAB zones scale: 10 at 40 cols, 20 at 80 cols.
-  - `#OPTION nowrap` / `-nowrap`: disable wrapping; let the terminal handle line length.
-  - `#OPTION` on numbered lines (e.g. `2 #OPTION columns 80`) now supported.
+- **80-column option (terminal + basic-gfx)**
+  - **Terminal**: `#OPTION columns N` / `-columns N` (1–255); default 40. Comma/TAB zones scale: 10 at 40 cols, 20 at 80 cols. `#OPTION nowrap` / `-nowrap`: disable wrapping.
+  - **basic-gfx**: `-columns 80` for 80×25 screen; 2000-byte buffer; window 640×200. `#OPTION columns 80` in program also supported.
 
 ### 1.5.0 – 2026-03-20
 

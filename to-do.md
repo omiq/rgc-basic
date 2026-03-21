@@ -47,7 +47,7 @@
 * **80-column option** (terminal and basic-gfx)
   * `#OPTION columns 80` / `-columns 80`; default 40.
   * ~**Terminal**~: Configurable `print_width`; wrap, TAB, comma zones (10 vs 20). Optional **no wrap** mode (`#OPTION nowrap` / `-nowrap`). Done.
-  * **basic-gfx**: 80×25 screen buffer (2000 bytes); configurable cols; raylib window 640×200 or scaled. ~4–8 hrs.
+  * ~**basic-gfx**~: 80×25 mode via `-columns 80`; 2000-byte buffer; window 640×200. Done.
 
 * PETSCII symbols & graphics
   * ~Unicode stand-ins~
@@ -118,7 +118,7 @@
 | ~**6**~ | ~INDEXOF, LASTINDEXOF~ | Done. |
 | ~**7**~ | ~MEMSET, MEMCPY~ | Done. |
 | ~**8**~ | ~ENV$, PLATFORM$, JSON$, EVAL~ | Done. |
-| ~**9**~ | ~80-column option (terminal)~ | Done. basic-gfx 80-col still TODO. |
+| ~**9**~ | ~80-column option (terminal + basic-gfx)~ | Done. |
 | **10** | Bitmap/sprites | Bigger phase; depends on LOAD. |
 | **Later** | Program preprocessor, #OPTION memory, Browser/WASM | Polish; niche; different target. |
 

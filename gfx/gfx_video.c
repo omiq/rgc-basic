@@ -7,6 +7,7 @@ void gfx_video_init(GfxVideoState *s)
     memset(s, 0, sizeof(*s));
     s->bg_color = 6; /* default C64 blue background */
     s->charset_lowercase = 0;
+    s->cols = 40;    /* 40 or 80; set by basic_set_video from -columns */
     s->key_q_head = 0;
     s->key_q_tail = 0;
     s->ticks60 = 0;
