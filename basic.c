@@ -751,7 +751,7 @@ static char include_path_store[MAX_INCLUDE_DEPTH][MAX_INCLUDE_PATH];
 #define MAX_FOR 32
 #define MAX_STR_LEN 4096  /* default max; #OPTION maxstr N can reduce for C64 compatibility */
 #define DEFAULT_ARRAY_SIZE 11
-#define PRINT_WIDTH 40
+#define DEFAULT_PRINT_WIDTH 40
 #ifndef TICKS_PER_SEC_FALLBACK
 #ifdef HZ
 #define TICKS_PER_SEC_FALLBACK HZ
@@ -1161,8 +1161,12 @@ static int gfx_keyq_pop(uint8_t *out)
 /* PETSCII/ANSI configuration (petscii_mode declared earlier for gfx_put_byte) */
 /* When set, do not output ANSI (color/reverse/cursor); output is paste-friendly, no extra bytes. */
 static int petscii_plain = 0;
-/* When set (e.g. stdout is a pipe), do not insert newlines at PRINT_WIDTH. */
+/* When set (e.g. stdout is a pipe), do not insert newlines at print_width. */
 static int petscii_no_wrap = 0;
+/* Configurable print width (columns); default 40. #OPTION columns N / -columns N. */
+static int print_width = DEFAULT_PRINT_WIDTH;
+/* When set, do not wrap at print_width; let terminal handle line length. #OPTION nowrap / -nowrap. */
+static int terminal_no_wrap = 0;
 
 enum {
     PALETTE_ANSI = 0,       /* Standard ANSI SGR colors */
@@ -1235,6 +1239,19 @@ static int apply_option_directive(const char *name, const char *value)
         n = (int)strtol(value, &end, 10);
         if (end == value || *end != '\0' || n < 1 || n > MAX_STR_LEN) return -1;
         max_str_limit = n;
+        return 0;
+    }
+    if (str_eq_ci(name, "columns")) {
+        int n;
+        char *end;
+        if (!value || !value[0]) return -1;
+        n = (int)strtol(value, &end, 10);
+        if (end == value || *end != '\0' || n < 1 || n > 255) return -1;
+        print_width = n;
+        return 0;
+    }
+    if (str_eq_ci(name, "nowrap")) {
+        terminal_no_wrap = 1;
         return 0;
     }
 #ifdef GFX_VIDEO
@@ -1695,7 +1712,7 @@ static void print_spaces(int count)
 #endif
         fputc(' ', stdout);
         print_col++;
-        if (print_col >= PRINT_WIDTH) {
+        if (print_col >= print_width && !petscii_no_wrap && !terminal_no_wrap) {
             fputc('\n', stdout);
             print_col = 0;
         }
@@ -2323,7 +2340,7 @@ static void print_value(struct value *v)
                         if (d == 'C') {
                             /* Cursor right */
                             print_col += n;
-                            if (print_col >= PRINT_WIDTH && !petscii_no_wrap) {
+                            if (print_col >= print_width && !petscii_no_wrap && !terminal_no_wrap) {
                                 fputc('\n', stdout);
                                 print_col = 0;
                             }
@@ -2354,7 +2371,7 @@ static void print_value(struct value *v)
                  * wrap happens at 40 visible columns and we don't break mid-char. */
                 if (c < 0x80 || (c & 0xC0) != 0x80) {
                     print_col++;
-                    if (print_col >= PRINT_WIDTH && !petscii_no_wrap) {
+                    if (print_col >= print_width && !petscii_no_wrap && !terminal_no_wrap) {
                         fputc('\n', stdout);
                         print_col = 0;
                     }
@@ -3497,7 +3514,7 @@ static struct value eval_function(const char *name, char **p)
         int width;
         ensure_num(&arg);
         target = (int)arg.num;
-        width = PRINT_WIDTH;
+        width = print_width;
         if (width <= 0) {
             width = 80;
         }
@@ -4859,7 +4876,7 @@ static void statement_print(char **p)
             int zone;
             int nextcol;
             ended_with_sep = 1;
-            zone = 10;
+            zone = (print_width >= 80) ? 20 : 10;  /* 80 cols: 20-char zones; 40 cols: 10-char */
             nextcol = ((print_col / zone) + 1) * zone;
             if (nextcol < print_col) {
                 nextcol = print_col;
@@ -4882,7 +4899,7 @@ static void statement_print(char **p)
             int zone;
             int nextcol;
             ended_with_sep = 1;
-            zone = 10;
+            zone = (print_width >= 80) ? 20 : 10;  /* 80 cols: 20-char zones; 40 cols: 10-char */
             nextcol = ((print_col / zone) + 1) * zone;
             if (nextcol < print_col) {
                 nextcol = print_col;
@@ -7422,6 +7439,35 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
             number = atoi(p);
             while (*p && !isspace((unsigned char)*p)) p++;
             while (*p == ' ' || *p == '\t') p++;
+            /* Numbered line may be just a directive, e.g. "2 #OPTION columns 80" */
+            if (*p == '#') {
+                char *dir = p + 1;
+                while (*dir == ' ' || *dir == '\t') dir++;
+                if ((toupper((unsigned char)dir[0])=='O' && toupper((unsigned char)dir[1])=='P' && toupper((unsigned char)dir[2])=='T' && toupper((unsigned char)dir[3])=='I' && toupper((unsigned char)dir[4])=='O' && toupper((unsigned char)dir[5])=='N') && (dir[6]=='\0' || dir[6]==' ' || dir[6]=='\t')) {
+                    char opt_name[64], opt_val[64];
+                    char *q;
+                    dir += 6;
+                    while (*dir == ' ' || *dir == '\t') dir++;
+                    q = opt_name;
+                    while (*dir && *dir != ' ' && *dir != '\t' && (size_t)(q - opt_name) < sizeof(opt_name) - 1)
+                        *q++ = (char)*dir++;
+                    *q = '\0';
+                    while (*dir == ' ' || *dir == '\t') dir++;
+                    q = opt_val;
+                    while (*dir && (size_t)(q - opt_val) < sizeof(opt_val) - 1) *q++ = (char)*dir++;
+                    *q = '\0';
+                    while (q > opt_val && (q[-1] == ' ' || q[-1] == '\t')) *--q = '\0';
+                    if (apply_option_directive(opt_name, opt_val[0] ? opt_val : NULL) != 0) {
+                        fprintf(stderr, "Unknown or invalid #OPTION: %s %s\n", opt_name, opt_val);
+                        exit(1);
+                    }
+                    continue;
+                }
+                if ((toupper((unsigned char)dir[0])=='I' && toupper((unsigned char)dir[1])=='N' && toupper((unsigned char)dir[2])=='C' && toupper((unsigned char)dir[3])=='L' && toupper((unsigned char)dir[4])=='U' && toupper((unsigned char)dir[5])=='D' && toupper((unsigned char)dir[6])=='E') && (dir[7]=='\0' || dir[7]==' ' || dir[7]=='\t')) {
+                    fprintf(stderr, "#INCLUDE on numbered line not supported\n");
+                    exit(1);
+                }
+            }
             transformed = transform_basic_line(p);
             {
                 char *normalized = normalize_keywords_line(transformed);
@@ -7582,6 +7628,21 @@ int basic_parse_args(int argc, char **argv)
                 return -1;
             }
             max_str_limit = n;
+        } else if (strcmp(argv[i], "-columns") == 0 || strcmp(argv[i], "--columns") == 0) {
+            int n;
+            char *end;
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Missing value for -columns\n");
+                return -1;
+            }
+            n = (int)strtol(argv[++i], &end, 10);
+            if (end == argv[i] || *end != '\0' || n < 1 || n > 255) {
+                fprintf(stderr, "Invalid -columns value (expected 1..255)\n");
+                return -1;
+            }
+            print_width = n;
+        } else if (strcmp(argv[i], "-nowrap") == 0 || strcmp(argv[i], "--nowrap") == 0) {
+            terminal_no_wrap = 1;
 #ifdef GFX_VIDEO
         } else if (strcmp(argv[i], "-gfx-title") == 0 || strcmp(argv[i], "--gfx-title") == 0) {
             if (i + 1 >= argc) {
@@ -7679,7 +7740,7 @@ int main(int argc, char **argv)
     init_console_ansi();
 
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] [-maxstr N] <program.bas>\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] <program.bas>\n", argv[0]);
         return 1;
     }
 
@@ -7740,9 +7801,24 @@ int main(int argc, char **argv)
                 return 1;
             }
             max_str_limit = n;
+        } else if (strcmp(argv[i], "-columns") == 0 || strcmp(argv[i], "--columns") == 0) {
+            int n;
+            char *end;
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Missing value for -columns\n");
+                return 1;
+            }
+            n = (int)strtol(argv[++i], &end, 10);
+            if (end == argv[i] || *end != '\0' || n < 1 || n > 255) {
+                fprintf(stderr, "Invalid -columns value (expected 1..255)\n");
+                return 1;
+            }
+            print_width = n;
+        } else if (strcmp(argv[i], "-nowrap") == 0 || strcmp(argv[i], "--nowrap") == 0) {
+            terminal_no_wrap = 1;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] [-maxstr N] <program.bas>\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] <program.bas>\n", argv[0]);
             return 1;
         } else {
             prog_path = argv[i];
@@ -7751,7 +7827,7 @@ int main(int argc, char **argv)
     }
 
     if (!prog_path) {
-        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] [-maxstr N] <program.bas>\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] <program.bas>\n", argv[0]);
         return 1;
     }
 
