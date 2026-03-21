@@ -68,13 +68,13 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
 
 - **Meta directives** (load-time, `#` prefix) — see `docs/meta-directives-plan.md`:
   - Shebang: `#!/usr/bin/env basic` on first line (ignored).
-  - `#OPTION petscii` / `#OPTION charset lower` / `#OPTION palette c64` / `#OPTION maxstr 255` — mirror command-line options; file overrides CLI.
+  - `#OPTION petscii` / `#OPTION charset lower` / `#OPTION palette c64` / `#OPTION maxstr 255` / `#OPTION columns 80` / `#OPTION nowrap` — mirror command-line options; file overrides CLI.
   - `#INCLUDE "path"` — splice another file at that point. Recommend numberless mode when using includes; duplicate line numbers and labels error.
 - **Programs with or without line numbers**
   - Classic **line-numbered programs** loaded from a text file (`10 ...`, `20 ...`, etc.).
   - Also supports **numberless programs**: if the first non‑blank line has no leading digits, synthetic line numbers are assigned internally (you can still use labels and structured control flow).
 - **Core statements**
-  - `PRINT` / `?`: output expressions, with `;` (no newline) and `,` (zone/tab) separators; wrapping defaults to a 40‑column C64‑style width.
+  - `PRINT` / `?`: output expressions, with `;` (no newline) and `,` (zone/tab) separators. Default 40 columns (C64‑style); use `#OPTION columns 80` or `-columns 80` for 80‑column mode. Use `-nowrap` to disable wrapping (let the terminal handle line length).
   - `INPUT`: read numeric or string variables from standard input, with optional prompt.
   - `GET`: **non-blocking** single‑key input into a string variable (e.g. `GET K$`).
     - If a key is waiting, `K$` becomes a 1‑character string.
@@ -238,9 +238,11 @@ viewing .seq files or pasting output into a fixed-width editor).
   - `lower`: C64 **lowercase/uppercase** character set (useful for `.seq` art that uses lowercase letters).
 - `-palette ansi|c64`: choose how PETSCII colors are mapped (only in `-petscii` mode):
   - `ansi` (default): map colors to standard 16-color ANSI SGR codes.
-- `-maxstr N`: maximum string length (1–4096); default 4096. Use `-maxstr 255` for C64 compatibility. Can also be set with `#OPTION maxstr 255`. Affects string literals, concatenation, `STRING$`, and related operations.
   - `c64` or `c64-8bit`: use 8‑bit (`38;5;N`) color indices chosen to approximate
   the classic C64 palette. This is most consistent on terminals that support 256 colors.
+- `-maxstr N`: maximum string length (1–4096); default 4096. Use `-maxstr 255` for C64 compatibility. Can also be set with `#OPTION maxstr 255`. Affects string literals, concatenation, `STRING$`, and related operations.
+- `-columns N`: print width in columns (1–255); default 40. Use `-columns 80` for 80‑column mode. Comma zones scale (10 chars at 40 cols, 20 at 80 cols). Can also be set with `#OPTION columns 80`.
+- `-nowrap`: do not insert newlines at column width; let the terminal handle wrapping. Useful for wide output or paste-into-editor. Can also be set with `#OPTION nowrap`.
 
 You can also enable a **PETSCII/ANSI mode** that understands common C64 control codes inside strings and `CHR$` output:
 
@@ -285,7 +287,7 @@ In `-petscii` mode, `CHR$` behaves in a C64-like way: control and color codes ar
 If you do not pass a file name, the interpreter will print usage information:
 
 ```text
-Usage: basic [-petscii] [-petscii-plain] [-palette ansi|c64] [-maxstr N] <program.bas>
+Usage: basic [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] <program.bas>
 ```
 
 ### Shell scripting: standard I/O and arguments
