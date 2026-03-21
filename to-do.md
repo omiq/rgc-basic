@@ -104,6 +104,10 @@
   * ~**JSON$**~ — `JSON$(json$, path$)` — path-based extraction from JSON string (no new types); e.g. `JSON$(j$, "users[0].name")`.
   * ~**EVAL**~ — `EVAL(expr$)` — evaluate string as BASIC expression at runtime; useful for interactive testing.
 
+* **Optional debug logging**
+  * **Load logging** (`-debug load`): at each stage of `load_file_into_program` — raw line, after trim, directive handling (#OPTION/#INCLUDE), line number, after transform, after normalize. Helps debug parsing, include order, keyword expansion.
+  * **Execution logging** (`-debug exec`): at each statement — line number, statement text, control flow (GOTO/GOSUB/RETURN), optionally expression results and variable writes. High volume; useful for stepping through tricky logic.
+
 ---
 
 ## Potential priorities & sequence (post bash/PETSCII)
@@ -120,6 +124,7 @@
 | ~**8**~ | ~ENV$, PLATFORM$, JSON$, EVAL~ | Done. |
 | ~**9**~ | ~80-column option (terminal + basic-gfx)~ | Done. |
 | **10** | Bitmap/sprites | Bigger phase; depends on LOAD. |
+| **Later** | Optional debug logging (load + exec) | `-debug load`, `-debug exec`; verbose but useful for diagnostics. |
 | **Later** | Program preprocessor, #OPTION memory, Browser/WASM | Polish; niche; different target. |
 
 ---
