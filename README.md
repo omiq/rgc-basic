@@ -317,7 +317,7 @@ Program text is normalized at load time so **compact CBM BASIC** without spaces 
 
 ### 🎨 Graphical interpreter (basic-gfx)
 
-Releases include **basic-gfx** — a full graphical version of the interpreter built with Raylib. It provides a 40×25 PETSCII windowed display with `POKE`/`PEEK` screen memory, `INKEY$`, `TI`/`TI$`, `.seq` art viewers, and full PETSCII symbols:
+Releases include **basic-gfx** — a full graphical version of the interpreter built with Raylib. It provides a 40×25 (or 80×25 with `-columns 80`) PETSCII windowed display with `POKE`/`PEEK` screen memory, `INKEY$`, `TI`/`TI$`, `.seq` art viewers, and full PETSCII symbols:
 
 ![Cola Burger](https://github.com/omiq/cbm-basic/blob/main/docs/git-screenshot2.png)
 

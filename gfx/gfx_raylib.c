@@ -605,13 +605,14 @@ static void render_text_screen(const GfxVideoState *s,
                                RenderTexture2D target)
 {
     int row, col, y, x;
+    int cols = (s->cols == 40 || s->cols == 80) ? (int)s->cols : 40;
 
     BeginTextureMode(target);
     ClearBackground(c64_palette[s->bg_color & 0x0F]);
 
     for (row = 0; row < SCREEN_ROWS; row++) {
-        for (col = 0; col < SCREEN_COLS; col++) {
-            int idx = row * SCREEN_COLS + col;
+        for (col = 0; col < cols; col++) {
+            int idx = row * cols + col;
             uint8_t sc = s->screen[idx];
             uint8_t ci = s->color[idx] & 0x0F;
             const uint8_t *glyph;
@@ -690,11 +691,12 @@ int main(int argc, char **argv)
     int prog_idx;
     const char *prog_path;
     int closed_by_user;
+    int nat_w, nat_h, win_w, win_h;
 
     prog_idx = basic_parse_args(argc, argv);
     if (prog_idx < 0) {
         fprintf(stderr,
-                "Usage: %s [-petscii] [-palette ansi|c64] [-gfx-title \"title\"] [-gfx-border N] <program.bas> [args...]\n",
+                "Usage: %s [-petscii] [-palette ansi|c64] [-columns 80] [-gfx-title \"title\"] [-gfx-border N] <program.bas> [args...]\n",
                 argv[0]);
         return 1;
     }
@@ -712,14 +714,22 @@ int main(int argc, char **argv)
     ia.nargs     = argc - (prog_idx + 1);
     ia.args      = (argc > (prog_idx + 1)) ? (argv + (prog_idx + 1)) : NULL;
 
-    /* Suppress raylib INFO trace logs (e.g. timer messages). */
-    SetTraceLogLevel(LOG_WARNING);
+    /* Window/target size from vs.cols (40 or 80); set by basic_set_video from -columns */
     {
-        const char *title = basic_get_gfx_window_title();
-        InitWindow(WIN_W, WIN_H, title ? title : "CBM-BASIC GFX");
+        int cols = vs.cols ? (int)vs.cols : 40;
+        nat_w = cols * CELL_W;
+        nat_h = SCREEN_ROWS * CELL_H;
+        win_w = nat_w * SCALE;
+        win_h = nat_h * SCALE;
+
+        SetTraceLogLevel(LOG_WARNING);
+        {
+            const char *title = basic_get_gfx_window_title();
+            InitWindow(win_w, win_h, title ? title : "CBM-BASIC GFX");
+        }
+        SetTargetFPS(60);
+        target = LoadRenderTexture(nat_w, nat_h);
     }
-    SetTargetFPS(60);
-    target = LoadRenderTexture(NATIVE_W, NATIVE_H);
 
     pthread_create(&tid, NULL, interpreter_thread, &ia);
 
@@ -878,13 +888,13 @@ int main(int argc, char **argv)
             {
                 float dx = (float)border;
                 float dy = (float)border;
-                float dw = (float)(WIN_W - 2 * border);
-                float dh = (float)(WIN_H - 2 * border);
+                float dw = (float)(win_w - 2 * border);
+                float dh = (float)(win_h - 2 * border);
                 if (dw < 1) dw = 1;
                 if (dh < 1) dh = 1;
                 DrawTexturePro(
                     target.texture,
-                    (Rectangle){ 0, 0, (float)NATIVE_W, -(float)NATIVE_H },
+                    (Rectangle){ 0, 0, (float)nat_w, -(float)nat_h },
                     (Rectangle){ dx, dy, dw, dh },
                     (Vector2){ 0, 0 }, 0.0f, WHITE);
             }

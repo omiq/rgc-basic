@@ -910,8 +910,12 @@ void basic_set_gfx_border(int);                 /* forward, for #OPTION border *
 void basic_set_gfx_border_color(int);           /* forward, for #OPTION border */
 
 /* GFX text output state (mirrors a C64-like 40x25 text screen). */
-#define GFX_COLS 40
 #define GFX_ROWS 25
+
+/* Columns per row (40 or 80). Set by basic_set_video from print_width / #OPTION columns. */
+static inline int gfx_cols(void) {
+    return (gfx_vs && gfx_vs->cols) ? (int)gfx_vs->cols : 40;
+}
 static int gfx_x = 0;
 static int gfx_y = 0;
 static uint8_t gfx_fg = 14;      /* default light blue */
@@ -932,16 +936,19 @@ static void gfx_scroll_up(void)
 {
     int row;
     if (!gfx_vs) return;
-    for (row = 0; row < GFX_ROWS - 1; row++) {
-        memcpy(&gfx_vs->screen[row * GFX_COLS],
-               &gfx_vs->screen[(row + 1) * GFX_COLS],
-               GFX_COLS);
-        memcpy(&gfx_vs->color[row * GFX_COLS],
-               &gfx_vs->color[(row + 1) * GFX_COLS],
-               GFX_COLS);
+    {
+        int c = gfx_cols();
+        for (row = 0; row < GFX_ROWS - 1; row++) {
+            memcpy(&gfx_vs->screen[row * c],
+                   &gfx_vs->screen[(row + 1) * c],
+                   c);
+            memcpy(&gfx_vs->color[row * c],
+                   &gfx_vs->color[(row + 1) * c],
+                   c);
+        }
+        memset(&gfx_vs->screen[(GFX_ROWS - 1) * c], 32, c);
+        memset(&gfx_vs->color[(GFX_ROWS - 1) * c], gfx_fg, c);
     }
-    memset(&gfx_vs->screen[(GFX_ROWS - 1) * GFX_COLS], 32, GFX_COLS);
-    memset(&gfx_vs->color[(GFX_ROWS - 1) * GFX_COLS], gfx_fg, GFX_COLS);
 }
 
 static void gfx_newline(void)
@@ -998,7 +1005,7 @@ static int gfx_apply_control_code(unsigned char code)
         if (gfx_y > 0) gfx_y--;
         return 1;
     case 29:  /* right */
-        if (gfx_x < GFX_COLS - 1) gfx_x++;
+        if (gfx_x < gfx_cols() - 1) gfx_x++;
         print_col = gfx_x;
         return 1;
     case 157: /* left */
@@ -1015,7 +1022,7 @@ static int gfx_apply_control_code(unsigned char code)
         if (gfx_x > 0 && gfx_vs) {
             int del_idx;
             gfx_x--;
-            del_idx = gfx_y * GFX_COLS + gfx_x;
+            del_idx = gfx_y * gfx_cols() + gfx_x;
             if (del_idx >= 0 && del_idx < (int)GFX_TEXT_SIZE) {
                 gfx_vs->screen[del_idx] = 32;
                 gfx_vs->color[del_idx] = (uint8_t)(gfx_fg & 0x0F);
@@ -1124,18 +1131,18 @@ static void gfx_put_byte(unsigned char b)
     }
 
     if (gfx_x < 0) gfx_x = 0;
-    if (gfx_x >= GFX_COLS) gfx_newline();
+    if (gfx_x >= gfx_cols()) gfx_newline();
     if (gfx_y < 0) gfx_y = 0;
     if (gfx_y >= GFX_ROWS) gfx_y = GFX_ROWS - 1;
 
-    idx = gfx_y * GFX_COLS + gfx_x;
+    idx = gfx_y * gfx_cols() + gfx_x;
     if (idx >= 0 && idx < (int)GFX_TEXT_SIZE) {
         gfx_vs->screen[idx] = sc;
         gfx_vs->color[idx]  = (uint8_t)(gfx_fg & 0x0F);
     }
 
     gfx_x++;
-    if (gfx_x >= GFX_COLS) {
+    if (gfx_x >= gfx_cols()) {
         gfx_newline();
     } else {
         print_col = gfx_x;
@@ -1248,6 +1255,7 @@ static int apply_option_directive(const char *name, const char *value)
         n = (int)strtol(value, &end, 10);
         if (end == value || *end != '\0' || n < 1 || n > 255) return -1;
         print_width = n;
+        if (gfx_vs) gfx_vs->cols = (n >= 80) ? 80 : 40;
         return 0;
     }
     if (str_eq_ci(name, "nowrap")) {
@@ -2260,16 +2268,16 @@ static void print_value(struct value *v)
                             int idx;
                             if (gfx_reverse && sc < 128) sc |= 0x80;
                             if (gfx_x < 0) gfx_x = 0;
-                            if (gfx_x >= GFX_COLS) gfx_newline();
+                            if (gfx_x >= gfx_cols()) gfx_newline();
                             if (gfx_y < 0) gfx_y = 0;
                             if (gfx_y >= GFX_ROWS) gfx_y = GFX_ROWS - 1;
-                            idx = gfx_y * GFX_COLS + gfx_x;
+                            idx = gfx_y * gfx_cols() + gfx_x;
                             if (idx >= 0 && idx < (int)GFX_TEXT_SIZE) {
                                 gfx_vs->screen[idx] = sc;
                                 gfx_vs->color[idx]  = (uint8_t)(gfx_fg & 0x0F);
                             }
                             gfx_x++;
-                            if (gfx_x >= GFX_COLS) gfx_newline();
+                            if (gfx_x >= gfx_cols()) gfx_newline();
                             else print_col = gfx_x;
                             continue;
                         }
@@ -7683,7 +7691,10 @@ void basic_run(const char *script_path_arg, int nargs, char **args)
 int basic_halted(void) { return halted; }
 
 #ifdef GFX_VIDEO
-void basic_set_video(GfxVideoState *vs) { gfx_vs = vs; }
+void basic_set_video(GfxVideoState *vs) {
+    gfx_vs = vs;
+    if (vs) vs->cols = (print_width >= 80) ? 80 : 40;
+}
 
 static char gfx_window_title[128];
 
