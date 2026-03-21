@@ -108,6 +108,9 @@
   * **Load logging** (`-debug load`): at each stage of `load_file_into_program` — raw line, after trim, directive handling (#OPTION/#INCLUDE), line number, after transform, after normalize. Helps debug parsing, include order, keyword expansion.
   * **Execution logging** (`-debug exec`): at each statement — line number, statement text, control flow (GOTO/GOSUB/RETURN), optionally expression results and variable writes. High volume; useful for stepping through tricky logic.
 
+* **Future: IL/compilation**
+  * Shelved for now: optional caching of processed program. Revisit when moving beyond pure interpretation to some form of IL or bytecode compilation — cache would then be meaningful (skip parse at load and potentially at exec).
+
 ---
 
 ## Potential priorities & sequence (post bash/PETSCII)
