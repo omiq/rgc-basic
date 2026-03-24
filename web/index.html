@@ -4,75 +4,203 @@
   <meta charset="utf-8">
   <title>CBM-BASIC in Browser</title>
   <style>
-    body { font-family: monospace; max-width: 800px; margin: 1em auto; padding: 0 1em; }
-    h1 { font-size: 1.2em; }
-    textarea { width: 100%; height: 200px; font-family: monospace; }
-    #output { background: #1e1e1e; color: #d4d4d4; padding: 1em; min-height: 150px; white-space: pre-wrap; }
-    button { font-size: 1em; padding: 0.3em 0.8em; margin-right: 0.5em; }
-    .error { color: #f14c4c; }
+    body { font-family: system-ui, sans-serif; max-width: 880px; margin: 1em auto; padding: 0 1em; }
+    h1 { font-size: 1.25em; }
+    textarea { width: 100%; height: 200px; font-family: ui-monospace, monospace; font-size: 13px; }
+    #output {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 1em;
+      min-height: 150px;
+      white-space: pre-wrap;
+      font-family: ui-monospace, monospace;
+      font-size: 13px;
+      line-height: 1.35;
+      border-radius: 4px;
+    }
+    #output .err { color: #f14c4c; }
+    button { font-size: 1em; padding: 0.35em 0.9em; margin-right: 0.5em; }
+    fieldset { border: 1px solid #ccc; border-radius: 4px; margin: 0.75em 0; padding: 0.5em 0.75em; }
+    legend { font-size: 0.9em; padding: 0 0.35em; }
+    .opts label { margin-right: 1em; white-space: nowrap; }
+    .hint { font-size: 0.85em; color: #555; margin: 0.35em 0 0; }
   </style>
 </head>
 <body>
   <h1>CBM-BASIC</h1>
-  <p>Enter a BASIC program and click Run. Output appears below.</p>
+  <p>Enter a BASIC program and click Run. Output appears below. PETSCII mode maps screen codes to Unicode and uses ANSI colours in the output panel.</p>
   <textarea id="program" placeholder="10 PRINT &quot;HELLO, WORLD!&quot;&#10;20 END">10 PRINT "HELLO, WORLD!"
 20 END</textarea>
+  <fieldset>
+    <legend>Interpreter options</legend>
+    <div class="opts">
+      <label><input type="checkbox" id="optPetscii" checked> PETSCII (-petscii)</label>
+      <label><input type="checkbox" id="optPlain"> Plain PETSCII (-petscii-plain)</label>
+      <label>Charset <select id="optCharset">
+        <option value="upper" selected>upper</option>
+        <option value="lower">lower</option>
+      </select></label>
+      <label>Palette <select id="optPalette">
+        <option value="ansi" selected>ansi</option>
+        <option value="c64">c64</option>
+      </select></label>
+      <label>Columns <input type="number" id="optColumns" min="1" max="255" value="40" style="width:4em"></label>
+    </div>
+    <p class="hint">These map to the same flags as the native <code>basic</code> binary. OPEN/PRINT#/INPUT# use the virtual filesystem (paths like <code>out.txt</code>).</p>
+  </fieldset>
   <p>
-    <button id="run">Run</button>
+    <button id="run" disabled>Run</button>
   </p>
-  <div id="output"></div>
+  <div id="output" aria-live="polite"></div>
 
   <script src="basic.js"></script>
   <script>
-    const output = document.getElementById('output');
-    const runBtn = document.getElementById('run');
-    const programEl = document.getElementById('program');
+    (function() {
+      const output = document.getElementById('output');
+      const runBtn = document.getElementById('run');
+      const programEl = document.getElementById('program');
+      const optPetscii = document.getElementById('optPetscii');
+      const optPlain = document.getElementById('optPlain');
+      const optCharset = document.getElementById('optCharset');
+      const optPalette = document.getElementById('optPalette');
+      const optColumns = document.getElementById('optColumns');
 
-    /* Custom stdin: one prompt per line. Never return null (avoid EOF) so subsequent RUNs keep working. */
-    var inputBuffer = [];
+      var inputBuffer = [];
 
-    function clearOutput() {
-      output.textContent = '';
-      output.classList.remove('error');
-    }
+      function escHtml(t) {
+        return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
 
-    function appendOutput(text, isError) {
-      output.textContent += text;
-      if (isError) output.classList.add('error');
-    }
-
-    Basic({
-      preRun: [function() {
-        function stdin() {
-          if (inputBuffer.length > 0) return inputBuffer.shift();
-          var line = window.prompt('? ');
-          if (line === null) line = '';
-          for (var i = 0; i < line.length; i++) inputBuffer.push(line.charCodeAt(i) & 0xFF);
-          inputBuffer.push(10);
-          return inputBuffer.shift();
+      /* ANSI SGR → HTML (subset: 30–37, 90–97, 40–47, 100–107, 1 bold, 0/22 reset, 39/49 default). */
+      function ansiToHtmlChunk(s) {
+        var fg = null, bg = null, bold = false;
+        var out = '';
+        var re = /\x1b\[([0-9;]*)m/g;
+        var last = 0, m;
+        function styleFor() {
+          var st = '';
+          if (fg !== null) st += 'color:' + fg + ';';
+          if (bg !== null) st += 'background-color:' + bg + ';';
+          if (bold) st += 'font-weight:bold;';
+          return st;
         }
-        FS.init(stdin, null, null);
-      }]
-    }).then(function(Module) {
-      Module.print = function(text) { appendOutput(text); };
-      Module.printErr = function(text) { appendOutput(text, true); };
-
-      runBtn.disabled = false;
-      runBtn.onclick = function() {
-        clearOutput();
-        inputBuffer = [];
-        const prog = programEl.value;
-        try {
-          Module.FS.writeFile('/program.bas', prog);
-          Module.ccall('basic_load_and_run', null, ['string'], ['/program.bas']);
-        } catch (e) {
-          appendOutput('Error: ' + e.message, true);
+        function applyCode(n) {
+          if (n === 0 || n === 22) { fg = null; bg = null; bold = false; return; }
+          if (n === 1) { bold = true; return; }
+          if (n === 39) { fg = null; return; }
+          if (n === 49) { bg = null; return; }
+          var ansi = {
+            30:'#000',31:'#cd3131',32:'#0dbc79',33:'#e5e510',34:'#2472c8',35:'#bc3fbc',36:'#11a8cd',37:'#e5e5e5',
+            90:'#666',91:'#f14c4c',92:'#23d18b',93:'#f5f543',94:'#3b8eea',95:'#d670d6',96:'#29b8db',97:'#ffffff'
+          };
+          var ansiBg = {
+            40:'#000',41:'#cd3131',42:'#0dbc79',43:'#e5e510',44:'#2472c8',45:'#bc3fbc',46:'#11a8cd',47:'#e5e5e5',
+            100:'#666',101:'#f14c4c',102:'#23d18b',103:'#f5f543',104:'#3b8eea',105:'#d670d6',106:'#29b8db',107:'#ffffff'
+          };
+          if (ansi[n]) fg = ansi[n];
+          else if (ansiBg[n]) bg = ansiBg[n];
         }
-      };
-    }).catch(function(e) {
-      output.textContent = 'Failed to load BASIC: ' + e;
-      output.classList.add('error');
-    });
+        while ((m = re.exec(s)) !== null) {
+          var plain = s.slice(last, m.index);
+          if (plain.length) {
+            var st0 = styleFor();
+            out += st0 ? '<span style="' + st0 + '">' + escHtml(plain) + '</span>' : escHtml(plain);
+          }
+          last = m.index + m[0].length;
+          var parts = m[1] === '' ? ['0'] : m[1].split(';');
+          for (var i = 0; i < parts.length; i++) {
+            var num = parseInt(parts[i], 10);
+            if (isNaN(num)) num = 0;
+            applyCode(num);
+          }
+        }
+        var tail = s.slice(last);
+        if (tail.length) {
+          var st1 = styleFor();
+          out += st1 ? '<span style="' + st1 + '">' + escHtml(tail) + '</span>' : escHtml(tail);
+        }
+        return out;
+      }
+
+      function clearOutput() {
+        output.innerHTML = '';
+        output.classList.remove('err');
+      }
+
+      function appendOutputHtml(html, isError) {
+        var span = document.createElement('span');
+        span.innerHTML = html;
+        output.appendChild(span);
+        if (isError) output.classList.add('err');
+      }
+
+      function appendOutput(text, isError) {
+        appendOutputHtml(ansiToHtmlChunk(text), isError);
+      }
+
+      function buildArgString() {
+        var parts = [];
+        if (optPlain.checked) {
+          parts.push('-petscii-plain');
+        } else if (optPetscii.checked) {
+          parts.push('-petscii');
+        }
+        parts.push('-charset', optCharset.value);
+        parts.push('-palette', optPalette.value);
+        var cols = parseInt(optColumns.value, 10);
+        if (!isNaN(cols) && cols >= 1 && cols <= 255) {
+          parts.push('-columns', String(cols));
+        }
+        return parts.join(' ');
+      }
+
+      optPlain.addEventListener('change', function() {
+        if (optPlain.checked) optPetscii.checked = true;
+      });
+      optPetscii.addEventListener('change', function() {
+        if (!optPetscii.checked) optPlain.checked = false;
+      });
+
+      Basic({
+        preRun: [function() {
+          function stdin() {
+            if (inputBuffer.length > 0) return inputBuffer.shift();
+            var line = window.prompt('? ');
+            if (line === null) line = '';
+            for (var i = 0; i < line.length; i++) inputBuffer.push(line.charCodeAt(i) & 0xFF);
+            inputBuffer.push(10);
+            return inputBuffer.shift();
+          }
+          FS.init(stdin, null, null);
+        }]
+      }).then(function(Module) {
+        Module.print = function(text) { appendOutput(text); };
+        Module.printErr = function(text) { appendOutput(text, true); };
+
+        runBtn.disabled = false;
+        runBtn.onclick = function() {
+          clearOutput();
+          inputBuffer = [];
+          const prog = programEl.value;
+          try {
+            var flags = buildArgString();
+            var rc = Module.ccall('basic_apply_arg_string', 'number', ['string'], [flags]);
+            if (rc !== 0) {
+              appendOutputHtml('<span class="err">Invalid interpreter options.</span>', true);
+              return;
+            }
+            Module.FS.writeFile('/program.bas', prog);
+            Module.ccall('basic_load_and_run', null, ['string'], ['/program.bas']);
+          } catch (e) {
+            appendOutputHtml('<span class="err">' + escHtml(e.message || e) + '</span>', true);
+          }
+        };
+      }).catch(function(e) {
+        output.innerHTML = '<span class="err">Failed to load BASIC: ' +
+          escHtml(e) + '</span>';
+        output.classList.add('err');
+      });
+    })();
   </script>
 </body>
 </html>
