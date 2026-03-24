@@ -208,16 +208,14 @@
       } catch (e) {
         appendLog('Init canvas: ' + e + '\n', true);
       }
-      /* One synchronous paint before INPUT yields (see basic.c wasm_read_input_line_blocking). */
-      var syncPaintImg = ctx.createImageData(320, 200);
-      M.onWasmGfxSyncPaint = function() {
-        if (!rgbaPtr) return;
-        try {
-          M.ccall('wasm_gfx_render_rgba', null, ['number', 'number'], [rgbaPtr, rgbaSize]);
-          if (copyHeapToRgba(syncPaintImg.data, rgbaPtr, rgbaSize)) {
-            ctx.putImageData(syncPaintImg, 0, 0);
-          }
-        } catch (e) { /* ignore */ }
+      /* INPUT: C renders to a shadow buffer and passes ptr here — no wasm ccall (Asyncify deadlock). */
+      var shadowImg = ctx.createImageData(320, 200);
+      M.onWasmGfxPaintShadow = function(ptr, nbytes) {
+        var p = ((typeof ptr === 'bigint' ? Number(ptr) : ptr) >>> 0);
+        var n = nbytes | 0;
+        if (n !== rgbaSize || p === 0) return;
+        if (!copyHeapToRgba(shadowImg.data, p, n)) return;
+        ctx.putImageData(shadowImg, 0, 0);
       };
 
       runBtn.disabled = false;
