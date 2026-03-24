@@ -76,6 +76,8 @@ void gfx_poke(GfxVideoState *s, uint16_t addr, uint8_t value);
 int gfx_bitmap_get_pixel(const GfxVideoState *s, unsigned x, unsigned y);
 /* Set (on=1) or clear (on=0) one pixel; coordinates outside the bitmap are ignored. */
 void gfx_bitmap_set_pixel(GfxVideoState *s, int x, int y, int on);
+/* Bresenham line; each point is clipped (same semantics as PSET/PRESET). */
+void gfx_bitmap_line(GfxVideoState *s, int x0, int y0, int x1, int y1, int on);
 
 #endif /* GFX_VIDEO_H */
 

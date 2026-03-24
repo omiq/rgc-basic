@@ -1,4 +1,5 @@
 #include "gfx_video.h"
+#include <stdlib.h>
 #include <string.h>
 
 void gfx_video_init(GfxVideoState *s)
@@ -177,6 +178,33 @@ void gfx_bitmap_set_pixel(GfxVideoState *s, int x, int y, int on)
         s->bitmap[byte_off] |= mask;
     } else {
         s->bitmap[byte_off] &= (uint8_t)~mask;
+    }
+}
+
+void gfx_bitmap_line(GfxVideoState *s, int x0, int y0, int x1, int y1, int on)
+{
+    int dx, dy, sx, sy, err, e2;
+
+    if (!s) return;
+    dx = abs(x1 - x0);
+    dy = -abs(y1 - y0);
+    sx = x0 < x1 ? 1 : -1;
+    sy = y0 < y1 ? 1 : -1;
+    err = dx + dy;
+    for (;;) {
+        gfx_bitmap_set_pixel(s, x0, y0, on);
+        if (x0 == x1 && y0 == y1) {
+            break;
+        }
+        e2 = 2 * err;
+        if (e2 >= dy) {
+            err += dy;
+            x0 += sx;
+        }
+        if (e2 <= dx) {
+            err += dx;
+            y0 += sy;
+        }
     }
 }
 

@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <assert.h>
+#include <string.h>
 
 #include "gfx_video.h"
 
@@ -58,6 +59,22 @@ int main(void)
     gfx_bitmap_set_pixel(&s, 400, 0, 1);
     gfx_bitmap_set_pixel(&s, 0, 300, 1);
     assert(gfx_bitmap_get_pixel(&s, 0, 0) == 0);
+
+    memset(s.bitmap, 0, sizeof(s.bitmap));
+    gfx_bitmap_line(&s, 0, 0, 3, 0, 1);
+    assert(gfx_bitmap_get_pixel(&s, 0, 0) == 1);
+    assert(gfx_bitmap_get_pixel(&s, 1, 0) == 1);
+    assert(gfx_bitmap_get_pixel(&s, 2, 0) == 1);
+    assert(gfx_bitmap_get_pixel(&s, 3, 0) == 1);
+    assert(gfx_bitmap_get_pixel(&s, 4, 0) == 0);
+
+    memset(s.bitmap, 0, sizeof(s.bitmap));
+    gfx_bitmap_line(&s, 5, 5, 5, 8, 1);
+    assert(gfx_bitmap_get_pixel(&s, 5, 5) == 1);
+    assert(gfx_bitmap_get_pixel(&s, 5, 6) == 1);
+    assert(gfx_bitmap_get_pixel(&s, 5, 7) == 1);
+    assert(gfx_bitmap_get_pixel(&s, 5, 8) == 1);
+    assert(gfx_bitmap_get_pixel(&s, 5, 9) == 0);
 
     assert(s.screen_mode == GFX_SCREEN_TEXT);
 
