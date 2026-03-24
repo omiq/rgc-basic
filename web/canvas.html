@@ -28,25 +28,19 @@
       white-space: pre-wrap;
       margin-top: 0.5em;
     }
-    #inputLineRow { display: none; margin-top: 0.5em; align-items: center; gap: 0.5em; }
-    #inputLineRow.active { display: flex; }
-    #inputLine { flex: 1; font-family: ui-monospace, monospace; padding: 0.35em 0.5em; }
     .hint { font-size: 0.85em; color: #555; }
+    #screen:focus { outline: 2px solid #2472c8; outline-offset: 2px; }
   </style>
 </head>
 <body>
   <h1>CBM-BASIC — Canvas (40×25 PETSCII)</h1>
-  <p class="hint">Uses the GfxVideoState text screen. <strong>Rebuild both</strong> <code>basic-canvas.js</code> and <code>basic-canvas.wasm</code> together (<code>make basic-wasm-canvas</code>). This page loads them with the <strong>same</strong> cache-bust query so they cannot get out of sync.</p>
+  <p class="hint">Uses the GfxVideoState text screen. <strong>Click the canvas</strong> to focus it; <code>INPUT</code> and <code>GET</code> / <code>INKEY$</code> read keys only while the canvas is focused (click the program or elsewhere to type there). <strong>Rebuild both</strong> <code>basic-canvas.js</code> and <code>basic-canvas.wasm</code> together (<code>make basic-wasm-canvas</code>).</p>
   <textarea id="program">10 PRINT "{CLR}{WHT}HELLO FROM CANVAS"
 20 LOCATE 0,12: PRINT "POKE 1024,1 : PEEK(1024)"
 30 END</textarea>
   <p><button id="run" disabled>Run</button></p>
   <div id="screenWrap">
     <canvas id="screen" width="320" height="200" tabindex="0"></canvas>
-  </div>
-  <div id="inputLineRow">
-    <label id="inputLabel" for="inputLine">INPUT</label>
-    <input type="text" id="inputLine" autocomplete="off" spellcheck="false" />
   </div>
   <div id="log" aria-live="polite"></div>
 
@@ -60,9 +54,6 @@
   var runBtn = document.getElementById('run');
   var programEl = document.getElementById('program');
   var logEl = document.getElementById('log');
-  var inputLineRow = document.getElementById('inputLineRow');
-  var inputLineEl = document.getElementById('inputLine');
-  var inputLabelEl = document.getElementById('inputLabel');
 
   var rgbaPtr = 0;
   var rgbaSize = 320 * 200 * 4;
@@ -170,16 +161,6 @@
     },
     print: function(t) { appendLog(t); },
     printErr: function(t) { appendLog(t, true); },
-    onWasmNeedInputLine: function() {
-      var M = window.Module;
-      inputLabelEl.textContent =
-        (typeof M.wasmInputLabel === 'string' && M.wasmInputLabel.length)
-          ? M.wasmInputLabel
-          : 'INPUT';
-      inputLineRow.classList.add('active');
-      inputLineEl.value = '';
-      inputLineEl.focus();
-    },
     onRuntimeInitialized: function() {
       var M = window.Module;
       if (typeof M.ccall !== 'function') {
@@ -208,7 +189,7 @@
       } catch (e) {
         appendLog('Init canvas: ' + e + '\n', true);
       }
-      /* INPUT: C renders to a shadow buffer and passes ptr here — no wasm ccall (Asyncify deadlock). */
+      /* C renders PETSCII to shadow RAM; JS copies heap only (no nested wasm during Asyncify). */
       var shadowImg = ctx.createImageData(320, 200);
       M.onWasmGfxPaintShadow = function(ptr, nbytes) {
         var p = ((typeof ptr === 'bigint' ? Number(ptr) : ptr) >>> 0);
@@ -224,9 +205,6 @@
         logEl.textContent = '';
         logEl.style.color = '#ccc';
         frameErrCount = 0;
-        inputLineRow.classList.remove('active');
-        inputLabelEl.textContent = 'INPUT';
-        Mo.wasmInputLabel = 'INPUT';
         var prog = programEl.value;
         var flags = '-petscii -palette c64 -charset lower -columns 40';
         var rc = Mo.ccall('basic_apply_arg_string', 'number', ['string'], [flags]);
@@ -281,30 +259,26 @@
       }
       requestAnimationFrame(frame);
 
+      canvas.addEventListener('click', function() {
+        canvas.focus();
+      });
+
+      function petsciiByteFromKeydown(ev) {
+        if (ev.key === 'Enter') return 13;
+        if (ev.key === 'Backspace' || ev.key === 'Delete') return 20;
+        if (ev.key.length === 1) return ev.key.charCodeAt(0) & 0xFF;
+        return null;
+      }
+
       document.addEventListener('keydown', function(ev) {
         var Mo = window.Module;
-        if (inputLineRow.classList.contains('active')) return;
-        if (ev.target === programEl || ev.target === inputLineEl) return;
         if (document.activeElement !== canvas) return;
+        if (ev.target !== canvas) return;
+        var b = petsciiByteFromKeydown(ev);
+        if (b === null) return;
         ev.preventDefault();
-        var code = ev.keyCode || ev.which;
-        if (code === 13) {
-          Mo.ccall('wasm_push_key', null, ['number'], [13]);
-        } else if (ev.key && ev.key.length === 1) {
-          Mo.ccall('wasm_push_key', null, ['number'], [ev.key.charCodeAt(0) & 0xFF]);
-        }
+        Mo.ccall('wasm_push_key', null, ['number'], [b]);
       }, true);
-
-      inputLineEl.addEventListener('keydown', function(ev) {
-        var Mo = window.Module;
-        if (ev.key === 'Enter') {
-          ev.preventDefault();
-          Mo.wasmInputLineText = inputLineEl.value;
-          Mo.wasmInputLineReady = 1;
-          inputLineRow.classList.remove('active');
-          canvas.focus();
-        }
-      });
     },
     onAbort: function(what) {
       appendLog('Aborted: ' + String(what || '') + '\n', true);

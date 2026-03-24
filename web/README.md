@@ -13,7 +13,7 @@ Requires [Emscripten](https://emscripten.org/) (emsdk). Install and activate, th
 
 The terminal build (`basic.js`) enables **Asyncify** (`emscripten_sleep`) so **INPUT**, **GET**, and **INKEY$** can block without freezing the tab; call `basic_load_and_run` with **`ccall(..., { async: true })`** so the returned Promise resolves when the program finishes.
 
-The **canvas** build (`basic-canvas.js`) links **`GFX_VIDEO`** (plus `gfx_canvas.c` for RGBA export). Use **`basic_load_and_run_gfx`** (or `wasm_gfx_set_video` + `basic_load_and_run`) and poll **`wasm_gfx_render_rgba`** into a buffer for **Canvas 2D** — see **`canvas.html`**. **LOADSPRITE** / **DRAWSPRITE** are stubbed (no textures in WASM).
+The **canvas** build (`basic-canvas.js`) links **`GFX_VIDEO`** (plus `gfx_canvas.c` for RGBA export). Use **`basic_load_and_run_gfx`** and **`wasm_gfx_render_rgba`** (see **`canvas.html`**). **`INPUT`** and **`GET`/`INKEY$`** use the **PETSCII canvas**: focus the canvas (click it), then type; keys go through **`wasm_push_key`**. While waiting for **`GET`**, **`Module.wasmWaitingKey`** is `1` (green outline). **LOADSPRITE** / **DRAWSPRITE** are stubbed (no textures in WASM).
 
 ## Run
 
@@ -31,7 +31,7 @@ cd web && python3 -m http.server 8080
 - Edit the BASIC program in the textarea and click **Run**.
 - **Interpreter options** on the page map to the same flags as the native binary (`-petscii`, `-palette`, `-charset`, `-columns`). Before each run the demo calls `basic_apply_arg_string` so PETSCII colours render in the output panel (ANSI → HTML).
 - **PRINT** output appears in the output panel.
-- **INPUT** uses the **inline field** under the output (not `prompt()`). The demo sets `Module.onWasmNeedInputLine` to show the field and focus it; submitting sets `Module.wasmInputLineText` and `Module.wasmInputLineReady = 1`. **`Module.wasmInputLabel`** is set to the prompt string from **`INPUT "Hello";`** (or **`INPUT`** if there is no string prompt).
+- **INPUT** on **`index.html`** uses the **inline field** under the output (not `prompt()`): `Module.onWasmNeedInputLine`, `Module.wasmInputLineText`, `Module.wasmInputLineReady`, and **`Module.wasmInputLabel`** from the string prompt. On **`canvas.html`**, **INPUT** is typed **on the PETSCII canvas** (same as **GET**): focus the canvas first.
 - **PRINT** line breaks: the demo inserts **`<br>`** for newline characters in `Module.print` so `PRINT` without a trailing `;` advances to the next line in the panel.
 - **GET** / **INKEY$**: click the output panel so it is focused, then type. Keys are sent with **`wasm_push_key`** (byte). While the interpreter waits for a key, **`Module.wasmWaitingKey`** is `1` (green outline in the demo).
 - **SYSTEM** and **EXEC$** are not available in the browser (return -1 / empty string).
