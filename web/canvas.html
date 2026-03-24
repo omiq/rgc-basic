@@ -72,40 +72,50 @@
     return window.Module['HEAPU8'] || window.Module.HEAPU8;
   }
 
+  /* Emscripten 3: WebAssembly.Memory is on Module.asm.memory, not Module.wasmMemory */
+  function wasmMemoryBuffer() {
+    var M = window.Module;
+    if (M.asm && M.asm.memory && M.asm.memory.buffer) {
+      return M.asm.memory.buffer;
+    }
+    if (M.wasmMemory && M.wasmMemory.buffer) {
+      return M.wasmMemory.buffer;
+    }
+    return null;
+  }
+
   function copyHeapToRgba(dstU8, ptr, len) {
+    var p = ptr >>> 0;
+    if (!p || !len) return false;
     var h = heapU8();
-    if (!h || !ptr) return false;
-    /* After sbrk/memory growth, subarray might not cover ptr+len — copy via wasmMemory if needed */
-    var mem = window.Module['wasmMemory'];
-    if (mem && mem.buffer) {
-      var end = ptr + len;
-      if (end > mem.buffer.byteLength) {
-        appendLog('WASM memory too small for framebuffer copy.\n', true);
-        return false;
-      }
-      dstU8.set(new Uint8Array(mem.buffer, ptr, len));
-      return true;
+    if (h) {
+      try {
+        dstU8.set(h.subarray(p, p + len));
+        return true;
+      } catch (e) { /* fall through to raw buffer */ }
     }
-    try {
-      dstU8.set(h.subarray(ptr, ptr + len));
-      return true;
-    } catch (e) {
-      appendLog('copyHeapToRgba: ' + e + '\n', true);
-      return false;
+    var buf = wasmMemoryBuffer();
+    if (buf && p + len <= buf.byteLength) {
+      try {
+        dstU8.set(new Uint8Array(buf, p, len));
+        return true;
+      } catch (e2) { /* ignore */ }
     }
+    return false;
   }
 
   function clearRgbaBuffer(ptr, len) {
+    var p = ptr >>> 0;
     var h = heapU8();
     if (h && typeof h.fill === 'function') {
       try {
-        h.fill(0, ptr, ptr + len);
+        h.fill(0, p, p + len);
         return;
       } catch (e) { /* fall through */ }
     }
-    var mem = window.Module['wasmMemory'];
-    if (mem && mem.buffer && ptr + len <= mem.buffer.byteLength) {
-      new Uint8Array(mem.buffer, ptr, len).fill(0);
+    var buf = wasmMemoryBuffer();
+    if (buf && p + len <= buf.byteLength) {
+      new Uint8Array(buf, p, len).fill(0);
     }
   }
 
