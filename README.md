@@ -509,7 +509,7 @@ make basic-wasm
 
 Produces `web/basic.js` and `web/basic.wasm`. Serve `web/` over HTTP (e.g. `cd web && python3 -m http.server 8080`) and open in a browser. See `web/README.md` for details.
 
-**Automated WASM smoke test** (headless Chromium via Playwright): install `pip install -r tests/requirements-wasm.txt`, run `python3 -m playwright install chromium`, then `make wasm-test`. This is what CI runs on pull requests and is included in nightly and tag release artifacts.
+**Automated WASM smoke test** (headless Chromium via Playwright): install `pip install -r tests/requirements-wasm.txt`, run `python3 -m playwright install chromium`, then `make wasm-test`. The same check runs in GitHub Actions for **tagged releases** and the **nightly** workflow; artifacts include `cbm-basic-wasm.tar.gz`.
 
 #### Manual compilation
 
