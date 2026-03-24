@@ -1255,9 +1255,6 @@ static int apply_option_directive(const char *name, const char *value)
         n = (int)strtol(value, &end, 10);
         if (end == value || *end != '\0' || n < 1 || n > 255) return -1;
         print_width = n;
-#ifdef GFX_VIDEO
-        if (gfx_vs) gfx_vs->cols = (n >= 80) ? 80 : 40;
-#endif
         return 0;
     }
     if (str_eq_ci(name, "nowrap")) {
@@ -7556,6 +7553,13 @@ static void load_program(const char *path)
     collect_data_from_program();
     build_label_table();
     build_udf_table();
+
+#ifdef GFX_VIDEO
+    /* #OPTION columns may run during load after basic_set_video(); keep gfx in sync. */
+    if (gfx_vs) {
+        gfx_vs->cols = (print_width >= 80) ? 80 : 40;
+    }
+#endif
 }
 
 static void run_program(const char *script_path_arg, int nargs, char **args)
