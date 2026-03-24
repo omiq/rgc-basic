@@ -61,10 +61,14 @@ basic-wasm:
 		-o web/basic.js basic.c petscii.c -lm
 	@echo "Built web/basic.js and web/basic.wasm"
 
+# Headless browser smoke test (needs: pip install -r tests/requirements-wasm.txt && playwright install chromium)
+wasm-test: basic-wasm
+	python3 tests/wasm_browser_test.py
+
 clean:
 	$(RM) $(TARGET)$(EXE) gfx_video_test$(EXE) gfx-demo$(EXE) basic-gfx$(EXE)
 	$(RM) web/basic.js web/basic.wasm web/basic.wasm.map 2>/dev/null || true
 
-.PHONY: all clean gfx_video_test gfx-demo basic-gfx basic-wasm
+.PHONY: all clean gfx_video_test gfx-demo basic-gfx basic-wasm wasm-test
 
 # End of Makefile

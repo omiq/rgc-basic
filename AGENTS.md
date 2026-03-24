@@ -38,6 +38,8 @@ done
 
 **GFX unit test**: `./gfx_video_test` (headless, no display needed).
 
+**Browser / WASM** (Emscripten + Playwright): `make basic-wasm` then `pip install -r tests/requirements-wasm.txt`, `python3 -m playwright install chromium`, then `make wasm-test` (or `python3 tests/wasm_browser_test.py`). Mirrors the GitHub Actions WASM job.
+
 ### Caveats
 
 - Several example programs (`dartmouth.bas`, `guess.bas`, `adventure.bas`, `get-input.bas`, `test_get.bas`) and test files (`codes-replaced.bas`, `locate.bas`, `kbuffer.bas`) require interactive or piped keyboard input — skip these in automated runs.
