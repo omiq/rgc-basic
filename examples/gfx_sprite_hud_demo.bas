@@ -1,11 +1,13 @@
-1 REM PNG HUD overlay: transparent panel over PETSCII text (basic-gfx)
-2 REM From repo root: ./basic-gfx examples/gfx_sprite_hud_demo.bas
-10 PRINT "{CLR}SPRITE HUD DEMO"
-20 PRINT ""
-30 PRINT "Semi-transparent PNG drawn on top (z=200)."
-40 PRINT "Press a key or wait..."
-50 LOADSPRITE 0,"hud_panel.png"
-60 REM Crop: first 32x16 of sheet; place at (80,40); above text (z=200)
-70 DRAWSPRITE 0,80,40,200,0,0,32,16
-80 SLEEP 300
-90 END
+1 REM PNG HUD overlay: DRAWSPRITE x,y are *pixel* coords (320x200), not text rows.
+2 REM Row 0 is y=0..7, row 1 is y=8..15, etc. y=40 is row 5 — below several PRINT lines.
+3 REM Run: ./basic-gfx examples/gfx_sprite_hud_demo.bas   (or add CHR$(14) for lowercase)
+10 PRINT CHR$(14)
+20 PRINT "{CLR}HUD DEMO: cyan panel should sit ON this line (see letters through it)."
+30 PRINT ""
+40 PRINT "Semi-transparent PNG (alpha). z=200 draws above PETSCII."
+50 PRINT "Press a key or wait..."
+60 LOADSPRITE 0,"hud_panel.png"
+70 REM 32x16 crop; x=24 y=2 overlaps first line of text (chars are 8px tall)
+80 DRAWSPRITE 0,24,2,200,0,0,32,16
+90 SLEEP 300
+100 END
