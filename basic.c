@@ -1439,6 +1439,7 @@ static void statement_loadsprite(char **p);
 static void statement_drawsprite(char **p);
 static void statement_spritevisible(char **p);
 #endif
+static void statement_unloadsprite(char **p);  /* basic-gfx only; terminal errors */
 static void statement_else(char **p);
 static void statement_end_if(char **p);
 static void statement_return(char **p);
@@ -1647,7 +1648,7 @@ static const char *const reserved_words[] = {
     "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCREEN", "SCREENCODES", "SPRITEVISIBLE",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
-    "DRAWSPRITE", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "TRIM", "UCASE", "VAL", "WEND", "WHILE",
+    "DRAWSPRITE", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
     "DO", "LOOP", "UNTIL", "EXIT",
     NULL
 };
@@ -3031,6 +3032,22 @@ static void statement_spritevisible(char **p)
     gfx_sprite_enqueue_visible(slot, on);
 }
 #endif /* GFX_VIDEO */
+
+/* UNLOADSPRITE slot — free texture and clear draw state (basic-gfx only). */
+static void statement_unloadsprite(char **p)
+{
+    struct value vslot;
+    skip_spaces(p);
+    vslot = eval_expr(p);
+    ensure_num(&vslot);
+#ifdef GFX_VIDEO
+    if (gfx_vs) {
+        gfx_sprite_enqueue_unload((int)vslot.num);
+        return;
+    }
+#endif
+    runtime_error("UNLOADSPRITE requires basic-gfx");
+}
 
 /* GET statement: GET A$ reads a single character into a string variable.
  * This is a blocking read from standard input. Newlines are returned as
@@ -7435,6 +7452,11 @@ static void execute_statement(char **p)
     if (c == 'J' && starts_with_kw(*p, "JOIN")) {
         *p += 4;
         statement_join(p);
+        return;
+    }
+    if (c == 'U' && starts_with_kw(*p, "UNLOADSPRITE")) {
+        *p += 13;
+        statement_unloadsprite(p);
         return;
     }
     if (c == 'E') {
