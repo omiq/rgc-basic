@@ -452,6 +452,8 @@ You can either use the provided `Makefile` (recommended) or compile manually.
   - **macOS** (Homebrew): `brew install raylib`
   - **Windows (MinGW)**: `basic-gfx` is built with static winpthread so it does not require `libwinpthread-1.dll`. The nightly and release builds bundle `libraylib.dll` and `glfw3.dll` with `basic-gfx.exe`. If you build locally, copy both DLLs from your MinGW `bin` folder (e.g. `C:\msys64\mingw64\bin\`) into the same directory as `basic-gfx.exe`.
   - **Linux (downloads)**: Pre-built `basic-gfx` needs `libraylib.so` matching the build (e.g. `libraylib.so.600`). If you see "cannot open shared object file", install raylib from your distro (`libraylib-dev` or equivalent) or build from source with `make basic-gfx`.
+- **Optional (for browser/WASM build)**:
+  - [Emscripten](https://emscripten.org/) (`emcc`). Install via [emsdk](https://emscripten.org/docs/getting_started/downloads.html), then run `source emsdk_env.sh` (or equivalent) before `make basic-wasm`. Produces `web/basic.js` and `web/basic.wasm` for running the interpreter in the browser.
 
 #### Using `make` (recommended)
 
@@ -471,6 +473,20 @@ To clean the build:
 ```bash
 make clean
 ```
+
+**Graphics build** (`basic-gfx`):
+
+```bash
+make basic-gfx
+```
+
+**Browser/WASM build** (requires Emscripten):
+
+```bash
+make basic-wasm
+```
+
+Produces `web/basic.js` and `web/basic.wasm`. Serve `web/` over HTTP (e.g. `cd web && python3 -m http.server 8080`) and open in a browser. See `web/README.md` for details.
 
 #### Manual compilation
 
