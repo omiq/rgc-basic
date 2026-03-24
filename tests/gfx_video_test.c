@@ -38,6 +38,19 @@ int main(void)
     assert(s.bitmap[0] == 0xFF);
     assert(gfx_peek(&s, GFX_BITMAP_BASE) == 0xFF);
 
+    /* 320×200 layout: row 0 byte 0, MSB = x=0. */
+    gfx_poke(&s, GFX_BITMAP_BASE, 0x80);
+    assert(gfx_bitmap_get_pixel(&s, 0, 0) == 1);
+    assert(gfx_bitmap_get_pixel(&s, 1, 0) == 0);
+    gfx_poke(&s, GFX_BITMAP_BASE, 0x01);
+    assert(gfx_bitmap_get_pixel(&s, 7, 0) == 1);
+    assert(gfx_bitmap_get_pixel(&s, 0, 0) == 0);
+    /* Second row starts at byte offset 40. */
+    gfx_poke(&s, GFX_BITMAP_BASE + 40, 0x80);
+    assert(gfx_bitmap_get_pixel(&s, 0, 1) == 1);
+
+    assert(s.screen_mode == GFX_SCREEN_TEXT);
+
     /* Out-of-range addresses are inert/zero. */
     gfx_poke(&s, 0x0001u, 0x7F);
     assert(gfx_peek(&s, 0x0001u) == 0);

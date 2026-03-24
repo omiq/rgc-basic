@@ -6,11 +6,13 @@ void gfx_video_init(GfxVideoState *s)
     if (!s) return;
     memset(s, 0, sizeof(*s));
     s->bg_color = 6; /* default C64 blue background */
+    s->bitmap_fg = 14; /* default light blue pen (matches text COLOR default) */
     s->charset_lowercase = 0;
     s->cols = 40;    /* 40 or 80; set by basic_set_video from -columns */
     s->key_q_head = 0;
     s->key_q_tail = 0;
     s->ticks60 = 0;
+    s->screen_mode = GFX_SCREEN_TEXT;
 }
 
 void gfx_video_clear(GfxVideoState *s)
@@ -142,5 +144,17 @@ void gfx_poke(GfxVideoState *s, uint16_t addr, uint8_t value)
         return;
     }
     /* All other addresses are ignored for now. */
+}
+
+int gfx_bitmap_get_pixel(const GfxVideoState *s, unsigned x, unsigned y)
+{
+    unsigned byte_off, bit;
+
+    if (!s) return 0;
+    if (x >= GFX_BITMAP_WIDTH || y >= GFX_BITMAP_HEIGHT) return 0;
+    byte_off = y * (GFX_BITMAP_WIDTH / 8u) + (x / 8u);
+    if (byte_off >= GFX_BITMAP_BYTES) return 0;
+    bit = 7u - (x % 8u);
+    return (s->bitmap[byte_off] >> bit) & 1u;
 }
 
