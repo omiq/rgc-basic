@@ -2797,7 +2797,10 @@ static void do_sleep_ticks(double ticks)
     int ms;
     if (ticks <= 0.0) return;
     ms = (int)(ticks * (1000.0 / 60.0) + 0.5);
-    if (ms <= 0) return;
+    /* Asyncify needs a real sleep; rounding to 0 would busy-spin (e.g. fractional ticks). */
+    if (ms < 1) {
+        ms = 1;
+    }
     emscripten_sleep(ms);
 }
 #elif defined(_WIN32)
@@ -8645,6 +8648,11 @@ EMSCRIPTEN_KEEPALIVE void basic_load_and_run_gfx(const char *path)
     load_program(path);
     run_program(path, 0, NULL);
     /* Keep gfx_vs set so the canvas can keep rendering the final screen; next Run calls wasm_gfx_set_video again. */
+    EM_ASM({
+        if (typeof Module !== 'undefined') {
+            Module['wasmGfxRunDone'] = 1;
+        }
+    });
 }
 
 EMSCRIPTEN_KEEPALIVE void wasm_gfx_render_rgba(uint8_t *rgba, int nbytes)
