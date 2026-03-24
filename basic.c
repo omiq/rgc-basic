@@ -1431,6 +1431,7 @@ static void statement_cursor(char **p);
 static void statement_color(char **p);
 static void statement_background(char **p);
 static void statement_screencodes(char **p);
+static void statement_pset(char **p, int preset);
 static void statement_else(char **p);
 static void statement_end_if(char **p);
 static void statement_return(char **p);
@@ -1632,7 +1633,7 @@ static const char *const reserved_words[] = {
     "COLOUR", "COS", "CURSOR", "DATA", "DEC", "DEF", "DIM", "DOWN", "END", "FUNCTION",
     "ELSE", "ENV", "EVAL", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
     "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LOAD", "LOCATE", "LOG",
-    "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRINT",
+    "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET", "PRINT",
     "XOR",
     "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCREEN", "SCREENCODES",
     "JOIN",
@@ -2731,6 +2732,38 @@ static void statement_background(char **p)
         break;
     }
     fflush(stdout);
+}
+
+static void statement_pset(char **p, int preset)
+{
+#ifndef GFX_VIDEO
+    (void)p;
+    (void)preset;
+    runtime_error("PSET/PRESET is only available in basic-gfx");
+#else
+    struct value vx, vy;
+    int xi, yi;
+
+    skip_spaces(p);
+    vx = eval_expr(p);
+    ensure_num(&vx);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error("PSET/PRESET expects x,y");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    vy = eval_expr(p);
+    ensure_num(&vy);
+    if (!gfx_vs) {
+        runtime_error("PSET/PRESET is only available in basic-gfx");
+        return;
+    }
+    xi = (int)vx.num;
+    yi = (int)vy.num;
+    gfx_bitmap_set_pixel(gfx_vs, xi, yi, preset ? 0 : 1);
+#endif
 }
 
 static void statement_screen(char **p)
@@ -6967,6 +7000,16 @@ static void execute_statement(char **p)
 #else
             *p += strlen(*p);
 #endif
+            return;
+        }
+        if (starts_with_kw(*p, "PRESET")) {
+            *p += 6;
+            statement_pset(p, 1);
+            return;
+        }
+        if (starts_with_kw(*p, "PSET")) {
+            *p += 4;
+            statement_pset(p, 0);
             return;
         }
     }
