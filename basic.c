@@ -8554,7 +8554,7 @@ EMSCRIPTEN_KEEPALIVE void basic_load_and_run_gfx(const char *path)
     wasm_gfx_set_video();
     load_program(path);
     run_program(path, 0, NULL);
-    basic_set_video(NULL);
+    /* Keep gfx_vs set so the canvas can keep rendering the final screen; next Run calls wasm_gfx_set_video again. */
 }
 
 EMSCRIPTEN_KEEPALIVE void wasm_gfx_render_rgba(uint8_t *rgba, int nbytes)
