@@ -44,6 +44,11 @@ typedef struct {
     Texture2D tex;
     int loaded;
     int visible;
+    /* Persistent draw state (last DRAWSPRITE for this slot until UNLOAD). */
+    int draw_active;
+    float draw_x, draw_y;
+    int draw_z;
+    int draw_sx, draw_sy, draw_sw, draw_sh;
 } GfxSpriteSlot;
 
 typedef struct {
@@ -203,13 +208,12 @@ static int cmp_sprite_draw_z(const void *a, const void *b)
     return 0;
 }
 
-/* Process queued sprite commands (main thread only). */
-static void gfx_sprite_process_queue(GfxSpriteDraw *draws, int *ndraw)
+/* Process queued loads/unloads/visibility/draw-updates (main thread only). */
+static void gfx_sprite_process_queue(void)
 {
     GfxSpriteCmd cmds[GFX_SPRITE_Q_CAP];
     int i, n = 0;
 
-    *ndraw = 0;
     pthread_mutex_lock(&g_sprite_mutex);
     n = g_sprite_q_count;
     if (n > GFX_SPRITE_Q_CAP) {
@@ -244,6 +248,7 @@ static void gfx_sprite_process_queue(GfxSpriteDraw *draws, int *ndraw)
                 g_sprite_slots[c->slot].tex = t;
                 g_sprite_slots[c->slot].loaded = 1;
                 g_sprite_slots[c->slot].visible = 1;
+                g_sprite_slots[c->slot].draw_active = 0;
             }
             pthread_mutex_unlock(&g_sprite_mutex);
             break;
@@ -261,21 +266,23 @@ static void gfx_sprite_process_queue(GfxSpriteDraw *draws, int *ndraw)
                 UnloadTexture(g_sprite_slots[c->slot].tex);
                 g_sprite_slots[c->slot].loaded = 0;
                 g_sprite_slots[c->slot].visible = 0;
+                g_sprite_slots[c->slot].draw_active = 0;
             }
             pthread_mutex_unlock(&g_sprite_mutex);
             break;
         case GFX_SQ_DRAW:
-            if (*ndraw < GFX_SPRITE_Q_CAP) {
-                draws[*ndraw].slot = c->slot;
-                draws[*ndraw].x = c->x;
-                draws[*ndraw].y = c->y;
-                draws[*ndraw].z = c->z;
-                draws[*ndraw].sx = c->sx;
-                draws[*ndraw].sy = c->sy;
-                draws[*ndraw].sw = c->sw;
-                draws[*ndraw].sh = c->sh;
-                (*ndraw)++;
+            pthread_mutex_lock(&g_sprite_mutex);
+            if (c->slot >= 0 && c->slot < GFX_SPRITE_MAX_SLOTS) {
+                g_sprite_slots[c->slot].draw_active = 1;
+                g_sprite_slots[c->slot].draw_x = c->x;
+                g_sprite_slots[c->slot].draw_y = c->y;
+                g_sprite_slots[c->slot].draw_z = c->z;
+                g_sprite_slots[c->slot].draw_sx = c->sx;
+                g_sprite_slots[c->slot].draw_sy = c->sy;
+                g_sprite_slots[c->slot].draw_sw = c->sw;
+                g_sprite_slots[c->slot].draw_sh = c->sh;
             }
+            pthread_mutex_unlock(&g_sprite_mutex);
             break;
         default:
             break;
@@ -288,10 +295,11 @@ static void gfx_sprite_shutdown(void)
     int i;
     pthread_mutex_lock(&g_sprite_mutex);
     for (i = 0; i < GFX_SPRITE_MAX_SLOTS; i++) {
-        if (g_sprite_slots[i].loaded) {
+            if (g_sprite_slots[i].loaded) {
             UnloadTexture(g_sprite_slots[i].tex);
             g_sprite_slots[i].loaded = 0;
             g_sprite_slots[i].visible = 0;
+            g_sprite_slots[i].draw_active = 0;
         }
     }
     g_sprite_q_count = 0;
@@ -300,22 +308,46 @@ static void gfx_sprite_shutdown(void)
 
 static void gfx_sprite_composite(RenderTexture2D target, int nat_w, int nat_h)
 {
-    GfxSpriteDraw draws[GFX_SPRITE_Q_CAP];
+    GfxSpriteDraw draws[GFX_SPRITE_MAX_SLOTS];
     int nd = 0;
     int i;
 
-    gfx_sprite_process_queue(draws, &nd);
+    gfx_sprite_process_queue();
+
+    pthread_mutex_lock(&g_sprite_mutex);
+    for (i = 0; i < GFX_SPRITE_MAX_SLOTS; i++) {
+        if (!g_sprite_slots[i].loaded || !g_sprite_slots[i].visible ||
+            !g_sprite_slots[i].draw_active) {
+            continue;
+        }
+        if (nd >= GFX_SPRITE_MAX_SLOTS) {
+            break;
+        }
+        draws[nd].slot = i;
+        draws[nd].x = g_sprite_slots[i].draw_x;
+        draws[nd].y = g_sprite_slots[i].draw_y;
+        draws[nd].z = g_sprite_slots[i].draw_z;
+        draws[nd].sx = g_sprite_slots[i].draw_sx;
+        draws[nd].sy = g_sprite_slots[i].draw_sy;
+        draws[nd].sw = g_sprite_slots[i].draw_sw;
+        draws[nd].sh = g_sprite_slots[i].draw_sh;
+        nd++;
+    }
+    pthread_mutex_unlock(&g_sprite_mutex);
+
     if (nd <= 0) {
         return;
     }
     qsort(draws, (size_t)nd, sizeof(draws[0]), cmp_sprite_draw_z);
 
     BeginTextureMode(target);
+    BeginBlendMode(BLEND_ALPHA);
     for (i = 0; i < nd; i++) {
         GfxSpriteDraw *d = &draws[i];
         int s = d->slot;
         float sx, sy, sw, sh;
         Rectangle src, dest;
+        Texture2D t;
 
         if (s < 0 || s >= GFX_SPRITE_MAX_SLOTS) {
             continue;
@@ -325,36 +357,36 @@ static void gfx_sprite_composite(RenderTexture2D target, int nat_w, int nat_h)
             pthread_mutex_unlock(&g_sprite_mutex);
             continue;
         }
-        {
-            Texture2D t = g_sprite_slots[s].tex;
-            sx = (float)d->sx;
-            sy = (float)d->sy;
-            if (d->sw <= 0 || d->sh <= 0) {
-                sw = (float)(t.width - d->sx);
-                sh = (float)(t.height - d->sy);
-            } else {
-                sw = (float)d->sw;
-                sh = (float)d->sh;
-            }
-            if (sw <= 0 || sh <= 0) {
-                continue;
-            }
-            if (sx < 0 || sy < 0 || sx + sw > (float)t.width + 0.01f ||
-                sy + sh > (float)t.height + 0.01f) {
-                continue;
-            }
-            src = (Rectangle){ sx, sy, sw, sh };
-            dest = (Rectangle){ d->x, d->y, sw, sh };
-            DrawTexturePro(
-                t,
-                src,
-                dest,
-                (Vector2){ 0, 0 },
-                0.0f,
-                WHITE);
-        }
+        t = g_sprite_slots[s].tex;
         pthread_mutex_unlock(&g_sprite_mutex);
+
+        sx = (float)d->sx;
+        sy = (float)d->sy;
+        if (d->sw <= 0 || d->sh <= 0) {
+            sw = (float)(t.width - d->sx);
+            sh = (float)(t.height - d->sy);
+        } else {
+            sw = (float)d->sw;
+            sh = (float)d->sh;
+        }
+        if (sw <= 0 || sh <= 0) {
+            continue;
+        }
+        if (sx < 0 || sy < 0 || sx + sw > (float)t.width + 0.01f ||
+            sy + sh > (float)t.height + 0.01f) {
+            continue;
+        }
+        src = (Rectangle){ sx, sy, sw, sh };
+        dest = (Rectangle){ d->x, d->y, sw, sh };
+        DrawTexturePro(
+            t,
+            src,
+            dest,
+            (Vector2){ 0, 0 },
+            0.0f,
+            WHITE);
     }
+    EndBlendMode();
     EndTextureMode();
     (void)nat_w;
     (void)nat_h;
