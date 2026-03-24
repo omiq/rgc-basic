@@ -17,18 +17,24 @@
       font-size: 13px;
       line-height: 1.35;
       border-radius: 4px;
+      outline: none;
     }
+    #output:focus { box-shadow: 0 0 0 2px #2472c8; }
+    #output.waiting-key { box-shadow: 0 0 0 2px #0dbc79; }
     #output .err { color: #f14c4c; }
     button { font-size: 1em; padding: 0.35em 0.9em; margin-right: 0.5em; }
     fieldset { border: 1px solid #ccc; border-radius: 4px; margin: 0.75em 0; padding: 0.5em 0.75em; }
     legend { font-size: 0.9em; padding: 0 0.35em; }
     .opts label { margin-right: 1em; white-space: nowrap; }
     .hint { font-size: 0.85em; color: #555; margin: 0.35em 0 0; }
+    #inputLineRow { display: none; margin-top: 0.5em; align-items: center; gap: 0.5em; }
+    #inputLineRow.active { display: flex; }
+    #inputLine { flex: 1; font-family: ui-monospace, monospace; font-size: 13px; padding: 0.35em 0.5em; }
   </style>
 </head>
 <body>
   <h1>CBM-BASIC</h1>
-  <p>Enter a BASIC program and click Run. Output appears below. PETSCII mode maps screen codes to Unicode and uses ANSI colours in the output panel.</p>
+  <p>Enter a BASIC program and click Run. Output appears below. Click the output panel and type for <code>GET</code> / <code>INKEY$</code>. <code>INPUT</code> uses the line under the output (no modal dialog).</p>
   <textarea id="program" placeholder="10 PRINT &quot;HELLO, WORLD!&quot;&#10;20 END">10 PRINT "HELLO, WORLD!"
 20 END</textarea>
   <fieldset>
@@ -51,9 +57,12 @@
   <p>
     <button id="run" disabled>Run</button>
   </p>
-  <div id="output" aria-live="polite"></div>
+  <div id="output" tabindex="0" aria-live="polite" title="Click here, then type for GET / INKEY$"></div>
+  <div id="inputLineRow">
+    <label for="inputLine">INPUT</label>
+    <input type="text" id="inputLine" autocomplete="off" spellcheck="false" />
+  </div>
 
-  <!-- Module must exist before basic.js: classic Emscripten (non-MODULARIZE) exposes global FS during load. -->
   <script>
     (function() {
       const output = document.getElementById('output');
@@ -64,8 +73,8 @@
       const optCharset = document.getElementById('optCharset');
       const optPalette = document.getElementById('optPalette');
       const optColumns = document.getElementById('optColumns');
-
-      var inputBuffer = [];
+      const inputLineRow = document.getElementById('inputLineRow');
+      const inputLineEl = document.getElementById('inputLine');
 
       function escHtml(t) {
         return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -160,39 +169,72 @@
         if (!optPetscii.checked) optPlain.checked = false;
       });
 
+      function pollWasmUiFlags() {
+        var M = window.Module;
+        if (!M) return;
+        if (M.wasmWaitingKey) {
+          output.classList.add('waiting-key');
+        } else {
+          output.classList.remove('waiting-key');
+        }
+        requestAnimationFrame(pollWasmUiFlags);
+      }
+      requestAnimationFrame(pollWasmUiFlags);
+
       var Module = {
         print: function(text) { appendOutput(text); },
         printErr: function(text) { appendOutput(text, true); },
-        preRun: [function() {
-          function stdin() {
-            if (inputBuffer.length > 0) return inputBuffer.shift();
-            var line = window.prompt('? ');
-            if (line === null) line = '';
-            for (var i = 0; i < line.length; i++) inputBuffer.push(line.charCodeAt(i) & 0xFF);
-            inputBuffer.push(10);
-            return inputBuffer.shift();
-          }
-          FS.init(stdin, null, null);
-        }],
+        onWasmNeedInputLine: function() {
+          inputLineRow.classList.add('active');
+          inputLineEl.value = '';
+          inputLineEl.focus();
+        },
         onRuntimeInitialized: function() {
           runBtn.disabled = false;
           runBtn.onclick = function() {
             clearOutput();
-            inputBuffer = [];
-            const prog = programEl.value;
-            try {
-              var flags = buildArgString();
-              var rc = Module.ccall('basic_apply_arg_string', 'number', ['string'], [flags]);
-              if (rc !== 0) {
-                appendOutputHtml('<span class="err">Invalid interpreter options.</span>', true);
-                return;
-              }
-              Module.FS.writeFile('/program.bas', prog);
-              Module.ccall('basic_load_and_run', null, ['string'], ['/program.bas']);
-            } catch (e) {
-              appendOutputHtml('<span class="err">' + escHtml(e.message || e) + '</span>', true);
+            inputLineRow.classList.remove('active');
+            inputLineEl.value = '';
+            var prog = programEl.value;
+            var flags = buildArgString();
+            var rc = Module.ccall('basic_apply_arg_string', 'number', ['string'], [flags]);
+            if (rc !== 0) {
+              appendOutputHtml('<span class="err">Invalid interpreter options.</span>', true);
+              return;
             }
+            Module.FS.writeFile('/program.bas', prog);
+            output.focus();
+            Module.ccall('basic_load_and_run', null, ['string'], ['/program.bas'], { async: true })
+              .catch(function(e) {
+                appendOutputHtml('<span class="err">' + escHtml(e && e.message ? e.message : e) + '</span>', true);
+              });
           };
+
+          document.addEventListener('keydown', function(ev) {
+            if (inputLineRow.classList.contains('active')) {
+              return;
+            }
+            if (ev.target === programEl || ev.target === inputLineEl) return;
+            var ae = document.activeElement;
+            if (ae !== output && !output.contains(ae)) return;
+            ev.preventDefault();
+            var code = ev.keyCode || ev.which;
+            if (code === 13) {
+              Module.ccall('wasm_push_key', null, ['number'], [13]);
+            } else if (ev.key && ev.key.length === 1) {
+              Module.ccall('wasm_push_key', null, ['number'], [ev.key.charCodeAt(0) & 0xFF]);
+            }
+          }, true);
+
+          inputLineEl.addEventListener('keydown', function(ev) {
+            if (ev.key === 'Enter') {
+              ev.preventDefault();
+              Module.wasmInputLineText = inputLineEl.value;
+              Module.wasmInputLineReady = 1;
+              inputLineRow.classList.remove('active');
+              output.focus();
+            }
+          });
         },
         onAbort: function(what) {
           output.innerHTML = '<span class="err">Failed to load BASIC: ' + escHtml(what || 'abort') + '</span>';

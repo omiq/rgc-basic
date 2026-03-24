@@ -915,6 +915,101 @@ static char *statement_pos = NULL;
 static volatile int halted = 0;
 static int print_col = 0;
 
+#ifdef __EMSCRIPTEN__
+/* Ring buffer for single-key reads (GET, INKEY$) from JS (wasm_push_key). */
+#define WASM_KEY_RING 512
+static unsigned char wasm_key_ring[WASM_KEY_RING];
+static int wasm_key_head = 0;
+static int wasm_key_tail = 0;
+
+static int wasm_key_push_byte(unsigned char b)
+{
+    int next = (wasm_key_tail + 1) % WASM_KEY_RING;
+    if (next == wasm_key_head) {
+        return 0;
+    }
+    wasm_key_ring[wasm_key_tail] = b;
+    wasm_key_tail = next;
+    return 1;
+}
+
+static int wasm_key_pop_byte(unsigned char *out)
+{
+    if (wasm_key_head == wasm_key_tail) {
+        return 0;
+    }
+    *out = wasm_key_ring[wasm_key_head];
+    wasm_key_head = (wasm_key_head + 1) % WASM_KEY_RING;
+    return 1;
+}
+
+static int wasm_key_peek_byte(void)
+{
+    if (wasm_key_head == wasm_key_tail) {
+        return -1;
+    }
+    return (int)wasm_key_ring[wasm_key_head];
+}
+
+EMSCRIPTEN_KEEPALIVE void wasm_push_key(unsigned int code)
+{
+    wasm_key_push_byte((unsigned char)(code & 0xFF));
+}
+
+/* Asyncify: wait until JS delivers one byte (GET blocking, or line-feed for INPUT). */
+static void wasm_yield_until_key(void)
+{
+    EM_ASM({ if (typeof Module !== 'undefined') { Module['wasmWaitingKey'] = 1; } });
+    emscripten_sleep(1);
+    while (wasm_key_peek_byte() < 0) {
+        emscripten_sleep(16);
+    }
+    EM_ASM({ if (typeof Module !== 'undefined') { Module['wasmWaitingKey'] = 0; } });
+}
+
+/* Blocking read of one byte for GET (after raw key available). */
+static int wasm_read_key_blocking(void)
+{
+    unsigned char b;
+    wasm_yield_until_key();
+    wasm_key_pop_byte(&b);
+    return (int)b;
+}
+
+/* INPUT: JS sets Module.wasmInputLineReady and Module.wasmInputLineText (UTF-8). */
+static void wasm_read_input_line_blocking(char *buf, size_t cap)
+{
+    if (cap == 0) {
+        return;
+    }
+    EM_ASM({
+        if (typeof Module !== 'undefined') {
+            Module['wasmNeedInputLine'] = 1;
+            if (Module['onWasmNeedInputLine']) {
+                Module['onWasmNeedInputLine']();
+            }
+        }
+    });
+    emscripten_sleep(5);
+    while (!EM_ASM_INT({ return (typeof Module !== 'undefined' && Module['wasmInputLineReady']) ? 1 : 0; })) {
+        emscripten_sleep(16);
+    }
+    {
+        static const char wasm_empty_js[] = "";
+        EM_ASM_({
+            var mod = typeof Module !== 'undefined' ? Module : null;
+            var s = (mod && mod['wasmInputLineText']) ? mod['wasmInputLineText'] : UTF8ToString($1);
+            stringToUTF8(s, $0, $2);
+            if (mod) {
+                mod['wasmInputLineReady'] = 0;
+                mod['wasmNeedInputLine'] = 0;
+            }
+        }, buf, wasm_empty_js, (int)cap);
+    }
+    buf[cap - 1] = '\0';
+}
+#endif /* __EMSCRIPTEN__ */
+
 #ifdef GFX_VIDEO
 static GfxVideoState *gfx_vs = NULL;
 void basic_set_gfx_window_title(const char *);  /* forward, for #OPTION gfx_title */
@@ -3087,7 +3182,7 @@ static void ensure_get_raw_mode(void)
 static int read_single_char(void)
 {
 #if defined(__EMSCRIPTEN__)
-    return getchar();  /* Browser: stdin may be hooked by JS or block */
+    return wasm_read_key_blocking();
 #elif defined(_WIN32)
     /* _getch() reads a single keypress without waiting for Enter and
      * without echoing it to the console.
@@ -3148,7 +3243,13 @@ static int read_single_char(void)
 static int read_single_char_nonblock(void)
 {
 #if defined(__EMSCRIPTEN__)
-    return EOF;  /* Browser: no non-blocking keyboard; use INKEY$ via canvas later */
+    {
+        unsigned char b;
+        if (wasm_key_pop_byte(&b)) {
+            return (int)b;
+        }
+        return EOF;
+    }
 #elif defined(_WIN32)
     if (!_kbhit()) {
         return EOF;
@@ -3497,8 +3598,20 @@ static struct value eval_function(const char *name, char **p)
             return make_str("");
         }
 #endif
+#if defined(__EMSCRIPTEN__)
+        {
+            int c = read_single_char_nonblock();
+            if (c != EOF && c != '\n' && c != '\r') {
+                outbuf[0] = (char)c;
+                outbuf[1] = '\0';
+                return make_str(outbuf);
+            }
+            return make_str("");
+        }
+#else
         /* Terminal build: no non-blocking key queue. */
         return make_str("");
+#endif
     }
 #ifdef GFX_VIDEO
     if (code == FN_SPRITEW || code == FN_SPRITEH) {
@@ -5481,6 +5594,22 @@ static void statement_input(char **p)
             }
         } else
 #endif
+#if defined(__EMSCRIPTEN__)
+        {
+            const char *s;
+            if (prompt[0] != '\0' && first_prompt) {
+                for (s = prompt; *s; s++) {
+                    putchar((unsigned char)*s);
+                }
+            }
+            for (s = "? "; *s; s++) {
+                putchar((unsigned char)*s);
+            }
+            fflush(stdout);
+            wasm_read_input_line_blocking(linebuf, sizeof(linebuf));
+            trim_newline(linebuf);
+        }
+#else
         {
             if (prompt[0] != '\0' && first_prompt) {
                 printf("%s", prompt);
@@ -5493,6 +5622,7 @@ static void statement_input(char **p)
             }
             trim_newline(linebuf);
         }
+#endif
         if (is_string) {
             *vp = make_str(linebuf);
         } else {
@@ -7928,6 +8058,9 @@ static void load_program(const char *path)
 
 static void run_program(const char *script_path_arg, int nargs, char **args)
 {
+#if defined(__EMSCRIPTEN__)
+    int wasm_stmt_budget = 0;
+#endif
     script_path = script_path_arg;
     script_argc = nargs;
     script_argv = args;
@@ -7953,6 +8086,12 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
         }
         statement_pos = p;
         execute_statement(&statement_pos);
+#if defined(__EMSCRIPTEN__)
+        wasm_stmt_budget++;
+        if ((wasm_stmt_budget & 2047) == 0) {
+            emscripten_sleep(0);
+        }
+#endif
         if (halted) {
             break;
         }
