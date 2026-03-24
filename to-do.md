@@ -128,7 +128,8 @@
 | ~**9**~ | ~80-column option (terminal + basic-gfx)~ | Done. |
 | **10** | Bitmap/sprites | Bigger phase; depends on LOAD. |
 | **Later** | Optional debug logging (load + exec) | `-debug load`, `-debug exec`; verbose but useful for diagnostics. |
-| **Later** | Program preprocessor, #OPTION memory, Browser/WASM | Polish; niche; different target. |
+| **Later** | Program preprocessor, #OPTION memory | Polish; niche. |
+| **Later** | Browser/WASM target | See `docs/browser-wasm-plan.md` — Emscripten, virtual FS, tutorial embedding, retro IDE. |
 
 ---
 
