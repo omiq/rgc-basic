@@ -365,7 +365,7 @@ Releases include **basic-gfx** — a full graphical version of the interpreter b
 **PNG sprites / HUD overlay (basic-gfx)**:
 
 - `LOADSPRITE slot, "file.png"` queues loading a PNG from disk. Paths are relative to the **`.bas` file’s directory** (or absolute). Only `.png` is supported here; use `LOAD "bin" INTO …` for raw bytes.
-- `DRAWSPRITE slot, x, y [, z [, sx, sy [, sw, sh ]]]` draws each frame until replaced. **`z`**: larger values paint **on top** (e.g. text/bitmap at 0, HUD at 200). Omit **`sx, sy`** to use the top-left of the image; omit **`sw, sh`** (or use ≤0) to use the rest of the texture from `(sx,sy)`. **Alpha** in the PNG is respected (transparency over text or bitmap).
+- `DRAWSPRITE slot, x, y [, z [, sx, sy [, sw, sh ]]]` sets the **persistent** pose for that slot: the same image is drawn **every frame** until you call `DRAWSPRITE` again for that slot, `UNLOADSPRITE`, or exit. **`z`**: larger values paint **on top** (e.g. text/bitmap at 0, HUD at 200). Omit **`sx, sy`** to use the top-left of the image; omit **`sw, sh`** (or use ≤0) to use the rest of the texture from `(sx,sy)`. **Alpha** in the PNG is respected (transparency over text or bitmap).
 - `SPRITEVISIBLE slot, 0|1` hides or shows a loaded sprite without unloading.
 - `SPRITEW(slot)` / `SPRITEH(slot)` return pixel width/height after load (0 if not loaded yet).
 - Example: `./basic-gfx -petscii examples/gfx_sprite_hud_demo.bas`
