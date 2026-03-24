@@ -72,14 +72,26 @@
     return window.Module['HEAPU8'] || window.Module.HEAPU8;
   }
 
-  /* Emscripten 3: WebAssembly.Memory is on Module.asm.memory, not Module.wasmMemory */
+  /* WebAssembly linear memory buffer — layout varies by Emscripten version / glue. */
   function wasmMemoryBuffer() {
     var M = window.Module;
+    if (!M) return null;
     if (M.asm && M.asm.memory && M.asm.memory.buffer) {
       return M.asm.memory.buffer;
     }
+    /* Some builds expose the Memory object on Module (glue assigns wasmMemory = asm.memory). */
     if (M.wasmMemory && M.wasmMemory.buffer) {
       return M.wasmMemory.buffer;
+    }
+    if (M.buffer) {
+      return M.buffer;
+    }
+    var h8 = heapU8();
+    if (h8 && h8.buffer) {
+      return h8.buffer;
+    }
+    if (M.HEAP8 && M.HEAP8.buffer) {
+      return M.HEAP8.buffer;
     }
     return null;
   }
@@ -210,12 +222,16 @@
 
       function frame() {
         var Mo = window.Module;
-        var h = heapU8();
-        if (rgbaPtr && h && typeof Mo.ccall === 'function') {
+        /* Do not require HEAPU8 here — some local emcc builds expose heap views differently;
+           copyHeapToRgba falls back to wasmMemoryBuffer(). */
+        if (rgbaPtr && typeof Mo.ccall === 'function') {
           try {
             Mo.ccall('wasm_gfx_render_rgba', null, ['number', 'number'], [rgbaPtr, rgbaSize]);
             if (copyHeapToRgba(imgBuf.data, rgbaPtr, rgbaSize)) {
               ctx.putImageData(imgBuf, 0, 0);
+            } else if (frameErrCount < 3) {
+              frameErrCount++;
+              appendLog('frame: could not read RGBA from WASM heap (ptr=' + rgbaPtr + ').\n', true);
             }
           } catch (e) {
             frameErrCount++;
