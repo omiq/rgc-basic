@@ -1,0 +1,10 @@
+1 REM Hi-res bitmap: SCREEN 1, POKE 0x2000.. (320x200 1bpp, MSB=left)
+2 REM Run: ./basic-gfx examples/gfx_bitmap_demo.bas
+10 SCREEN 1
+20 COLOR 1
+30 BACKGROUND 6
+40 POKE 8192,255
+50 POKE 8193,255
+60 POKE 8232,255
+70 POKE 8233,255
+80 SLEEP 180

@@ -1255,7 +1255,9 @@ static int apply_option_directive(const char *name, const char *value)
         n = (int)strtol(value, &end, 10);
         if (end == value || *end != '\0' || n < 1 || n > 255) return -1;
         print_width = n;
+#ifdef GFX_VIDEO
         if (gfx_vs) gfx_vs->cols = (n >= 80) ? 80 : 40;
+#endif
         return 0;
     }
     if (str_eq_ci(name, "nowrap")) {
@@ -1615,7 +1617,7 @@ static const char *const reserved_words[] = {
     "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LOAD", "LOCATE", "LOG",
     "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRINT",
     "XOR",
-    "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCREENCODES",
+    "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCREEN", "SCREENCODES",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SQR", "STEP", "STOP", "STR", "STRING",
     "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "TRIM", "UCASE", "VAL", "WEND", "WHILE",
@@ -2629,6 +2631,7 @@ static void statement_color(char **p)
 #ifdef GFX_VIDEO
     if (gfx_vs) {
         gfx_fg = (uint8_t)idx;
+        gfx_vs->bitmap_fg = (uint8_t)idx;
         return;
     }
 #endif
@@ -2701,6 +2704,36 @@ static void statement_background(char **p)
         break;
     }
     fflush(stdout);
+}
+
+static void statement_screen(char **p)
+{
+#ifndef GFX_VIDEO
+    (void)p;
+    runtime_error("SCREEN is only available in basic-gfx");
+#else
+    /* SCREEN 0: 40/80-column text. SCREEN 1: 320×200 monochrome bitmap. */
+    struct value v;
+    int mode;
+
+    skip_spaces(p);
+    v = eval_expr(p);
+    ensure_num(&v);
+    mode = (int)v.num;
+    if (!gfx_vs) {
+        runtime_error("SCREEN is only available in basic-gfx");
+        return;
+    }
+    if (mode == 0) {
+        gfx_vs->screen_mode = GFX_SCREEN_TEXT;
+        return;
+    }
+    if (mode == 1) {
+        gfx_vs->screen_mode = GFX_SCREEN_BITMAP;
+        return;
+    }
+    runtime_error("SCREEN expects 0 (text) or 1 (bitmap)");
+#endif
 }
 
 static void statement_screencodes(char **p)
@@ -7133,6 +7166,11 @@ static void execute_statement(char **p)
         statement_background(p);
         return;
     }
+    if (c == 'S' && starts_with_kw(*p, "SCREEN")) {
+        *p += 6;
+        statement_screen(p);
+        return;
+    }
     if (c == 'S' && starts_with_kw(*p, "SCREENCODES")) {
         *p += 11;
         statement_screencodes(p);
@@ -7693,7 +7731,10 @@ int basic_halted(void) { return halted; }
 #ifdef GFX_VIDEO
 void basic_set_video(GfxVideoState *vs) {
     gfx_vs = vs;
-    if (vs) vs->cols = (print_width >= 80) ? 80 : 40;
+    if (vs) {
+        vs->cols = (print_width >= 80) ? 80 : 40;
+        vs->bitmap_fg = gfx_fg;
+    }
 }
 
 static char gfx_window_title[128];
