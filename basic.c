@@ -43,6 +43,7 @@
 #include <ctype.h>
 #include <math.h>
 #include <time.h>
+#include <stdint.h>
 #include "petscii.h"
 
 #ifdef __EMSCRIPTEN__
@@ -961,22 +962,48 @@ static void wasm_push_key_to_gfx_queue(unsigned char b)
 }
 #endif
 
-#if defined(__EMSCRIPTEN__)
-/* Keys from browser keydown must not use ccall(wasm_push_key) while Asyncify has
- * suspended the interpreter — that re-enters wasm and deadlocks. JS pushes to
- * Module._wasmKeyJsQueue; we drain here from C via EM_ASM only. */
-static int wasm_js_keyq_pop_byte(unsigned char *out)
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+/* Keys from keydown: JS writes into this ring in linear memory (DataView only).
+ * No ccall and no EM_ASM while Asyncify is suspended — both can deadlock. */
+#define WASM_JS_KEY_CAP 512
+typedef struct {
+    uint32_t head;
+    uint32_t tail;
+    uint8_t data[WASM_JS_KEY_CAP];
+} WasmJsKeyRing;
+static WasmJsKeyRing wasm_js_key_ring;
+
+EMSCRIPTEN_KEEPALIVE int wasm_js_key_ring_mem(void)
 {
-    int v = EM_ASM_INT({
-        var q = Module['_wasmKeyJsQueue'];
-        if (!q || !q.length) return -1;
-        return q.shift();
-    });
-    if (v < 0 || v > 255) {
+    return (int)(uintptr_t)(void *)&wasm_js_key_ring;
+}
+
+EMSCRIPTEN_KEEPALIVE void wasm_js_key_ring_reset(void)
+{
+    wasm_js_key_ring.head = 0;
+    wasm_js_key_ring.tail = 0;
+}
+
+static int wasm_js_heap_key_try_pop(unsigned char *out)
+{
+    uint32_t h = wasm_js_key_ring.head;
+    uint32_t t = wasm_js_key_ring.tail;
+    if (h == t) {
         return 0;
     }
-    *out = (unsigned char)(v & 0xFF);
+    *out = wasm_js_key_ring.data[h];
+    wasm_js_key_ring.head = (h + 1u) % WASM_JS_KEY_CAP;
     return 1;
+}
+
+static int wasm_js_heap_key_peek(void)
+{
+    uint32_t h = wasm_js_key_ring.head;
+    uint32_t t = wasm_js_key_ring.tail;
+    if (h == t) {
+        return -1;
+    }
+    return (int)wasm_js_key_ring.data[h];
 }
 #endif
 
@@ -985,7 +1012,7 @@ static int wasm_key_pop_byte(unsigned char *out)
 #ifdef GFX_VIDEO
     if (gfx_vs) {
 #if defined(__EMSCRIPTEN__)
-        if (wasm_js_keyq_pop_byte(out)) {
+        if (wasm_js_heap_key_try_pop(out)) {
             return 1;
         }
 #endif
@@ -1015,13 +1042,11 @@ static int wasm_key_peek_byte(void)
 #ifdef GFX_VIDEO
     if (gfx_vs) {
 #if defined(__EMSCRIPTEN__)
-        int jp = EM_ASM_INT({
-            var q = Module['_wasmKeyJsQueue'];
-            if (!q || !q.length) return -1;
-            return q[0];
-        });
-        if (jp >= 0 && jp <= 255) {
-            return jp;
+        {
+            int jp = wasm_js_heap_key_peek();
+            if (jp >= 0) {
+                return jp;
+            }
         }
 #endif
         uint8_t h = gfx_vs->key_q_head;
@@ -1366,7 +1391,7 @@ static int gfx_keyq_pop(uint8_t *out)
     uint8_t head;
     if (!gfx_vs) return 0;
 #if defined(__EMSCRIPTEN__)
-    if (wasm_js_keyq_pop_byte(out)) {
+    if (wasm_js_heap_key_try_pop(out)) {
         return 1;
     }
 #endif
@@ -5610,10 +5635,19 @@ static void statement_locate(char **p)
 
 #ifdef GFX_VIDEO
 #if defined(__EMSCRIPTEN__)
-/* Browser canvas: refresh framebuffer from C while waiting for keys (rAF is off during
- * Asyncify run — no nested wasm ccall; JS only copies heap + putImageData). */
+/* Shadow framebuffer + version: C updates while waiting for INPUT; JS rAF copies from
+ * linear memory only (no EM_ASM / no wasm ccall while Asyncify is suspended). */
 #define WASM_GFX_SHADOW_RGBA_BYTES (320u * 200u * 4u)
-static uint8_t wasm_gfx_shadow_rgba[WASM_GFX_SHADOW_RGBA_BYTES];
+typedef struct {
+    volatile uint32_t version;
+    uint8_t rgba[WASM_GFX_SHADOW_RGBA_BYTES];
+} WasmGfxShadow;
+static WasmGfxShadow wasm_gfx_shadow;
+
+EMSCRIPTEN_KEEPALIVE int wasm_gfx_shadow_base(void)
+{
+    return (int)(uintptr_t)(void *)&wasm_gfx_shadow;
+}
 #endif
 /* Read a line from gfx key queue; echo to screen; handle backspace (20).
  * Debounce: ignore same printable char within ~80ms (key-repeat suppression). */
@@ -5655,12 +5689,8 @@ static int gfx_read_line(char *buf, int size)
         } else {
 #if defined(__EMSCRIPTEN__)
             if (gfx_vs) {
-                gfx_canvas_render_rgba(gfx_vs, wasm_gfx_shadow_rgba, sizeof(wasm_gfx_shadow_rgba));
-                EM_ASM({
-                    if (typeof Module !== 'undefined' && typeof Module['onWasmGfxPaintShadow'] === 'function') {
-                        Module['onWasmGfxPaintShadow']($0, $1);
-                    }
-                }, wasm_gfx_shadow_rgba, (int)sizeof(wasm_gfx_shadow_rgba));
+                gfx_canvas_render_rgba(gfx_vs, wasm_gfx_shadow.rgba, sizeof(wasm_gfx_shadow.rgba));
+                wasm_gfx_shadow.version++;
             }
 #endif
             do_sleep_ticks(1.0 / 60.0);
