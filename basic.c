@@ -2940,7 +2940,7 @@ static void statement_get(char **p)
     } else
 #endif
     {
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
         ensure_get_raw_mode();
 #endif
         ch = read_single_char_nonblock();
