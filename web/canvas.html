@@ -35,7 +35,7 @@
 <body>
   <h1>CBM-BASIC — Canvas (40×25 PETSCII)</h1>
   <p class="hint">Uses the GfxVideoState text screen: <code>PRINT</code>, <code>LOCATE</code>, <code>POKE</code>/<code>PEEK</code>, <code>INKEY$</code>, <code>SCREEN</code> modes. Sprites (<code>LOADSPRITE</code>) are not available in this build. Click the canvas and type when a program uses <code>INKEY$</code> / <code>GET</code>.</p>
-  <textarea id="program">10 PRINT "{CLR}{WHT}HELLO FROM CANVAS"
+  <textarea id="program">10 PRINT "{CLR}{WHITE}HELLO FROM CANVAS"
 20 LOCATE 0,12: PRINT "POKE 1024,1 : PEEK(1024)"
 30 END</textarea>
   <p><button id="run" disabled>Run</button></p>
@@ -210,6 +210,6 @@
   };
 })();
   </script>
-  <script src="basic-canvas.js"></script>
+  <script src="basic-canvas.js?v=12312837218"></script>
 </body>
 </html>
