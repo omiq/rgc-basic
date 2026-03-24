@@ -7,7 +7,7 @@ Target: **basic-gfx** — a **graphics-enabled variant** of the interpreter usin
 - **User‑defined characters** (UDGs) with a CHAR-ROM‑like bitmap. ✅
 - A 320×200 **hi‑res pixel mode** (and possibly multicolour) under BASIC control. ✅ `SCREEN 1` + monochrome renderer; multicolour still planned.
 
-**Status**: Phases 1 and 2 are implemented and merged to main. Phase 3 (bitmap display mode) adds `SCREEN 0`/`SCREEN 1` and a raylib path that unpacks bitmap RAM. Text mode, POKE/PEEK, INKEY$, TI/TI$, SCREENCODES (PETSCII→screen conversion), `.seq` viewer, and window close on END are working.
+**Status**: Phases 1 and 2 are implemented and merged to main. Phase 3 (bitmap display mode) adds `SCREEN 0`/`SCREEN 1`, `PSET`/`PRESET`/`LINE`, and a raylib path that unpacks bitmap RAM. **PNG overlays** (`LOADSPRITE`/`DRAWSPRITE`, z-order, alpha) composite on top of text or bitmap; see `docs/sprite-features-plan.md` and `examples/gfx_game_shell.bas`. Text mode, POKE/PEEK, INKEY$, TI/TI$, SCREENCODES (PETSCII→screen conversion), `.seq` viewer, and window close on END are working.
 
 This document is the planning baseline for version **gfx-0.1** on top of CBM-BASIC 1.0.0.
 
