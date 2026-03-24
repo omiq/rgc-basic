@@ -333,6 +333,14 @@ Releases include **basic-gfx** — a full graphical version of the interpreter b
 - `./basic-gfx -petscii examples/gfx_inkey_demo.bas`
 - `./basic-gfx -petscii examples/gfx_jiffy_game_demo.bas`
 - `./basic-gfx -petscii -charset lower examples/gfx_colaburger_viewer.bas` — displays `.seq` art with correct PETSCII rendering (lowercase charset for “Welcome”, “Press”, etc.).
+- `./basic-gfx examples/gfx_game_shell.bas` — mini game: `DATA` tile map + `POKE` walls/floor/goal, **PNG** player/enemy (`player.png`, `enemy.png`), HUD strip (`hud_panel.png`), `INKEY$()` loop (WASD). See also `examples/dungeon.bas` for a larger PETSCII/POKE map style demo.
+
+**Hires bitmap (basic-gfx)**:
+
+- `SCREEN 1` — 320×200 1bpp display; `SCREEN 0` — back to 40×25 text. `COLOR` / `BACKGROUND` set pen and paper in bitmap mode.
+- `PSET x,y` / `PRESET x,y` — set/clear one pixel (coordinates clipped to the bitmap).
+- `LINE x1,y1 TO x2,y2` — Bresenham line (same clipping).
+- Example: `./basic-gfx examples/gfx_bitmap_demo.bas`
 
 **Keyboard polling (basic-gfx)**:
 
@@ -395,6 +403,9 @@ The `examples` folder (included in release archives) contains:
 - `examples/fileio_loop.bas`: read until end of file using the ST status variable (ST=0/64/1).
 - `examples/fileio_get.bas`: read one character at a time with GET#.
 - `examples/c64_control_codes_demo.bas`: expanded demo of `{TOKEN}` brace substitutions (colors, screen controls, reverse video, `{RESET}`). Run: `./basic -petscii examples/c64_control_codes_demo.bas`.
+- `examples/dungeon.bas`: larger PETSCII dungeon-style map with `POKE`/screen RAM and custom charset data (terminal or `basic-gfx` with `-petscii`).
+- `examples/gfx_game_shell.bas`: **basic-gfx** tutorial game — tile `DATA`, `POKE` map, `LOADSPRITE`/`DRAWSPRITE` for 8×8 PNG actors (`player.png`, `enemy.png`) and HUD (`hud_panel.png`), `INKEY$()` + enemy chase. Run: `./basic-gfx examples/gfx_game_shell.bas`.
+- `examples/gfx_sprite_hud_demo.bas`: minimal **DRAWSPRITE** over PETSCII (semi-transparent `hud_panel.png`); comments explain pixel vs text-row coordinates.
 - `examples/colaburger_viewer.bas`, `examples/gfx_colaburger_viewer.bas`, and `examples/colaburger.seq`: PETSCII .seq file viewer.
   - **.seq files** are sequential dumps of PETSCII screen codes (e.g. from BBS logs or PETSCII art).
   - The terminal viewer reads the file byte-by-byte with `GET#`, prints each byte via `CHR$`, and wraps after
