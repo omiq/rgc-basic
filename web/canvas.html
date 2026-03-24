@@ -58,9 +58,11 @@
   var rgbaPtr = 0;
   var rgbaSize = 320 * 200 * 4;
   var frameErrCount = 0;
-  /* While basic_load_and_run_gfx is suspended (Asyncify), do not call other wasm exports
-     from rAF — re-entry deadlocks the tab (e.g. during INPUT). */
   var wasmRunPending = false;
+  var shadowBase = 0;
+  var lastShadowVer = 0xffffffff;
+  var keyRingPtr = 0;
+  var WASM_JS_KEY_CAP = 512;
 
   function heapU8() {
     var M = window.Module;
@@ -141,6 +143,22 @@
     if (err) logEl.style.color = '#f88';
   }
 
+  /* Ring in wasm linear mem: u32 head, u32 tail, 512 bytes (see basic.c WasmJsKeyRing). */
+  function wasmKeyPushByte(b) {
+    if (!keyRingPtr) return;
+    var buf = wasmMemoryBuffer();
+    if (!buf) return;
+    var cap = WASM_JS_KEY_CAP;
+    var dv = new DataView(buf);
+    var off = keyRingPtr >>> 0;
+    var head = dv.getUint32(off, true);
+    var tail = dv.getUint32(off + 4, true);
+    var next = (tail + 1) % cap;
+    if (next === head) return;
+    dv.setUint8(off + 8 + tail, b & 0xff);
+    dv.setUint32(off + 4, next, true);
+  }
+
   function pollUi() {
     var M = window.Module;
     if (M && M.wasmWaitingKey) {
@@ -153,8 +171,6 @@
   requestAnimationFrame(pollUi);
 
   window.Module = {
-    /* Populated in onRuntimeInitialized; keydown pushes here — never ccall wasm during INPUT/GET */
-    _wasmKeyJsQueue: [],
     locateFile: function(path) {
       if (path.endsWith('.wasm')) {
         return path + '?cb=' + CACHEBUST;
@@ -191,15 +207,13 @@
       } catch (e) {
         appendLog('Init canvas: ' + e + '\n', true);
       }
-      /* C renders PETSCII to shadow RAM; JS copies heap only (no nested wasm during Asyncify). */
+      try {
+        shadowBase = M.ccall('wasm_gfx_shadow_base', 'number', [], []) >>> 0;
+        keyRingPtr = M.ccall('wasm_js_key_ring_mem', 'number', [], []) >>> 0;
+      } catch (e2) {
+        appendLog('Init: wasm exports missing — rebuild with make basic-wasm-canvas\n', true);
+      }
       var shadowImg = ctx.createImageData(320, 200);
-      M.onWasmGfxPaintShadow = function(ptr, nbytes) {
-        var p = ((typeof ptr === 'bigint' ? Number(ptr) : ptr) >>> 0);
-        var n = nbytes | 0;
-        if (n !== rgbaSize || p === 0) return;
-        if (!copyHeapToRgba(shadowImg.data, p, n)) return;
-        ctx.putImageData(shadowImg, 0, 0);
-      };
 
       runBtn.disabled = false;
       runBtn.onclick = function() {
@@ -207,7 +221,10 @@
         logEl.textContent = '';
         logEl.style.color = '#ccc';
         frameErrCount = 0;
-        Mo._wasmKeyJsQueue = [];
+        lastShadowVer = 0xffffffff;
+        try {
+          Mo.ccall('wasm_js_key_ring_reset', null, [], []);
+        } catch (e0) { /* ignore */ }
         var prog = programEl.value;
         var flags = '-petscii -palette c64 -charset lower -columns 40';
         var rc = Mo.ccall('basic_apply_arg_string', 'number', ['string'], [flags]);
@@ -236,9 +253,18 @@
 
       function frame() {
         var Mo = window.Module;
-        /* Do not require HEAPU8 here — some local emcc builds expose heap views differently;
-           copyHeapToRgba falls back to wasmMemoryBuffer(). */
-        if (wasmRunPending) {
+        if (wasmRunPending && shadowBase) {
+          var buf = wasmMemoryBuffer();
+          if (buf && shadowBase + 4 + rgbaSize <= buf.byteLength) {
+            var dv = new DataView(buf);
+            var ver = dv.getUint32(shadowBase, true);
+            if (ver !== lastShadowVer) {
+              lastShadowVer = ver;
+              if (copyHeapToRgba(shadowImg.data, shadowBase + 4, rgbaSize)) {
+                ctx.putImageData(shadowImg, 0, 0);
+              }
+            }
+          }
           requestAnimationFrame(frame);
           return;
         }
@@ -280,8 +306,7 @@
         var b = petsciiByteFromKeydown(ev);
         if (b === null) return;
         ev.preventDefault();
-        if (!Mo._wasmKeyJsQueue) Mo._wasmKeyJsQueue = [];
-        Mo._wasmKeyJsQueue.push(b);
+        wasmKeyPushByte(b);
       }, true);
     },
     onAbort: function(what) {
