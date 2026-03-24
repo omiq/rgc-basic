@@ -369,6 +369,7 @@ Releases include **basic-gfx** — a full graphical version of the interpreter b
 - `SPRITEVISIBLE slot, 0|1` hides or shows a loaded sprite without unloading.
 - `SPRITEW(slot)` / `SPRITEH(slot)` return pixel width/height after load (0 if not loaded yet).
 - Example: `./basic-gfx -petscii examples/gfx_sprite_hud_demo.bas`
+- **Game shell** (`examples/gfx_game_shell.bas`): small tile map (`DATA`), `POKE` drawing, player `@` vs enemy `*`, `INKEY$()` loop, HUD `DRAWSPRITE` with row→pixel comments. Run: `./basic-gfx examples/gfx_game_shell.bas`
 
 **Window title (basic-gfx)**:
 
