@@ -161,19 +161,18 @@
         if (!optPetscii.checked) optPlain.checked = false;
       });
 
-      Basic({
-        preRun: [function() {
-          function stdin() {
-            if (inputBuffer.length > 0) return inputBuffer.shift();
-            var line = window.prompt('? ');
-            if (line === null) line = '';
-            for (var i = 0; i < line.length; i++) inputBuffer.push(line.charCodeAt(i) & 0xFF);
-            inputBuffer.push(10);
-            return inputBuffer.shift();
-          }
-          FS.init(stdin, null, null);
-        }]
-      }).then(function(Module) {
+      /* MODULARIZE builds do not define a global FS; use Module.FS after the factory resolves. */
+      Basic({}).then(function(Module) {
+        function stdin() {
+          if (inputBuffer.length > 0) return inputBuffer.shift();
+          var line = window.prompt('? ');
+          if (line === null) line = '';
+          for (var i = 0; i < line.length; i++) inputBuffer.push(line.charCodeAt(i) & 0xFF);
+          inputBuffer.push(10);
+          return inputBuffer.shift();
+        }
+        Module.FS.init(stdin, null, null);
+
         Module.print = function(text) { appendOutput(text); };
         Module.printErr = function(text) { appendOutput(text, true); };
 
