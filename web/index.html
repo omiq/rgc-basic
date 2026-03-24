@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>CBM-BASIC in Browser</title>
+  <style>
+    body { font-family: monospace; max-width: 800px; margin: 1em auto; padding: 0 1em; }
+    h1 { font-size: 1.2em; }
+    textarea { width: 100%; height: 200px; font-family: monospace; }
+    #output { background: #1e1e1e; color: #d4d4d4; padding: 1em; min-height: 150px; white-space: pre-wrap; }
+    button { font-size: 1em; padding: 0.3em 0.8em; margin-right: 0.5em; }
+    .error { color: #f14c4c; }
+  </style>
+</head>
+<body>
+  <h1>CBM-BASIC</h1>
+  <p>Enter a BASIC program and click Run. Output appears below.</p>
+  <textarea id="program" placeholder="10 PRINT &quot;HELLO, WORLD!&quot;&#10;20 END">10 PRINT "HELLO, WORLD!"
+20 END</textarea>
+  <p>
+    <button id="run">Run</button>
+  </p>
+  <div id="output"></div>
+
+  <script src="basic.js"></script>
+  <script>
+    /* INPUT: Emscripten's default stdin uses prompt(); that works for simple programs.
+     * For better UX, we could use FS.init() with a custom stdin that reads from an input field. */
+    const output = document.getElementById('output');
+    const runBtn = document.getElementById('run');
+    const programEl = document.getElementById('program');
+
+    function clearOutput() {
+      output.textContent = '';
+      output.classList.remove('error');
+    }
+
+    function appendOutput(text, isError) {
+      output.textContent += text;
+      if (isError) output.classList.add('error');
+    }
+
+    Basic().then(function(Module) {
+      /* Route stdout/stderr to our output div */
+      const prevOut = Module.print;
+      const prevErr = Module.printErr;
+      Module.print = function(text) {
+        appendOutput(text);
+        if (prevOut) prevOut.apply(this, arguments);
+      };
+      Module.printErr = function(text) {
+        appendOutput(text, true);
+        if (prevErr) prevErr.apply(this, arguments);
+      };
+
+      runBtn.disabled = false;
+      runBtn.onclick = function() {
+        clearOutput();
+        const prog = programEl.value;
+        try {
+          Module.FS.writeFile('/program.bas', prog);
+          Module._basic_load_and_run('/program.bas');
+        } catch (e) {
+          appendOutput('Error: ' + e.message, true);
+        }
+      };
+    }).catch(function(e) {
+      output.textContent = 'Failed to load BASIC: ' + e;
+      output.classList.add('error');
+    });
+  </script>
+</body>
+</html>

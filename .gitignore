@@ -68,3 +68,8 @@ CHARS.DAT
 basic-gfx
 gfx-demo
 gfx_video_test
+
+# Web/WASM build artifacts
+web/basic.js
+web/basic.wasm
+web/basic.wasm.map

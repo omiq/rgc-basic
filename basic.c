@@ -45,10 +45,16 @@
 #include <time.h>
 #include "petscii.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #ifdef GFX_VIDEO
 #include "gfx_video.h"
 #endif
-#if defined(_WIN32)
+#if defined(__EMSCRIPTEN__)
+/* Browser: no termios, no Windows API */
+#elif defined(_WIN32)
 #include <windows.h>
 #include <conio.h>
 #else
@@ -594,11 +600,15 @@ static char *normalize_keywords_line(const char *input)
  * On Unix-like systems (macOS/Linux), standard ANSI escapes work in most terminals.
  * On Windows, we enable virtual terminal processing where available so that
  * ANSI color/control sequences render correctly instead of being printed literally. */
+#if defined(__EMSCRIPTEN__) || defined(_WIN32)
 #if defined(_WIN32)
 static int ansi_enabled = 0;
-
+#endif
 static void init_console_ansi(void)
 {
+#if defined(__EMSCRIPTEN__)
+    /* Browser: no console mode to configure; stdout goes to Module.print */
+#elif defined(_WIN32)
     HANDLE hOut;
     DWORD mode;
 
@@ -614,6 +624,7 @@ static void init_console_ansi(void)
         return;
     }
     ansi_enabled = 1;
+#endif
 }
 #else
 static void init_console_ansi(void)
@@ -1187,7 +1198,10 @@ static char **script_argv = NULL;        /* argv entries after script path */
 /* Run a shell command; returns exit status (0 = success, non-zero = failure). */
 static int do_system(const char *cmd)
 {
-#if defined(_WIN32)
+#ifdef __EMSCRIPTEN__
+    (void)cmd;
+    return -1;  /* Not available in browser */
+#elif defined(_WIN32)
     return system(cmd);  /* MSVC: runs via cmd.exe */
 #else
     return system(cmd);
@@ -1197,6 +1211,11 @@ static int do_system(const char *cmd)
 /* Run a shell command and return its stdout (up to MAX_STR_LEN-1 chars). */
 static void do_exec(const char *cmd, char *out, size_t out_size)
 {
+#ifdef __EMSCRIPTEN__
+    (void)cmd;
+    if (out_size > 0) out[0] = '\0';
+    return;  /* Not available in browser */
+#else
     FILE *fp;
     size_t n;
     if (out_size == 0) return;
@@ -1215,6 +1234,7 @@ static void do_exec(const char *cmd, char *out, size_t out_size)
     _pclose(fp);
 #else
     pclose(fp);
+#endif
 #endif
 }
 
@@ -2358,7 +2378,17 @@ static int function_lookup(const char *name, int len)
     }
 }
 
-#if defined(_WIN32)
+#if defined(__EMSCRIPTEN__)
+/* Browser: use emscripten_sleep to yield to event loop. */
+static void do_sleep_ticks(double ticks)
+{
+    int ms;
+    if (ticks <= 0.0) return;
+    ms = (int)(ticks * (1000.0 / 60.0) + 0.5);
+    if (ms <= 0) return;
+    emscripten_sleep(ms);
+}
+#elif defined(_WIN32)
 /* Windows: sleep using Sleep() in milliseconds derived from 60Hz ticks. */
 static void do_sleep_ticks(double ticks)
 {
@@ -2566,7 +2596,7 @@ static void statement_screencodes(char **p)
  * GETs, causing duplicate/trailing characters (e.g. trek.bas "sls" showing
  * extra "s" on next line).
  */
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
 static struct termios get_saved_termios;
 static int get_raw_mode_active = 0;
 
@@ -2594,7 +2624,9 @@ static void ensure_get_raw_mode(void)
 
 static int read_single_char(void)
 {
-#if defined(_WIN32)
+#if defined(__EMSCRIPTEN__)
+    return getchar();  /* Browser: stdin may be hooked by JS or block */
+#elif defined(_WIN32)
     /* _getch() reads a single keypress without waiting for Enter and
      * without echoing it to the console.
      */
@@ -2653,7 +2685,9 @@ static int read_single_char(void)
  * Returns EOF if no key is available right now. */
 static int read_single_char_nonblock(void)
 {
-#if defined(_WIN32)
+#if defined(__EMSCRIPTEN__)
+    return EOF;  /* Browser: no non-blocking keyboard; use INKEY$ via canvas later */
+#elif defined(_WIN32)
     if (!_kbhit()) {
         return EOF;
     }
@@ -2800,7 +2834,9 @@ static struct value eval_function(const char *name, char **p)
         skip_spaces(p);
         {
             const char *plat;
-#if defined(_WIN32)
+#if defined(__EMSCRIPTEN__)
+            plat = "browser";
+#elif defined(_WIN32)
             plat = "windows-terminal";
 #elif defined(__APPLE__)
             plat = "mac-terminal";
@@ -7053,9 +7089,9 @@ int basic_halted(void) { return halted; }
 void basic_set_video(GfxVideoState *vs) { gfx_vs = vs; }
 #endif
 
-/* ── Terminal-mode entry point (not used when GFX_VIDEO is defined) ── */
+/* ── Terminal-mode entry point (not used when GFX_VIDEO or __EMSCRIPTEN__) ── */
 
-#ifndef GFX_VIDEO
+#if !defined(GFX_VIDEO) && !defined(__EMSCRIPTEN__)
 int main(int argc, char **argv)
 {
     const char *prog_path = NULL;
@@ -7146,3 +7182,12 @@ int main(int argc, char **argv)
     return 0;
 }
 #endif /* !GFX_VIDEO */
+
+#ifdef __EMSCRIPTEN__
+/* Browser entry: no main(); JS calls basic_load + basic_run. */
+EMSCRIPTEN_KEEPALIVE void basic_load_and_run(const char *path)
+{
+    load_program(path);
+    run_program(path, 0, NULL);
+}
+#endif

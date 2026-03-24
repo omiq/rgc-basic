@@ -137,7 +137,7 @@ Examples: Run button, optional Step, output div, optional canvas for PETSCII.
 
 | Phase | Scope | Deliverable |
 |-------|-------|-------------|
-| **1. Minimal WASM** | basic.c + petscii.c, no GFX; stub SYSTEM/EXEC; stdio → JS console or buffer | `basic.js` + `basic.wasm`; `Basic.runString(prog)` |
+| **1. Minimal WASM** | basic.c + petscii.c, no GFX; stub SYSTEM/EXEC; stdio → JS console or buffer | `basic.js` + `basic.wasm`; `basic_load_and_run(path)` via virtual FS |
 | **2. Virtual FS + run file** | Emscripten FS; `Basic.writeFile`; `Basic.run(path)` | Load program and assets from virtual FS |
 | **3. Terminal div mode** | PRINT → div; INPUT → prompt or callback | Embeddable terminal UI |
 | **4. Canvas mode (optional)** | 40×25 PETSCII grid, Canvas 2D; no raylib | In-browser PETSCII display |
