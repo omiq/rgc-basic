@@ -1432,6 +1432,7 @@ static void statement_color(char **p);
 static void statement_background(char **p);
 static void statement_screencodes(char **p);
 static void statement_pset(char **p, int preset);
+static void statement_line(char **p);
 static void statement_else(char **p);
 static void statement_end_if(char **p);
 static void statement_return(char **p);
@@ -1632,7 +1633,7 @@ static const char *const reserved_words[] = {
     "AND", "ARG", "ARGC", "ASC", "BACKGROUND", "CHR", "CLOSE", "CLR", "COLOR",
     "COLOUR", "COS", "CURSOR", "DATA", "DEC", "DEF", "DIM", "DOWN", "END", "FUNCTION",
     "ELSE", "ENV", "EVAL", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
-    "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LOAD", "LOCATE", "LOG",
+    "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LINE", "LOAD", "LOCATE", "LOG",
     "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET", "PRINT",
     "XOR",
     "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCREEN", "SCREENCODES",
@@ -2763,6 +2764,57 @@ static void statement_pset(char **p, int preset)
     xi = (int)vx.num;
     yi = (int)vy.num;
     gfx_bitmap_set_pixel(gfx_vs, xi, yi, preset ? 0 : 1);
+#endif
+}
+
+static void statement_line(char **p)
+{
+#ifndef GFX_VIDEO
+    (void)p;
+    runtime_error("LINE is only available in basic-gfx");
+#else
+    struct value vx0, vy0, vx1, vy1;
+    int x0, y0, x1, y1;
+
+    skip_spaces(p);
+    vx0 = eval_expr(p);
+    ensure_num(&vx0);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error("LINE expects x1,y1 TO x2,y2");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    vy0 = eval_expr(p);
+    ensure_num(&vy0);
+    skip_spaces(p);
+    if (!starts_with_kw(*p, "TO")) {
+        runtime_error("LINE expects TO between endpoints");
+        return;
+    }
+    *p += 2;
+    skip_spaces(p);
+    vx1 = eval_expr(p);
+    ensure_num(&vx1);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error("LINE expects x1,y1 TO x2,y2");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    vy1 = eval_expr(p);
+    ensure_num(&vy1);
+    if (!gfx_vs) {
+        runtime_error("LINE is only available in basic-gfx");
+        return;
+    }
+    x0 = (int)vx0.num;
+    y0 = (int)vy0.num;
+    x1 = (int)vx1.num;
+    y1 = (int)vy1.num;
+    gfx_bitmap_line(gfx_vs, x0, y0, x1, y1, 1);
 #endif
 }
 
@@ -7025,6 +7077,11 @@ static void execute_statement(char **p)
         return;
     }
     if (c == 'L') {
+        if (starts_with_kw(*p, "LINE")) {
+            *p += 4;
+            statement_line(p);
+            return;
+        }
         if (starts_with_kw(*p, "LOOP")) {
             *p += 4;
             statement_loop(p);

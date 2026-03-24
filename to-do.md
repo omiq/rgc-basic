@@ -55,7 +55,7 @@
   * ~Memory-mapped screen/colour/char RAM, POKE/PEEK, PETSCII, `.seq` viewer with SCREENCODES ON~
 
 * **Bitmap graphics & sprites** (incremental; see `docs/bitmap-graphics-plan.md`, `docs/sprite-features-plan.md`)
-  1. ~**Bitmap mode**~ — `SCREEN 0`/`SCREEN 1` (320×200 hires at `GFX_BITMAP_BASE`), monochrome raylib renderer; `COLOR`/`BACKGROUND` as pen/paper. ~`PSET`/`PRESET`~ for single pixels; POKE still works; `LINE` still to do.
+  1. ~**Bitmap mode**~ — `SCREEN 0`/`SCREEN 1` (320×200 hires at `GFX_BITMAP_BASE`), monochrome raylib renderer; `COLOR`/`BACKGROUND` as pen/paper. ~`PSET`/`PRESET`/`LINE`~; POKE still works.
   2. **Sprites (minimal)** — `LOADSPRITE slot, "path"`, `DRAWSPRITE slot, x, y [, z]`, `SPRITEVISIBLE slot, on`. PNG load, Z-ordered draw queue. Collision: `SPRITECOLLIDE(slot1, slot2)`.
   3. **Joystick / joypad / controller input** — Poll gamepad via raylib; expose to BASIC as `JOY(port)` or similar read API for D-pad, buttons, axes. Support keyboards-as-joystick and real controllers.
   4. **Graphic layers and scrolling** — Layer stack (background, tiles, sprites, text) with independent scroll offsets; `SCROLL x, y` or per-layer scroll; camera/viewport for games.
