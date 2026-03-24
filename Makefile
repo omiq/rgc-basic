@@ -72,7 +72,7 @@ basic-wasm:
 basic-wasm-canvas:
 	@mkdir -p web
 	$(EMCC) $(WASM_CFLAGS) -O2 -s WASM=1 -DGFX_VIDEO -I. -Igfx \
-		-s EXPORTED_FUNCTIONS='["_malloc","_free","_basic_load","_basic_run","_basic_halted","_basic_load_and_run","_basic_apply_arg_string","_wasm_push_key","_basic_load_and_run_gfx","_wasm_gfx_set_video","_wasm_gfx_render_rgba"]' \
+		-s EXPORTED_FUNCTIONS='["_malloc","_free","_basic_load","_basic_run","_basic_halted","_basic_load_and_run","_basic_apply_arg_string","_wasm_push_key","_basic_load_and_run_gfx","_wasm_gfx_set_video","_wasm_gfx_render_rgba","_wasm_js_key_ring_mem","_wasm_js_key_ring_reset","_wasm_gfx_shadow_base"]' \
 		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS"]' \
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
 		-s INITIAL_MEMORY=67108864 \
