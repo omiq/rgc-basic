@@ -17,8 +17,349 @@
 
 #ifdef GFX_VIDEO
 #include <pthread.h>
+#include <stdlib.h>
 #include "../basic_api.h"
-#endif
+
+#define GFX_SPRITE_MAX_SLOTS   64
+#define GFX_SPRITE_Q_CAP      256
+#define GFX_SPRITE_PATH_MAX   512
+
+typedef enum {
+    GFX_SQ_LOAD = 1,
+    GFX_SQ_UNLOAD,
+    GFX_SQ_DRAW,
+    GFX_SQ_VISIBLE
+} GfxSpriteQKind;
+
+typedef struct {
+    GfxSpriteQKind kind;
+    int slot;
+    char path[GFX_SPRITE_PATH_MAX];
+    float x, y;
+    int z;
+    int sx, sy, sw, sh;
+} GfxSpriteCmd;
+
+typedef struct {
+    Texture2D tex;
+    int loaded;
+    int visible;
+} GfxSpriteSlot;
+
+typedef struct {
+    int slot;
+    float x, y;
+    int z;
+    int sx, sy, sw, sh;
+} GfxSpriteDraw;
+
+static pthread_mutex_t g_sprite_mutex = PTHREAD_MUTEX_INITIALIZER;
+static char g_sprite_base_dir[GFX_SPRITE_PATH_MAX];
+static GfxSpriteSlot g_sprite_slots[GFX_SPRITE_MAX_SLOTS];
+static GfxSpriteCmd g_sprite_q[GFX_SPRITE_Q_CAP];
+static int g_sprite_q_count;
+
+static int sprite_q_push(const GfxSpriteCmd *c)
+{
+    int ok = 0;
+    pthread_mutex_lock(&g_sprite_mutex);
+    if (g_sprite_q_count < GFX_SPRITE_Q_CAP) {
+        g_sprite_q[g_sprite_q_count++] = *c;
+        ok = 1;
+    }
+    pthread_mutex_unlock(&g_sprite_mutex);
+    return ok;
+}
+
+void gfx_set_sprite_base_dir(const char *dir)
+{
+    pthread_mutex_lock(&g_sprite_mutex);
+    if (!dir || !dir[0]) {
+        g_sprite_base_dir[0] = '\0';
+    } else {
+        strncpy(g_sprite_base_dir, dir, sizeof(g_sprite_base_dir) - 1);
+        g_sprite_base_dir[sizeof(g_sprite_base_dir) - 1] = '\0';
+    }
+    pthread_mutex_unlock(&g_sprite_mutex);
+}
+
+static void sprite_build_path(char *out, size_t outsz, const char *rel)
+{
+    if (!rel || !rel[0]) {
+        out[0] = '\0';
+        return;
+    }
+    if (rel[0] == '/' || (rel[0] != '\0' && rel[1] == ':' &&
+                          ((rel[0] >= 'A' && rel[0] <= 'Z') ||
+                           (rel[0] >= 'a' && rel[0] <= 'z')))) {
+        snprintf(out, outsz, "%s", rel);
+        return;
+    }
+    pthread_mutex_lock(&g_sprite_mutex);
+    if (g_sprite_base_dir[0] != '\0') {
+        snprintf(out, outsz, "%s/%s", g_sprite_base_dir, rel);
+    } else {
+        snprintf(out, outsz, "%s", rel);
+    }
+    pthread_mutex_unlock(&g_sprite_mutex);
+}
+
+void gfx_sprite_enqueue_load(int slot, const char *path)
+{
+    GfxSpriteCmd c;
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS || !path) {
+        return;
+    }
+    memset(&c, 0, sizeof(c));
+    c.kind = GFX_SQ_LOAD;
+    c.slot = slot;
+    strncpy(c.path, path, sizeof(c.path) - 1);
+    c.path[sizeof(c.path) - 1] = '\0';
+    (void)sprite_q_push(&c);
+}
+
+void gfx_sprite_enqueue_unload(int slot)
+{
+    GfxSpriteCmd c;
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) {
+        return;
+    }
+    memset(&c, 0, sizeof(c));
+    c.kind = GFX_SQ_UNLOAD;
+    c.slot = slot;
+    (void)sprite_q_push(&c);
+}
+
+void gfx_sprite_enqueue_visible(int slot, int on)
+{
+    GfxSpriteCmd c;
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) {
+        return;
+    }
+    memset(&c, 0, sizeof(c));
+    c.kind = GFX_SQ_VISIBLE;
+    c.slot = slot;
+    c.z = on ? 1 : 0;
+    (void)sprite_q_push(&c);
+}
+
+void gfx_sprite_enqueue_draw(int slot, float x, float y, int z, int sx, int sy, int sw, int sh)
+{
+    GfxSpriteCmd c;
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) {
+        return;
+    }
+    memset(&c, 0, sizeof(c));
+    c.kind = GFX_SQ_DRAW;
+    c.slot = slot;
+    c.x = x;
+    c.y = y;
+    c.z = z;
+    c.sx = sx;
+    c.sy = sy;
+    c.sw = sw;
+    c.sh = sh;
+    (void)sprite_q_push(&c);
+}
+
+int gfx_sprite_slot_width(int slot)
+{
+    int w = 0;
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) {
+        return 0;
+    }
+    pthread_mutex_lock(&g_sprite_mutex);
+    if (g_sprite_slots[slot].loaded) {
+        w = g_sprite_slots[slot].tex.width;
+    }
+    pthread_mutex_unlock(&g_sprite_mutex);
+    return w;
+}
+
+int gfx_sprite_slot_height(int slot)
+{
+    int h = 0;
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) {
+        return 0;
+    }
+    pthread_mutex_lock(&g_sprite_mutex);
+    if (g_sprite_slots[slot].loaded) {
+        h = g_sprite_slots[slot].tex.height;
+    }
+    pthread_mutex_unlock(&g_sprite_mutex);
+    return h;
+}
+
+static int cmp_sprite_draw_z(const void *a, const void *b)
+{
+    const GfxSpriteDraw *da = (const GfxSpriteDraw *)a;
+    const GfxSpriteDraw *db = (const GfxSpriteDraw *)b;
+    if (da->z < db->z) {
+        return -1;
+    }
+    if (da->z > db->z) {
+        return 1;
+    }
+    return 0;
+}
+
+/* Process queued sprite commands (main thread only). */
+static void gfx_sprite_process_queue(GfxSpriteDraw *draws, int *ndraw)
+{
+    GfxSpriteCmd cmds[GFX_SPRITE_Q_CAP];
+    int i, n = 0;
+
+    *ndraw = 0;
+    pthread_mutex_lock(&g_sprite_mutex);
+    n = g_sprite_q_count;
+    if (n > GFX_SPRITE_Q_CAP) {
+        n = GFX_SPRITE_Q_CAP;
+    }
+    for (i = 0; i < n; i++) {
+        cmds[i] = g_sprite_q[i];
+    }
+    g_sprite_q_count = 0;
+    pthread_mutex_unlock(&g_sprite_mutex);
+
+    for (i = 0; i < n; i++) {
+        GfxSpriteCmd *c = &cmds[i];
+        if (c->slot < 0 || c->slot >= GFX_SPRITE_MAX_SLOTS) {
+            continue;
+        }
+        switch (c->kind) {
+        case GFX_SQ_LOAD: {
+            char full[1024];
+            Texture2D t;
+            sprite_build_path(full, sizeof(full), c->path);
+            pthread_mutex_lock(&g_sprite_mutex);
+            if (g_sprite_slots[c->slot].loaded) {
+                UnloadTexture(g_sprite_slots[c->slot].tex);
+                g_sprite_slots[c->slot].loaded = 0;
+            }
+            pthread_mutex_unlock(&g_sprite_mutex);
+            t = LoadTexture(full);
+            pthread_mutex_lock(&g_sprite_mutex);
+            if (t.id != 0) {
+                SetTextureFilter(t, TEXTURE_FILTER_POINT);
+                g_sprite_slots[c->slot].tex = t;
+                g_sprite_slots[c->slot].loaded = 1;
+                g_sprite_slots[c->slot].visible = 1;
+            }
+            pthread_mutex_unlock(&g_sprite_mutex);
+            break;
+        }
+        case GFX_SQ_VISIBLE:
+            pthread_mutex_lock(&g_sprite_mutex);
+            if (c->slot >= 0 && c->slot < GFX_SPRITE_MAX_SLOTS) {
+                g_sprite_slots[c->slot].visible = c->z ? 1 : 0;
+            }
+            pthread_mutex_unlock(&g_sprite_mutex);
+            break;
+        case GFX_SQ_UNLOAD:
+            pthread_mutex_lock(&g_sprite_mutex);
+            if (g_sprite_slots[c->slot].loaded) {
+                UnloadTexture(g_sprite_slots[c->slot].tex);
+                g_sprite_slots[c->slot].loaded = 0;
+                g_sprite_slots[c->slot].visible = 0;
+            }
+            pthread_mutex_unlock(&g_sprite_mutex);
+            break;
+        case GFX_SQ_DRAW:
+            if (*ndraw < GFX_SPRITE_Q_CAP) {
+                draws[*ndraw].slot = c->slot;
+                draws[*ndraw].x = c->x;
+                draws[*ndraw].y = c->y;
+                draws[*ndraw].z = c->z;
+                draws[*ndraw].sx = c->sx;
+                draws[*ndraw].sy = c->sy;
+                draws[*ndraw].sw = c->sw;
+                draws[*ndraw].sh = c->sh;
+                (*ndraw)++;
+            }
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+static void gfx_sprite_shutdown(void)
+{
+    int i;
+    pthread_mutex_lock(&g_sprite_mutex);
+    for (i = 0; i < GFX_SPRITE_MAX_SLOTS; i++) {
+        if (g_sprite_slots[i].loaded) {
+            UnloadTexture(g_sprite_slots[i].tex);
+            g_sprite_slots[i].loaded = 0;
+            g_sprite_slots[i].visible = 0;
+        }
+    }
+    g_sprite_q_count = 0;
+    pthread_mutex_unlock(&g_sprite_mutex);
+}
+
+static void gfx_sprite_composite(RenderTexture2D target, int nat_w, int nat_h)
+{
+    GfxSpriteDraw draws[GFX_SPRITE_Q_CAP];
+    int nd = 0;
+    int i;
+
+    gfx_sprite_process_queue(draws, &nd);
+    if (nd <= 0) {
+        return;
+    }
+    qsort(draws, (size_t)nd, sizeof(draws[0]), cmp_sprite_draw_z);
+
+    BeginTextureMode(target);
+    for (i = 0; i < nd; i++) {
+        GfxSpriteDraw *d = &draws[i];
+        int s = d->slot;
+        float sx, sy, sw, sh;
+        Rectangle src, dest;
+
+        if (s < 0 || s >= GFX_SPRITE_MAX_SLOTS) {
+            continue;
+        }
+        pthread_mutex_lock(&g_sprite_mutex);
+        if (!g_sprite_slots[s].loaded || !g_sprite_slots[s].visible) {
+            pthread_mutex_unlock(&g_sprite_mutex);
+            continue;
+        }
+        {
+            Texture2D t = g_sprite_slots[s].tex;
+            sx = (float)d->sx;
+            sy = (float)d->sy;
+            if (d->sw <= 0 || d->sh <= 0) {
+                sw = (float)(t.width - d->sx);
+                sh = (float)(t.height - d->sy);
+            } else {
+                sw = (float)d->sw;
+                sh = (float)d->sh;
+            }
+            if (sw <= 0 || sh <= 0) {
+                continue;
+            }
+            if (sx < 0 || sy < 0 || sx + sw > (float)t.width + 0.01f ||
+                sy + sh > (float)t.height + 0.01f) {
+                continue;
+            }
+            src = (Rectangle){ sx, sy, sw, sh };
+            dest = (Rectangle){ d->x, d->y, sw, sh };
+            DrawTexturePro(
+                t,
+                src,
+                dest,
+                (Vector2){ 0, 0 },
+                0.0f,
+                WHITE);
+        }
+        pthread_mutex_unlock(&g_sprite_mutex);
+    }
+    EndTextureMode();
+    (void)nat_w;
+    (void)nat_h;
+}
+#endif /* GFX_VIDEO */
 
 /* ── Screen geometry ──────────────────────────────────────────────── */
 
@@ -904,6 +1245,7 @@ int main(int argc, char **argv)
         } else {
             render_text_screen(&vs, target);
         }
+        gfx_sprite_composite(target, nat_w, nat_h);
 
         BeginDrawing();
         {
@@ -932,6 +1274,7 @@ int main(int argc, char **argv)
 
     closed_by_user = WindowShouldClose() && !basic_halted();
 
+    gfx_sprite_shutdown();
     UnloadRenderTexture(target);
     CloseWindow();
     /* If the user closed the window before the BASIC program ended, don't
