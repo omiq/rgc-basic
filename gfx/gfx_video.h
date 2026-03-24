@@ -33,6 +33,10 @@
 #define GFX_BITMAP_HEIGHT 200u
 #define GFX_BITMAP_BYTES  ((GFX_BITMAP_WIDTH * GFX_BITMAP_HEIGHT) / 8u)
 
+/* Display mode for basic-gfx (SCREEN 0 / SCREEN 1). */
+#define GFX_SCREEN_TEXT   0u
+#define GFX_SCREEN_BITMAP 1u
+
 typedef struct GfxVideoState {
     uint8_t screen[GFX_TEXT_SIZE];          /* Screen codes (40x25 or 80x25) */
     uint8_t color[GFX_COLOR_SIZE];          /* Colour indices (0-15 per cell) */
@@ -44,8 +48,10 @@ typedef struct GfxVideoState {
     uint8_t key_q_tail;
     uint32_t ticks60;                       /* 60 Hz tick counter (TI), wraps at 24h */
     uint8_t bg_color;                       /* Background colour index (0-15) */
+    uint8_t bitmap_fg;                      /* Hi-res bitmap “pen” (0-15), COLOR in gfx build */
     uint8_t charset_lowercase;              /* 0=upper/graphics, 1=lower/upper */
     uint8_t cols;                           /* 40 or 80; columns per row */
+    uint8_t screen_mode;                    /* GFX_SCREEN_TEXT or GFX_SCREEN_BITMAP */
 } GfxVideoState;
 
 /* Initialise state to a clean default (all zeros). */
@@ -65,6 +71,9 @@ void gfx_video_clear_keys(GfxVideoState *s);
  */
 uint8_t gfx_peek(const GfxVideoState *s, uint16_t addr);
 void gfx_poke(GfxVideoState *s, uint16_t addr, uint8_t value);
+
+/* Hi-res bitmap: 320×200, row-major, 40 bytes per row, MSB = left pixel in each byte. */
+int gfx_bitmap_get_pixel(const GfxVideoState *s, unsigned x, unsigned y);
 
 #endif /* GFX_VIDEO_H */
 
