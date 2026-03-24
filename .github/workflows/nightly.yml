@@ -206,7 +206,7 @@ jobs:
           sudo apt-get install -y emscripten
 
       - name: Build WASM
-        run: make basic-wasm
+        run: make basic-wasm basic-wasm-canvas
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -225,6 +225,7 @@ jobs:
         run: |
           mkdir -p out/wasm
           cp web/basic.js web/basic.wasm web/index.html out/wasm/
+          cp web/basic-canvas.js web/basic-canvas.wasm web/canvas.html out/wasm/
           cp web/README.md out/wasm/
           cd out
           tar czf cbm-basic-wasm.tar.gz wasm

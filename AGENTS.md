@@ -40,6 +40,8 @@ done
 
 **Browser / WASM** (Emscripten + Playwright): `make basic-wasm` then `pip install -r tests/requirements-wasm.txt`, `python3 -m playwright install chromium`, then `make wasm-test` (or `python3 tests/wasm_browser_test.py`). Same as the WASM job in **tag** and **nightly** GitHub Actions (not on every PR). The demo uses **Asyncify**; **INPUT** is inline in the page, **GET**/**INKEY$** use **`wasm_push_key`** with the output panel focused.
 
+**Canvas WASM** (PETSCII 40×25, GfxVideoState): `make basic-wasm-canvas` produces `web/basic-canvas.js` + `basic-canvas.wasm`; open **`web/canvas.html`**. Sprites are stubbed; use **`basic_load_and_run_gfx`** and **`wasm_gfx_render_rgba`** (see `canvas.html`).
+
 ### Caveats
 
 - Several example programs (`dartmouth.bas`, `guess.bas`, `adventure.bas`, `get-input.bas`, `test_get.bas`) and test files (`codes-replaced.bas`, `locate.bas`, `kbuffer.bas`) require interactive or piped keyboard input — skip these in automated runs.
