@@ -976,6 +976,20 @@ static int wasm_read_key_blocking(void)
     return (int)b;
 }
 
+/* INPUT: label text for the inline field (INPUT "prompt"; ...). */
+static void wasm_set_input_prompt_for_js(const char *prompt)
+{
+    if (!prompt) {
+        prompt = "";
+    }
+    EM_ASM({
+        var s = UTF8ToString($0);
+        if (typeof Module !== 'undefined') {
+            Module['wasmInputLabel'] = s.length ? s : 'INPUT';
+        }
+    }, prompt);
+}
+
 /* INPUT: JS sets Module.wasmInputLineReady and Module.wasmInputLineText (UTF-8). */
 static void wasm_read_input_line_blocking(char *buf, size_t cap)
 {
@@ -5606,6 +5620,7 @@ static void statement_input(char **p)
                 putchar((unsigned char)*s);
             }
             fflush(stdout);
+            wasm_set_input_prompt_for_js(prompt[0] != '\0' && first_prompt ? prompt : "");
             wasm_read_input_line_blocking(linebuf, sizeof(linebuf));
             trim_newline(linebuf);
         }
