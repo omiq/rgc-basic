@@ -63,6 +63,28 @@
   var rgbaPtr = 0;
   var rgbaSize = 320 * 200 * 4;
 
+  function heapU8() {
+    return Module['HEAPU8'] || Module.HEAPU8;
+  }
+
+  function clearRgbaBuffer(ptr, len) {
+    var h = heapU8();
+    if (h && typeof h.fill === 'function') {
+      h.fill(0, ptr, ptr + len);
+      return;
+    }
+    if (h) {
+      for (var i = 0; i < len; i++) {
+        h[ptr + i] = 0;
+      }
+      return;
+    }
+    var mem = Module['wasmMemory'];
+    if (mem && mem.buffer) {
+      new Uint8Array(mem.buffer, ptr, len).fill(0);
+    }
+  }
+
   function escHtml(t) {
     return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
@@ -97,7 +119,11 @@
     },
     onRuntimeInitialized: function() {
       rgbaPtr = Module._malloc(rgbaSize);
-      Module.HEAPU8.fill(0, rgbaPtr, rgbaPtr + rgbaSize);
+      if (!rgbaPtr) {
+        appendLog('_malloc failed for framebuffer.\n', true);
+        return;
+      }
+      clearRgbaBuffer(rgbaPtr, rgbaSize);
       runBtn.disabled = false;
       runBtn.onclick = function() {
         logEl.textContent = '';
@@ -121,9 +147,10 @@
       };
 
       function frame() {
-        if (rgbaPtr && Module._wasm_gfx_render_rgba) {
+        var h = heapU8();
+        if (rgbaPtr && h && Module._wasm_gfx_render_rgba) {
           Module.ccall('wasm_gfx_render_rgba', null, ['number', 'number'], [rgbaPtr, rgbaSize]);
-          var u8 = Module.HEAPU8.subarray(rgbaPtr, rgbaPtr + rgbaSize);
+          var u8 = h.subarray(rgbaPtr, rgbaPtr + rgbaSize);
           var img = ctx.createImageData(320, 200);
           img.data.set(u8);
           ctx.putImageData(img, 0, 0);
