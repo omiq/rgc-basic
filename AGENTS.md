@@ -38,7 +38,7 @@ done
 
 **GFX unit test**: `./gfx_video_test` (headless, no display needed).
 
-**Browser / WASM** (Emscripten + Playwright): `make basic-wasm` then `pip install -r tests/requirements-wasm.txt`, `python3 -m playwright install chromium`, then `make wasm-test` (or `python3 tests/wasm_browser_test.py`). Same as the WASM job in **tag** and **nightly** GitHub Actions (not on every PR).
+**Browser / WASM** (Emscripten + Playwright): `make basic-wasm` then `pip install -r tests/requirements-wasm.txt`, `python3 -m playwright install chromium`, then `make wasm-test` (or `python3 tests/wasm_browser_test.py`). Same as the WASM job in **tag** and **nightly** GitHub Actions (not on every PR). The demo uses **Asyncify**; **INPUT** is inline in the page, **GET**/**INKEY$** use **`wasm_push_key`** with the output panel focused.
 
 ### Caveats
 

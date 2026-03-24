@@ -54,10 +54,12 @@ basic-gfx: $(GFX_BIN_SRCS)
 # Requires: emcc (emsdk)
 basic-wasm:
 	@mkdir -p web
-	emcc -O2 -s WASM=1 -s EXPORTED_FUNCTIONS='["_basic_load","_basic_run","_basic_halted","_basic_load_and_run","_basic_apply_arg_string"]' \
+	emcc -O2 -s WASM=1 \
+		-s EXPORTED_FUNCTIONS='["_basic_load","_basic_run","_basic_halted","_basic_load_and_run","_basic_apply_arg_string","_wasm_push_key"]' \
 		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS"]' \
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
 		-s INITIAL_MEMORY=33554432 \
+		-s ASYNCIFY=1 -s ASYNCIFY_IMPORTS='["emscripten_sleep"]' \
 		-o web/basic.js basic.c petscii.c -lm
 	@echo "Built web/basic.js and web/basic.wasm"
 

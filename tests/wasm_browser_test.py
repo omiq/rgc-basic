@@ -60,6 +60,21 @@ def main() -> int:
                 "() => (document.getElementById('output').textContent || '').includes('HELLO, WORLD!')",
                 timeout=60000,
             )
+
+            # INPUT uses inline field (not prompt)
+            page.fill(
+                "#program",
+                '10 INPUT "N"; N\n20 PRINT N\n30 END\n',
+            )
+            page.click("#run")
+            page.wait_for_selector("#inputLineRow.active", timeout=60000)
+            page.fill("#inputLine", "99")
+            page.press("#inputLine", "Enter")
+            page.wait_for_function(
+                "() => (document.getElementById('output').textContent || '').includes('99')",
+                timeout=60000,
+            )
+
             browser.close()
     finally:
         httpd.shutdown()
