@@ -8,8 +8,10 @@
     h1 { font-size: 1.2em; }
     textarea { width: 100%; height: 160px; font-family: ui-monospace, monospace; font-size: 13px; }
     #screenWrap { background: #222; padding: 8px; border-radius: 6px; display: inline-block; }
+    /* Solid C64-blue behind canvas so it never looks “black” if pixels are transparent */
     #screen {
       display: block;
+      background-color: rgb(0, 0, 170);
       image-rendering: pixelated;
       image-rendering: crisp-edges;
       max-width: 100%;
@@ -21,7 +23,7 @@
       font-family: ui-monospace, monospace;
       font-size: 12px;
       padding: 0.5em;
-      max-height: 100px;
+      max-height: 120px;
       overflow: auto;
       white-space: pre-wrap;
       margin-top: 0.5em;
@@ -34,8 +36,8 @@
 </head>
 <body>
   <h1>CBM-BASIC — Canvas (40×25 PETSCII)</h1>
-  <p class="hint">Uses the GfxVideoState text screen: <code>PRINT</code>, <code>LOCATE</code>, <code>POKE</code>/<code>PEEK</code>, <code>INKEY$</code>, <code>SCREEN</code> modes. Sprites (<code>LOADSPRITE</code>) are not available in this build. Click the canvas and type when a program uses <code>INKEY$</code> / <code>GET</code>.</p>
-  <textarea id="program">10 PRINT "{CLR}{WHITE}HELLO FROM CANVAS"
+  <p class="hint">Uses the GfxVideoState text screen. <strong>Rebuild both</strong> <code>basic-canvas.js</code> and <code>basic-canvas.wasm</code> together (<code>make basic-wasm-canvas</code>). This page loads them with the <strong>same</strong> cache-bust query so they cannot get out of sync.</p>
+  <textarea id="program">10 PRINT "{CLR}{WHT}HELLO FROM CANVAS"
 20 LOCATE 0,12: PRINT "POKE 1024,1 : PEEK(1024)"
 30 END</textarea>
   <p><button id="run" disabled>Run</button></p>
@@ -48,11 +50,13 @@
   </div>
   <div id="log" aria-live="polite"></div>
 
-  <!-- Define Module BEFORE basic-canvas.js so Emscripten merges ccall/FS; do not load basic-canvas.js first. -->
   <script>
 (function() {
+  /* One version id for BOTH .js and .wasm — avoids “cache-busted JS + stale WASM” black screen */
+  var CACHEBUST = String(Date.now());
+
   var canvas = document.getElementById('screen');
-  var ctx = canvas.getContext('2d');
+  var ctx = canvas.getContext('2d', { alpha: false });
   var runBtn = document.getElementById('run');
   var programEl = document.getElementById('program');
   var logEl = document.getElementById('log');
@@ -62,25 +66,45 @@
 
   var rgbaPtr = 0;
   var rgbaSize = 320 * 200 * 4;
+  var frameErrCount = 0;
 
   function heapU8() {
     return window.Module['HEAPU8'] || window.Module.HEAPU8;
   }
 
+  function copyHeapToRgba(dstU8, ptr, len) {
+    var h = heapU8();
+    if (!h || !ptr) return false;
+    /* After sbrk/memory growth, subarray might not cover ptr+len — copy via wasmMemory if needed */
+    var mem = window.Module['wasmMemory'];
+    if (mem && mem.buffer) {
+      var end = ptr + len;
+      if (end > mem.buffer.byteLength) {
+        appendLog('WASM memory too small for framebuffer copy.\n', true);
+        return false;
+      }
+      dstU8.set(new Uint8Array(mem.buffer, ptr, len));
+      return true;
+    }
+    try {
+      dstU8.set(h.subarray(ptr, ptr + len));
+      return true;
+    } catch (e) {
+      appendLog('copyHeapToRgba: ' + e + '\n', true);
+      return false;
+    }
+  }
+
   function clearRgbaBuffer(ptr, len) {
     var h = heapU8();
     if (h && typeof h.fill === 'function') {
-      h.fill(0, ptr, ptr + len);
-      return;
-    }
-    if (h) {
-      for (var i = 0; i < len; i++) {
-        h[ptr + i] = 0;
-      }
-      return;
+      try {
+        h.fill(0, ptr, ptr + len);
+        return;
+      } catch (e) { /* fall through */ }
     }
     var mem = window.Module['wasmMemory'];
-    if (mem && mem.buffer) {
+    if (mem && mem.buffer && ptr + len <= mem.buffer.byteLength) {
       new Uint8Array(mem.buffer, ptr, len).fill(0);
     }
   }
@@ -102,6 +126,12 @@
   requestAnimationFrame(pollUi);
 
   window.Module = {
+    locateFile: function(path) {
+      if (path.endsWith('.wasm')) {
+        return path + '?cb=' + CACHEBUST;
+      }
+      return path;
+    },
     print: function(t) { appendLog(t); },
     printErr: function(t) { appendLog(t, true); },
     onWasmNeedInputLine: function() {
@@ -117,7 +147,7 @@
     onRuntimeInitialized: function() {
       var M = window.Module;
       if (typeof M.ccall !== 'function') {
-        appendLog('Runtime error: ccall missing (Module setup order).\n', true);
+        appendLog('Runtime error: ccall missing — put inline script BEFORE basic-canvas.js.\n', true);
         return;
       }
       rgbaPtr = M._malloc(rgbaSize);
@@ -126,15 +156,18 @@
         return;
       }
       clearRgbaBuffer(rgbaPtr, rgbaSize);
-      /* Show C64 blue screen before Run; do not rely on Module._wasm_* (may be absent in some builds). */
       try {
         M.ccall('wasm_gfx_set_video', null, [], []);
         M.ccall('wasm_gfx_render_rgba', null, ['number', 'number'], [rgbaPtr, rgbaSize]);
-        var h0 = heapU8();
-        if (h0 && rgbaPtr) {
-          var img0 = ctx.createImageData(320, 200);
-          img0.data.set(h0.subarray(rgbaPtr, rgbaPtr + rgbaSize));
+        var img0 = ctx.createImageData(320, 200);
+        if (!copyHeapToRgba(img0.data, rgbaPtr, rgbaSize)) {
+          appendLog('Could not read framebuffer after init.\n', true);
+        } else {
           ctx.putImageData(img0, 0, 0);
+          var d = img0.data;
+          if (d[3] === 0) {
+            appendLog('Warning: framebuffer alpha is 0 — check WASM/JS match (make basic-wasm-canvas).\n', true);
+          }
         }
       } catch (e) {
         appendLog('Init canvas: ' + e + '\n', true);
@@ -144,6 +177,7 @@
         var Mo = window.Module;
         logEl.textContent = '';
         logEl.style.color = '#ccc';
+        frameErrCount = 0;
         inputLineRow.classList.remove('active');
         inputLabelEl.textContent = 'INPUT';
         Mo.wasmInputLabel = 'INPUT';
@@ -162,18 +196,23 @@
           });
       };
 
+      var imgBuf = ctx.createImageData(320, 200);
+
       function frame() {
         var Mo = window.Module;
         var h = heapU8();
-        /* Always use ccall; Module._wasm_gfx_render_rgba is not guaranteed to exist. */
         if (rgbaPtr && h && typeof Mo.ccall === 'function') {
           try {
             Mo.ccall('wasm_gfx_render_rgba', null, ['number', 'number'], [rgbaPtr, rgbaSize]);
-            var u8 = h.subarray(rgbaPtr, rgbaPtr + rgbaSize);
-            var img = ctx.createImageData(320, 200);
-            img.data.set(u8);
-            ctx.putImageData(img, 0, 0);
-          } catch (e) { /* ignore frame errors */ }
+            if (copyHeapToRgba(imgBuf.data, rgbaPtr, rgbaSize)) {
+              ctx.putImageData(imgBuf, 0, 0);
+            }
+          } catch (e) {
+            frameErrCount++;
+            if (frameErrCount <= 3) {
+              appendLog('frame: ' + e + '\n', true);
+            }
+          }
         }
         requestAnimationFrame(frame);
       }
@@ -208,8 +247,15 @@
       appendLog('Aborted: ' + String(what || '') + '\n', true);
     }
   };
+
+  var scr = document.createElement('script');
+  scr.src = 'basic-canvas.js?cb=' + encodeURIComponent(CACHEBUST);
+  scr.async = false;
+  scr.onerror = function() {
+    appendLog('Failed to load basic-canvas.js\n', true);
+  };
+  document.body.appendChild(scr);
 })();
   </script>
-  <script src="basic-canvas.js?v=12312837218"></script>
 </body>
 </html>
