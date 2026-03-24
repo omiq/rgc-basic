@@ -20,11 +20,12 @@ GFX_BIN_SRCS = basic.c petscii.c gfx/gfx_video.c gfx/gfx_charrom.c gfx/gfx_rayli
 
 # Reasonable defaults for modern systems; can be overridden on the command line.
 CC      ?= cc
-CFLAGS  ?= -Wall -Wextra -std=c99 -O2
+# `-w` silences compiler warnings (errors still print). For diagnostics: `make CFLAGS='-Wall -Wextra -std=c99 -O2'`
+CFLAGS  ?= -w -std=c99 -O2
 LDFLAGS ?= -lm
 # Emscripten driver (override if `emcc` is not on PATH, e.g. EMSDK_QUIET=1 source emsdk_env.sh)
 EMCC    ?= emcc
-# WASM: `-w` silences clang warnings; errors still print. For full diagnostics: `make basic-wasm WASM_CFLAGS='-Wall -Wextra'`
+# WASM: same as native; override e.g. `make basic-wasm WASM_CFLAGS='-Wall -Wextra'`
 WASM_CFLAGS ?= -w
 
 # Basic cross-platform tweaks for Windows vs POSIX
