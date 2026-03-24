@@ -7984,11 +7984,15 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
 
 /* ── Public API for gfx builds ──────────────────────────────────── */
 
-int basic_parse_args(int argc, char **argv)
+/* Parse interpreter flags starting at argv[start] (use start=1 for normal argv).
+ * If expect_program_path is non-zero, the first non-option argument is the .bas path
+ * and its index is returned. If zero (browser), trailing non-options are an error;
+ * return 0 on success, -1 on error. */
+int basic_parse_arg_flags(int argc, char **argv, int start, int expect_program_path)
 {
     int i;
     init_console_ansi();
-    for (i = 1; i < argc; i++) {
+    for (i = start; i < argc; i++) {
         if (strcmp(argv[i], "-petscii") == 0 || strcmp(argv[i], "--petscii") == 0) {
             petscii_mode = 1;
             petscii_plain = 0;
@@ -8080,11 +8084,19 @@ int basic_parse_args(int argc, char **argv)
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             return -1;
-        } else {
+        } else if (expect_program_path) {
             return i;   /* index of the .bas path */
+        } else {
+            fprintf(stderr, "Unexpected argument: %s\n", argv[i]);
+            return -1;
         }
     }
-    return -1;  /* no program path found */
+    return expect_program_path ? -1 : 0;
+}
+
+int basic_parse_args(int argc, char **argv)
+{
+    return basic_parse_arg_flags(argc, argv, 1, 1);
 }
 
 void basic_load(const char *path) { load_program(path); }
@@ -8258,6 +8270,48 @@ int main(int argc, char **argv)
 #endif /* !GFX_VIDEO */
 
 #ifdef __EMSCRIPTEN__
+
+/* Apply space-separated interpreter flags from JS (e.g. "-petscii -palette c64").
+ * Returns 0 on success, -1 on error (details on stderr / Module.printErr). */
+EMSCRIPTEN_KEEPALIVE int basic_apply_arg_string(const char *argline)
+{
+    char buf[512];
+    char *argv[40];
+    int argc;
+    char *p;
+    size_t n;
+
+    if (!argline) {
+        argline = "";
+    }
+    n = strlen(argline);
+    if (n >= sizeof(buf)) {
+        fprintf(stderr, "Interpreter options string too long (max %zu chars)\n", sizeof(buf) - 1);
+        return -1;
+    }
+    memcpy(buf, argline, n + 1);
+
+    argv[0] = "basic";
+    argc = 1;
+    p = buf;
+    while (*p && argc < (int)(sizeof(argv) / sizeof(argv[0]) - 1)) {
+        while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') {
+            p++;
+        }
+        if (!*p) {
+            break;
+        }
+        argv[argc++] = p;
+        while (*p && *p != ' ' && *p != '\t' && *p != '\r' && *p != '\n') {
+            p++;
+        }
+        if (*p) {
+            *p++ = '\0';
+        }
+    }
+    return basic_parse_arg_flags(argc, argv, 1, 0);
+}
+
 /* Browser entry: no main(); JS calls basic_load + basic_run. */
 EMSCRIPTEN_KEEPALIVE void basic_load_and_run(const char *path)
 {

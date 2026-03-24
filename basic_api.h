@@ -18,6 +18,11 @@
  * or -1 on error (message already printed to stderr).               */
 int basic_parse_args(int argc, char **argv);
 
+/* Same flag parsing starting at argv[start]; if expect_program_path, first
+ * non-option is the .bas path (return its index). If not, all args must be
+ * flags; return 0 on success, -1 on error.                           */
+int basic_parse_arg_flags(int argc, char **argv, int start, int expect_program_path);
+
 /* Load a .bas program from disk into the interpreter's line store.   */
 void basic_load(const char *path);
 
