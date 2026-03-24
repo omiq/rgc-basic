@@ -59,7 +59,7 @@
         const prog = programEl.value;
         try {
           Module.FS.writeFile('/program.bas', prog);
-          Module._basic_load_and_run('/program.bas');
+          Module.ccall('basic_load_and_run', null, ['string'], ['/program.bas']);
         } catch (e) {
           appendOutput('Error: ' + e.message, true);
         }
