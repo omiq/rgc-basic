@@ -24,11 +24,12 @@
 
   <script src="basic.js"></script>
   <script>
-    /* INPUT: Emscripten's default stdin uses prompt(); that works for simple programs.
-     * For better UX, we could use FS.init() with a custom stdin that reads from an input field. */
     const output = document.getElementById('output');
     const runBtn = document.getElementById('run');
     const programEl = document.getElementById('program');
+
+    /* Custom stdin: one prompt per line. Never return null (avoid EOF) so subsequent RUNs keep working. */
+    var inputBuffer = [];
 
     function clearOutput() {
       output.textContent = '';
@@ -40,22 +41,26 @@
       if (isError) output.classList.add('error');
     }
 
-    Basic().then(function(Module) {
-      /* Route stdout/stderr to our output div */
-      const prevOut = Module.print;
-      const prevErr = Module.printErr;
-      Module.print = function(text) {
-        appendOutput(text);
-        if (prevOut) prevOut.apply(this, arguments);
-      };
-      Module.printErr = function(text) {
-        appendOutput(text, true);
-        if (prevErr) prevErr.apply(this, arguments);
-      };
+    Basic({
+      preRun: [function() {
+        function stdin() {
+          if (inputBuffer.length > 0) return inputBuffer.shift();
+          var line = window.prompt('? ');
+          if (line === null) line = '';
+          for (var i = 0; i < line.length; i++) inputBuffer.push(line.charCodeAt(i) & 0xFF);
+          inputBuffer.push(10);
+          return inputBuffer.shift();
+        }
+        FS.init(stdin, null, null);
+      }]
+    }).then(function(Module) {
+      Module.print = function(text) { appendOutput(text); };
+      Module.printErr = function(text) { appendOutput(text, true); };
 
       runBtn.disabled = false;
       runBtn.onclick = function() {
         clearOutput();
+        inputBuffer = [];
         const prog = programEl.value;
         try {
           Module.FS.writeFile('/program.bas', prog);
