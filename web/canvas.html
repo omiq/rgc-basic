@@ -48,7 +48,7 @@
   </div>
   <div id="log" aria-live="polite"></div>
 
-  <script src="basic-canvas.js"></script>
+  <!-- Define Module BEFORE basic-canvas.js so Emscripten merges ccall/FS; do not load basic-canvas.js first. -->
   <script>
 (function() {
   var canvas = document.getElementById('screen');
@@ -64,7 +64,7 @@
   var rgbaSize = 320 * 200 * 4;
 
   function heapU8() {
-    return Module['HEAPU8'] || Module.HEAPU8;
+    return window.Module['HEAPU8'] || window.Module.HEAPU8;
   }
 
   function clearRgbaBuffer(ptr, len) {
@@ -79,14 +79,10 @@
       }
       return;
     }
-    var mem = Module['wasmMemory'];
+    var mem = window.Module['wasmMemory'];
     if (mem && mem.buffer) {
       new Uint8Array(mem.buffer, ptr, len).fill(0);
     }
-  }
-
-  function escHtml(t) {
-    return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
   function appendLog(text, err) {
@@ -105,20 +101,26 @@
   }
   requestAnimationFrame(pollUi);
 
-  var Module = {
+  window.Module = {
     print: function(t) { appendLog(t); },
     printErr: function(t) { appendLog(t, true); },
     onWasmNeedInputLine: function() {
+      var M = window.Module;
       inputLabelEl.textContent =
-        (typeof Module.wasmInputLabel === 'string' && Module.wasmInputLabel.length)
-          ? Module.wasmInputLabel
+        (typeof M.wasmInputLabel === 'string' && M.wasmInputLabel.length)
+          ? M.wasmInputLabel
           : 'INPUT';
       inputLineRow.classList.add('active');
       inputLineEl.value = '';
       inputLineEl.focus();
     },
     onRuntimeInitialized: function() {
-      rgbaPtr = Module._malloc(rgbaSize);
+      var M = window.Module;
+      if (typeof M.ccall !== 'function') {
+        appendLog('Runtime error: ccall missing (Module setup order).\n', true);
+        return;
+      }
+      rgbaPtr = M._malloc(rgbaSize);
       if (!rgbaPtr) {
         appendLog('_malloc failed for framebuffer.\n', true);
         return;
@@ -126,30 +128,32 @@
       clearRgbaBuffer(rgbaPtr, rgbaSize);
       runBtn.disabled = false;
       runBtn.onclick = function() {
+        var Mo = window.Module;
         logEl.textContent = '';
         logEl.style.color = '#ccc';
         inputLineRow.classList.remove('active');
         inputLabelEl.textContent = 'INPUT';
-        Module.wasmInputLabel = 'INPUT';
+        Mo.wasmInputLabel = 'INPUT';
         var prog = programEl.value;
         var flags = '-petscii -palette c64 -charset lower -columns 40';
-        var rc = Module.ccall('basic_apply_arg_string', 'number', ['string'], [flags]);
+        var rc = Mo.ccall('basic_apply_arg_string', 'number', ['string'], [flags]);
         if (rc !== 0) {
           appendLog('Invalid interpreter options.\n', true);
           return;
         }
-        Module.FS.writeFile('/program.bas', prog);
+        Mo.FS.writeFile('/program.bas', prog);
         canvas.focus();
-        Module.ccall('basic_load_and_run_gfx', null, ['string'], ['/program.bas'], { async: true })
+        Mo.ccall('basic_load_and_run_gfx', null, ['string'], ['/program.bas'], { async: true })
           .catch(function(e) {
             appendLog(String(e && e.message ? e.message : e) + '\n', true);
           });
       };
 
       function frame() {
+        var Mo = window.Module;
         var h = heapU8();
-        if (rgbaPtr && h && Module._wasm_gfx_render_rgba) {
-          Module.ccall('wasm_gfx_render_rgba', null, ['number', 'number'], [rgbaPtr, rgbaSize]);
+        if (rgbaPtr && h && Mo._wasm_gfx_render_rgba) {
+          Mo.ccall('wasm_gfx_render_rgba', null, ['number', 'number'], [rgbaPtr, rgbaSize]);
           var u8 = h.subarray(rgbaPtr, rgbaPtr + rgbaSize);
           var img = ctx.createImageData(320, 200);
           img.data.set(u8);
@@ -160,31 +164,36 @@
       requestAnimationFrame(frame);
 
       document.addEventListener('keydown', function(ev) {
+        var Mo = window.Module;
         if (inputLineRow.classList.contains('active')) return;
         if (ev.target === programEl || ev.target === inputLineEl) return;
         if (document.activeElement !== canvas) return;
         ev.preventDefault();
         var code = ev.keyCode || ev.which;
         if (code === 13) {
-          Module.ccall('wasm_push_key', null, ['number'], [13]);
+          Mo.ccall('wasm_push_key', null, ['number'], [13]);
         } else if (ev.key && ev.key.length === 1) {
-          Module.ccall('wasm_push_key', null, ['number'], [ev.key.charCodeAt(0) & 0xFF]);
+          Mo.ccall('wasm_push_key', null, ['number'], [ev.key.charCodeAt(0) & 0xFF]);
         }
       }, true);
 
       inputLineEl.addEventListener('keydown', function(ev) {
+        var Mo = window.Module;
         if (ev.key === 'Enter') {
           ev.preventDefault();
-          Module.wasmInputLineText = inputLineEl.value;
-          Module.wasmInputLineReady = 1;
+          Mo.wasmInputLineText = inputLineEl.value;
+          Mo.wasmInputLineReady = 1;
           inputLineRow.classList.remove('active');
           canvas.focus();
         }
       });
+    },
+    onAbort: function(what) {
+      appendLog('Aborted: ' + String(what || '') + '\n', true);
     }
   };
-  window.Module = Module;
 })();
   </script>
+  <script src="basic-canvas.js"></script>
 </body>
 </html>
