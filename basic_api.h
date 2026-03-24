@@ -43,6 +43,18 @@ int basic_get_gfx_border(void);
 /* Border colour: palette index 0-15, or -1 to use background colour. */
 void basic_set_gfx_border_color(int idx);
 int basic_get_gfx_border_color(void);
+
+/* Directory for relative PNG paths in LOADSPRITE (program file’s folder). */
+void gfx_set_sprite_base_dir(const char *dir);
+
+/* Sprite queue (thread-safe): worker enqueues, main thread loads textures & draws. */
+void gfx_sprite_enqueue_load(int slot, const char *path);
+void gfx_sprite_enqueue_unload(int slot);
+void gfx_sprite_enqueue_visible(int slot, int on);
+/* sw/sh <= 0 means use full sub-texture from (sx,sy) to bottom-right. */
+void gfx_sprite_enqueue_draw(int slot, float x, float y, int z, int sx, int sy, int sw, int sh);
+int gfx_sprite_slot_width(int slot);
+int gfx_sprite_slot_height(int slot);
 #endif
 
 #endif /* BASIC_API_H */

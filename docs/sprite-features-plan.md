@@ -1,6 +1,6 @@
 # Sprite Features – Planning & Specification
 
-**Status**: Planning only. Do not implement yet.
+**Status**: **Partially implemented** in `basic-gfx`: `LOADSPRITE`, `DRAWSPRITE` (with `z` and source rectangle), `SPRITEVISIBLE`, `SPRITEW`/`SPRITEH`. Collision and tilemap modes are still planning-only.
 
 This document outlines a sprite subsystem for `basic-gfx`, designed for modern hardware with no C64-style limits. The goal is to let BASIC programs load PNG images as sprites, draw them at arbitrary positions with depth ordering, and perform collision detection.
 

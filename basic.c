@@ -51,6 +51,7 @@
 
 #ifdef GFX_VIDEO
 #include "gfx_video.h"
+#include "basic_api.h"
 #endif
 #if defined(__EMSCRIPTEN__)
 /* Browser: no termios, no Windows API */
@@ -1433,6 +1434,11 @@ static void statement_background(char **p);
 static void statement_screencodes(char **p);
 static void statement_pset(char **p, int preset);
 static void statement_line(char **p);
+#ifdef GFX_VIDEO
+static void statement_loadsprite(char **p);
+static void statement_drawsprite(char **p);
+static void statement_spritevisible(char **p);
+#endif
 static void statement_else(char **p);
 static void statement_end_if(char **p);
 static void statement_return(char **p);
@@ -1491,7 +1497,9 @@ enum func_code {
     FN_ENV = 40,
     FN_PLATFORM = 41,
     FN_JSON = 42,
-    FN_EVAL = 43
+    FN_EVAL = 43,
+    FN_SPRITEW = 44,
+    FN_SPRITEH = 45
 };
 
 /* Report an error and halt further execution.
@@ -1633,13 +1641,13 @@ static const char *const reserved_words[] = {
     "AND", "ARG", "ARGC", "ASC", "BACKGROUND", "CHR", "CLOSE", "CLR", "COLOR",
     "COLOUR", "COS", "CURSOR", "DATA", "DEC", "DEF", "DIM", "DOWN", "END", "FUNCTION",
     "ELSE", "ENV", "EVAL", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
-    "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LINE", "LOAD", "LOCATE", "LOG",
+    "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LINE", "LOAD", "LOADSPRITE", "LOCATE", "LOG",
     "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET", "PRINT",
     "XOR",
-    "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCREEN", "SCREENCODES",
+    "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCREEN", "SCREENCODES", "SPRITEVISIBLE",
     "JOIN",
-    "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SQR", "STEP", "STOP", "STR", "STRING",
-    "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "TRIM", "UCASE", "VAL", "WEND", "WHILE",
+    "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
+    "DRAWSPRITE", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "TRIM", "UCASE", "VAL", "WEND", "WHILE",
     "DO", "LOOP", "UNTIL", "EXIT",
     NULL
 };
@@ -2442,6 +2450,10 @@ static int function_lookup(const char *name, int len)
             (len == 7 && name[0] == 'S' && name[1] == 'T' && name[2] == 'R' && name[3] == 'I' && name[4] == 'N' && name[5] == 'G' && name[6] == '$'))
             return FN_STRINGFN;
         if (len == 6 && name[0] == 'S' && name[1] == 'Y' && name[2] == 'S' && name[3] == 'T' && name[4] == 'E' && name[5] == 'M') return FN_SYSTEM;
+        if (len == 7 && name[0] == 'S' && name[1] == 'P' && name[2] == 'R' && name[3] == 'I' &&
+            name[4] == 'T' && name[5] == 'E' && name[6] == 'W') return FN_SPRITEW;
+        if (len == 7 && name[0] == 'S' && name[1] == 'P' && name[2] == 'R' && name[3] == 'I' &&
+            name[4] == 'T' && name[5] == 'E' && name[6] == 'H') return FN_SPRITEH;
         return FN_NONE;
     case 'C':
         if ((len == 3 && name[0] == 'C' && name[1] == 'H' && name[2] == 'R') ||
@@ -2869,6 +2881,156 @@ static void statement_screencodes(char **p)
     }
     runtime_error("SCREENCODES expects ON or OFF");
 }
+
+#ifdef GFX_VIDEO
+static int path_ends_with_png(const char *path)
+{
+    size_t len;
+    if (!path) return 0;
+    len = strlen(path);
+    if (len < 4) return 0;
+    return (path[len - 4] == '.' &&
+            (path[len - 3] == 'p' || path[len - 3] == 'P') &&
+            (path[len - 2] == 'n' || path[len - 2] == 'N') &&
+            (path[len - 1] == 'g' || path[len - 1] == 'G'));
+}
+
+/* LOADSPRITE slot, "file.png" — queue PNG load (main thread); paths relative to .bas folder. */
+static void statement_loadsprite(char **p)
+{
+    struct value vslot, vpath;
+    int slot;
+    skip_spaces(p);
+    vslot = eval_expr(p);
+    ensure_num(&vslot);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error("LOADSPRITE expects slot, \"path.png\"");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    vpath = eval_expr(p);
+    ensure_str(&vpath);
+    if (!path_ends_with_png(vpath.str)) {
+        runtime_error("LOADSPRITE: use LOAD for non-PNG; PNG path must end in .png");
+        return;
+    }
+    if (!gfx_vs) {
+        runtime_error("LOADSPRITE requires basic-gfx");
+        return;
+    }
+    slot = (int)vslot.num;
+    gfx_sprite_enqueue_load(slot, vpath.str);
+}
+
+/* DRAWSPRITE slot, x, y [, z [, sx, sy [, sw, sh ]]] — z higher = on top; alpha from PNG. */
+static void statement_drawsprite(char **p)
+{
+    struct value v;
+    int slot, z = 0, sx = 0, sy = 0, sw = 0, sh = 0;
+    float x, y;
+    skip_spaces(p);
+    v = eval_expr(p);
+    ensure_num(&v);
+    slot = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error("DRAWSPRITE expects slot, x, y [, z [, sx, sy [, sw, sh ]]]");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    v = eval_expr(p);
+    ensure_num(&v);
+    x = (float)v.num;
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error("DRAWSPRITE expects slot, x, y [, z ...]");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    v = eval_expr(p);
+    ensure_num(&v);
+    y = (float)v.num;
+    skip_spaces(p);
+    if (**p == ',') {
+        (*p)++;
+        skip_spaces(p);
+        v = eval_expr(p);
+        ensure_num(&v);
+        z = (int)v.num;
+        skip_spaces(p);
+        if (**p == ',') {
+            (*p)++;
+            skip_spaces(p);
+            v = eval_expr(p);
+            ensure_num(&v);
+            sx = (int)v.num;
+            skip_spaces(p);
+            if (**p != ',') {
+                runtime_error("DRAWSPRITE: sx,sy need both");
+                return;
+            }
+            (*p)++;
+            skip_spaces(p);
+            v = eval_expr(p);
+            ensure_num(&v);
+            sy = (int)v.num;
+            skip_spaces(p);
+            if (**p == ',') {
+                (*p)++;
+                skip_spaces(p);
+                v = eval_expr(p);
+                ensure_num(&v);
+                sw = (int)v.num;
+                skip_spaces(p);
+                if (**p != ',') {
+                    runtime_error("DRAWSPRITE: sw,sh need both");
+                    return;
+                }
+                (*p)++;
+                skip_spaces(p);
+                v = eval_expr(p);
+                ensure_num(&v);
+                sh = (int)v.num;
+            }
+        }
+    }
+    if (!gfx_vs) {
+        runtime_error("DRAWSPRITE requires basic-gfx");
+        return;
+    }
+    gfx_sprite_enqueue_draw(slot, x, y, z, sx, sy, sw, sh);
+}
+
+/* SPRITEVISIBLE slot, on — 1 show, 0 hide (texture kept). */
+static void statement_spritevisible(char **p)
+{
+    struct value va, vb;
+    int slot, on;
+    skip_spaces(p);
+    va = eval_expr(p);
+    ensure_num(&va);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error("SPRITEVISIBLE expects slot, 0|1");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    vb = eval_expr(p);
+    ensure_num(&vb);
+    slot = (int)va.num;
+    on = ((int)vb.num != 0) ? 1 : 0;
+    if (!gfx_vs) {
+        runtime_error("SPRITEVISIBLE requires basic-gfx");
+        return;
+    }
+    gfx_sprite_enqueue_visible(slot, on);
+}
+#endif /* GFX_VIDEO */
 
 /* GET statement: GET A$ reads a single character into a string variable.
  * This is a blocking read from standard input. Newlines are returned as
@@ -3321,6 +3483,28 @@ static struct value eval_function(const char *name, char **p)
         /* Terminal build: no non-blocking key queue. */
         return make_str("");
     }
+#ifdef GFX_VIDEO
+    if (code == FN_SPRITEW || code == FN_SPRITEH) {
+        struct value vs;
+        int slot, dim;
+        skip_spaces(p);
+        vs = eval_expr(p);
+        ensure_num(&vs);
+        slot = (int)vs.num;
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error("Missing ')'");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        if (gfx_vs) {
+            dim = (code == FN_SPRITEW) ? gfx_sprite_slot_width(slot) : gfx_sprite_slot_height(slot);
+            return make_num((double)dim);
+        }
+        return make_num(0.0);
+    }
+#endif
     if (code == FN_PLATFORM) {
         if (**p != ')') {
             runtime_error("PLATFORM$ takes no arguments");
@@ -7092,6 +7276,13 @@ static void execute_statement(char **p)
             statement_let(p);
             return;
         }
+#ifdef GFX_VIDEO
+        if (starts_with_kw(*p, "LOADSPRITE")) {
+            *p += 10;
+            statement_loadsprite(p);
+            return;
+        }
+#endif
         if (starts_with_kw(*p, "LOAD")) {
             *p += 4;
             statement_load(p);
@@ -7180,6 +7371,13 @@ static void execute_statement(char **p)
         }
     }
     if (c == 'D') {
+#ifdef GFX_VIDEO
+        if (starts_with_kw(*p, "DRAWSPRITE")) {
+            *p += 10;
+            statement_drawsprite(p);
+            return;
+        }
+#endif
         if (starts_with_kw(*p, "DO")) {
             *p += 2;
             statement_do(p);
@@ -7211,6 +7409,13 @@ static void execute_statement(char **p)
         }
     }
     if (c == 'S') {
+#ifdef GFX_VIDEO
+        if (starts_with_kw(*p, "SPRITEVISIBLE")) {
+            *p += 13;
+            statement_spritevisible(p);
+            return;
+        }
+#endif
         if (starts_with_kw(*p, "SLEEP")) {
             *p += 5;
             statement_sleep(p);
@@ -7695,6 +7900,7 @@ static void load_program(const char *path)
     if (gfx_vs) {
         gfx_vs->cols = (print_width >= 80) ? 80 : 40;
     }
+    gfx_set_sprite_base_dir(base_dir);
 #endif
 }
 
