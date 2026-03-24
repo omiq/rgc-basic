@@ -59,7 +59,7 @@
   </p>
   <div id="output" tabindex="0" aria-live="polite" title="Click here, then type for GET / INKEY$"></div>
   <div id="inputLineRow">
-    <label for="inputLine">INPUT</label>
+    <label id="inputLabel" for="inputLine">INPUT</label>
     <input type="text" id="inputLine" autocomplete="off" spellcheck="false" />
   </div>
 
@@ -75,6 +75,7 @@
       const optColumns = document.getElementById('optColumns');
       const inputLineRow = document.getElementById('inputLineRow');
       const inputLineEl = document.getElementById('inputLine');
+      const inputLabelEl = document.getElementById('inputLabel');
 
       function escHtml(t) {
         return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -142,8 +143,19 @@
         if (isError) output.classList.add('err');
       }
 
+      /* Split on newlines so PRINT (without ;) shows line breaks in the HTML panel. */
+      function printWithNewlines(text, isError) {
+        var parts = String(text).split(/\r\n|\n|\r/);
+        for (var i = 0; i < parts.length; i++) {
+          if (i > 0) {
+            appendOutputHtml('<br>', isError);
+          }
+          appendOutputHtml(ansiToHtmlChunk(parts[i]), isError);
+        }
+      }
+
       function appendOutput(text, isError) {
-        appendOutputHtml(ansiToHtmlChunk(text), isError);
+        printWithNewlines(text, isError);
       }
 
       function buildArgString() {
@@ -185,6 +197,10 @@
         print: function(text) { appendOutput(text); },
         printErr: function(text) { appendOutput(text, true); },
         onWasmNeedInputLine: function() {
+          inputLabelEl.textContent =
+            (typeof Module.wasmInputLabel === 'string' && Module.wasmInputLabel.length)
+              ? Module.wasmInputLabel
+              : 'INPUT';
           inputLineRow.classList.add('active');
           inputLineEl.value = '';
           inputLineEl.focus();
@@ -195,6 +211,8 @@
             clearOutput();
             inputLineRow.classList.remove('active');
             inputLineEl.value = '';
+            inputLabelEl.textContent = 'INPUT';
+            Module.wasmInputLabel = 'INPUT';
             var prog = programEl.value;
             var flags = buildArgString();
             var rc = Module.ccall('basic_apply_arg_string', 'number', ['string'], [flags]);

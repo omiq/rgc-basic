@@ -26,7 +26,8 @@ cd web && python3 -m http.server 8080
 - Edit the BASIC program in the textarea and click **Run**.
 - **Interpreter options** on the page map to the same flags as the native binary (`-petscii`, `-palette`, `-charset`, `-columns`). Before each run the demo calls `basic_apply_arg_string` so PETSCII colours render in the output panel (ANSI → HTML).
 - **PRINT** output appears in the output panel.
-- **INPUT** uses the **inline field** under the output (not `prompt()`). The demo sets `Module.onWasmNeedInputLine` to show the field and focus it; submitting sets `Module.wasmInputLineText` and `Module.wasmInputLineReady = 1`.
+- **INPUT** uses the **inline field** under the output (not `prompt()`). The demo sets `Module.onWasmNeedInputLine` to show the field and focus it; submitting sets `Module.wasmInputLineText` and `Module.wasmInputLineReady = 1`. **`Module.wasmInputLabel`** is set to the prompt string from **`INPUT "Hello";`** (or **`INPUT`** if there is no string prompt).
+- **PRINT** line breaks: the demo inserts **`<br>`** for newline characters in `Module.print` so `PRINT` without a trailing `;` advances to the next line in the panel.
 - **GET** / **INKEY$**: click the output panel so it is focused, then type. Keys are sent with **`wasm_push_key`** (byte). While the interpreter waits for a key, **`Module.wasmWaitingKey`** is `1` (green outline in the demo).
 - **SYSTEM** and **EXEC$** are not available in the browser (return -1 / empty string).
 - **OPEN/PRINT#/INPUT#** work via Emscripten's virtual filesystem. Use paths like `"out.txt"` (writes to virtual FS).
