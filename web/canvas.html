@@ -126,6 +126,19 @@
         return;
       }
       clearRgbaBuffer(rgbaPtr, rgbaSize);
+      /* Show C64 blue screen before Run; do not rely on Module._wasm_* (may be absent in some builds). */
+      try {
+        M.ccall('wasm_gfx_set_video', null, [], []);
+        M.ccall('wasm_gfx_render_rgba', null, ['number', 'number'], [rgbaPtr, rgbaSize]);
+        var h0 = heapU8();
+        if (h0 && rgbaPtr) {
+          var img0 = ctx.createImageData(320, 200);
+          img0.data.set(h0.subarray(rgbaPtr, rgbaPtr + rgbaSize));
+          ctx.putImageData(img0, 0, 0);
+        }
+      } catch (e) {
+        appendLog('Init canvas: ' + e + '\n', true);
+      }
       runBtn.disabled = false;
       runBtn.onclick = function() {
         var Mo = window.Module;
@@ -152,12 +165,15 @@
       function frame() {
         var Mo = window.Module;
         var h = heapU8();
-        if (rgbaPtr && h && Mo._wasm_gfx_render_rgba) {
-          Mo.ccall('wasm_gfx_render_rgba', null, ['number', 'number'], [rgbaPtr, rgbaSize]);
-          var u8 = h.subarray(rgbaPtr, rgbaPtr + rgbaSize);
-          var img = ctx.createImageData(320, 200);
-          img.data.set(u8);
-          ctx.putImageData(img, 0, 0);
+        /* Always use ccall; Module._wasm_gfx_render_rgba is not guaranteed to exist. */
+        if (rgbaPtr && h && typeof Mo.ccall === 'function') {
+          try {
+            Mo.ccall('wasm_gfx_render_rgba', null, ['number', 'number'], [rgbaPtr, rgbaSize]);
+            var u8 = h.subarray(rgbaPtr, rgbaPtr + rgbaSize);
+            var img = ctx.createImageData(320, 200);
+            img.data.set(u8);
+            ctx.putImageData(img, 0, 0);
+          } catch (e) { /* ignore frame errors */ }
         }
         requestAnimationFrame(frame);
       }
