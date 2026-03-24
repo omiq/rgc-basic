@@ -1,0 +1,2 @@
+# Browser/WASM automated tests (Playwright)
+playwright==1.49.1
