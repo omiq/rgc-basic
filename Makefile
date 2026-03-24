@@ -84,11 +84,14 @@ basic-wasm-canvas:
 wasm-test: basic-wasm
 	python3 tests/wasm_browser_test.py
 
+wasm-canvas-test: basic-wasm-canvas
+	python3 tests/wasm_browser_canvas_test.py
+
 clean:
 	$(RM) $(TARGET)$(EXE) gfx_video_test$(EXE) gfx-demo$(EXE) basic-gfx$(EXE)
 	$(RM) web/basic.js web/basic.wasm web/basic.wasm.map 2>/dev/null || true
 	$(RM) web/basic-canvas.js web/basic-canvas.wasm web/basic-canvas.wasm.map 2>/dev/null || true
 
-.PHONY: all clean gfx_video_test gfx-demo basic-gfx basic-wasm basic-wasm-canvas wasm-test
+.PHONY: all clean gfx_video_test gfx-demo basic-gfx basic-wasm basic-wasm-canvas wasm-test wasm-canvas-test
 
 # End of Makefile

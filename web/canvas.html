@@ -234,6 +234,7 @@
         }
         Mo.FS.writeFile('/program.bas', prog);
         canvas.focus();
+        Mo.wasmGfxRunDone = 0;
         wasmRunPending = true;
         try {
           Mo.ccall('basic_load_and_run_gfx', null, ['string'], ['/program.bas'], { async: true })
