@@ -5,9 +5,9 @@ Target: **basic-gfx** — a **graphics-enabled variant** of the interpreter usin
 - Full **40×25 PETSCII text screen** rendered via a bitmap/font, not the host terminal. ✅
 - **Memory‑mapped screen and colour RAM**, readable/writable via `PEEK`/`POKE`. ✅
 - **User‑defined characters** (UDGs) with a CHAR-ROM‑like bitmap. ✅
-- A 320×200 **hi‑res pixel mode** (and possibly multicolour) under BASIC control. ⏳ planned
+- A 320×200 **hi‑res pixel mode** (and possibly multicolour) under BASIC control. ✅ `SCREEN 1` + monochrome renderer; multicolour still planned.
 
-**Status**: Phases 1 and 2 are implemented and merged to main. Text mode, POKE/PEEK, INKEY$, TI/TI$, SCREENCODES (PETSCII→screen conversion), `.seq` viewer, and window close on END are working.
+**Status**: Phases 1 and 2 are implemented and merged to main. Phase 3 (bitmap display mode) adds `SCREEN 0`/`SCREEN 1` and a raylib path that unpacks bitmap RAM. Text mode, POKE/PEEK, INKEY$, TI/TI$, SCREENCODES (PETSCII→screen conversion), `.seq` viewer, and window close on END are working.
 
 This document is the planning baseline for version **gfx-0.1** on top of CBM-BASIC 1.0.0.
 
@@ -155,11 +155,11 @@ Directory structure:
 8. ✅ Demos: `gfx_poke_demo`, `gfx_charset_demo`, `gfx_colaburger_viewer`, `gfx_inkey_demo`, etc.
    - `SCREENCODES ON`: PETSCII→screen code conversion for `.seq` streams; window closes on END.
 
-**Phase 3 – Bitmap mode** ⏳
+**Phase 3 – Bitmap mode** ⏳ (renderer + `SCREEN`; helpers still open)
 
-9. Define BITMAP_BASE and implement bitmap RAM.
-10. Implement `SCREEN 1` statement and mode switch.
-11. Implement hires bitmap renderer (monochrome).
+9. ✅ Define BITMAP_BASE and implement bitmap RAM (`GFX_BITMAP_BASE` / `bitmap[]` in `gfx_video`).
+10. ✅ Implement `SCREEN 0` / `SCREEN 1` and mode switch (`screen_mode` on `GfxVideoState`).
+11. ✅ Implement hires bitmap renderer (monochrome; row-major, MSB = left pixel per byte; `COLOR` / `BACKGROUND` as pen/paper in bitmap mode).
 12. Add helpers (possibly non-standard) like `PSET x,y` later, built on top of PEEK/POKE.
 
 **Phase 4 – Polish & compatibility**
