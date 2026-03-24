@@ -961,10 +961,34 @@ static void wasm_push_key_to_gfx_queue(unsigned char b)
 }
 #endif
 
+#if defined(__EMSCRIPTEN__)
+/* Keys from browser keydown must not use ccall(wasm_push_key) while Asyncify has
+ * suspended the interpreter — that re-enters wasm and deadlocks. JS pushes to
+ * Module._wasmKeyJsQueue; we drain here from C via EM_ASM only. */
+static int wasm_js_keyq_pop_byte(unsigned char *out)
+{
+    int v = EM_ASM_INT({
+        var q = Module['_wasmKeyJsQueue'];
+        if (!q || !q.length) return -1;
+        return q.shift();
+    });
+    if (v < 0 || v > 255) {
+        return 0;
+    }
+    *out = (unsigned char)(v & 0xFF);
+    return 1;
+}
+#endif
+
 static int wasm_key_pop_byte(unsigned char *out)
 {
 #ifdef GFX_VIDEO
     if (gfx_vs) {
+#if defined(__EMSCRIPTEN__)
+        if (wasm_js_keyq_pop_byte(out)) {
+            return 1;
+        }
+#endif
         GfxVideoState *vs = gfx_vs;
         uint8_t head = vs->key_q_head;
         if (head != vs->key_q_tail) {
@@ -990,6 +1014,16 @@ static int wasm_key_peek_byte(void)
 {
 #ifdef GFX_VIDEO
     if (gfx_vs) {
+#if defined(__EMSCRIPTEN__)
+        int jp = EM_ASM_INT({
+            var q = Module['_wasmKeyJsQueue'];
+            if (!q || !q.length) return -1;
+            return q[0];
+        });
+        if (jp >= 0 && jp <= 255) {
+            return jp;
+        }
+#endif
         uint8_t h = gfx_vs->key_q_head;
         if (h != gfx_vs->key_q_tail) {
             return (int)gfx_vs->key_queue[h];
@@ -1331,6 +1365,11 @@ static int gfx_keyq_pop(uint8_t *out)
 {
     uint8_t head;
     if (!gfx_vs) return 0;
+#if defined(__EMSCRIPTEN__)
+    if (wasm_js_keyq_pop_byte(out)) {
+        return 1;
+    }
+#endif
     head = gfx_vs->key_q_head;
     if (head == gfx_vs->key_q_tail) {
         return 0; /* empty */

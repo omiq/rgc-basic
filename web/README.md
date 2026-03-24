@@ -13,7 +13,7 @@ Requires [Emscripten](https://emscripten.org/) (emsdk). Install and activate, th
 
 The terminal build (`basic.js`) enables **Asyncify** (`emscripten_sleep`) so **INPUT**, **GET**, and **INKEY$** can block without freezing the tab; call `basic_load_and_run` with **`ccall(..., { async: true })`** so the returned Promise resolves when the program finishes.
 
-The **canvas** build (`basic-canvas.js`) links **`GFX_VIDEO`** (plus `gfx_canvas.c` for RGBA export). Use **`basic_load_and_run_gfx`** and **`wasm_gfx_render_rgba`** (see **`canvas.html`**). **`INPUT`** and **`GET`/`INKEY$`** use the **PETSCII canvas**: focus the canvas (click it), then type; keys go through **`wasm_push_key`**. While waiting for **`GET`**, **`Module.wasmWaitingKey`** is `1` (green outline). **LOADSPRITE** / **DRAWSPRITE** are stubbed (no textures in WASM).
+The **canvas** build (`basic-canvas.js`) links **`GFX_VIDEO`** (plus `gfx_canvas.c` for RGBA export). Use **`basic_load_and_run_gfx`** and **`wasm_gfx_render_rgba`** (see **`canvas.html`**). **`INPUT`** and **`GET`/`INKEY$`** use the **PETSCII canvas**: focus the canvas (click it), then type. The demo pushes key bytes to **`Module._wasmKeyJsQueue`** (do not **`ccall('wasm_push_key')` from key handlers** while the async run is suspended — Asyncify deadlock). **`wasm_push_key`** is still fine for programmatic keys when the interpreter is not inside a sleep. While waiting for **`GET`**, **`Module.wasmWaitingKey`** is `1` (green outline). **LOADSPRITE** / **DRAWSPRITE** are stubbed (no textures in WASM).
 
 ## Run
 

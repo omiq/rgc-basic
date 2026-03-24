@@ -153,6 +153,8 @@
   requestAnimationFrame(pollUi);
 
   window.Module = {
+    /* Populated in onRuntimeInitialized; keydown pushes here — never ccall wasm during INPUT/GET */
+    _wasmKeyJsQueue: [],
     locateFile: function(path) {
       if (path.endsWith('.wasm')) {
         return path + '?cb=' + CACHEBUST;
@@ -205,6 +207,7 @@
         logEl.textContent = '';
         logEl.style.color = '#ccc';
         frameErrCount = 0;
+        Mo._wasmKeyJsQueue = [];
         var prog = programEl.value;
         var flags = '-petscii -palette c64 -charset lower -columns 40';
         var rc = Mo.ccall('basic_apply_arg_string', 'number', ['string'], [flags]);
@@ -277,7 +280,8 @@
         var b = petsciiByteFromKeydown(ev);
         if (b === null) return;
         ev.preventDefault();
-        Mo.ccall('wasm_push_key', null, ['number'], [b]);
+        if (!Mo._wasmKeyJsQueue) Mo._wasmKeyJsQueue = [];
+        Mo._wasmKeyJsQueue.push(b);
       }, true);
     },
     onAbort: function(what) {
