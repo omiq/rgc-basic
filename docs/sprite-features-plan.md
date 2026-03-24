@@ -1,6 +1,6 @@
 # Sprite Features – Planning & Specification
 
-**Status**: **Partially implemented** in `basic-gfx`: `LOADSPRITE`, `DRAWSPRITE` (persistent pose per slot, `z` and optional source rectangle), `SPRITEVISIBLE`, `SPRITEW`/`SPRITEH`. **Worked example**: `examples/gfx_game_shell.bas` (PETSCII tile map via `POKE` + PNG player/enemy/HUD); **minimal HUD demo**: `examples/gfx_sprite_hud_demo.bas`. Collision, `UNLOADSPRITE`, and tilemap `LOADSPRITE` modes are still planning-only.
+**Status**: **Partially implemented** in `basic-gfx`: `LOADSPRITE`, `UNLOADSPRITE`, `DRAWSPRITE` (persistent pose per slot, `z` and optional source rectangle), `SPRITEVISIBLE`, `SPRITEW`/`SPRITEH`. **Worked example**: `examples/gfx_game_shell.bas` (PETSCII tile map via `POKE` + PNG player/enemy/HUD); **minimal HUD demo**: `examples/gfx_sprite_hud_demo.bas`. Collision and tilemap `LOADSPRITE` modes are still planning-only.
 
 This document outlines a sprite subsystem for `basic-gfx`, designed for modern hardware with no C64-style limits. The goal is to let BASIC programs load PNG images as sprites, draw them at arbitrary positions with depth ordering, and perform collision detection.
 

@@ -9,5 +9,6 @@
 60 LOADSPRITE 0,"hud_panel.png"
 70 REM 32x16 crop; x=24 y=2 overlaps first line of text (chars are 8px tall)
 80 DRAWSPRITE 0,24,2,200,0,0,32,16
-90 SLEEP 300
-100 END
+90 REM UNLOADSPRITE 0 : REM optional — free slot before exit (textures also freed on close)
+100 SLEEP 300
+110 END

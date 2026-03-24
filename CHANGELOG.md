@@ -8,7 +8,7 @@
 - **basic-gfx — hires bitmap (Phase 3)**
   - `SCREEN 0` / `SCREEN 1` (text vs 320×200 monochrome); `PSET` / `PRESET` / `LINE x1,y1 TO x2,y2`; bitmap RAM at `GFX_BITMAP_BASE` (0x2000).
 - **basic-gfx — PNG sprites**
-  - `LOADSPRITE`, `DRAWSPRITE` (persistent per-slot pose, z-order, optional source rect), `SPRITEVISIBLE`, `SPRITEW()` / `SPRITEH()`; alpha blending over PETSCII/bitmap; `gfx_set_sprite_base_dir` from program path.
+  - `LOADSPRITE`, `UNLOADSPRITE`, `DRAWSPRITE` (persistent per-slot pose, z-order, optional source rect), `SPRITEVISIBLE`, `SPRITEW()` / `SPRITEH()`; alpha blending over PETSCII/bitmap; `gfx_set_sprite_base_dir` from program path.
   - Examples: `examples/gfx_sprite_hud_demo.bas`, `examples/gfx_game_shell.bas` (+ `player.png`, `enemy.png`, `hud_panel.png`).
 
 ### 1.5.0 – 2026-03-20
