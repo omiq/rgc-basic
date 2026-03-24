@@ -1007,11 +1007,6 @@ EMSCRIPTEN_KEEPALIVE void wasm_push_key(unsigned int code)
     unsigned char b = (unsigned char)(code & 0xFF);
 #ifdef GFX_VIDEO
     if (gfx_vs) {
-        /* INPUT uses the HTML line field; ignore canvas keys so repeat/backspace
-         * does not fill the gfx queue while Asyncify is waiting. */
-        if (EM_ASM_INT({ return (typeof Module !== 'undefined' && Module['wasmNeedInputLine']) ? 1 : 0; })) {
-            return;
-        }
         wasm_push_key_to_gfx_queue(b);
         return;
     }
@@ -1054,28 +1049,11 @@ static void wasm_set_input_prompt_for_js(const char *prompt)
 }
 
 /* INPUT: JS sets Module.wasmInputLineReady and Module.wasmInputLineText (UTF-8). */
-#ifdef GFX_VIDEO
-/* RGBA snapshot for canvas INPUT prompt — rendered in C; JS must not ccall wasm here
- * (nested entry while Asyncify is suspended deadlocks the browser). */
-#define WASM_INPUT_SHADOW_RGBA_BYTES (320u * 200u * 4u)
-static uint8_t wasm_input_shadow_rgba[WASM_INPUT_SHADOW_RGBA_BYTES];
-#endif
-
 static void wasm_read_input_line_blocking(char *buf, size_t cap)
 {
     if (cap == 0) {
         return;
     }
-#ifdef GFX_VIDEO
-    if (gfx_vs) {
-        gfx_canvas_render_rgba(gfx_vs, wasm_input_shadow_rgba, sizeof(wasm_input_shadow_rgba));
-        EM_ASM({
-            if (typeof Module !== 'undefined' && typeof Module['onWasmGfxPaintShadow'] === 'function') {
-                Module['onWasmGfxPaintShadow']($0, $1);
-            }
-        }, wasm_input_shadow_rgba, (int)sizeof(wasm_input_shadow_rgba));
-    }
-#endif
     EM_ASM({
         if (typeof Module !== 'undefined') {
             Module['wasmNeedInputLine'] = 1;
@@ -5592,6 +5570,12 @@ static void statement_locate(char **p)
 }
 
 #ifdef GFX_VIDEO
+#if defined(__EMSCRIPTEN__)
+/* Browser canvas: refresh framebuffer from C while waiting for keys (rAF is off during
+ * Asyncify run — no nested wasm ccall; JS only copies heap + putImageData). */
+#define WASM_GFX_SHADOW_RGBA_BYTES (320u * 200u * 4u)
+static uint8_t wasm_gfx_shadow_rgba[WASM_GFX_SHADOW_RGBA_BYTES];
+#endif
 /* Read a line from gfx key queue; echo to screen; handle backspace (20).
  * Debounce: ignore same printable char within ~80ms (key-repeat suppression). */
 static int gfx_read_line(char *buf, int size)
@@ -5630,6 +5614,16 @@ static int gfx_read_line(char *buf, int size)
                 gfx_put_byte((unsigned char)b);
             }
         } else {
+#if defined(__EMSCRIPTEN__)
+            if (gfx_vs) {
+                gfx_canvas_render_rgba(gfx_vs, wasm_gfx_shadow_rgba, sizeof(wasm_gfx_shadow_rgba));
+                EM_ASM({
+                    if (typeof Module !== 'undefined' && typeof Module['onWasmGfxPaintShadow'] === 'function') {
+                        Module['onWasmGfxPaintShadow']($0, $1);
+                    }
+                }, wasm_gfx_shadow_rgba, (int)sizeof(wasm_gfx_shadow_rgba));
+            }
+#endif
             do_sleep_ticks(1.0 / 60.0);
         }
     }
@@ -5681,18 +5675,10 @@ static void statement_input(char **p)
                 for (s = prompt; *s; s++) gfx_put_byte((unsigned char)*s);
             }
             for (s = "? "; *s; s++) gfx_put_byte((unsigned char)*s);
-#if defined(__EMSCRIPTEN__)
-            /* Canvas build: gfx_read_line only polls key_queue; never opens the HTML INPUT
-             * field and deadlocks with Asyncify if JS re-enters wasm (e.g. render rAF). */
-            wasm_set_input_prompt_for_js(prompt[0] != '\0' && first_prompt ? prompt : "");
-            wasm_read_input_line_blocking(linebuf, sizeof(linebuf));
-            trim_newline(linebuf);
-#else
             if (!gfx_read_line(linebuf, (int)sizeof(linebuf))) {
                 runtime_error("Unexpected end of input");
                 return;
             }
-#endif
         } else
 #endif
 #if defined(__EMSCRIPTEN__)
