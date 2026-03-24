@@ -114,7 +114,8 @@
 | **8** | ENV$, PLATFORM$, JSON$ | ENV$ and PLATFORM$ done. JSON$ needs parser. |
 | **9** | 80-column option | Improves legibility. |
 | **10** | Bitmap/sprites | Bigger phase; depends on LOAD. |
-| **Later** | Program preprocessor, #OPTION memory, Browser/WASM | Polish; niche; different target. |
+| **Later** | Program preprocessor, #OPTION memory | Polish; niche. |
+| **Later** | Browser/WASM target | See `docs/browser-wasm-plan.md` — Emscripten, virtual FS, tutorial embedding, retro IDE. |
 
 ---
 
