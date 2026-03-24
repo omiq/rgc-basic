@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>CBM-BASIC Canvas (PETSCII)</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 960px; margin: 1em auto; padding: 0 1em; }
+    h1 { font-size: 1.2em; }
+    textarea { width: 100%; height: 160px; font-family: ui-monospace, monospace; font-size: 13px; }
+    #screenWrap { background: #222; padding: 8px; border-radius: 6px; display: inline-block; }
+    #screen {
+      display: block;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      max-width: 100%;
+      height: auto;
+    }
+    #log {
+      background: #1e1e1e;
+      color: #ccc;
+      font-family: ui-monospace, monospace;
+      font-size: 12px;
+      padding: 0.5em;
+      max-height: 100px;
+      overflow: auto;
+      white-space: pre-wrap;
+      margin-top: 0.5em;
+    }
+    #inputLineRow { display: none; margin-top: 0.5em; align-items: center; gap: 0.5em; }
+    #inputLineRow.active { display: flex; }
+    #inputLine { flex: 1; font-family: ui-monospace, monospace; padding: 0.35em 0.5em; }
+    .hint { font-size: 0.85em; color: #555; }
+  </style>
+</head>
+<body>
+  <h1>CBM-BASIC — Canvas (40×25 PETSCII)</h1>
+  <p class="hint">Uses the GfxVideoState text screen: <code>PRINT</code>, <code>LOCATE</code>, <code>POKE</code>/<code>PEEK</code>, <code>INKEY$</code>, <code>SCREEN</code> modes. Sprites (<code>LOADSPRITE</code>) are not available in this build. Click the canvas and type when a program uses <code>INKEY$</code> / <code>GET</code>.</p>
+  <textarea id="program">10 PRINT "{CLR}{WHT}HELLO FROM CANVAS"
+20 LOCATE 0,12: PRINT "POKE 1024,1 : PEEK(1024)"
+30 END</textarea>
+  <p><button id="run" disabled>Run</button></p>
+  <div id="screenWrap">
+    <canvas id="screen" width="320" height="200" tabindex="0"></canvas>
+  </div>
+  <div id="inputLineRow">
+    <label id="inputLabel" for="inputLine">INPUT</label>
+    <input type="text" id="inputLine" autocomplete="off" spellcheck="false" />
+  </div>
+  <div id="log" aria-live="polite"></div>
+
+  <script src="basic-canvas.js"></script>
+  <script>
+(function() {
+  var canvas = document.getElementById('screen');
+  var ctx = canvas.getContext('2d');
+  var runBtn = document.getElementById('run');
+  var programEl = document.getElementById('program');
+  var logEl = document.getElementById('log');
+  var inputLineRow = document.getElementById('inputLineRow');
+  var inputLineEl = document.getElementById('inputLine');
+  var inputLabelEl = document.getElementById('inputLabel');
+
+  var rgbaPtr = 0;
+  var rgbaSize = 320 * 200 * 4;
+
+  function escHtml(t) {
+    return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function appendLog(text, err) {
+    logEl.textContent += text;
+    if (err) logEl.style.color = '#f88';
+  }
+
+  function pollUi() {
+    var M = window.Module;
+    if (M && M.wasmWaitingKey) {
+      canvas.style.outline = '2px solid #0dbc79';
+    } else {
+      canvas.style.outline = 'none';
+    }
+    requestAnimationFrame(pollUi);
+  }
+  requestAnimationFrame(pollUi);
+
+  var Module = {
+    print: function(t) { appendLog(t); },
+    printErr: function(t) { appendLog(t, true); },
+    onWasmNeedInputLine: function() {
+      inputLabelEl.textContent =
+        (typeof Module.wasmInputLabel === 'string' && Module.wasmInputLabel.length)
+          ? Module.wasmInputLabel
+          : 'INPUT';
+      inputLineRow.classList.add('active');
+      inputLineEl.value = '';
+      inputLineEl.focus();
+    },
+    onRuntimeInitialized: function() {
+      rgbaPtr = Module._malloc(rgbaSize);
+      Module.HEAPU8.fill(0, rgbaPtr, rgbaPtr + rgbaSize);
+      runBtn.disabled = false;
+      runBtn.onclick = function() {
+        logEl.textContent = '';
+        logEl.style.color = '#ccc';
+        inputLineRow.classList.remove('active');
+        inputLabelEl.textContent = 'INPUT';
+        Module.wasmInputLabel = 'INPUT';
+        var prog = programEl.value;
+        var flags = '-petscii -palette c64 -charset lower -columns 40';
+        var rc = Module.ccall('basic_apply_arg_string', 'number', ['string'], [flags]);
+        if (rc !== 0) {
+          appendLog('Invalid interpreter options.\n', true);
+          return;
+        }
+        Module.FS.writeFile('/program.bas', prog);
+        canvas.focus();
+        Module.ccall('basic_load_and_run_gfx', null, ['string'], ['/program.bas'], { async: true })
+          .catch(function(e) {
+            appendLog(String(e && e.message ? e.message : e) + '\n', true);
+          });
+      };
+
+      function frame() {
+        if (rgbaPtr && Module._wasm_gfx_render_rgba) {
+          Module.ccall('wasm_gfx_render_rgba', null, ['number', 'number'], [rgbaPtr, rgbaSize]);
+          var u8 = Module.HEAPU8.subarray(rgbaPtr, rgbaPtr + rgbaSize);
+          var img = ctx.createImageData(320, 200);
+          img.data.set(u8);
+          ctx.putImageData(img, 0, 0);
+        }
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+
+      document.addEventListener('keydown', function(ev) {
+        if (inputLineRow.classList.contains('active')) return;
+        if (ev.target === programEl || ev.target === inputLineEl) return;
+        if (document.activeElement !== canvas) return;
+        ev.preventDefault();
+        var code = ev.keyCode || ev.which;
+        if (code === 13) {
+          Module.ccall('wasm_push_key', null, ['number'], [13]);
+        } else if (ev.key && ev.key.length === 1) {
+          Module.ccall('wasm_push_key', null, ['number'], [ev.key.charCodeAt(0) & 0xFF]);
+        }
+      }, true);
+
+      inputLineEl.addEventListener('keydown', function(ev) {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          Module.wasmInputLineText = inputLineEl.value;
+          Module.wasmInputLineReady = 1;
+          inputLineRow.classList.remove('active');
+          canvas.focus();
+        }
+      });
+    }
+  };
+  window.Module = Module;
+})();
+  </script>
+</body>
+</html>

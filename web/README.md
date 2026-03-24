@@ -5,11 +5,15 @@
 ```bash
 # From project root
 make basic-wasm
+# Optional: PETSCII canvas (GfxVideoState, 40×25; POKE/PEEK screen, INKEY$; no Raylib/sprites)
+make basic-wasm-canvas
 ```
 
 Requires [Emscripten](https://emscripten.org/) (emsdk). Install and activate, then run the above.
 
-The build enables **Asyncify** (`emscripten_sleep`) so **INPUT**, **GET**, and **INKEY$** can block without freezing the tab; call `basic_load_and_run` with **`ccall(..., { async: true })`** so the returned Promise resolves when the program finishes.
+The terminal build (`basic.js`) enables **Asyncify** (`emscripten_sleep`) so **INPUT**, **GET**, and **INKEY$** can block without freezing the tab; call `basic_load_and_run` with **`ccall(..., { async: true })`** so the returned Promise resolves when the program finishes.
+
+The **canvas** build (`basic-canvas.js`) links **`GFX_VIDEO`** (plus `gfx_canvas.c` for RGBA export). Use **`basic_load_and_run_gfx`** (or `wasm_gfx_set_video` + `basic_load_and_run`) and poll **`wasm_gfx_render_rgba`** into a buffer for **Canvas 2D** — see **`canvas.html`**. **LOADSPRITE** / **DRAWSPRITE** are stubbed (no textures in WASM).
 
 ## Run
 
@@ -19,6 +23,7 @@ Serve the `web/` folder over HTTP (WASM has restrictions with `file://`):
 cd web && python3 -m http.server 8080
 # Or: npx serve web
 # Then open http://localhost:8080
+# Canvas PETSCII: http://localhost:8080/canvas.html (load basic-canvas.js)
 ```
 
 ## Usage

@@ -52,6 +52,10 @@
 #ifdef GFX_VIDEO
 #include "gfx_video.h"
 #include "basic_api.h"
+#if defined(__EMSCRIPTEN__)
+#include "gfx/gfx_canvas.h"
+#include "gfx/gfx_charrom.h"
+#endif
 #endif
 #if defined(__EMSCRIPTEN__)
 /* Browser: no termios, no Windows API */
@@ -915,6 +919,10 @@ static char *statement_pos = NULL;
 static volatile int halted = 0;
 static int print_col = 0;
 
+#ifdef GFX_VIDEO
+static GfxVideoState *gfx_vs = NULL;
+#endif
+
 #ifdef __EMSCRIPTEN__
 /* Ring buffer for single-key reads (GET, INKEY$) from JS (wasm_push_key). */
 #define WASM_KEY_RING 512
@@ -933,8 +941,43 @@ static int wasm_key_push_byte(unsigned char b)
     return 1;
 }
 
+#ifdef GFX_VIDEO
+static void wasm_push_key_to_gfx_queue(unsigned char b)
+{
+    GfxVideoState *vs = gfx_vs;
+    uint8_t next;
+    if (!vs) {
+        return;
+    }
+    next = (uint8_t)(vs->key_q_tail + 1);
+    if (next >= (uint8_t)sizeof(vs->key_queue)) {
+        next = 0;
+    }
+    if (next == vs->key_q_head) {
+        return;
+    }
+    vs->key_queue[vs->key_q_tail] = b;
+    vs->key_q_tail = next;
+}
+#endif
+
 static int wasm_key_pop_byte(unsigned char *out)
 {
+#ifdef GFX_VIDEO
+    if (gfx_vs) {
+        GfxVideoState *vs = gfx_vs;
+        uint8_t head = vs->key_q_head;
+        if (head != vs->key_q_tail) {
+            *out = vs->key_queue[head];
+            head++;
+            if (head >= (uint8_t)sizeof(vs->key_queue)) {
+                head = 0;
+            }
+            vs->key_q_head = head;
+            return 1;
+        }
+    }
+#endif
     if (wasm_key_head == wasm_key_tail) {
         return 0;
     }
@@ -945,6 +988,14 @@ static int wasm_key_pop_byte(unsigned char *out)
 
 static int wasm_key_peek_byte(void)
 {
+#ifdef GFX_VIDEO
+    if (gfx_vs) {
+        uint8_t h = gfx_vs->key_q_head;
+        if (h != gfx_vs->key_q_tail) {
+            return (int)gfx_vs->key_queue[h];
+        }
+    }
+#endif
     if (wasm_key_head == wasm_key_tail) {
         return -1;
     }
@@ -953,7 +1004,14 @@ static int wasm_key_peek_byte(void)
 
 EMSCRIPTEN_KEEPALIVE void wasm_push_key(unsigned int code)
 {
-    wasm_key_push_byte((unsigned char)(code & 0xFF));
+    unsigned char b = (unsigned char)(code & 0xFF);
+#ifdef GFX_VIDEO
+    if (gfx_vs) {
+        wasm_push_key_to_gfx_queue(b);
+        return;
+    }
+#endif
+    wasm_key_push_byte(b);
 }
 
 /* Asyncify: wait until JS delivers one byte (GET blocking, or line-feed for INPUT). */
@@ -1025,7 +1083,6 @@ static void wasm_read_input_line_blocking(char *buf, size_t cap)
 #endif /* __EMSCRIPTEN__ */
 
 #ifdef GFX_VIDEO
-static GfxVideoState *gfx_vs = NULL;
 void basic_set_gfx_window_title(const char *);  /* forward, for #OPTION gfx_title */
 void basic_set_gfx_border(int);                 /* forward, for #OPTION border */
 void basic_set_gfx_border_color(int);           /* forward, for #OPTION border */
@@ -8107,6 +8164,11 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
             emscripten_sleep(0);
         }
 #endif
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+        if (gfx_vs) {
+            gfx_vs->ticks60++;
+        }
+#endif
         if (halted) {
             break;
         }
@@ -8472,4 +8534,38 @@ EMSCRIPTEN_KEEPALIVE void basic_load_and_run(const char *path)
     load_program(path);
     run_program(path, 0, NULL);
 }
+
+#ifdef GFX_VIDEO
+static GfxVideoState wasm_gfx_state;
+
+EMSCRIPTEN_KEEPALIVE void wasm_gfx_set_video(void)
+{
+    gfx_video_init(&wasm_gfx_state);
+    wasm_gfx_state.charset_lowercase = (uint8_t)(petscii_get_lowercase() ? 1 : 0);
+    gfx_load_default_charrom(&wasm_gfx_state);
+    memset(wasm_gfx_state.screen, 32, GFX_TEXT_SIZE);
+    memset(wasm_gfx_state.color, 14, GFX_COLOR_SIZE);
+    wasm_gfx_state.bg_color = 6;
+    basic_set_video(&wasm_gfx_state);
+}
+
+EMSCRIPTEN_KEEPALIVE void basic_load_and_run_gfx(const char *path)
+{
+    wasm_gfx_set_video();
+    load_program(path);
+    run_program(path, 0, NULL);
+    basic_set_video(NULL);
+}
+
+EMSCRIPTEN_KEEPALIVE void wasm_gfx_render_rgba(uint8_t *rgba, int nbytes)
+{
+    if (!rgba || nbytes <= 0) {
+        return;
+    }
+    if (!gfx_vs) {
+        return;
+    }
+    gfx_canvas_render_rgba(gfx_vs, rgba, (size_t)nbytes);
+}
+#endif /* GFX_VIDEO */
 #endif
