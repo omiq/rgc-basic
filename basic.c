@@ -1007,6 +1007,11 @@ EMSCRIPTEN_KEEPALIVE void wasm_push_key(unsigned int code)
     unsigned char b = (unsigned char)(code & 0xFF);
 #ifdef GFX_VIDEO
     if (gfx_vs) {
+        /* INPUT uses the HTML line field; ignore canvas keys so repeat/backspace
+         * does not fill the gfx queue while Asyncify is waiting. */
+        if (EM_ASM_INT({ return (typeof Module !== 'undefined' && Module['wasmNeedInputLine']) ? 1 : 0; })) {
+            return;
+        }
         wasm_push_key_to_gfx_queue(b);
         return;
     }
@@ -1049,21 +1054,33 @@ static void wasm_set_input_prompt_for_js(const char *prompt)
 }
 
 /* INPUT: JS sets Module.wasmInputLineReady and Module.wasmInputLineText (UTF-8). */
+#ifdef GFX_VIDEO
+/* RGBA snapshot for canvas INPUT prompt — rendered in C; JS must not ccall wasm here
+ * (nested entry while Asyncify is suspended deadlocks the browser). */
+#define WASM_INPUT_SHADOW_RGBA_BYTES (320u * 200u * 4u)
+static uint8_t wasm_input_shadow_rgba[WASM_INPUT_SHADOW_RGBA_BYTES];
+#endif
+
 static void wasm_read_input_line_blocking(char *buf, size_t cap)
 {
     if (cap == 0) {
         return;
     }
+#ifdef GFX_VIDEO
+    if (gfx_vs) {
+        gfx_canvas_render_rgba(gfx_vs, wasm_input_shadow_rgba, sizeof(wasm_input_shadow_rgba));
+        EM_ASM({
+            if (typeof Module !== 'undefined' && typeof Module['onWasmGfxPaintShadow'] === 'function') {
+                Module['onWasmGfxPaintShadow']($0, $1);
+            }
+        }, wasm_input_shadow_rgba, (int)sizeof(wasm_input_shadow_rgba));
+    }
+#endif
     EM_ASM({
         if (typeof Module !== 'undefined') {
             Module['wasmNeedInputLine'] = 1;
             if (Module['onWasmNeedInputLine']) {
                 Module['onWasmNeedInputLine']();
-            }
-            /* Canvas: refresh PETSCII framebuffer before Asyncify sleep so prompt is visible
-             * (rAF must not call wasm while suspended). Optional hook; terminal build omits. */
-            if (typeof Module['onWasmGfxSyncPaint'] === 'function') {
-                Module['onWasmGfxSyncPaint']();
             }
         }
     });
