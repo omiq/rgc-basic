@@ -24,6 +24,8 @@ CFLAGS  ?= -Wall -Wextra -std=c99 -O2
 LDFLAGS ?= -lm
 # Emscripten driver (override if `emcc` is not on PATH, e.g. EMSDK_QUIET=1 source emsdk_env.sh)
 EMCC    ?= emcc
+# WASM: `-w` silences clang warnings; errors still print. For full diagnostics: `make basic-wasm WASM_CFLAGS='-Wall -Wextra'`
+WASM_CFLAGS ?= -w
 
 # Basic cross-platform tweaks for Windows vs POSIX
 ifeq ($(OS),Windows_NT)
@@ -56,7 +58,7 @@ basic-gfx: $(GFX_BIN_SRCS)
 # Requires: emcc (emsdk)
 basic-wasm:
 	@mkdir -p web
-	$(EMCC) -O2 -s WASM=1 \
+	$(EMCC) $(WASM_CFLAGS) -O2 -s WASM=1 \
 		-s EXPORTED_FUNCTIONS='["_basic_load","_basic_run","_basic_halted","_basic_load_and_run","_basic_apply_arg_string","_wasm_push_key"]' \
 		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS"]' \
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
@@ -68,7 +70,7 @@ basic-wasm:
 # WASM + GfxVideoState + canvas RGBA export (PETSCII screen, POKE/PEEK, INKEY$; no Raylib/sprites)
 basic-wasm-canvas:
 	@mkdir -p web
-	$(EMCC) -O2 -s WASM=1 -DGFX_VIDEO -I. -Igfx \
+	$(EMCC) $(WASM_CFLAGS) -O2 -s WASM=1 -DGFX_VIDEO -I. -Igfx \
 		-s EXPORTED_FUNCTIONS='["_malloc","_free","_basic_load","_basic_run","_basic_halted","_basic_load_and_run","_basic_apply_arg_string","_wasm_push_key","_basic_load_and_run_gfx","_wasm_gfx_set_video","_wasm_gfx_render_rgba"]' \
 		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS"]' \
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
