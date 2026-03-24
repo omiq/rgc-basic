@@ -49,6 +49,16 @@ int main(void)
     gfx_poke(&s, GFX_BITMAP_BASE + 40, 0x80);
     assert(gfx_bitmap_get_pixel(&s, 0, 1) == 1);
 
+    gfx_bitmap_set_pixel(&s, 2, 0, 1);
+    assert(gfx_bitmap_get_pixel(&s, 2, 0) == 1);
+    gfx_bitmap_set_pixel(&s, 2, 0, 0);
+    assert(gfx_bitmap_get_pixel(&s, 2, 0) == 0);
+    gfx_poke(&s, GFX_BITMAP_BASE, 0);
+    gfx_bitmap_set_pixel(&s, -1, 0, 1);
+    gfx_bitmap_set_pixel(&s, 400, 0, 1);
+    gfx_bitmap_set_pixel(&s, 0, 300, 1);
+    assert(gfx_bitmap_get_pixel(&s, 0, 0) == 0);
+
     assert(s.screen_mode == GFX_SCREEN_TEXT);
 
     /* Out-of-range addresses are inert/zero. */

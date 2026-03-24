@@ -158,3 +158,25 @@ int gfx_bitmap_get_pixel(const GfxVideoState *s, unsigned x, unsigned y)
     return (s->bitmap[byte_off] >> bit) & 1u;
 }
 
+void gfx_bitmap_set_pixel(GfxVideoState *s, int x, int y, int on)
+{
+    unsigned byte_off, bit;
+    unsigned ux, uy;
+    uint8_t mask;
+
+    if (!s) return;
+    if (x < 0 || y < 0) return;
+    ux = (unsigned)x;
+    uy = (unsigned)y;
+    if (ux >= GFX_BITMAP_WIDTH || uy >= GFX_BITMAP_HEIGHT) return;
+    byte_off = uy * (GFX_BITMAP_WIDTH / 8u) + (ux / 8u);
+    if (byte_off >= GFX_BITMAP_BYTES) return;
+    bit = 7u - (ux % 8u);
+    mask = (uint8_t)(1u << bit);
+    if (on) {
+        s->bitmap[byte_off] |= mask;
+    } else {
+        s->bitmap[byte_off] &= (uint8_t)~mask;
+    }
+}
+

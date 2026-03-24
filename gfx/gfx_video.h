@@ -74,6 +74,8 @@ void gfx_poke(GfxVideoState *s, uint16_t addr, uint8_t value);
 
 /* Hi-res bitmap: 320×200, row-major, 40 bytes per row, MSB = left pixel in each byte. */
 int gfx_bitmap_get_pixel(const GfxVideoState *s, unsigned x, unsigned y);
+/* Set (on=1) or clear (on=0) one pixel; coordinates outside the bitmap are ignored. */
+void gfx_bitmap_set_pixel(GfxVideoState *s, int x, int y, int on);
 
 #endif /* GFX_VIDEO_H */
 

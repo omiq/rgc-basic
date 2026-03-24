@@ -83,6 +83,7 @@ Add non-standard statements (gfx branch only):
 - `SCREEN 0` – text mode (40×25).
 - `SCREEN 1` – hires bitmap mode (320×200, monochrome).
 - Optional later: `SCREEN 2` – multicolour.
+- `PSET x,y` / `PRESET x,y` – set or clear one pixel (`x` = 0..319, `y` = 0..199); out-of-range is ignored. Same bit layout as POKE into bitmap RAM.
 
 Internally:
 
@@ -160,7 +161,7 @@ Directory structure:
 9. ✅ Define BITMAP_BASE and implement bitmap RAM (`GFX_BITMAP_BASE` / `bitmap[]` in `gfx_video`).
 10. ✅ Implement `SCREEN 0` / `SCREEN 1` and mode switch (`screen_mode` on `GfxVideoState`).
 11. ✅ Implement hires bitmap renderer (monochrome; row-major, MSB = left pixel per byte; `COLOR` / `BACKGROUND` as pen/paper in bitmap mode).
-12. Add helpers (possibly non-standard) like `PSET x,y` later, built on top of PEEK/POKE.
+12. ✅ `PSET x,y` / `PRESET x,y` (basic-gfx): set or clear one pixel in bitmap RAM; `LINE` still open.
 
 **Phase 4 – Polish & compatibility**
 
