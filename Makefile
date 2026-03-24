@@ -50,20 +50,27 @@ basic-gfx: $(GFX_BIN_SRCS)
 	$(CC) $(CFLAGS) -DGFX_VIDEO -Igfx $(RAYLIB_CFLAGS) -o $@$(EXE) $(GFX_BIN_SRCS) $(LDFLAGS) $(RAYLIB_LDFLAGS)
 
 # Web/WASM build (Emscripten); outputs web/basic.js + web/basic.wasm
+# Classic loader (no MODULARIZE): page sets window.Module before <script src="basic.js">.
 # Requires: emcc (emsdk)
 basic-wasm:
 	@mkdir -p web
-	emcc -O2 -s WASM=1 -s EXPORTED_FUNCTIONS='["_basic_load","_basic_run","_basic_halted","_basic_load_and_run","_basic_apply_arg_string"]' \
+	emcc -O2 -s WASM=1 \
+		-s EXPORTED_FUNCTIONS='["_basic_load","_basic_run","_basic_halted","_basic_load_and_run","_basic_apply_arg_string","_wasm_push_key"]' \
 		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS"]' \
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
-		-s MODULARIZE=1 -s EXPORT_NAME='Basic' \
+		-s INITIAL_MEMORY=33554432 \
+		-s ASYNCIFY=1 -s ASYNCIFY_IMPORTS='["emscripten_sleep"]' \
 		-o web/basic.js basic.c petscii.c -lm
 	@echo "Built web/basic.js and web/basic.wasm"
+
+# Headless browser smoke test (needs: pip install -r tests/requirements-wasm.txt && playwright install chromium)
+wasm-test: basic-wasm
+	python3 tests/wasm_browser_test.py
 
 clean:
 	$(RM) $(TARGET)$(EXE) gfx_video_test$(EXE) gfx-demo$(EXE) basic-gfx$(EXE)
 	$(RM) web/basic.js web/basic.wasm web/basic.wasm.map 2>/dev/null || true
 
-.PHONY: all clean gfx_video_test gfx-demo basic-gfx basic-wasm
+.PHONY: all clean gfx_video_test gfx-demo basic-gfx basic-wasm wasm-test
 
 # End of Makefile
