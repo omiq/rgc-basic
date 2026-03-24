@@ -53,7 +53,7 @@
   </p>
   <div id="output" aria-live="polite"></div>
 
-  <script src="basic.js"></script>
+  <!-- Module must exist before basic.js: classic Emscripten (non-MODULARIZE) exposes global FS during load. -->
   <script>
     (function() {
       const output = document.getElementById('output');
@@ -71,7 +71,6 @@
         return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       }
 
-      /* ANSI SGR → HTML (subset: 30–37, 90–97, 40–47, 100–107, 1 bold, 0/22 reset, 39/49 default). */
       function ansiToHtmlChunk(s) {
         var fg = null, bg = null, bold = false;
         var out = '';
@@ -161,45 +160,49 @@
         if (!optPetscii.checked) optPlain.checked = false;
       });
 
-      /* MODULARIZE builds do not define a global FS; use Module.FS after the factory resolves. */
-      Basic({}).then(function(Module) {
-        function stdin() {
-          if (inputBuffer.length > 0) return inputBuffer.shift();
-          var line = window.prompt('? ');
-          if (line === null) line = '';
-          for (var i = 0; i < line.length; i++) inputBuffer.push(line.charCodeAt(i) & 0xFF);
-          inputBuffer.push(10);
-          return inputBuffer.shift();
-        }
-        Module.FS.init(stdin, null, null);
-
-        Module.print = function(text) { appendOutput(text); };
-        Module.printErr = function(text) { appendOutput(text, true); };
-
-        runBtn.disabled = false;
-        runBtn.onclick = function() {
-          clearOutput();
-          inputBuffer = [];
-          const prog = programEl.value;
-          try {
-            var flags = buildArgString();
-            var rc = Module.ccall('basic_apply_arg_string', 'number', ['string'], [flags]);
-            if (rc !== 0) {
-              appendOutputHtml('<span class="err">Invalid interpreter options.</span>', true);
-              return;
-            }
-            Module.FS.writeFile('/program.bas', prog);
-            Module.ccall('basic_load_and_run', null, ['string'], ['/program.bas']);
-          } catch (e) {
-            appendOutputHtml('<span class="err">' + escHtml(e.message || e) + '</span>', true);
+      var Module = {
+        print: function(text) { appendOutput(text); },
+        printErr: function(text) { appendOutput(text, true); },
+        preRun: [function() {
+          function stdin() {
+            if (inputBuffer.length > 0) return inputBuffer.shift();
+            var line = window.prompt('? ');
+            if (line === null) line = '';
+            for (var i = 0; i < line.length; i++) inputBuffer.push(line.charCodeAt(i) & 0xFF);
+            inputBuffer.push(10);
+            return inputBuffer.shift();
           }
-        };
-      }).catch(function(e) {
-        output.innerHTML = '<span class="err">Failed to load BASIC: ' +
-          escHtml(e) + '</span>';
-        output.classList.add('err');
-      });
+          FS.init(stdin, null, null);
+        }],
+        onRuntimeInitialized: function() {
+          runBtn.disabled = false;
+          runBtn.onclick = function() {
+            clearOutput();
+            inputBuffer = [];
+            const prog = programEl.value;
+            try {
+              var flags = buildArgString();
+              var rc = Module.ccall('basic_apply_arg_string', 'number', ['string'], [flags]);
+              if (rc !== 0) {
+                appendOutputHtml('<span class="err">Invalid interpreter options.</span>', true);
+                return;
+              }
+              Module.FS.writeFile('/program.bas', prog);
+              Module.ccall('basic_load_and_run', null, ['string'], ['/program.bas']);
+            } catch (e) {
+              appendOutputHtml('<span class="err">' + escHtml(e.message || e) + '</span>', true);
+            }
+          };
+        },
+        onAbort: function(what) {
+          output.innerHTML = '<span class="err">Failed to load BASIC: ' + escHtml(what || 'abort') + '</span>';
+          output.classList.add('err');
+        }
+      };
+
+      window.Module = Module;
     })();
   </script>
+  <script src="basic.js"></script>
 </body>
 </html>
