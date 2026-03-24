@@ -5661,6 +5661,11 @@ static int gfx_read_line(char *buf, int size)
     if (size <= 0) return 0;
     while (len < size - 1) {
         if (gfx_keyq_pop(&b)) {
+#if defined(__EMSCRIPTEN__)
+            /* Pop path used to `continue` without emscripten_sleep (debounce, etc.),
+             * so key-repeat could spin forever and freeze the tab. */
+            emscripten_sleep(0);
+#endif
             if (b == 13 || b == 10) {
                 buf[len] = '\0';
                 gfx_put_byte('\n');
