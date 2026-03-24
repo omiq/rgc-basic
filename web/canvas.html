@@ -67,6 +67,9 @@
   var rgbaPtr = 0;
   var rgbaSize = 320 * 200 * 4;
   var frameErrCount = 0;
+  /* While basic_load_and_run_gfx is suspended (Asyncify), do not call other wasm exports
+     from rAF — re-entry deadlocks the tab (e.g. during INPUT). */
+  var wasmRunPending = false;
 
   function heapU8() {
     var M = window.Module;
@@ -205,6 +208,18 @@
       } catch (e) {
         appendLog('Init canvas: ' + e + '\n', true);
       }
+      /* One synchronous paint before INPUT yields (see basic.c wasm_read_input_line_blocking). */
+      var syncPaintImg = ctx.createImageData(320, 200);
+      M.onWasmGfxSyncPaint = function() {
+        if (!rgbaPtr) return;
+        try {
+          M.ccall('wasm_gfx_render_rgba', null, ['number', 'number'], [rgbaPtr, rgbaSize]);
+          if (copyHeapToRgba(syncPaintImg.data, rgbaPtr, rgbaSize)) {
+            ctx.putImageData(syncPaintImg, 0, 0);
+          }
+        } catch (e) { /* ignore */ }
+      };
+
       runBtn.disabled = false;
       runBtn.onclick = function() {
         var Mo = window.Module;
@@ -223,10 +238,19 @@
         }
         Mo.FS.writeFile('/program.bas', prog);
         canvas.focus();
-        Mo.ccall('basic_load_and_run_gfx', null, ['string'], ['/program.bas'], { async: true })
-          .catch(function(e) {
-            appendLog(String(e && e.message ? e.message : e) + '\n', true);
-          });
+        wasmRunPending = true;
+        try {
+          Mo.ccall('basic_load_and_run_gfx', null, ['string'], ['/program.bas'], { async: true })
+            .catch(function(e) {
+              appendLog(String(e && e.message ? e.message : e) + '\n', true);
+            })
+            .finally(function() {
+              wasmRunPending = false;
+            });
+        } catch (e) {
+          wasmRunPending = false;
+          appendLog(String(e && e.message ? e.message : e) + '\n', true);
+        }
       };
 
       var imgBuf = ctx.createImageData(320, 200);
@@ -235,6 +259,10 @@
         var Mo = window.Module;
         /* Do not require HEAPU8 here — some local emcc builds expose heap views differently;
            copyHeapToRgba falls back to wasmMemoryBuffer(). */
+        if (wasmRunPending) {
+          requestAnimationFrame(frame);
+          return;
+        }
         if (rgbaPtr && typeof Mo.ccall === 'function') {
           try {
             Mo.ccall('wasm_gfx_render_rgba', null, ['number', 'number'], [rgbaPtr, rgbaSize]);

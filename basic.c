@@ -1060,6 +1060,11 @@ static void wasm_read_input_line_blocking(char *buf, size_t cap)
             if (Module['onWasmNeedInputLine']) {
                 Module['onWasmNeedInputLine']();
             }
+            /* Canvas: refresh PETSCII framebuffer before Asyncify sleep so prompt is visible
+             * (rAF must not call wasm while suspended). Optional hook; terminal build omits. */
+            if (typeof Module['onWasmGfxSyncPaint'] === 'function') {
+                Module['onWasmGfxSyncPaint']();
+            }
         }
     });
     emscripten_sleep(5);
@@ -5659,10 +5664,18 @@ static void statement_input(char **p)
                 for (s = prompt; *s; s++) gfx_put_byte((unsigned char)*s);
             }
             for (s = "? "; *s; s++) gfx_put_byte((unsigned char)*s);
+#if defined(__EMSCRIPTEN__)
+            /* Canvas build: gfx_read_line only polls key_queue; never opens the HTML INPUT
+             * field and deadlocks with Asyncify if JS re-enters wasm (e.g. render rAF). */
+            wasm_set_input_prompt_for_js(prompt[0] != '\0' && first_prompt ? prompt : "");
+            wasm_read_input_line_blocking(linebuf, sizeof(linebuf));
+            trim_newline(linebuf);
+#else
             if (!gfx_read_line(linebuf, (int)sizeof(linebuf))) {
                 runtime_error("Unexpected end of input");
                 return;
             }
+#endif
         } else
 #endif
 #if defined(__EMSCRIPTEN__)
