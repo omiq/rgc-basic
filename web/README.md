@@ -30,13 +30,21 @@ cd web && python3 -m http.server 8080
 
 ## API (for embedding)
 
-```javascript
-Basic().then(function(Module) {
-  // Optional: same flags as CLI, space-separated (see basic_parse_args)
-  Module.ccall('basic_apply_arg_string', 'number', ['string'], ['-petscii -palette c64']);
-  Module.FS.writeFile('/program.bas', '10 PRINT "HI"\n20 END');
-  Module.ccall('basic_load_and_run', null, ['string'], ['/program.bas']);
-});
+The build uses the **classic** Emscripten loader (not `MODULARIZE`). Define `window.Module` **before** loading `basic.js`, then hook `onRuntimeInitialized`:
+
+```html
+<script>
+  var Module = {
+    onRuntimeInitialized: function () {
+      Module.ccall('basic_apply_arg_string', 'number', ['string'], ['-petscii -palette c64']);
+      Module.FS.writeFile('/program.bas', '10 PRINT "HI"\n20 END');
+      Module.ccall('basic_load_and_run', null, ['string'], ['/program.bas']);
+    }
+  };
+</script>
+<script src="basic.js"></script>
 ```
+
+`preRun` may call `FS.init(stdinFn, null, null)` for INPUT; in that scope `FS` is the Emscripten global (see `web/index.html`).
 
 See `docs/browser-wasm-plan.md` for the full plan.
