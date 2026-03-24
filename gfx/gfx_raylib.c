@@ -640,6 +640,30 @@ static void render_text_screen(const GfxVideoState *s,
     EndTextureMode();
 }
 
+/* 320×200 hi-res: MSB of each byte is the leftmost pixel in that group of 8. */
+static void render_bitmap_screen(const GfxVideoState *s, RenderTexture2D target,
+                                 int native_w)
+{
+    int y, x, off_x;
+    Color fg = c64_palette[s->bitmap_fg & 0x0F];
+    Color bg = c64_palette[s->bg_color & 0x0F];
+
+    off_x = (native_w - (int)GFX_BITMAP_WIDTH) / 2;
+    if (off_x < 0) {
+        off_x = 0;
+    }
+
+    BeginTextureMode(target);
+    ClearBackground(bg);
+    for (y = 0; y < (int)GFX_BITMAP_HEIGHT; y++) {
+        for (x = 0; x < (int)GFX_BITMAP_WIDTH; x++) {
+            int on = gfx_bitmap_get_pixel(s, (unsigned)x, (unsigned)y);
+            DrawPixel(off_x + x, y, on ? fg : bg);
+        }
+    }
+    EndTextureMode();
+}
+
 /* ══════════════════════════════════════════════════════════════════════
  *  MODE 1: basic-gfx  (GFX_VIDEO defined)
  *  Runs a .bas program in a worker thread; main thread renders.
@@ -875,7 +899,11 @@ int main(int argc, char **argv)
             }
         }
 
-        render_text_screen(&vs, target);
+        if (vs.screen_mode == GFX_SCREEN_BITMAP) {
+            render_bitmap_screen(&vs, target, nat_w);
+        } else {
+            render_text_screen(&vs, target);
+        }
 
         BeginDrawing();
         {
