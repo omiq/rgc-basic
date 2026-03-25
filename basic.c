@@ -1560,7 +1560,7 @@ static char *dupstr_local(const char *s);
 static struct value eval_expr(char **p);
 static int eval_condition(char **p);
 static void execute_statement(char **p);
-static struct value *get_var_reference(char **p, int *is_array_out, int *is_string_out);
+static struct value *get_var_reference(char **p, int *is_array_out, int *is_string_out, char *name_out);
 static struct value make_num(double v);
 static struct value make_str(const char *s);
 static struct var *find_or_create_var(const char *name, int is_string, int want_array, int dims, const int *dim_sizes, int total_size);
@@ -2022,7 +2022,7 @@ static void statement_read(char **p)
             runtime_error("Expected variable in READ");
             return;
         }
-        vp = get_var_reference(p, &is_array, &is_string);
+        vp = get_var_reference(p, &is_array, &is_string, NULL);
         if (!vp) {
             return;
         }
@@ -3354,7 +3354,7 @@ static void statement_get(char **p)
     int ch;
 
     skip_spaces(p);
-    vp = get_var_reference(p, &is_array, &is_string);
+    vp = get_var_reference(p, &is_array, &is_string, NULL);
     if (!vp) {
         return;
     }
@@ -4696,8 +4696,9 @@ static int read_identifier(char **p, char *buf, int buf_size)
     return i;
 }
 
-/* Resolve a variable (and optional array index) creating it if needed. */
-static struct value *get_var_reference(char **p, int *is_array_out, int *is_string_out)
+/* Resolve a variable (and optional array index) creating it if needed.
+ * If name_out is non-NULL, store the normalized variable name there (for FOR stack, etc.). */
+static struct value *get_var_reference(char **p, int *is_array_out, int *is_string_out, char *name_out)
 {
     char namebuf[VAR_NAME_MAX];
     int is_string;
@@ -4717,6 +4718,10 @@ static struct value *get_var_reference(char **p, int *is_array_out, int *is_stri
     }
     read_identifier(p, namebuf, sizeof(namebuf));
     uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
+    if (name_out) {
+        strncpy(name_out, namebuf, VAR_NAME_MAX - 1);
+        name_out[VAR_NAME_MAX - 1] = '\0';
+    }
     if (is_reserved_word(namebuf)) {
         runtime_error("Reserved word cannot be used as variable");
         return NULL;
@@ -5060,7 +5065,7 @@ static struct value eval_factor(char **p)
             }
             {
                 struct value *vp;
-                vp = get_var_reference(p, NULL, NULL);
+                vp = get_var_reference(p, NULL, NULL, NULL);
                 if (!vp) return make_num(0.0);
                 return *vp;
             }
@@ -5650,7 +5655,7 @@ static void statement_input(char **p)
             runtime_error("Expected variable in INPUT");
             return;
         }
-        vp = get_var_reference(p, &is_array, &is_string);
+        vp = get_var_reference(p, &is_array, &is_string, NULL);
         if (!vp) {
             return;
         }
@@ -6270,7 +6275,7 @@ static void statement_join(char **p)
     *p += 4;
     skip_spaces(p);
     {
-        struct value *out = get_var_reference(p, &i, &is_string);
+        struct value *out = get_var_reference(p, &i, &is_string, NULL);
         if (!out || !is_string) {
             runtime_error("JOIN: expected string variable for result");
             return;
@@ -6522,7 +6527,7 @@ static void statement_input_hash(char **p)
     for (;;) {
         if (**p == '\0' || **p == ':') break;
         if (!isalpha((unsigned char)**p)) break;
-        vp = get_var_reference(p, &is_array, &is_string);
+        vp = get_var_reference(p, &is_array, &is_string, NULL);
         if (!vp) return;
         if (is_array) {
             runtime_error("INPUT#: array not allowed");
@@ -6572,7 +6577,7 @@ static void statement_get_hash(char **p)
         runtime_error("GET#: expected string variable");
         return;
     }
-    vp = get_var_reference(p, &is_array, &is_string);
+    vp = get_var_reference(p, &is_array, &is_string, NULL);
     if (!vp || !is_string || is_array) {
         runtime_error("GET#: requires string variable");
         return;
@@ -6599,7 +6604,7 @@ static void statement_let(char **p)
     int is_array;
     int is_string;
 
-    vp = get_var_reference(p, &is_array, &is_string);
+    vp = get_var_reference(p, &is_array, &is_string, NULL);
     if (!vp) {
         return;
     }
@@ -7150,7 +7155,8 @@ static void statement_for(char **p)
     int is_array;
     int is_string;
     int i;
-    vp = get_var_reference(p, &is_array, &is_string);
+    char loop_name[VAR_NAME_MAX];
+    vp = get_var_reference(p, &is_array, &is_string, loop_name);
     if (!vp) {
         return;
     }
@@ -7188,28 +7194,23 @@ static void statement_for(char **p)
     }
     *vp = startv;
 
-    /* Recover loop variable name from vp by searching var table. */
-    for_stack[for_top].name[0] = '\0';
-    if (var_count > 0) {
-        for (i = 0; i < var_count; i++) {
-            if (&vars[i].scalar == vp ||
-                (vars[i].is_array && vp >= vars[i].array && vp < vars[i].array + vars[i].size)) {
-                strncpy(for_stack[for_top].name, vars[i].name, VAR_NAME_MAX - 1);
-                for_stack[for_top].name[VAR_NAME_MAX - 1] = '\0';
-                break;
-            }
-        }
-    }
+    /* FOR stack needs the normalized loop variable name for NEXT and duplicate-FOR cleanup. */
+    strncpy(for_stack[for_top].name, loop_name, VAR_NAME_MAX - 1);
+    for_stack[for_top].name[VAR_NAME_MAX - 1] = '\0';
 
     /* Abandon any outstanding FOR for the same control variable.
      * This models classic BASIC behaviour where jumping out of a loop
      * effectively discards it, so reusing the same variable does not
      * grow the FOR stack without bound.
+     * Empty names must not match (nested FOR could otherwise collapse the stack).
      */
-    for (i = for_top - 1; i >= 0; i--) {
-        if (strcmp(for_stack[i].name, for_stack[for_top].name) == 0) {
-            for_top = i;
-            break;
+    if (for_stack[for_top].name[0] != '\0') {
+        for (i = for_top - 1; i >= 0; i--) {
+            if (for_stack[i].name[0] != '\0' &&
+                strcmp(for_stack[i].name, for_stack[for_top].name) == 0) {
+                for_top = i;
+                break;
+            }
         }
     }
 
