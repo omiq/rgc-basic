@@ -817,6 +817,8 @@ struct for_frame {
     int line_index;
     char *resume_pos;
     struct value *var;
+    /* GOSUB depth when this FOR was entered; RETURN unwinds FOR frames above the new depth (CBM-style). */
+    int gosub_depth_at_entry;
 };
 
 static struct line *program_lines[MAX_LINES];
@@ -830,6 +832,13 @@ static int gosub_top = 0;
 
 static struct for_frame for_stack[MAX_FOR];
 static int for_top = 0;
+
+static void for_unwind_after_return(int new_gosub_top)
+{
+    while (for_top > 0 && for_stack[for_top - 1].gosub_depth_at_entry > new_gosub_top) {
+        for_top--;
+    }
+}
 
 /* IF ELSE END IF block stack */
 #define MAX_IF_DEPTH 16
@@ -7062,6 +7071,7 @@ static void statement_return(char **p)
         return;
     }
     gosub_top--;
+    for_unwind_after_return(gosub_top);
     current_line = gosub_stack[gosub_top].line_index;
     statement_pos = gosub_stack[gosub_top].position;
 }
@@ -7567,6 +7577,7 @@ static void statement_for(char **p)
     for_stack[for_top].resume_pos = *p;
     for_stack[for_top].var = vp;
     for_stack[for_top].is_string = is_string;
+    for_stack[for_top].gosub_depth_at_entry = gosub_top;
     for_top++;
 }
 
