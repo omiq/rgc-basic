@@ -55,6 +55,7 @@
 #include "basic_api.h"
 #if defined(__EMSCRIPTEN__)
 #include "gfx_canvas.h"
+#include "gfx_software_sprites.h"
 #endif
 /* Video state pointer; must precede __EMSCRIPTEN__ key helpers that reference gfx_vs. */
 static GfxVideoState *gfx_vs = NULL;
@@ -8694,8 +8695,13 @@ static void load_program(const char *path)
         if (typeof Module !== 'undefined') {
             Module['wasmGfxFbW'] = $0;
             Module['wasmGfxFbH'] = 200;
+            Module['wasmGfxBorderPx'] = $1;
+            Module['wasmGfxBorderColorIdx'] = $2;
         }
-    }, (print_width >= 80) ? 640 : 320);
+    },
+        (print_width >= 80) ? 640 : 320,
+        basic_get_gfx_border(),
+        basic_get_gfx_border_color());
 #endif
 }
 
@@ -8994,15 +9000,24 @@ static void wasm_gfx_refresh_js(void)
     if (!gfx_vs) {
         return;
     }
-    gfx_canvas_render_rgba(gfx_vs, wasm_gfx_rgba, sizeof(wasm_gfx_rgba));
+    gfx_canvas_render_full_frame(gfx_vs, wasm_gfx_rgba, sizeof(wasm_gfx_rgba));
     wasm_gfx_rgba_version++;
     EM_ASM({
         if (typeof Module !== 'undefined') {
             Module['wasmGfxFbW'] = $0;
             Module['wasmGfxFbH'] = $1;
             Module['wasmGfxRgbaVersion'] = $2;
+            Module['wasmGfxBorderPx'] = $3;
+            Module['wasmGfxBorderColorIdx'] = $4;
+            Module['wasmGfxContentBgIdx'] = $5;
         }
-    }, gfx_cols() * 8, GFX_ROWS * 8, wasm_gfx_rgba_version);
+    },
+        gfx_cols() * 8,
+        GFX_ROWS * 8,
+        wasm_gfx_rgba_version,
+        basic_get_gfx_border(),
+        basic_get_gfx_border_color(),
+        gfx_vs ? (int)(gfx_vs->bg_color & 0x0Fu) : 0);
 }
 
 static void wasm_canvas_sync_charset_from_options(void)
@@ -9028,6 +9043,7 @@ EMSCRIPTEN_KEEPALIVE uint32_t wasm_gfx_rgba_version_read(void)
 
 static void wasm_gfx_set_video(void)
 {
+    gfx_sprite_shutdown();
     gfx_video_init(&wasm_gfx_state);
     wasm_gfx_state.charset_lowercase = (uint8_t)(petscii_get_lowercase() ? 1 : 0);
     gfx_canvas_load_default_charrom(&wasm_gfx_state);

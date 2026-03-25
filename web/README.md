@@ -13,7 +13,7 @@ Requires [Emscripten](https://emscripten.org/) (emsdk). Install and activate, th
 
 The terminal build (`basic.js`) enables **Asyncify** (`emscripten_sleep`) so **INPUT**, **GET**, and **INKEY$** can block without freezing the tab; call `basic_load_and_run` with **`ccall(..., { async: true })`** so the returned Promise resolves when the program finishes. **`index.html`** exposes **Pause** / **Resume** (`Module.wasmPaused`) and **Stop** (`Module.wasmStopRequested`), same flags as the canvas demo. **`Module.wasmRunDone`** is set when `basic_load_and_run` finishes.
 
-The **canvas** build (`basic-canvas.js`) links **`GFX_VIDEO`** (plus `gfx_canvas.c` for RGBA export). Use **`basic_load_and_run_gfx`** and **`wasm_gfx_render_rgba`** (see **`canvas.html`**). **`#OPTION columns 80`** in the program selects a **640×200** framebuffer (else 320×200). **`INPUT`** and **`GET`/`INKEY$`** use the **PETSCII canvas**: focus the canvas (click it), then type. Keys go to a **heap ring buffer** via **`DataView`** (see **`canvas.html`**). **Stop** sets **`Module.wasmStopRequested`** so the run can exit cooperatively. While waiting for **`GET`**, **`Module.wasmWaitingKey`** is `1` (green outline). **LOADSPRITE** / **DRAWSPRITE** are stubbed (no textures in WASM).
+The **canvas** build (`basic-canvas.js`) links **`GFX_VIDEO`** with **`gfx_canvas.c`** (PETSCII + bitmap) and **`gfx_software_sprites.c`** (PNG **`LOADSPRITE`** / **`DRAWSPRITE`** via stb_image). Use **`basic_load_and_run_gfx`**; the page’s rAF loop reads **`wasm_gfx_rgba_ptr()`** / **`wasm_gfx_rgba_version_read()`** (see **`canvas.html`**). **`#OPTION columns 80`** selects a **640×200** framebuffer (else 320×200). **`SCREEN 1`** draws the **320×200** hires bitmap like **basic-gfx**. **`INPUT`** and **`GET`/`INKEY$`** use the canvas; **`#OPTION border`** pads the framebuffer in the browser (same idea as Raylib). Put PNGs on **`Module.FS`** (e.g. upload or `writeFile`) using paths your program expects. Details: **`docs/gfx-canvas-parity.md`**.
 
 ## Tutorial embedding (multiple BASIC widgets per page)
 
@@ -33,7 +33,7 @@ cd web && python3 -m http.server 8080
 
 ## Canvas build (`canvas.html`)
 
-- **Run** calls `basic_load_and_run_gfx` (Asyncify). The interpreter renders the 40×25 (or 80×25) text screen into a shared **RGBA buffer**; the page’s `requestAnimationFrame` loop copies pixels to a `<canvas>` so the display **updates during** `SLEEP`, tight loops, and `INPUT` / `gfx_read_line` waits.
+- **Run** calls `basic_load_and_run_gfx` (Asyncify). The interpreter renders **text or bitmap** plus **sprite overlay** into a shared **RGBA buffer**; the page’s `requestAnimationFrame` loop copies pixels to a `<canvas>` so the display **updates during** `SLEEP`, tight loops, and `INPUT` / `gfx_read_line` waits.
 - **GET** / **INKEY$**: focus the canvas, then type. Keys go to `wasm_push_key` (and the gfx key queue when `GFX_VIDEO` is enabled).
 - **Pause** / **Resume** set `Module.wasmPaused = 1` / `0`; the interpreter yields until you resume (canvas: framebuffer stops updating; terminal: interpreter stops advancing statements). **Stop** sets `Module.wasmStopRequested = 1` and clears pause. Checked in the main loop and at yield points (`NEXT`, `GOTO`, `SLEEP`, `INPUT` / key-wait idle).
 - **Safari / some browsers**: WASM pointers can be **BigInt**; the page coerces them. If the canvas stays black, check the red **log** under the canvas for heap read errors, or use **Chrome/Firefox**. Ensure **Asyncify** is enabled in the build (`make basic-wasm-canvas`).
