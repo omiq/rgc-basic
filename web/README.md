@@ -5,6 +5,7 @@
 ```bash
 # From project root
 make basic-wasm          # terminal demo: web/index.html
+make basic-wasm-modular  # MODULARIZE build for tutorial embeds (multiple per page)
 make basic-wasm-canvas   # PETSCII canvas: web/canvas.html
 ```
 
@@ -13,6 +14,10 @@ Requires [Emscripten](https://emscripten.org/) (emsdk). Install and activate, th
 The terminal build (`basic.js`) enables **Asyncify** (`emscripten_sleep`) so **INPUT**, **GET**, and **INKEY$** can block without freezing the tab; call `basic_load_and_run` with **`ccall(..., { async: true })`** so the returned Promise resolves when the program finishes. **`index.html`** exposes **Pause** / **Resume** (`Module.wasmPaused`) and **Stop** (`Module.wasmStopRequested`), same flags as the canvas demo. **`Module.wasmRunDone`** is set when `basic_load_and_run` finishes.
 
 The **canvas** build (`basic-canvas.js`) links **`GFX_VIDEO`** (plus `gfx_canvas.c` for RGBA export). Use **`basic_load_and_run_gfx`** and **`wasm_gfx_render_rgba`** (see **`canvas.html`**). **`#OPTION columns 80`** in the program selects a **640×200** framebuffer (else 320×200). **`INPUT`** and **`GET`/`INKEY$`** use the **PETSCII canvas**: focus the canvas (click it), then type. Keys go to a **heap ring buffer** via **`DataView`** (see **`canvas.html`**). **Stop** sets **`Module.wasmStopRequested`** so the run can exit cooperatively. While waiting for **`GET`**, **`Module.wasmWaitingKey`** is `1` (green outline). **LOADSPRITE** / **DRAWSPRITE** are stubbed (no textures in WASM).
+
+## Tutorial embedding (multiple BASIC widgets per page)
+
+Use **`make basic-wasm-modular`** plus **`tutorial-embed.js`**. Full instructions: **[`docs/tutorial-embedding.md`](../docs/tutorial-embedding.md)**. Quick reference: **`web/tutorial-example.html`**.
 
 ## Run
 
@@ -23,6 +28,7 @@ cd web && python3 -m http.server 8080
 # Or: npx serve web
 # Then open http://localhost:8080
 # Canvas build: http://localhost:8080/canvas.html
+# Tutorial embed example: http://localhost:8080/tutorial-example.html
 ```
 
 ## Canvas build (`canvas.html`)

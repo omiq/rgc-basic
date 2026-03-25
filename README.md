@@ -506,15 +506,17 @@ make basic-gfx
 
 ```bash
 make basic-wasm
+# Optional: MODULARIZE terminal build for embedding multiple interpreters (see docs/tutorial-embedding.md)
+make basic-wasm-modular
 # Optional: 40×25 PETSCII canvas (GfxVideoState; no Raylib/sprites in browser)
 make basic-wasm-canvas
 ```
 
-Produces `web/basic.js` and `web/basic.wasm` (Asyncify-enabled), and optionally `web/basic-canvas.js` / `web/basic-canvas.wasm` plus **`web/canvas.html`** for a Canvas 2D PETSCII screen. Serve `web/` over HTTP (e.g. `cd web && python3 -m http.server 8080`) and open in a browser. The terminal demo uses an inline **INPUT** field and keyboard routing for **GET** / **INKEY$**; see `web/README.md` for details.
+Produces `web/basic.js` and `web/basic.wasm` (Asyncify-enabled), **`web/basic-modular.js`** / **`web/basic-modular.wasm`** for **`tutorial-embed.js`**, and optionally `web/basic-canvas.js` / `web/basic-canvas.wasm` plus **`web/canvas.html`** for a Canvas 2D PETSCII screen. Serve `web/` over HTTP (e.g. `cd web && python3 -m http.server 8080`) and open in a browser. The terminal demo uses an inline **INPUT** field and keyboard routing for **GET** / **INKEY$**; see `web/README.md` for details.
 
 **PETSCII canvas** (no Raylib): `make basic-wasm-canvas` produces `web/basic-canvas.js`, `web/basic-canvas.wasm`, and `web/canvas.html`. The page refreshes the canvas during `SLEEP` and loops via a shared RGBA framebuffer.
 
-**Automated WASM smoke tests** (headless Chromium via Playwright): install `pip install -r tests/requirements-wasm.txt`, run `python3 -m playwright install chromium`, then `make wasm-test` and `make wasm-canvas-test`. These run in GitHub Actions for **tagged releases** and the **nightly** workflow; artifacts include `cbm-basic-wasm.tar.gz` (terminal + canvas files).
+**Automated WASM smoke tests** (headless Chromium via Playwright): install `pip install -r tests/requirements-wasm.txt`, run `python3 -m playwright install chromium`, then `make wasm-test`, `make wasm-canvas-test`, and **`make wasm-tutorial-test`**. These run in GitHub Actions for **tagged releases** and the **nightly** workflow; artifacts include `cbm-basic-wasm.tar.gz` (terminal, modular tutorial files, and canvas).
 
 #### Manual compilation
 

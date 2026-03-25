@@ -80,3 +80,6 @@ web/basic.wasm.map
 web/basic-canvas.js
 web/basic-canvas.wasm
 web/basic-canvas.wasm.map
+web/basic-modular.js
+web/basic-modular.wasm
+web/basic-modular.wasm.map
