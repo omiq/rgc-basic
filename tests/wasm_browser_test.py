@@ -61,6 +61,20 @@ def main() -> int:
                 timeout=60000,
             )
 
+            # PRINT without ; must become separate HTML lines (stdout buffered until newline)
+            page.fill(
+                "#program",
+                '10 PRINT "FIRST"\n20 PRINT "SECOND"\n30 END\n',
+            )
+            page.click("#run")
+            page.wait_for_function(
+                "() => (document.getElementById('output').textContent || '').includes('SECOND')",
+                timeout=60000,
+            )
+            br_count = page.eval_on_selector_all("#output br", "els => els.length")
+            if br_count < 2:
+                raise RuntimeError(f"expected >=2 <br> for PRINT newlines, got {br_count}")
+
             # INPUT uses inline field (not prompt)
             page.fill(
                 "#program",
