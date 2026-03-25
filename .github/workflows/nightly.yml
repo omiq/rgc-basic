@@ -200,13 +200,20 @@ jobs:
           ref: main
           fetch-depth: 1
 
-      - name: Install Emscripten
+      - name: Install Emscripten (emsdk)
         run: |
           sudo apt-get update
-          sudo apt-get install -y emscripten
+          sudo apt-get install -y python3 git
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$GITHUB_WORKSPACE/emsdk"
+          cd "$GITHUB_WORKSPACE/emsdk"
+          ./emsdk install latest
+          ./emsdk activate latest
 
       - name: Build WASM
-        run: make basic-wasm basic-wasm-canvas
+        run: |
+          source "$GITHUB_WORKSPACE/emsdk/emsdk_env.sh"
+          emcc --version
+          make basic-wasm basic-wasm-canvas
 
       - name: Set up Python
         uses: actions/setup-python@v5

@@ -38,7 +38,7 @@ done
 
 **GFX unit test**: `./gfx_video_test` (headless, no display needed).
 
-**Browser / WASM** (Emscripten + Playwright): `make basic-wasm` then `pip install -r tests/requirements-wasm.txt`, `python3 -m playwright install chromium`, then `make wasm-test` (or `python3 tests/wasm_browser_test.py`). **Canvas PETSCII**: `make basic-wasm-canvas` and `make wasm-canvas-test` (or `python3 tests/wasm_browser_canvas_test.py`). Same WASM jobs run in **tag** and **nightly** GitHub Actions. Demos use **Asyncify**; **INPUT** is inline, **GET**/**INKEY$** use **`wasm_push_key`** (terminal: focus output panel; canvas: focus canvas).
+**Browser / WASM** (**emsdk** `emcc`, not distro `apt` emscripten — CI clones emsdk and `install latest`) + Playwright: `make basic-wasm` then `pip install -r tests/requirements-wasm.txt`, `python3 -m playwright install chromium`, then `make wasm-test` (or `python3 tests/wasm_browser_test.py`). **Canvas PETSCII**: `make basic-wasm-canvas` and `make wasm-canvas-test` (or `python3 tests/wasm_browser_canvas_test.py`). Same WASM jobs run in **tag** and **nightly** GitHub Actions. Demos use **Asyncify**; **INPUT** is inline, **GET**/**INKEY$** use **`wasm_push_key`** (terminal: focus output panel; canvas: focus canvas).
 
 **Canvas WASM** (PETSCII 40×25, GfxVideoState): `make basic-wasm-canvas` produces `web/basic-canvas.js` + `basic-canvas.wasm`; open **`web/canvas.html`**. **INPUT**/**GET** type on the **canvas** (focus it first); keys go to a **heap ring** (see `canvas.html`). Headless regression: **`make wasm-canvas-test`** (`tests/wasm_browser_canvas_test.py`). Sprites are stubbed; use **`basic_load_and_run_gfx`** and **`wasm_gfx_render_rgba`** (see `canvas.html`).
 
