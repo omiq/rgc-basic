@@ -1851,6 +1851,74 @@ static void runtime_error(const char *msg)
         line_text = program_lines[current_line]->text;
     }
 
+#if defined(__EMSCRIPTEN__)
+    /* Browser: each fprintf(stderr) becomes a separate Module.printErr call.
+     * canvas.html overwrites the log each time, so multi-line errors showed
+     * only the last line (often "^" alone). Emit one string. */
+    {
+        char buf[MAX_LINE_LEN + 512];
+        int n;
+
+        if (line_no > 0) {
+            n = snprintf(buf, sizeof(buf), "Error on line %d: %s\n", line_no, msg);
+        } else {
+            n = snprintf(buf, sizeof(buf), "Error: %s\n", msg);
+        }
+        if (n < 0) {
+            n = 0;
+        }
+        if ((size_t)n >= sizeof(buf)) {
+            n = (int)sizeof(buf) - 1;
+        }
+
+        if (line_text && *line_text && (size_t)n < sizeof(buf) - 1) {
+            size_t rem = sizeof(buf) - (size_t)n;
+            int m = snprintf(buf + n, rem, "  %s\n", line_text);
+            if (m < 0) {
+                m = 0;
+            }
+            if ((size_t)m >= rem) {
+                n = (int)sizeof(buf) - 1;
+                buf[n] = '\0';
+            } else {
+                n += m;
+            }
+
+            if (statement_pos &&
+                statement_pos >= line_text &&
+                statement_pos <= line_text + (int)strlen(line_text)) {
+                const char *p = line_text;
+                int col = 0;
+                while (p < statement_pos && *p) {
+                    col++;
+                    p++;
+                }
+                if (col > 120) {
+                    col = 120;
+                }
+                if ((size_t)n < sizeof(buf) - (size_t)(4 + col)) {
+                    char *out = buf + n;
+                    int cap = (int)(sizeof(buf) - (size_t)n);
+                    int pos = 0;
+                    if (pos + 2 < cap) {
+                        out[pos++] = ' ';
+                        out[pos++] = ' ';
+                    }
+                    for (int i = 0; i < col && pos < cap - 3; i++) {
+                        out[pos++] = ' ';
+                    }
+                    if (pos < cap - 2) {
+                        out[pos++] = '^';
+                        out[pos++] = '\n';
+                        out[pos] = '\0';
+                        n += pos;
+                    }
+                }
+            }
+        }
+        fprintf(stderr, "%s", buf);
+    }
+#else
     if (line_no > 0) {
         fprintf(stderr, "Error on line %d: %s\n", line_no, msg);
     } else {
@@ -1885,6 +1953,7 @@ static void runtime_error(const char *msg)
             fprintf(stderr, "^\n");
         }
     }
+#endif
 
     halted = 1;
 }

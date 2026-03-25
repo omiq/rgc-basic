@@ -211,7 +211,16 @@
       if (p.endsWith('.wasm')) return 'basic-canvas.wasm?cb=' + Date.now();
       return p;
     },
-    printErr: function(t) { logErr(String(t)); },
+    /* Append stderr chunks: Emscripten may call printErr once per fprintf;
+     * overwriting would hide multi-line errors (e.g. runtime_error caret only). */
+    printErr: function(t) {
+      var s = String(t);
+      if (logEl.classList.contains('has-content') && logEl.textContent.length) {
+        logEl.textContent = logEl.textContent + '\n' + s;
+      } else {
+        logErr(s);
+      }
+    },
     onWasmNeedInputLine: function() {
       inputLabelEl.textContent = (Module.wasmInputLabel && String(Module.wasmInputLabel).length) ? Module.wasmInputLabel : 'INPUT';
       inputLineRow.classList.add('active');
