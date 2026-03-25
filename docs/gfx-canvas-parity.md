@@ -31,4 +31,8 @@ The browser build `make basic-wasm-canvas` targets the same **GfxVideoState** mo
 
 ## Tests
 
-`make wasm-canvas-test` checks **bitmap mode** (`SCREEN 1` + `PSET`) and **sprite overlay** (fetch `testfixtures/red8x8.png` into MEMFS, `LOADSPRITE` + `DRAWSPRITE`, sample a red pixel).
+`make wasm-canvas-test` checks **bitmap mode** (`SCREEN 1` + `PSET`), **sprite overlay** (fetch `testfixtures/red8x8.png` into MEMFS), and the **`examples/gfx_canvas_demo.bas`** program (fetch `gfx_canvas_demo.png` from the static `web/` copy into MEMFS, assert a red pixel inside the drawn sprite).
+
+## Example program
+
+`examples/gfx_canvas_demo.bas` — two `PRINT` lines plus `LOADSPRITE` / `DRAWSPRITE` for `gfx_canvas_demo.png` (8×8 solid red PNG, same asset as `tests/fixtures/red8x8.png`).

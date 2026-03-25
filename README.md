@@ -407,6 +407,7 @@ The `examples` folder (included in release archives) contains:
 - `examples/dungeon.bas`: larger PETSCII dungeon-style map with `POKE`/screen RAM and custom charset data (terminal or `basic-gfx` with `-petscii`).
 - `examples/gfx_game_shell.bas`: **basic-gfx** tutorial game — tile `DATA`, `POKE` map, `LOADSPRITE`/`DRAWSPRITE` for 8×8 PNG actors (`player.png`, `enemy.png`) and HUD (`hud_panel.png`), `INKEY$()` + enemy chase. Run: `./basic-gfx examples/gfx_game_shell.bas`.
 - `examples/gfx_sprite_hud_demo.bas`: minimal **DRAWSPRITE** over PETSCII (semi-transparent `hud_panel.png`); comments explain pixel vs text-row coordinates.
+- `examples/gfx_canvas_demo.bas` + `examples/gfx_canvas_demo.png`: small **PETSCII + PNG sprite** sample for **basic-gfx** or **`web/canvas.html`** (upload the PNG to the virtual filesystem, or use `web/gfx_canvas_demo.png` when serving `web/`).
 - `examples/colaburger_viewer.bas`, `examples/gfx_colaburger_viewer.bas`, and `examples/colaburger.seq`: PETSCII .seq file viewer.
   - **.seq files** are sequential dumps of PETSCII screen codes (e.g. from BBS logs or PETSCII art).
   - The terminal viewer reads the file byte-by-byte with `GET#`, prints each byte via `CHR$`, and wraps after
@@ -508,13 +509,13 @@ make basic-gfx
 make basic-wasm
 # Optional: MODULARIZE terminal build for embedding multiple interpreters (see docs/tutorial-embedding.md)
 make basic-wasm-modular
-# Optional: 40×25 PETSCII canvas (GfxVideoState; no Raylib/sprites in browser)
+# Optional: 40×25 PETSCII canvas (GfxVideoState; bitmap + PNG sprites in browser)
 make basic-wasm-canvas
 ```
 
 Produces `web/basic.js` and `web/basic.wasm` (Asyncify-enabled), **`web/basic-modular.js`** / **`web/basic-modular.wasm`** for **`tutorial-embed.js`**, and optionally `web/basic-canvas.js` / `web/basic-canvas.wasm` plus **`web/canvas.html`** for a Canvas 2D PETSCII screen. Serve `web/` over HTTP (e.g. `cd web && python3 -m http.server 8080`) and open in a browser. The terminal demo uses an inline **INPUT** field and keyboard routing for **GET** / **INKEY$**; see `web/README.md` for details.
 
-**PETSCII canvas** (no Raylib): `make basic-wasm-canvas` produces `web/basic-canvas.js`, `web/basic-canvas.wasm`, and `web/canvas.html`. The page refreshes the canvas during `SLEEP` and loops via a shared RGBA framebuffer.
+**PETSCII canvas** (no Raylib): `make basic-wasm-canvas` produces `web/basic-canvas.js`, `web/basic-canvas.wasm`, and `web/canvas.html`. The page refreshes the canvas during `SLEEP` and loops via a shared RGBA framebuffer (PETSCII, `SCREEN 1` bitmap, and **`LOADSPRITE`/`DRAWSPRITE`** like **basic-gfx**). Try **`examples/gfx_canvas_demo.bas`**: paste into the canvas page, use **Upload to VFS** to add **`gfx_canvas_demo.png`** (same file is copied to **`web/gfx_canvas_demo.png`** for local fetch tests), then Run.
 
 **Automated WASM smoke tests** (headless Chromium via Playwright): install `pip install -r tests/requirements-wasm.txt`, run `python3 -m playwright install chromium`, then `make wasm-test`, `make wasm-canvas-test`, and **`make wasm-tutorial-test`**. These run in GitHub Actions for **tagged releases** and the **nightly** workflow; artifacts include `cbm-basic-wasm.tar.gz` (terminal, modular tutorial files, and canvas).
 
