@@ -19,7 +19,7 @@
 </head>
 <body>
   <h1>CBM-BASIC — Canvas (40×25 / 80×25 PETSCII)</h1>
-  <p>Click the <strong>canvas</strong> for <code>GET</code> / <code>INKEY$</code>. <code>#OPTION columns 80</code> for wide mode. Rebuild: <code>make basic-wasm-canvas</code>.</p>
+  <p>Click the <strong>canvas</strong> for <code>GET</code> / <code>INKEY$</code>. <code>#OPTION columns 80</code> for wide mode. Rebuild: <code>make basic-wasm-canvas</code>. Diagnostics: open <code>canvas.html?debug=1</code> and watch the browser console (build stamp, FOR/GOSUB stacks on error; optional <code>Module.canvasDebugDumpStacks()</code> anytime).</p>
 
   <textarea id="program" spellcheck="false">10 PRINT "{WHT}HELLO FROM CANVAS"
 20 END
@@ -76,6 +76,16 @@
   var wasmRunPending = false;
   var lastRgbaVer = 0;
   var copyFailLogged = false;
+
+  var urlParams = new URLSearchParams(window.location.search);
+  var canvasDebugEnabled = urlParams.get('debug') === '1' || urlParams.get('canvasdebug') === '1';
+
+  function canvasDbg() {
+    if (!canvasDebugEnabled || typeof console === 'undefined' || !console.log) return;
+    var args = Array.prototype.slice.call(arguments);
+    args.unshift('[cbm-basic canvas]');
+    console.log.apply(console, args);
+  }
 
   function logErr(msg) {
     logEl.textContent = msg || '';
@@ -241,6 +251,34 @@
       }
       lastRgbaVer = Module._wasm_gfx_rgba_version_read ? numPtr(Module._wasm_gfx_rgba_version_read()) : 0;
 
+      canvasDbg('page', window.location.href);
+      if (canvasDebugEnabled) {
+        try {
+          if (Module._wasm_canvas_build_stamp) {
+            var stamp = Module.ccall('wasm_canvas_build_stamp', 'string', [], []);
+            canvasDbg('wasm build stamp:', stamp);
+          } else {
+            canvasDbg('wasm_canvas_build_stamp not exported — rebuild: make basic-wasm-canvas');
+          }
+          if (Module._wasm_canvas_set_debug) {
+            Module.ccall('wasm_canvas_set_debug', null, ['number'], [1]);
+          }
+          if (Module._wasm_canvas_set_debug_trace_for) {
+            Module.ccall('wasm_canvas_set_debug_trace_for', null, ['number'], [1]);
+          }
+          canvasDbg('debug mode: runtime errors log FOR/GOSUB stacks; FOR/NEXT/RETURN trace lines to console');
+        } catch (e) {
+          canvasDbg('debug init failed', e);
+        }
+      }
+      Module.canvasDebugDumpStacks = function() {
+        if (Module._wasm_debug_log_stacks) {
+          Module.ccall('wasm_debug_log_stacks', null, [], []);
+        } else {
+          canvasDbg('wasm_debug_log_stacks not exported — rebuild: make basic-wasm-canvas');
+        }
+      };
+
       runBtn.onclick = function() {
         logErr('');
         copyFailLogged = false;
@@ -261,12 +299,20 @@
         }
         Module.FS.writeFile('/program.bas', programEl.value);
         canvas.focus();
+        if (canvasDebugEnabled && Module._wasm_debug_log_stacks) {
+          canvasDbg('--- stacks before RUN ---');
+          Module.canvasDebugDumpStacks();
+        }
         Module.ccall('basic_load_and_run_gfx', null, ['string'], ['/program.bas'], { async: true })
           .catch(function(e) { logErr(String(e && e.message ? e.message : e)); })
           .finally(function() {
             wasmRunPending = false;
             runBtn.disabled = false;
             stopBtn.disabled = true;
+            if (canvasDebugEnabled && Module._wasm_debug_log_stacks) {
+              canvasDbg('--- stacks after RUN ---');
+              Module.canvasDebugDumpStacks();
+            }
             copyRgbaFromWasm();
           });
       };
