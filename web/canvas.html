@@ -156,6 +156,14 @@
   optPlain.addEventListener('change', function() { if (optPlain.checked) optPetscii.checked = true; });
   optPetscii.addEventListener('change', function() { if (!optPetscii.checked) optPlain.checked = false; });
 
+  /* C64 palette indices 0–15 (same RGB as gfx_canvas.c / Raylib). */
+  var C64_PALETTE_RGB = [
+    [0, 0, 0], [255, 255, 255], [136, 0, 0], [170, 255, 238],
+    [204, 68, 204], [0, 204, 85], [0, 0, 170], [238, 238, 119],
+    [221, 136, 85], [102, 68, 0], [255, 119, 119], [51, 51, 51],
+    [119, 119, 119], [170, 255, 102], [0, 136, 255], [187, 187, 187]
+  ];
+
   function copyRgbaFromWasm() {
     var M = Module;
     if (!M || !M._wasm_gfx_rgba_ptr) {
@@ -204,13 +212,26 @@
       }
       return false;
     }
-    if (canvas.width !== w || canvas.height !== h) {
-      canvas.width = w;
-      canvas.height = h;
+    var borderPx = (typeof M.wasmGfxBorderPx === 'number' && M.wasmGfxBorderPx > 0) ? (M.wasmGfxBorderPx | 0) : 0;
+    if (borderPx > 256) borderPx = 256;
+    var bci = (typeof M.wasmGfxBorderColorIdx === 'number') ? M.wasmGfxBorderColorIdx : -1;
+    var bgIdx = (typeof M.wasmGfxContentBgIdx === 'number') ? (M.wasmGfxContentBgIdx & 15) : 0;
+    var borderIdx = (bci >= 0 && bci <= 15) ? (bci & 15) : bgIdx;
+    var brgb = C64_PALETTE_RGB[borderIdx] || C64_PALETTE_RGB[0];
+    var cw = w + 2 * borderPx;
+    var ch = h + 2 * borderPx;
+    if (canvas.width !== cw || canvas.height !== ch) {
+      canvas.width = cw;
+      canvas.height = ch;
+      img = null;
+    }
+    ctx.fillStyle = 'rgb(' + brgb[0] + ',' + brgb[1] + ',' + brgb[2] + ')';
+    ctx.fillRect(0, 0, cw, ch);
+    if (!img || img.width !== w || img.height !== h) {
       img = ctx.createImageData(w, h);
     }
     img.data.set(u8);
-    ctx.putImageData(img, 0, 0);
+    ctx.putImageData(img, borderPx, borderPx);
     return true;
   }
 
