@@ -9,5 +9,6 @@ make clean
 make
 make basic-gfx
 make basic-wasm
+make basic-wasm-modular
 make basic-wasm-canvas
-# Optional: make wasm-test && make wasm-canvas-test  (needs Playwright)
+# Optional: make wasm-test && make wasm-canvas-test && make wasm-tutorial-test  (needs Playwright)
