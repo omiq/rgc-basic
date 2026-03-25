@@ -208,7 +208,7 @@ jobs:
           sudo apt-get install -y emscripten
 
       - name: Build WASM
-        run: make basic-wasm
+        run: make basic-wasm basic-wasm-canvas
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -220,13 +220,16 @@ jobs:
           pip install -r tests/requirements-wasm.txt
           python -m playwright install chromium --with-deps
 
-      - name: Run WASM browser smoke test
-        run: python3 tests/wasm_browser_test.py
+      - name: Run WASM browser smoke tests
+        run: |
+          python3 tests/wasm_browser_test.py
+          python3 tests/wasm_browser_canvas_test.py
 
       - name: Package WASM artifact
         run: |
           mkdir -p out/wasm
           cp web/basic.js web/basic.wasm web/index.html out/wasm/
+          cp web/basic-canvas.js web/basic-canvas.wasm web/canvas.html out/wasm/
           cp web/README.md out/wasm/
           cd out
           tar czf cbm-basic-wasm.tar.gz wasm

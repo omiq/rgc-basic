@@ -52,6 +52,9 @@
 #ifdef GFX_VIDEO
 #include "gfx_video.h"
 #include "basic_api.h"
+#if defined(__EMSCRIPTEN__)
+#include "gfx_canvas.h"
+#endif
 #endif
 #if defined(__EMSCRIPTEN__)
 /* Browser: no termios, no Windows API */
@@ -1018,10 +1021,13 @@ static int wasm_key_peek_byte(void)
     return (int)wasm_key_ring[wasm_key_head];
 }
 
+/* wasm_push_key: non-GFX emscripten build only (canvas build defines below in GFX_VIDEO). */
+#if !defined(GFX_VIDEO)
 EMSCRIPTEN_KEEPALIVE void wasm_push_key(unsigned int code)
 {
     wasm_key_push_byte((unsigned char)(code & 0xFF));
 }
+#endif
 
 /* Asyncify: wait until JS delivers one byte (GET blocking, or line-feed for INPUT). */
 static void wasm_yield_until_key(void)
@@ -1079,6 +1085,31 @@ static void wasm_read_input_line_blocking(char *buf, size_t cap)
 
 #ifdef GFX_VIDEO
 static GfxVideoState *gfx_vs = NULL;
+
+#if defined(__EMSCRIPTEN__)
+static void wasm_gfx_refresh_js(void);
+static void wasm_maybe_yield_loop(void);
+static void wasm_canvas_sync_charset_from_options(void);
+#endif
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE void wasm_push_key(unsigned int code)
+{
+    unsigned char b = (unsigned char)(code & 0xFF);
+    wasm_key_push_byte(b);
+    if (gfx_vs) {
+        uint8_t next = (uint8_t)(gfx_vs->key_q_tail + 1);
+        if (next >= (uint8_t)sizeof(gfx_vs->key_queue)) {
+            next = 0;
+        }
+        if (next != gfx_vs->key_q_head) {
+            gfx_vs->key_queue[gfx_vs->key_q_tail] = b;
+            gfx_vs->key_q_tail = next;
+        }
+    }
+}
+#endif
+
 void basic_set_gfx_window_title(const char *);  /* forward, for #OPTION gfx_title */
 void basic_set_gfx_border(int);                 /* forward, for #OPTION border */
 void basic_set_gfx_border_color(int);           /* forward, for #OPTION border */
@@ -1392,11 +1423,17 @@ static int apply_option_directive(const char *name, const char *value)
         if (str_eq_ci(value, "upper") || str_eq_ci(value, "uc")) {
             petscii_lowercase_opt = 0;
             petscii_set_lowercase(0);
+#if defined(GFX_VIDEO) && defined(__EMSCRIPTEN__)
+            wasm_canvas_sync_charset_from_options();
+#endif
             return 0;
         }
         if (str_eq_ci(value, "lower") || str_eq_ci(value, "lc")) {
             petscii_lowercase_opt = 1;
             petscii_set_lowercase(1);
+#if defined(GFX_VIDEO) && defined(__EMSCRIPTEN__)
+            wasm_canvas_sync_charset_from_options();
+#endif
             return 0;
         }
         return -1;
@@ -2795,7 +2832,13 @@ static void statement_sleep(char **p)
         v = eval_expr(p);
     }
     ensure_num(&v);
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+    wasm_gfx_refresh_js();
+#endif
     do_sleep_ticks(v.num);
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+    wasm_gfx_refresh_js();
+#endif
 }
 
 static void statement_cursor(char **p)
@@ -5648,6 +5691,9 @@ static int gfx_read_line(char *buf, int size)
                 gfx_put_byte((unsigned char)b);
             }
         } else {
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+            wasm_gfx_refresh_js();
+#endif
             do_sleep_ticks(1.0 / 60.0);
         }
     }
@@ -6691,6 +6737,9 @@ static void statement_goto(char **p)
     } else {
         runtime_error("Expected line number or label in GOTO");
     }
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+    wasm_maybe_yield_loop();
+#endif
 }
 
 static void statement_gosub(char **p)
@@ -7062,6 +7111,9 @@ static void statement_wend(char **p)
         current_line = while_stack[idx].line_index;
         statement_pos = while_stack[idx].position;
         while_top--;
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+        wasm_maybe_yield_loop();
+#endif
     }
 }
 
@@ -7168,6 +7220,9 @@ static void statement_loop(char **p)
         current_line = do_stack[idx].line_index;
         statement_pos = do_stack[idx].position;
         *p = statement_pos;
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+        wasm_maybe_yield_loop();
+#endif
     }
 }
 
@@ -7328,6 +7383,9 @@ static void statement_next(char **p)
         (for_stack[for_top - 1].step < 0 && vp->num >= for_stack[for_top - 1].end_value)) {
         current_line = for_stack[for_top - 1].line_index;
         statement_pos = for_stack[for_top - 1].resume_pos;
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+        wasm_maybe_yield_loop();
+#endif
     } else {
         for_top--;
     }
@@ -8216,6 +8274,12 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
     if_depth = 0;
     while (!halted && current_line >= 0 && current_line < line_count) {
         char *p;
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+        if (EM_ASM_INT({ return (typeof Module !== 'undefined' && Module['wasmStopRequested']) ? 1 : 0; })) {
+            halted = 1;
+            break;
+        }
+#endif
         if (statement_pos == NULL) {
             statement_pos = program_lines[current_line]->text;
         }
@@ -8230,9 +8294,16 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
         execute_statement(&statement_pos);
 #if defined(__EMSCRIPTEN__)
         wasm_stmt_budget++;
+#if defined(GFX_VIDEO)
+        if ((wasm_stmt_budget & 31) == 0) {
+            wasm_gfx_refresh_js();
+            emscripten_sleep(0);
+        }
+#else
         if ((wasm_stmt_budget & 2047) == 0) {
             emscripten_sleep(0);
         }
+#endif
 #endif
         if (halted) {
             break;
@@ -8439,7 +8510,79 @@ int basic_get_gfx_border_color(void)
 {
     return gfx_border_color;
 }
-#endif
+
+#if defined(__EMSCRIPTEN__)
+/* Browser canvas: shared video + RGBA framebuffer for JS rAF (Asyncify-safe). */
+#define WASM_GFX_RGBA_BYTES (640u * 200u * 4u)
+static GfxVideoState wasm_gfx_state;
+static uint8_t wasm_gfx_rgba[WASM_GFX_RGBA_BYTES];
+static volatile uint32_t wasm_gfx_rgba_version;
+
+static void wasm_gfx_refresh_js(void)
+{
+    if (!gfx_vs) {
+        return;
+    }
+    gfx_canvas_render_rgba(gfx_vs, wasm_gfx_rgba, sizeof(wasm_gfx_rgba));
+    wasm_gfx_rgba_version++;
+    EM_ASM({
+        if (typeof Module !== 'undefined') {
+            Module['wasmGfxFbW'] = $0;
+            Module['wasmGfxFbH'] = $1;
+            Module['wasmGfxRgbaVersion'] = $2;
+        }
+    }, gfx_cols() * 8, GFX_ROWS * 8, wasm_gfx_rgba_version);
+}
+
+static void wasm_canvas_sync_charset_from_options(void)
+{
+    if (!gfx_vs) {
+        return;
+    }
+    wasm_gfx_state.charset_lowercase = (uint8_t)(petscii_get_lowercase() ? 1 : 0);
+    gfx_vs->charset_lowercase = wasm_gfx_state.charset_lowercase;
+    gfx_canvas_load_default_charrom(gfx_vs);
+    wasm_gfx_refresh_js();
+}
+
+EMSCRIPTEN_KEEPALIVE uint8_t *wasm_gfx_rgba_ptr(void)
+{
+    return wasm_gfx_rgba;
+}
+
+EMSCRIPTEN_KEEPALIVE uint32_t wasm_gfx_rgba_version_read(void)
+{
+    return wasm_gfx_rgba_version;
+}
+
+static void wasm_gfx_set_video(void)
+{
+    gfx_video_init(&wasm_gfx_state);
+    wasm_gfx_state.charset_lowercase = (uint8_t)(petscii_get_lowercase() ? 1 : 0);
+    gfx_canvas_load_default_charrom(&wasm_gfx_state);
+    memset(wasm_gfx_state.screen, 32, GFX_TEXT_SIZE);
+    memset(wasm_gfx_state.color, 14, GFX_COLOR_SIZE);
+    basic_set_video(&wasm_gfx_state);
+    wasm_gfx_refresh_js();
+}
+
+EMSCRIPTEN_KEEPALIVE void basic_load_and_run_gfx(const char *path)
+{
+    EM_ASM({ if (typeof Module !== 'undefined') { Module['wasmGfxRunDone'] = 0; } });
+    load_program(path);
+    wasm_gfx_set_video();
+    run_program(path, 0, NULL);
+    wasm_gfx_refresh_js();
+    EM_ASM({ if (typeof Module !== 'undefined') { Module['wasmGfxRunDone'] = 1; } });
+}
+
+static void wasm_maybe_yield_loop(void)
+{
+    wasm_gfx_refresh_js();
+    emscripten_sleep(0);
+}
+#endif /* __EMSCRIPTEN__ */
+#endif /* GFX_VIDEO */
 
 /* ── Terminal-mode entry point (not used when GFX_VIDEO or __EMSCRIPTEN__) ── */
 
