@@ -49,6 +49,7 @@ cd web && python3 -m http.server 8080
 - **GET** / **INKEY$**: click the output panel so it is focused, then type. Keys are sent with **`wasm_push_key`** (byte). While the interpreter waits for a key, **`Module.wasmWaitingKey`** is `1` (green outline in the demo).
 - **SYSTEM** and **EXEC$** are not available in the browser (return -1 / empty string).
 - **OPEN/PRINT#/INPUT#** work via Emscripten's virtual filesystem. Use paths like `"out.txt"` (writes to virtual FS).
+- **Upload to VFS** / **Download from VFS** (`vfs-helpers.js`): put files from your machine into MEMFS or save a file from the VFS (e.g. after `PRINT#`). Same helpers load in tutorial embeds by default.
 
 ## API (for embedding)
 
