@@ -12,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "web"
+GFX_CANVAS_DEMO_BAS = ROOT / "examples" / "gfx_canvas_demo.bas"
 
 
 def _serve_web() -> tuple[socketserver.TCPServer, int]:
@@ -248,6 +249,41 @@ def main() -> int:
             if log_sp.strip():
                 browser.close()
                 raise RuntimeError(f"sprite test error log: {log_sp!r}")
+
+            # Full example: examples/gfx_canvas_demo.bas + gfx_canvas_demo.png (served from web/)
+            if not GFX_CANVAS_DEMO_BAS.is_file():
+                browser.close()
+                raise RuntimeError(f"missing {GFX_CANVAS_DEMO_BAS}")
+            page.wait_for_function(
+                "() => !document.getElementById('run').disabled",
+                timeout=60000,
+            )
+            demo_src = GFX_CANVAS_DEMO_BAS.read_text(encoding="utf-8")
+            page.evaluate(
+                """async () => {
+              const r = await fetch('gfx_canvas_demo.png');
+              const buf = await r.arrayBuffer();
+              Module.FS.writeFile('/gfx_canvas_demo.png', new Uint8Array(buf));
+            }"""
+            )
+            page.fill("#program", demo_src)
+            _click_run(page)
+            time.sleep(0.8)
+            demo_px = _canvas_pixel_rgba(page, 104, 104)
+            dr, dg, db = int(demo_px[0]), int(demo_px[1]), int(demo_px[2])
+            if dr < 200 or dg > 80 or db > 80:
+                browser.close()
+                raise RuntimeError(
+                    f"gfx_canvas_demo: expected red inside sprite at (104,104), got rgba={demo_px!r}"
+                )
+            page.wait_for_function(
+                "() => (window.Module && Module.wasmGfxRunDone === 1)",
+                timeout=120000,
+            )
+            log_demo = page.text_content("#log") or ""
+            if log_demo.strip():
+                browser.close()
+                raise RuntimeError(f"gfx_canvas_demo error log: {log_demo!r}")
 
             browser.close()
     finally:
