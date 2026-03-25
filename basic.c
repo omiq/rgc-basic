@@ -4506,8 +4506,41 @@ static struct value eval_function(const char *name, char **p)
         }
         {
             char buf[MAX_STR_LEN];
+            char *q;
             strncpy(buf, arg.str, sizeof(buf) - 1);
             buf[sizeof(buf) - 1] = '\0';
+            q = buf;
+            skip_spaces(&q);
+            /* LET-style assignment: "a=a+10" is not a comparison inside eval_expr; treat as assign. */
+            if (isalpha((unsigned char)*q)) {
+                char namebuf[VAR_NAME_MAX];
+                char norm[VAR_NAME_MAX];
+                char *scan = q;
+                int is_slhs = 0;
+                struct var *v;
+                read_identifier(&scan, namebuf, sizeof(namebuf));
+                uppercase_name(namebuf, norm, sizeof(norm), &is_slhs);
+                if (norm[0] != '\0' && !is_reserved_word(norm)) {
+                    skip_spaces(&scan);
+                    if (*scan == '=') {
+                        scan++;
+                        skip_spaces(&scan);
+                        v = find_or_create_var(norm, is_slhs, 0, 0, NULL, 0);
+                        if (v) {
+                            struct value rhs = eval_expr(&scan);
+                            if (is_slhs) {
+                                ensure_str(&rhs);
+                                rhs.type = VAL_STR;
+                            } else {
+                                ensure_num(&rhs);
+                                rhs.type = VAL_NUM;
+                            }
+                            v->scalar = rhs;
+                            return rhs;
+                        }
+                    }
+                }
+            }
             ep = buf;
             result = eval_expr(&ep);
         }
