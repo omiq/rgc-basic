@@ -75,10 +75,17 @@
   var img = ctx.createImageData(320, 200);
   var wasmRunPending = false;
   var lastRgbaVer = 0;
+  var copyFailLogged = false;
 
   function logErr(msg) {
     logEl.textContent = msg || '';
     logEl.classList.toggle('has-content', !!(msg && msg.length));
+  }
+
+  function numPtr(p) {
+    if (p == null) return 0;
+    if (typeof p === 'bigint') return Number(p);
+    return Number(p);
   }
 
   function buildArgString() {
@@ -95,8 +102,15 @@
   function wasmMemoryBuffer() {
     var M = window.Module;
     if (!M) return null;
-    if (M.asm && M.asm.memory) return M.asm.memory.buffer;
+    if (M.wasmMemory && M.wasmMemory.buffer) return M.wasmMemory.buffer;
+    if (M.asm && M.asm.memory && M.asm.memory.buffer) return M.asm.memory.buffer;
     if (M.HEAPU8 && M.HEAPU8.buffer) return M.HEAPU8.buffer;
+    if (M.HEAP8 && M.HEAP8.buffer) return M.HEAP8.buffer;
+    try {
+      if (typeof M.wasmExports === 'object' && M.wasmExports && M.wasmExports.memory) {
+        return M.wasmExports.memory.buffer;
+      }
+    } catch (e) {}
     return null;
   }
 
@@ -122,14 +136,39 @@
 
   function copyRgbaFromWasm() {
     var M = Module;
-    if (!M || !M._wasm_gfx_rgba_ptr) return false;
-    var ptr = Number(M._wasm_gfx_rgba_ptr());
+    if (!M || !M._wasm_gfx_rgba_ptr) {
+      if (!copyFailLogged) {
+        copyFailLogged = true;
+        logErr('Canvas: _wasm_gfx_rgba_ptr missing — rebuild with make basic-wasm-canvas and hard-refresh.');
+      }
+      return false;
+    }
+    var ptr = numPtr(M._wasm_gfx_rgba_ptr());
     var buf = wasmMemoryBuffer();
     var w = M.wasmGfxFbW || 320;
     var h = M.wasmGfxFbH || 200;
     var need = w * h * 4;
-    if (!buf || ptr < 0 || ptr + need > buf.byteLength) return false;
-    var u8 = new Uint8Array(buf, ptr, need);
+    var hu = heapU8();
+    var u8 = null;
+    if (buf && ptr >= 0 && ptr + need <= buf.byteLength) {
+      try {
+        u8 = new Uint8Array(buf, ptr, need);
+      } catch (e) {
+        u8 = null;
+      }
+    }
+    if (!u8 && hu && ptr >= 0 && ptr + need <= hu.length) {
+      u8 = hu.subarray(ptr, ptr + need);
+    }
+    if (!u8) {
+      if (!copyFailLogged) {
+        copyFailLogged = true;
+        logErr('Canvas: could not read RGBA from WASM heap (ptr=' + ptr + ', need=' + need +
+          ', heapLen=' + (hu ? hu.length : 'n/a') + ', memBuf=' + (buf ? buf.byteLength : 'null') +
+          '). Try another browser or check DevTools console for WASM errors.');
+      }
+      return false;
+    }
     if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w;
       canvas.height = h;
@@ -145,7 +184,7 @@
     if (!wasmRunPending) return;
     var M = Module;
     if (!M || !M._wasm_gfx_rgba_version_read) return;
-    var ver = M._wasm_gfx_rgba_version_read();
+    var ver = numPtr(M._wasm_gfx_rgba_version_read());
     if (ver !== lastRgbaVer) {
       lastRgbaVer = ver;
       copyRgbaFromWasm();
@@ -165,14 +204,23 @@
       inputLineEl.value = '';
       inputLineEl.focus();
     },
+    onAbort: function(what) {
+      logErr('WASM aborted: ' + (what || 'unknown'));
+      wasmRunPending = false;
+      runBtn.disabled = false;
+      stopBtn.disabled = true;
+    },
     onRuntimeInitialized: function() {
       runBtn.disabled = false;
       applyZoom();
-      copyRgbaFromWasm();
-      lastRgbaVer = Module._wasm_gfx_rgba_version_read ? Module._wasm_gfx_rgba_version_read() : 0;
+      if (!copyRgbaFromWasm()) {
+        /* logErr may already be set by copyRgbaFromWasm */
+      }
+      lastRgbaVer = Module._wasm_gfx_rgba_version_read ? numPtr(Module._wasm_gfx_rgba_version_read()) : 0;
 
       runBtn.onclick = function() {
         logErr('');
+        copyFailLogged = false;
         inputLineRow.classList.remove('active');
         Module.wasmStopRequested = 0;
         wasmRunPending = true;
