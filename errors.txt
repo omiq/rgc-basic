@@ -1,0 +1,6 @@
+Already up to date.
+rm -f basic gfx_video_test gfx-demo basic-gfx
+rm -f web/basic.js web/basic.wasm web/basic.wasm.map 2>/dev/null || true
+rm -f web/basic-canvas.js web/basic-canvas.wasm web/basic-canvas.wasm.map 2>/dev/null || true
+cc -Wall -Wextra -std=c99 -O2 -o basic basic.c petscii.c -lm
+cc -Wall -Wextra -std=c99 -O2 -DGFX_VIDEO -Igfx -I/usr/local/include  -o basic-gfx basic.c petscii.c gfx/gfx_video.c gfx/gfx_charrom.c gfx/gfx_raylib.c -lm -L/usr/local/lib -lraylib  -ldl -lpthread
