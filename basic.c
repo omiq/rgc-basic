@@ -6138,10 +6138,9 @@ static void statement_restore(char **p)
 
 /* CLR: reset all variables to 0/empty, clear GOSUB/FOR stacks, reset DATA pointer.
  * DEF FN definitions are left intact (CBM-style). */
-static void statement_clr(char **p)
+static void basic_clr_memory(void)
 {
     int i, j;
-    (void)p;
 
     for (i = 0; i < var_count; i++) {
         struct var *v = &vars[i];
@@ -6158,6 +6157,12 @@ static void statement_clr(char **p)
     do_top = 0;
     if_depth = 0;
     data_index = 0;
+}
+
+static void statement_clr(char **p)
+{
+    (void)p;
+    basic_clr_memory();
 }
 
 /* SORT arr [, mode]: in-place sort. mode: 1 or "asc" (default), -1 or "desc". */
@@ -8226,6 +8231,8 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
 #if defined(__EMSCRIPTEN__)
     int wasm_stmt_budget = 0;
 #endif
+    /* Fresh run: same effect as CLR so prior RUN does not leave variables (browser re-RUN, etc.). */
+    basic_clr_memory();
     script_path = script_path_arg;
     script_argc = nargs;
     script_argv = args;
