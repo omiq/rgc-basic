@@ -474,7 +474,8 @@ You can either use the provided `Makefile` (recommended) or compile manually.
   - **Windows (MinGW)**: `basic-gfx` is built with static winpthread so it does not require `libwinpthread-1.dll`. The nightly and release builds bundle `libraylib.dll` and `glfw3.dll` with `basic-gfx.exe`. If you build locally, copy both DLLs from your MinGW `bin` folder (e.g. `C:\msys64\mingw64\bin\`) into the same directory as `basic-gfx.exe`.
   - **Linux (downloads)**: Pre-built `basic-gfx` needs `libraylib.so` matching the build (e.g. `libraylib.so.600`). If you see "cannot open shared object file", install raylib from your distro (`libraylib-dev` or equivalent) or build from source with `make basic-gfx`.
 - **Optional (for browser/WASM build)**:
-  - [Emscripten](https://emscripten.org/) (`emcc`). Install via [emsdk](https://emscripten.org/docs/getting_started/downloads.html), then run `source emsdk_env.sh` (or equivalent) before `make basic-wasm`. Produces `web/basic.js` and `web/basic.wasm` for running the interpreter in the browser.
+  - [Emscripten](https://emscripten.org/) (`emcc`) via **[emsdk](https://emscripten.org/docs/getting_started/downloads.html)** (recommended: `./emsdk install latest && ./emsdk activate latest`, then `source emsdk_env.sh` before `make basic-wasm`). Produces `web/basic.js` and `web/basic.wasm` for running the interpreter in the browser.
+  - **Avoid** `apt install emscripten` on Debian/Ubuntu for this project: distro packages are often **years behind** upstream (different `EM_ASM` / Asyncify behaviour than current emsdk). CI and production deploys use **emsdk** so local builds match what users run. After upgrading emsdk, run `make clean && make basic-wasm basic-wasm-canvas` and redeploy **both** `.js` and `.wasm` together (see `web/canvas.html` cache-bust query).
 
 #### Using `make` (recommended)
 
