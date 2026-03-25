@@ -7227,9 +7227,33 @@ static void statement_for(char **p)
     for_top++;
 }
 
+/* Recover variable name from FOR stack var pointer (when frame name was empty). */
+static int for_stack_var_name(const struct value *vp, char *out, size_t outsz)
+{
+    int j;
+    if (!vp || !out || outsz < 2) {
+        return 0;
+    }
+    for (j = 0; j < var_count; j++) {
+        if (&vars[j].scalar == vp) {
+            strncpy(out, vars[j].name, outsz - 1);
+            out[outsz - 1] = '\0';
+            return 1;
+        }
+        if (vars[j].is_array && vars[j].array &&
+            vp >= vars[j].array && vp < vars[j].array + vars[j].size) {
+            strncpy(out, vars[j].name, outsz - 1);
+            out[outsz - 1] = '\0';
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static void statement_next(char **p)
 {
     char namebuf[VAR_NAME_MAX];
+    char recovered[VAR_NAME_MAX];
     int i;
     struct value *vp;
     int is_string;
@@ -7241,7 +7265,18 @@ static void statement_next(char **p)
         namebuf[0] = '\0';
     }
     for (i = for_top - 1; i >= 0; i--) {
-        if (namebuf[0] == '\0' || strcmp(for_stack[i].name, namebuf) == 0) {
+        if (namebuf[0] == '\0') {
+            break;
+        }
+        if (for_stack[i].name[0] != '\0') {
+            if (strcmp(for_stack[i].name, namebuf) == 0) {
+                break;
+            }
+            continue;
+        }
+        /* Older builds / edge cases: frame name empty but var pointer is valid. */
+        if (for_stack_var_name(for_stack[i].var, recovered, sizeof(recovered)) &&
+            strcmp(recovered, namebuf) == 0) {
             break;
         }
     }
