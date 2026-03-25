@@ -10,6 +10,7 @@
   - **CI**: GitHub Actions WASM job installs **emsdk** (`latest`) instead of distro `apt` emscripten; builds both targets; runs `tests/wasm_browser_test.py` and `tests/wasm_browser_canvas_test.py`.
   - **Optional**: `canvas.html?debug=1` — console diagnostics (`wasm_canvas_build_stamp`, stack dumps on error).
   - **Tutorial embedding**: `make basic-wasm-modular` → `web/basic-modular.js` + `basic-modular.wasm` (`MODULARIZE=1`, `createBasicModular`). `web/tutorial-embed.js` mounts multiple terminal-style interpreters per page (`CbmBasicTutorialEmbed.mount`). Guide: `docs/tutorial-embedding.md`; example: `web/tutorial-example.html`. Test: `make wasm-tutorial-test`.
+  - **Virtual FS upload/export**: `web/vfs-helpers.js` — `CbmVfsHelpers.vfsUploadFiles`, `vfsExportFile`, `vfsMountUI` (browser → MEMFS and MEMFS → download). Wired into `web/index.html`, `web/canvas.html`, and tutorial embeds (`showVfsTools`). CI WASM artifacts include `vfs-helpers.js`.
 
 - **80-column option (terminal + basic-gfx + WASM canvas)**
   - **Terminal**: `#OPTION columns N` / `-columns N` (1–255); default 40. Comma/TAB zones scale: 10 at 40 cols, 20 at 80 cols. `#OPTION nowrap` / `-nowrap`: disable wrapping.

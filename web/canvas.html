@@ -19,7 +19,7 @@
 </head>
 <body>
   <h1>CBM-BASIC — Canvas (40×25 / 80×25 PETSCII)</h1>
-  <p>Click the <strong>canvas</strong> for <code>GET</code> / <code>INKEY$</code>. <code>#OPTION columns 80</code> for wide mode. Rebuild: <code>make basic-wasm-canvas</code>. After deploy, use <code>canvas.html?cb=</code><em>anything</em> once if you see <code>ASM_CONSTS</code> errors (forces JS+WASM to load as a pair). Diagnostics: <code>canvas.html?debug=1</code> — console shows build stamp and stacks; <code>Module.canvasDebugDumpStacks()</code> anytime.</p>
+  <p>Click the <strong>canvas</strong> for <code>GET</code> / <code>INKEY$</code>. <strong>Upload to VFS</strong> / <strong>Download from VFS</strong> move files into or out of WASM memory for <code>OPEN</code> / <code>PRINT#</code>. <code>#OPTION columns 80</code> for wide mode. Rebuild: <code>make basic-wasm-canvas</code>. After deploy, use <code>canvas.html?cb=</code><em>anything</em> once if you see <code>ASM_CONSTS</code> errors (forces JS+WASM to load as a pair). Diagnostics: <code>canvas.html?debug=1</code> — console shows build stamp and stacks; <code>Module.canvasDebugDumpStacks()</code> anytime.</p>
 
   <textarea id="program" spellcheck="false">10 PRINT "{WHT}HELLO FROM CANVAS"
 20 END
@@ -43,6 +43,8 @@
     <button type="button" id="fsBtn">Fullscreen</button>
   </div>
 
+  <div id="vfsHost" style="margin-top:0.35rem"></div>
+
   <div id="canvasWrap">
     <canvas id="screen" width="320" height="200" tabindex="0" title="Click here, then type for GET / INKEY$"></canvas>
   </div>
@@ -54,6 +56,7 @@
 
   <div id="log"></div>
 
+  <script src="vfs-helpers.js"></script>
   <script>
 (function() {
   var canvas = document.getElementById('screen');
@@ -75,6 +78,7 @@
   var inputLineRow = document.getElementById('inputLineRow');
   var inputLineEl = document.getElementById('inputLine');
   var inputLabelEl = document.getElementById('inputLabel');
+  var vfsHost = document.getElementById('vfsHost');
 
   var img = ctx.createImageData(320, 200);
   var wasmRunPending = false;
@@ -289,6 +293,15 @@
           canvasDbg('wasm_debug_log_stacks not exported — rebuild: make basic-wasm-canvas');
         }
       };
+
+      if (typeof CbmVfsHelpers !== 'undefined' && vfsHost) {
+        CbmVfsHelpers.vfsMountUI(vfsHost, Module, {
+          pathDefault: '/out.txt',
+          onStatus: function(msg, isErr) {
+            logErr(msg);
+          }
+        });
+      }
 
       runBtn.onclick = function() {
         logErr('');

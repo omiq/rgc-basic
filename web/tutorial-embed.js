@@ -10,6 +10,7 @@
   'use strict';
 
   var modularScriptPromise = null;
+  var vfsHelpersPromise = null;
 
   function ensureTrailingSlash(url) {
     if (!url) return '';
@@ -155,6 +156,32 @@
     return modularScriptPromise;
   }
 
+  function loadVfsHelpers(baseUrl) {
+    if (global.CbmVfsHelpers) {
+      return Promise.resolve();
+    }
+    if (vfsHelpersPromise) {
+      return vfsHelpersPromise;
+    }
+    vfsHelpersPromise = new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = baseUrl + 'vfs-helpers.js';
+      s.async = true;
+      s.onload = function () {
+        if (global.CbmVfsHelpers) {
+          resolve();
+        } else {
+          reject(new Error('CbmVfsHelpers missing after vfs-helpers.js'));
+        }
+      };
+      s.onerror = function () {
+        reject(new Error('Failed to load ' + baseUrl + 'vfs-helpers.js'));
+      };
+      document.head.appendChild(s);
+    });
+    return vfsHelpersPromise;
+  }
+
   /**
    * @param {HTMLElement} container
    * @param {object} [opts]
@@ -165,6 +192,7 @@
    * @param {string} [opts.flags='-petscii -palette ansi -charset upper'] - passed to basic_apply_arg_string
    * @param {boolean} [opts.showEditor=true]
    * @param {boolean} [opts.showPauseStop=true]
+   * @param {boolean} [opts.showVfsTools=true] - Upload/Download virtual FS (needs vfs-helpers.js beside basic-modular.js)
    * @returns {Promise<{ run: function, resetOutput: function, destroy: function, getModule: function }>}
    */
   function mount(container, opts) {
@@ -178,6 +206,7 @@
     var flags = opts.flags != null ? opts.flags : '-petscii -palette ansi -charset upper';
     var showEditor = opts.showEditor !== false;
     var showPauseStop = opts.showPauseStop !== false;
+    var showVfsTools = opts.showVfsTools !== false;
 
     container.classList.add('cbm-tutorial-embed');
     container.innerHTML = '';
@@ -222,6 +251,11 @@
       toolbar.appendChild(stopBtn);
     }
     container.appendChild(toolbar);
+
+    var vfsHost = document.createElement('div');
+    vfsHost.className = 'cbm-tutorial-vfs';
+    vfsHost.style.marginTop = '0.35rem';
+    container.appendChild(vfsHost);
 
     var out = document.createElement('div');
     out.className = 'cbm-tutorial-output';
@@ -314,6 +348,7 @@
 
     var moduleRef = null;
     var destroyed = false;
+    var vfsRemove = null;
 
     function pollWaitingKey() {
       if (destroyed || !moduleRef) return;
@@ -326,7 +361,20 @@
     }
     requestAnimationFrame(pollWaitingKey);
 
-    return loadCreateBasicModular(baseUrl, opts.modularScript).then(function (createBasicModular) {
+    var p = loadCreateBasicModular(baseUrl, opts.modularScript);
+    if (showVfsTools) {
+      p = p.then(function (x) {
+        return loadVfsHelpers(baseUrl).then(
+          function () {
+            return x;
+          },
+          function () {
+            return x;
+          }
+        );
+      });
+    }
+    return p.then(function (createBasicModular) {
       return createBasicModular({
         locateFile: function (path) {
           if (path.endsWith('.wasm')) {
@@ -352,6 +400,26 @@
         onRuntimeInitialized: function () {
           moduleRef = this;
           runBtn.disabled = false;
+
+          if (showVfsTools && global.CbmVfsHelpers && vfsHost) {
+            try {
+              var ui = global.CbmVfsHelpers.vfsMountUI(vfsHost, moduleRef, {
+                pathDefault: opts.vfsExportPath || '/out.txt',
+                onStatus: function (msg, isErr) {
+                  appendOutputHtml(
+                    '<span style="color:' + (isErr ? '#f14c4c' : '#888') + '">' + escHtml(msg) + '</span><br>',
+                    false
+                  );
+                }
+              });
+              vfsRemove = ui.remove;
+            } catch (e) {
+              appendOutputHtml(
+                '<span style="color:#f14c4c">' + escHtml(String(e && e.message ? e.message : e)) + '</span><br>',
+                true
+              );
+            }
+          }
 
           runBtn.onclick = function () {
             clearOutput();
@@ -448,6 +516,12 @@
           },
           destroy: function () {
             destroyed = true;
+            if (vfsRemove) {
+              try {
+                vfsRemove();
+              } catch (e) {}
+              vfsRemove = null;
+            }
             if (moduleRef) {
               try {
                 moduleRef.wasmStopRequested = 1;
