@@ -70,6 +70,9 @@ gfx_video_test
 CHARS.DAT
 *.DAT
 
+# Local Emscripten SDK (optional: clone here and source emsdk/emsdk_env.sh)
+emsdk/
+
 # Web/WASM build artifacts
 web/basic.js
 web/basic.wasm
