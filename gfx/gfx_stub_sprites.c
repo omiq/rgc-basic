@@ -1,6 +1,6 @@
-/* Stubs for Raylib sprite API when building WASM canvas (no textures). */
+/* No-op sprite queue for builds without Raylib (browser canvas). */
 
-#include "basic_api.h"
+#include "gfx_video.h"
 
 void gfx_set_sprite_base_dir(const char *dir)
 {

@@ -131,9 +131,15 @@
         return out;
       }
 
+      /* Emscripten may call print() once per fputc — newline often arrives separate from text. */
+      var stdoutLineBuf = '';
+      var stderrLineBuf = '';
+
       function clearOutput() {
         output.innerHTML = '';
         output.classList.remove('err');
+        stdoutLineBuf = '';
+        stderrLineBuf = '';
       }
 
       function appendOutputHtml(html, isError) {
@@ -143,19 +149,41 @@
         if (isError) output.classList.add('err');
       }
 
-      /* Split on newlines so PRINT (without ;) shows line breaks in the HTML panel. */
-      function printWithNewlines(text, isError) {
-        var parts = String(text).split(/\r\n|\n|\r/);
+      /* Emit one completed logical line (PRINT without trailing ;). */
+      function emitCompletedLine(line, isError) {
+        appendOutputHtml(ansiToHtmlChunk(line), isError);
+        appendOutputHtml('<br>', isError);
+      }
+
+      function writeStreamChunk(text, isError) {
+        var buf = isError ? stderrLineBuf : stdoutLineBuf;
+        buf += String(text);
+        var parts = buf.split(/\r\n|\n|\r/);
+        var tail = parts.pop();
         for (var i = 0; i < parts.length; i++) {
-          if (i > 0) {
-            appendOutputHtml('<br>', isError);
+          emitCompletedLine(parts[i], isError);
+        }
+        if (isError) {
+          stderrLineBuf = tail;
+        } else {
+          stdoutLineBuf = tail;
+        }
+      }
+
+      function flushStreamTail(isError) {
+        var buf = isError ? stderrLineBuf : stdoutLineBuf;
+        if (buf.length) {
+          appendOutputHtml(ansiToHtmlChunk(buf), isError);
+          if (isError) {
+            stderrLineBuf = '';
+          } else {
+            stdoutLineBuf = '';
           }
-          appendOutputHtml(ansiToHtmlChunk(parts[i]), isError);
         }
       }
 
       function appendOutput(text, isError) {
-        printWithNewlines(text, isError);
+        writeStreamChunk(text, isError);
       }
 
       function buildArgString() {
@@ -225,6 +253,10 @@
             Module.ccall('basic_load_and_run', null, ['string'], ['/program.bas'], { async: true })
               .catch(function(e) {
                 appendOutputHtml('<span class="err">' + escHtml(e && e.message ? e.message : e) + '</span>', true);
+              })
+              .finally(function() {
+                flushStreamTail(false);
+                flushStreamTail(true);
               });
           };
 

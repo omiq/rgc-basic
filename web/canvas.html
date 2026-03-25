@@ -1,422 +1,229 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>CBM-BASIC Canvas (PETSCII)</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CBM-BASIC — Canvas (PETSCII)</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 960px; margin: 1em auto; padding: 0 1em; }
-    body.fs-active { max-width: none; margin: 0; padding: 0.5em; }
-    h1 { font-size: 1.2em; }
-    textarea { width: 100%; height: 160px; font-family: ui-monospace, monospace; font-size: 13px; }
-    .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75em; margin: 0.5em 0; }
-    .toolbar label { font-size: 0.9em; white-space: nowrap; }
-    #screenWrap { background: #222; padding: 8px; border-radius: 6px; display: inline-block; }
-    body.fs-active #screenWrap { display: block; text-align: center; }
-    #screen {
-      display: block;
-      background-color: rgb(0, 0, 170);
-      image-rendering: pixelated;
-      image-rendering: crisp-edges;
-      max-width: 100%;
-      height: auto;
-    }
-    #log {
-      display: none;
-      background: #1e1e1e;
-      color: #ccc;
-      font-family: ui-monospace, monospace;
-      font-size: 12px;
-      padding: 0.5em;
-      max-height: 120px;
-      overflow: auto;
-      white-space: pre-wrap;
-      margin-top: 0.5em;
-    }
+    body { font-family: system-ui, sans-serif; margin: 1rem; max-width: 960px; }
+    textarea#program { width: 100%; height: 220px; font-family: monospace; }
+    #canvasWrap { margin-top: 0.75rem; border: 2px solid #333; display: inline-block; background: #000; }
+    canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; cursor: text; }
+    canvas:focus { outline: 2px solid #4a9eff; }
+    #log { margin-top: 0.5rem; padding: 0.5rem; background: #111; color: #f55; font-family: monospace; white-space: pre-wrap; min-height: 1.5em; display: none; }
     #log.has-content { display: block; }
-    .hint { font-size: 0.85em; color: #555; }
-    #screen:focus { outline: 2px solid #2472c8; outline-offset: 2px; }
+    #inputLineRow { margin-top: 0.5rem; display: none; align-items: center; gap: 0.5rem; }
+    #inputLineRow.active { display: flex; }
+    fieldset { margin: 0.75rem 0; }
   </style>
 </head>
 <body>
   <h1>CBM-BASIC — Canvas (40×25 / 80×25 PETSCII)</h1>
-  <p class="hint">Click the <strong>canvas</strong> for <code>INPUT</code> / <code>GET</code>. Use <code>#OPTION columns 80</code> for wide mode (640×200 framebuffer). <code>#OPTION petscii</code> / <code>#OPTION charset upper</code> on their own lines. <strong>Stop</strong> ends a run (checked every ~256 statements, <code>SLEEP</code>, and each <code>GOTO</code>). Rebuild: <code>make basic-wasm-canvas</code>.</p>
-  <textarea id="program">10 PRINT "{CLR}{WHT}HELLO FROM CANVAS"
-20 LOCATE 0,12: PRINT "POKE 1024,1 : PEEK(1024)"
-30 END</textarea>
-  <div class="toolbar">
-    <button id="run" disabled>Run</button>
-    <button id="stop" type="button" disabled>Stop</button>
-    <label>Zoom <select id="zoom">
-      <option value="1">1×</option>
-      <option value="2" selected>2×</option>
-      <option value="3">3×</option>
-      <option value="4">4×</option>
-    </select></label>
-    <button id="fullscreen" type="button">Fullscreen</button>
+  <p>Click the <strong>canvas</strong> for <code>GET</code> / <code>INKEY$</code>. <code>#OPTION columns 80</code> for wide mode. Rebuild: <code>make basic-wasm-canvas</code>.</p>
+
+  <textarea id="program" spellcheck="false">10 PRINT "{WHT}HELLO FROM CANVAS"
+20 END
+</textarea>
+
+  <fieldset>
+    <legend>Interpreter options</legend>
+    <label><input type="checkbox" id="optPetscii" checked /> PETSCII (-petscii)</label><br />
+    <label><input type="checkbox" id="optPlain" /> Plain PETSCII (-petscii-plain)</label><br />
+    <label>Charset <select id="optCharset"><option>upper</option><option>lower</option></select></label><br />
+    <label>Palette <select id="optPalette"><option>ansi</option><option>c64</option></select></label><br />
+    <label>Columns <input type="number" id="optColumns" value="40" min="1" max="255" style="width:4rem" /></label>
+  </fieldset>
+
+  <div>
+    <button type="button" id="run">Run</button>
+    <button type="button" id="stop" disabled>Stop</button>
+    <label>Zoom <select id="zoomEl"><option value="1">1x</option><option value="2" selected>2x</option><option value="3">3x</option><option value="4">4x</option></select></label>
+    <button type="button" id="fsBtn">Fullscreen</button>
   </div>
-  <div id="screenWrap">
-    <canvas id="screen" width="320" height="200" tabindex="0"></canvas>
+
+  <div id="canvasWrap">
+    <canvas id="screen" width="320" height="200" tabindex="0" title="Click here, then type for GET / INKEY$"></canvas>
   </div>
-  <div id="log" aria-live="polite"></div>
+
+  <div id="inputLineRow">
+    <label id="inputLabel" for="inputLine">INPUT</label>
+    <input type="text" id="inputLine" autocomplete="off" spellcheck="false" size="60" />
+  </div>
+
+  <div id="log"></div>
 
   <script>
 (function() {
-  var CACHEBUST = String(Date.now());
-
   var canvas = document.getElementById('screen');
   var ctx = canvas.getContext('2d', { alpha: false });
+  var programEl = document.getElementById('program');
   var runBtn = document.getElementById('run');
   var stopBtn = document.getElementById('stop');
-  var programEl = document.getElementById('program');
   var logEl = document.getElementById('log');
-  var zoomEl = document.getElementById('zoom');
-  var fsBtn = document.getElementById('fullscreen');
-  var screenWrap = document.getElementById('screenWrap');
+  var optPetscii = document.getElementById('optPetscii');
+  var optPlain = document.getElementById('optPlain');
+  var optCharset = document.getElementById('optCharset');
+  var optPalette = document.getElementById('optPalette');
+  var optColumns = document.getElementById('optColumns');
+  var zoomEl = document.getElementById('zoomEl');
+  var fsBtn = document.getElementById('fsBtn');
+  var canvasWrap = document.getElementById('canvasWrap');
+  var inputLineRow = document.getElementById('inputLineRow');
+  var inputLineEl = document.getElementById('inputLine');
+  var inputLabelEl = document.getElementById('inputLabel');
 
-  var rgbaPtr = 0;
-  var rgbaCap = 640 * 200 * 4;
-  var rgbaSize = 320 * 200 * 4;
-  var frameErrCount = 0;
+  var img = ctx.createImageData(320, 200);
   var wasmRunPending = false;
-  var shadowBase = 0;
-  var lastShadowVer = 0xffffffff;
-  var keyRingPtr = 0;
-  var WASM_JS_KEY_CAP = 512;
-  var shadowImg = null;
-  var imgBuf = null;
+  var lastRgbaVer = 0;
 
-  function fbW() {
-    var M = window.Module;
-    var w = M && M.wasmGfxFbW;
-    return (typeof w === 'number' && w > 0) ? w : 320;
-  }
-  function fbH() {
-    var M = window.Module;
-    var h = M && M.wasmGfxFbH;
-    return (typeof h === 'number' && h > 0) ? h : 200;
-  }
-  function rgbBytes() {
-    return fbW() * fbH() * 4;
+  function logErr(msg) {
+    logEl.textContent = msg || '';
+    logEl.classList.toggle('has-content', !!(msg && msg.length));
   }
 
-  function applyZoom() {
-    var z = parseInt(zoomEl.value, 10) || 1;
-    var w = fbW();
-    var h = fbH();
-    canvas.style.width = (w * z) + 'px';
-    canvas.style.height = (h * z) + 'px';
-  }
-
-  zoomEl.addEventListener('change', applyZoom);
-
-  fsBtn.addEventListener('click', function() {
-    if (!document.fullscreenElement) {
-      screenWrap.requestFullscreen().catch(function() {});
-    } else {
-      document.exitFullscreen();
-    }
-  });
-  document.addEventListener('fullscreenchange', function() {
-    document.body.classList.toggle('fs-active', !!document.fullscreenElement);
-  });
-
-  function heapU8() {
-    var M = window.Module;
-    return (M && (M['HEAPU8'] || M.HEAPU8)) || null;
+  function buildArgString() {
+    var parts = [];
+    if (optPlain.checked) parts.push('-petscii-plain');
+    else if (optPetscii.checked) parts.push('-petscii');
+    parts.push('-charset', optCharset.value);
+    parts.push('-palette', optPalette.value);
+    var c = parseInt(optColumns.value, 10);
+    if (!isNaN(c) && c >= 1 && c <= 255) parts.push('-columns', String(c));
+    return parts.join(' ');
   }
 
   function wasmMemoryBuffer() {
     var M = window.Module;
-    var g = typeof window !== 'undefined' ? window : globalThis;
-    if (g && g.wasmMemory && g.wasmMemory.buffer) {
-      return g.wasmMemory.buffer;
-    }
-    if (g && g.wasmExports && g.wasmExports.memory && g.wasmExports.memory.buffer) {
-      return g.wasmExports.memory.buffer;
-    }
     if (!M) return null;
-    var wm = M['wasmMemory'] || M.wasmMemory;
-    if (wm && wm.buffer) {
-      return wm.buffer;
-    }
-    if (M.asm && M.asm.memory && M.asm.memory.buffer) {
-      return M.asm.memory.buffer;
-    }
-    if (M.buffer) {
-      return M.buffer;
-    }
-    var h8 = heapU8();
-    if (h8 && h8.buffer) {
-      return h8.buffer;
-    }
-    if (M.HEAP8 && M.HEAP8.buffer) {
-      return M.HEAP8.buffer;
-    }
+    if (M.asm && M.asm.memory) return M.asm.memory.buffer;
+    if (M.HEAPU8 && M.HEAPU8.buffer) return M.HEAPU8.buffer;
     return null;
   }
 
-  function copyHeapToRgba(dstU8, ptr, len) {
-    var p = ((typeof ptr === 'bigint' ? Number(ptr) : ptr) >>> 0);
-    if (!p || !len) return false;
-    var buf = wasmMemoryBuffer();
-    if (buf && p + len <= buf.byteLength) {
-      try {
-        dstU8.set(new Uint8Array(buf, p, len));
-        return true;
-      } catch (e0) { /* fall through */ }
-    }
-    var h = heapU8();
-    if (h) {
-      try {
-        dstU8.set(h.subarray(p, p + len));
-        return true;
-      } catch (e) { /* ignore */ }
-    }
-    return false;
-  }
-
-  function clearRgbaBuffer(ptr, len) {
-    var p = ((typeof ptr === 'bigint' ? Number(ptr) : ptr) >>> 0);
-    var h = heapU8();
-    if (h && typeof h.fill === 'function') {
-      try {
-        h.fill(0, p, p + len);
-        return;
-      } catch (e) { /* fall through */ }
-    }
-    var buf = wasmMemoryBuffer();
-    if (buf && p + len <= buf.byteLength) {
-      new Uint8Array(buf, p, len).fill(0);
-    }
-  }
-
-  function appendLog(text, err) {
-    logEl.textContent += text;
-    if (err) logEl.style.color = '#f88';
-    if (logEl.textContent.replace(/\s/g, '').length) {
-      logEl.classList.add('has-content');
-    } else {
-      logEl.classList.remove('has-content');
-    }
-  }
-
-  function wasmKeyPushByte(b) {
-    if (!keyRingPtr) return;
-    var buf = wasmMemoryBuffer();
-    if (!buf) return;
-    var cap = WASM_JS_KEY_CAP;
-    var dv = new DataView(buf);
-    var off = keyRingPtr >>> 0;
-    var head = dv.getUint32(off, true);
-    var tail = dv.getUint32(off + 4, true);
-    var next = (tail + 1) % cap;
-    if (next === head) return;
-    dv.setUint8(off + 8 + tail, b & 0xff);
-    dv.setUint32(off + 4, next, true);
-  }
-
-  function pollUi() {
+  function heapU8() {
     var M = window.Module;
-    if (M && M.wasmWaitingKey) {
-      canvas.style.outline = '2px solid #0dbc79';
-    } else {
-      canvas.style.outline = 'none';
-    }
-    requestAnimationFrame(pollUi);
+    return M && M.HEAPU8 ? M.HEAPU8 : null;
   }
-  requestAnimationFrame(pollUi);
 
-  window.Module = {
-    wasmGfxFbW: 320,
-    wasmGfxFbH: 200,
-    wasmStopRequested: 0,
-    locateFile: function(path) {
-      if (path.endsWith('.wasm')) {
-        return path + '?cb=' + CACHEBUST;
-      }
-      return path;
+  function applyZoom() {
+    var z = parseInt(zoomEl.value, 10) || 2;
+    canvas.style.width = (canvas.width * z) + 'px';
+    canvas.style.height = (canvas.height * z) + 'px';
+  }
+  zoomEl.addEventListener('change', applyZoom);
+
+  fsBtn.addEventListener('click', function() {
+    if (!document.fullscreenElement) canvasWrap.requestFullscreen().catch(function() {});
+    else document.exitFullscreen();
+  });
+
+  optPlain.addEventListener('change', function() { if (optPlain.checked) optPetscii.checked = true; });
+  optPetscii.addEventListener('change', function() { if (!optPetscii.checked) optPlain.checked = false; });
+
+  function copyRgbaFromWasm() {
+    var M = Module;
+    if (!M || !M._wasm_gfx_rgba_ptr) return false;
+    var ptr = Number(M._wasm_gfx_rgba_ptr());
+    var buf = wasmMemoryBuffer();
+    var w = M.wasmGfxFbW || 320;
+    var h = M.wasmGfxFbH || 200;
+    var need = w * h * 4;
+    if (!buf || ptr < 0 || ptr + need > buf.byteLength) return false;
+    var u8 = new Uint8Array(buf, ptr, need);
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+      img = ctx.createImageData(w, h);
+    }
+    img.data.set(u8);
+    ctx.putImageData(img, 0, 0);
+    return true;
+  }
+
+  function frame() {
+    requestAnimationFrame(frame);
+    if (!wasmRunPending) return;
+    var M = Module;
+    if (!M || !M._wasm_gfx_rgba_version_read) return;
+    var ver = M._wasm_gfx_rgba_version_read();
+    if (ver !== lastRgbaVer) {
+      lastRgbaVer = ver;
+      copyRgbaFromWasm();
+    }
+  }
+  requestAnimationFrame(frame);
+
+  var Module = {
+    locateFile: function(p) {
+      if (p.endsWith('.wasm')) return 'basic-canvas.wasm?cb=' + Date.now();
+      return p;
     },
-    print: function(t) { appendLog(t); },
-    printErr: function(t) { appendLog(t, true); },
+    printErr: function(t) { logErr(String(t)); },
+    onWasmNeedInputLine: function() {
+      inputLabelEl.textContent = (Module.wasmInputLabel && String(Module.wasmInputLabel).length) ? Module.wasmInputLabel : 'INPUT';
+      inputLineRow.classList.add('active');
+      inputLineEl.value = '';
+      inputLineEl.focus();
+    },
     onRuntimeInitialized: function() {
-      var M = window.Module;
-      if (typeof M.ccall !== 'function') {
-        appendLog('Runtime error: ccall missing — put inline script BEFORE basic-canvas.js.\n', true);
-        return;
-      }
-      rgbaPtr = M._malloc(rgbaCap);
-      if (!rgbaPtr) {
-        appendLog('_malloc failed for framebuffer.\n', true);
-        return;
-      }
-      rgbaSize = rgbBytes();
-      clearRgbaBuffer(rgbaPtr, rgbaCap);
-      try {
-        M.ccall('wasm_gfx_set_video', null, [], []);
-        rgbaSize = rgbBytes();
-        canvas.width = fbW();
-        canvas.height = fbH();
-        shadowImg = ctx.createImageData(fbW(), fbH());
-        imgBuf = ctx.createImageData(fbW(), fbH());
-        M.ccall('wasm_gfx_render_rgba', null, ['number', 'number'], [rgbaPtr, rgbaSize]);
-        if (!copyHeapToRgba(imgBuf.data, rgbaPtr, rgbaSize)) {
-          appendLog('Could not read framebuffer after init.\n', true);
-        } else {
-          ctx.putImageData(imgBuf, 0, 0);
-        }
-      } catch (e) {
-        appendLog('Init canvas: ' + e + '\n', true);
-      }
-      try {
-        shadowBase = M.ccall('wasm_gfx_shadow_base', 'number', [], []) >>> 0;
-        keyRingPtr = M.ccall('wasm_js_key_ring_mem', 'number', [], []) >>> 0;
-      } catch (e2) {
-        appendLog('Init: wasm exports missing — rebuild with make basic-wasm-canvas\n', true);
-      }
-      applyZoom();
-
       runBtn.disabled = false;
-      stopBtn.disabled = true;
-
-      stopBtn.onclick = function() {
-        window.Module.wasmStopRequested = 1;
-      };
+      applyZoom();
+      copyRgbaFromWasm();
+      lastRgbaVer = Module._wasm_gfx_rgba_version_read ? Module._wasm_gfx_rgba_version_read() : 0;
 
       runBtn.onclick = function() {
-        var Mo = window.Module;
-        logEl.textContent = '';
-        logEl.style.color = '#ccc';
-        logEl.classList.remove('has-content');
-        frameErrCount = 0;
-        lastShadowVer = 0xffffffff;
-        Mo.wasmStopRequested = 0;
-        try {
-          Mo.ccall('wasm_js_key_ring_reset', null, [], []);
-        } catch (e0) { /* ignore */ }
-        var prog = programEl.value;
-        var flags = '-petscii -palette c64 -charset lower -columns 40';
-        var rc = Mo.ccall('basic_apply_arg_string', 'number', ['string'], [flags]);
+        logErr('');
+        inputLineRow.classList.remove('active');
+        Module.wasmStopRequested = 0;
+        wasmRunPending = true;
+        lastRgbaVer = -1;
+        runBtn.disabled = true;
+        stopBtn.disabled = false;
+        var flags = buildArgString();
+        var rc = Module.ccall('basic_apply_arg_string', 'number', ['string'], [flags]);
         if (rc !== 0) {
-          appendLog('Invalid interpreter options.\n', true);
+          logErr('Invalid interpreter options.');
+          wasmRunPending = false;
+          runBtn.disabled = false;
+          stopBtn.disabled = true;
           return;
         }
-        Mo.FS.writeFile('/program.bas', prog);
+        Module.FS.writeFile('/program.bas', programEl.value);
         canvas.focus();
-        Mo.wasmGfxRunDone = 0;
-        wasmRunPending = true;
-        stopBtn.disabled = false;
-        runBtn.disabled = true;
-        try {
-          Mo.ccall('basic_load_and_run_gfx', null, ['string'], ['/program.bas'], { async: true })
-            .catch(function(e) {
-              appendLog(String(e && e.message ? e.message : e) + '\n', true);
-            })
-            .finally(function() {
-              wasmRunPending = false;
-              stopBtn.disabled = true;
-              runBtn.disabled = false;
-              rgbaSize = rgbBytes();
-              canvas.width = fbW();
-              canvas.height = fbH();
-              shadowImg = ctx.createImageData(fbW(), fbH());
-              imgBuf = ctx.createImageData(fbW(), fbH());
-              applyZoom();
-            });
-        } catch (e) {
-          wasmRunPending = false;
-          stopBtn.disabled = true;
-          runBtn.disabled = false;
-          appendLog(String(e && e.message ? e.message : e) + '\n', true);
-        }
+        Module.ccall('basic_load_and_run_gfx', null, ['string'], ['/program.bas'], { async: true })
+          .catch(function(e) { logErr(String(e && e.message ? e.message : e)); })
+          .finally(function() {
+            wasmRunPending = false;
+            runBtn.disabled = false;
+            stopBtn.disabled = true;
+            copyRgbaFromWasm();
+          });
       };
 
-      function frame() {
-        var Mo = window.Module;
-        var need = rgbBytes();
-        if (need !== rgbaSize && rgbaPtr && !wasmRunPending) {
-          rgbaSize = need;
-          canvas.width = fbW();
-          canvas.height = fbH();
-          shadowImg = ctx.createImageData(fbW(), fbH());
-          imgBuf = ctx.createImageData(fbW(), fbH());
-          applyZoom();
-        }
-        if (wasmRunPending && shadowBase) {
-          var buf = wasmMemoryBuffer();
-          var sb = need;
-          if (buf && shadowBase + 4 + sb <= buf.byteLength) {
-            var dv = new DataView(buf);
-            var ver = dv.getUint32(shadowBase, true);
-            if (ver !== lastShadowVer) {
-              lastShadowVer = ver;
-              if (shadowImg.width !== fbW() || shadowImg.height !== fbH()) {
-                shadowImg = ctx.createImageData(fbW(), fbH());
-              }
-              if (copyHeapToRgba(shadowImg.data, shadowBase + 4, sb)) {
-                ctx.putImageData(shadowImg, 0, 0);
-              }
-            }
-          }
-          requestAnimationFrame(frame);
-          return;
-        }
-        if (rgbaPtr && typeof Mo.ccall === 'function') {
-          try {
-            Mo.ccall('wasm_gfx_render_rgba', null, ['number', 'number'], [rgbaPtr, rgbaSize]);
-            if (imgBuf.width !== fbW() || imgBuf.height !== fbH()) {
-              imgBuf = ctx.createImageData(fbW(), fbH());
-            }
-            if (copyHeapToRgba(imgBuf.data, rgbaPtr, rgbaSize)) {
-              ctx.putImageData(imgBuf, 0, 0);
-            } else if (frameErrCount < 3) {
-              frameErrCount++;
-              appendLog('frame: could not read WASM heap (ptr=' + rgbaPtr + ' len=' + rgbaSize + ').\n', true);
-            }
-          } catch (e) {
-            frameErrCount++;
-            if (frameErrCount <= 3) {
-              appendLog('frame: ' + e + '\n', true);
-            }
-          }
-        }
-        requestAnimationFrame(frame);
-      }
-      requestAnimationFrame(frame);
+      stopBtn.onclick = function() { Module.wasmStopRequested = 1; };
 
-      canvas.addEventListener('click', function() {
-        canvas.focus();
-      });
-
-      function petsciiByteFromKeydown(ev) {
-        if (ev.key === 'Enter') return 13;
-        if (ev.key === 'Backspace' || ev.key === 'Delete') return 20;
-        if (ev.key.length === 1) return ev.key.charCodeAt(0) & 0xFF;
-        return null;
-      }
-
-      document.addEventListener('keydown', function(ev) {
-        var Mo = window.Module;
-        if (document.activeElement !== canvas) return;
-        if (ev.target !== canvas) return;
-        var b = petsciiByteFromKeydown(ev);
-        if (b === null) return;
+      canvas.addEventListener('keydown', function(ev) {
+        if (inputLineRow.classList.contains('active')) return;
         ev.preventDefault();
-        wasmKeyPushByte(b);
+        var code = ev.keyCode || ev.which;
+        if (code === 13) Module.ccall('wasm_push_key', null, ['number'], [13]);
+        else if (ev.key && ev.key.length === 1) Module.ccall('wasm_push_key', null, ['number'], [ev.key.charCodeAt(0) & 0xFF]);
       }, true);
-    },
-    onAbort: function(what) {
-      appendLog('Aborted: ' + String(what || '') + '\n', true);
+
+      inputLineEl.addEventListener('keydown', function(ev) {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          Module.wasmInputLineText = inputLineEl.value;
+          Module.wasmInputLineReady = 1;
+          inputLineRow.classList.remove('active');
+          canvas.focus();
+        }
+      });
     }
   };
-
-  var scr = document.createElement('script');
-  scr.src = 'basic-canvas.js?cb=' + encodeURIComponent(CACHEBUST);
-  scr.async = false;
-  scr.onerror = function() {
-    appendLog('Failed to load basic-canvas.js\n', true);
-  };
-  document.body.appendChild(scr);
+  window.Module = Module;
 })();
   </script>
+  <script src="basic-canvas.js"></script>
 </body>
 </html>

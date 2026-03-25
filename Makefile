@@ -54,12 +54,14 @@ gfx-demo: $(GFX_DEMO_SRCS)
 basic-gfx: $(GFX_BIN_SRCS)
 	$(CC) $(CFLAGS) -DGFX_VIDEO -Igfx $(RAYLIB_CFLAGS) -o $@$(EXE) $(GFX_BIN_SRCS) $(LDFLAGS) $(RAYLIB_LDFLAGS)
 
+EMCC ?= emcc
+
 # Web/WASM build (Emscripten); outputs web/basic.js + web/basic.wasm
 # Classic loader (no MODULARIZE): page sets window.Module before <script src="basic.js">.
 # Requires: emcc (emsdk)
 basic-wasm:
 	@mkdir -p web
-	$(EMCC) $(WASM_CFLAGS) -O2 -s WASM=1 \
+	$(EMCC) -w -O2 -s WASM=1 \
 		-s EXPORTED_FUNCTIONS='["_basic_load","_basic_run","_basic_halted","_basic_load_and_run","_basic_apply_arg_string","_wasm_push_key"]' \
 		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS"]' \
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
@@ -68,16 +70,16 @@ basic-wasm:
 		-o web/basic.js basic.c petscii.c -lm
 	@echo "Built web/basic.js and web/basic.wasm"
 
-# WASM + GfxVideoState + canvas RGBA export (PETSCII screen, POKE/PEEK, INKEY$; no Raylib/sprites)
+# PETSCII canvas (GFX_VIDEO, no Raylib): web/basic-canvas.js + web/basic-canvas.wasm + canvas.html
 basic-wasm-canvas:
 	@mkdir -p web
-	$(EMCC) $(WASM_CFLAGS) -O2 -s WASM=1 -DGFX_VIDEO -I. -Igfx \
-		-s EXPORTED_FUNCTIONS='["_malloc","_free","_basic_load","_basic_run","_basic_halted","_basic_load_and_run","_basic_apply_arg_string","_wasm_push_key","_basic_load_and_run_gfx","_wasm_gfx_set_video","_wasm_gfx_render_rgba","_wasm_js_key_ring_mem","_wasm_js_key_ring_reset","_wasm_gfx_shadow_base"]' \
+	$(EMCC) -w -O2 -s WASM=1 -DGFX_VIDEO -Igfx \
+		-s EXPORTED_FUNCTIONS='["_basic_apply_arg_string","_basic_load_and_run_gfx","_wasm_push_key","_wasm_gfx_rgba_ptr","_wasm_gfx_rgba_version_read"]' \
 		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS"]' \
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
 		-s INITIAL_MEMORY=67108864 \
 		-s ASYNCIFY=1 -s ASYNCIFY_IMPORTS='["emscripten_sleep"]' \
-		-o web/basic-canvas.js basic.c petscii.c gfx/gfx_video.c gfx/gfx_charrom.c gfx/gfx_canvas.c gfx/gfx_stub_sprites.c -lm
+		-o web/basic-canvas.js basic.c petscii.c gfx/gfx_video.c gfx/gfx_canvas.c gfx/gfx_stub_sprites.c -lm
 	@echo "Built web/basic-canvas.js and web/basic-canvas.wasm"
 
 # Headless browser smoke test (needs: pip install -r tests/requirements-wasm.txt && playwright install chromium)
