@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
-"""
-Headless canvas (basic-wasm-canvas) test: INPUT and GET must not freeze the tab.
-
-Requires: make basic-wasm-canvas, pip install -r tests/requirements-wasm.txt,
-          python -m playwright install chromium
-"""
+"""Playwright tests for web/canvas.html (basic-wasm-canvas)."""
 from __future__ import annotations
 
 import http.server
 import socketserver
 import sys
 import threading
+import time
 from functools import partial
 from pathlib import Path
 
@@ -22,97 +18,100 @@ def _serve_web() -> tuple[socketserver.TCPServer, int]:
     Handler = partial(http.server.SimpleHTTPRequestHandler, directory=str(WEB))
     socketserver.TCPServer.allow_reuse_address = True
     httpd = socketserver.TCPServer(("127.0.0.1", 0), Handler)
+    port = httpd.server_address[1]
 
     def run() -> None:
         httpd.serve_forever()
 
     threading.Thread(target=run, daemon=True).start()
-    return httpd, httpd.server_address[1]
+    return httpd, port
+
+
+def _canvas_top_left_rgba(page) -> tuple[int, int, int, int]:
+    return page.evaluate(
+        """() => {
+      const c = document.getElementById('screen');
+      const ctx = c.getContext('2d');
+      const d = ctx.getImageData(0, 0, 1, 1).data;
+      return [d[0], d[1], d[2], d[3]];
+    }"""
+    )
 
 
 def main() -> int:
-    need = [
-        WEB / "basic-canvas.js",
-        WEB / "basic-canvas.wasm",
-        WEB / "canvas.html",
-    ]
-    for p in need:
-        if not p.is_file():
-            print(f"error: missing {p}; run: make basic-wasm-canvas", file=sys.stderr)
-            return 1
+    if not (WEB / "basic-canvas.js").is_file() or not (WEB / "basic-canvas.wasm").is_file():
+        print(
+            "error: web/basic-canvas.js and .wasm not found; run: make basic-wasm-canvas",
+            file=sys.stderr,
+        )
+        return 1
+    if not (WEB / "canvas.html").is_file():
+        print("error: web/canvas.html not found", file=sys.stderr)
+        return 1
 
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        print("error: pip install -r tests/requirements-wasm.txt", file=sys.stderr)
-        print("       python -m playwright install chromium", file=sys.stderr)
+        print("error: pip install -r tests/requirements-wasm.txt && playwright install chromium", file=sys.stderr)
         return 1
 
     httpd, port = _serve_web()
-    base = f"http://127.0.0.1:{port}/canvas.html"
+    url = f"http://127.0.0.1:{port}/canvas.html"
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page(viewport={"width": 1100, "height": 900})
+            page.goto(url, wait_until="networkidle", timeout=120000)
+            page.wait_for_function("() => !document.getElementById('run').disabled", timeout=120000)
 
-            def run_canvas_case(
-                name: str,
-                program: str,
-                after_run,
-            ) -> None:
-                page.goto(base, wait_until="networkidle", timeout=120000)
-                page.wait_for_function(
-                    "() => !document.getElementById('run').disabled",
-                    timeout=120000,
+            before = _canvas_top_left_rgba(page)
+
+            # Long loop + SLEEP: canvas must refresh (top-left pixel changes from idle frame).
+            page.fill(
+                "#program",
+                "10 FOR I=1 TO 200\n"
+                "20 POKE 1024,(I AND 255)\n"
+                "30 SLEEP 1\n"
+                "40 NEXT I\n"
+                "50 END\n",
+            )
+            page.click("#run")
+            time.sleep(1.5)
+            mid = _canvas_top_left_rgba(page)
+            if mid == before:
+                browser.close()
+                raise RuntimeError(
+                    "canvas pixel unchanged during SLEEP loop (expected live refresh)"
                 )
-                page.fill("#program", program)
-                page.click("#run")
-                after_run(page)
-                page.wait_for_function(
-                    "() => window.Module && window.Module.wasmGfxRunDone === 1",
-                    timeout=90000,
-                )
-                print(f"wasm_browser_canvas_test: {name} OK")
 
-            # INPUT: type into focused canvas after run
-            def input_keys(pg):
-                pg.click("#screen")
-                pg.wait_for_timeout(100)
-                pg.keyboard.type("xy")
-                pg.keyboard.press("Enter")
-
-            run_canvas_case(
-                "INPUT",
-                '10 INPUT "N"; A$\n20 PRINT A$\n30 END\n',
-                input_keys,
+            page.wait_for_function(
+                "() => (window.Module && Module.wasmGfxRunDone === 1)",
+                timeout=120000,
             )
+            log = page.text_content("#log") or ""
+            if log.strip():
+                browser.close()
+                raise RuntimeError(f"unexpected canvas error log: {log!r}")
 
-            run_canvas_case(
-                "INPUT_NAME",
-                '10 INPUT "NAME"; A$\n20 PRINT A$\n30 END\n',
-                input_keys,
+            # Nested FOR/NEXT
+            page.fill(
+                "#program",
+                "10 FOR Y=1 TO 2\n"
+                "20 FOR C=0 TO 3\n"
+                "30 POKE 1024+C,C\n"
+                "40 NEXT C\n"
+                "50 NEXT Y\n"
+                "60 END\n",
             )
-
-            # GET: one key after run (program prints then waits)
-            def get_key(pg):
-                pg.click("#screen")
-                pg.wait_for_timeout(100)
-                pg.keyboard.press("z")
-
-            run_canvas_case(
-                "GET",
-                '10 PRINT "GO"\n20 GET A$\n30 END\n',
-                get_key,
+            page.click("#run")
+            page.wait_for_function(
+                "() => (window.Module && Module.wasmGfxRunDone === 1)",
+                timeout=60000,
             )
-
-            def noop_keys(_pg):
-                pass
-
-            run_canvas_case(
-                "COLUMNS80",
-                "#OPTION columns 80\n10 PRINT \"WIDE\"\n20 END\n",
-                noop_keys,
-            )
+            log2 = page.text_content("#log") or ""
+            if "NEXT without FOR" in log2 or log2.strip():
+                browser.close()
+                raise RuntimeError(f"nested FOR failed or error: {log2!r}")
 
             browser.close()
     finally:

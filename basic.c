@@ -53,9 +53,8 @@
 #ifdef GFX_VIDEO
 #include "gfx_video.h"
 #include "basic_api.h"
-#include "gfx/gfx_charrom.h"
 #if defined(__EMSCRIPTEN__)
-#include "gfx/gfx_canvas.h"
+#include "gfx_canvas.h"
 #endif
 #endif
 #if defined(__EMSCRIPTEN__)
@@ -920,8 +919,71 @@ static char *statement_pos = NULL;
 static volatile int halted = 0;
 static int print_col = 0;
 
-#ifdef GFX_VIDEO
-static GfxVideoState *gfx_vs = NULL;
+#if defined(__EMSCRIPTEN__) && !defined(GFX_VIDEO)
+/* Terminal WASM: libc batches stdout so PRINT newlines never reach Module.print until exit.
+ * Buffer bytes and call Module.print once per logical line (at '\n'). */
+#define WASM_STDOUT_BUF 4096
+static char wasm_stdout_buf[WASM_STDOUT_BUF];
+static int wasm_stdout_len;
+
+static void wasm_stdout_flush_partial(void)
+{
+    if (wasm_stdout_len <= 0) {
+        return;
+    }
+    wasm_stdout_buf[wasm_stdout_len] = '\0';
+    EM_ASM({
+        if (typeof Module !== 'undefined' && Module['print']) {
+            Module['print'](UTF8ToString($0));
+        }
+    }, wasm_stdout_buf);
+    wasm_stdout_len = 0;
+}
+
+static void wasm_stdout_putc(int c)
+{
+    unsigned char uc = (unsigned char)c;
+    if (uc == '\n') {
+        wasm_stdout_buf[wasm_stdout_len] = '\0';
+        EM_ASM({
+            if (typeof Module !== 'undefined' && Module['print']) {
+                /* Include newline so index.html split sees each PRINT as its own line. */
+                Module['print'](UTF8ToString($0) + '\n');
+            }
+        }, wasm_stdout_buf);
+        wasm_stdout_len = 0;
+        return;
+    }
+    if (wasm_stdout_len >= WASM_STDOUT_BUF - 1) {
+        wasm_stdout_flush_partial();
+    }
+    wasm_stdout_buf[wasm_stdout_len++] = (char)uc;
+}
+
+static void wasm_stdout_puts(const char *s)
+{
+    if (!s) {
+        return;
+    }
+    while (*s) {
+        wasm_stdout_putc((unsigned char)*s++);
+    }
+}
+
+static void wasm_stdout_before_cstdio(void)
+{
+    wasm_stdout_flush_partial();
+}
+
+#define OUTC(c) wasm_stdout_putc(c)
+#define OUTS(s) wasm_stdout_puts(s)
+#define OUTFLUSH() wasm_stdout_flush_partial()
+#define BEFORE_CSTDIO() wasm_stdout_before_cstdio()
+#else
+#define OUTC(c) fputc((c), stdout)
+#define OUTS(s) fputs((s), stdout)
+#define OUTFLUSH() fflush(stdout)
+#define BEFORE_CSTDIO() ((void)0)
 #endif
 
 #ifdef __EMSCRIPTEN__
@@ -1061,6 +1123,8 @@ static int wasm_key_peek_byte(void)
     return (int)wasm_key_ring[wasm_key_head];
 }
 
+/* wasm_push_key: non-GFX emscripten build only (canvas build defines below in GFX_VIDEO). */
+#if !defined(GFX_VIDEO)
 EMSCRIPTEN_KEEPALIVE void wasm_push_key(unsigned int code)
 {
     unsigned char b = (unsigned char)(code & 0xFF);
@@ -1072,6 +1136,7 @@ EMSCRIPTEN_KEEPALIVE void wasm_push_key(unsigned int code)
 #endif
     wasm_key_push_byte(b);
 }
+#endif
 
 /* Asyncify: wait until JS delivers one byte (GET blocking, or line-feed for INPUT). */
 static void wasm_yield_until_key(void)
@@ -1142,6 +1207,32 @@ static void wasm_read_input_line_blocking(char *buf, size_t cap)
 #endif /* __EMSCRIPTEN__ */
 
 #ifdef GFX_VIDEO
+static GfxVideoState *gfx_vs = NULL;
+
+#if defined(__EMSCRIPTEN__)
+static void wasm_gfx_refresh_js(void);
+static void wasm_maybe_yield_loop(void);
+static void wasm_canvas_sync_charset_from_options(void);
+#endif
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE void wasm_push_key(unsigned int code)
+{
+    unsigned char b = (unsigned char)(code & 0xFF);
+    wasm_key_push_byte(b);
+    if (gfx_vs) {
+        uint8_t next = (uint8_t)(gfx_vs->key_q_tail + 1);
+        if (next >= (uint8_t)sizeof(gfx_vs->key_queue)) {
+            next = 0;
+        }
+        if (next != gfx_vs->key_q_head) {
+            gfx_vs->key_queue[gfx_vs->key_q_tail] = b;
+            gfx_vs->key_q_tail = next;
+        }
+    }
+}
+#endif
+
 void basic_set_gfx_window_title(const char *);  /* forward, for #OPTION gfx_title */
 void basic_set_gfx_border(int);                 /* forward, for #OPTION border */
 void basic_set_gfx_border_color(int);           /* forward, for #OPTION border */
@@ -1460,22 +1551,16 @@ static int apply_option_directive(const char *name, const char *value)
         if (str_eq_ci(value, "upper") || str_eq_ci(value, "uc")) {
             petscii_lowercase_opt = 0;
             petscii_set_lowercase(0);
-#ifdef GFX_VIDEO
-            if (gfx_vs) {
-                gfx_vs->charset_lowercase = 0;
-                gfx_load_default_charrom(gfx_vs);
-            }
+#if defined(GFX_VIDEO) && defined(__EMSCRIPTEN__)
+            wasm_canvas_sync_charset_from_options();
 #endif
             return 0;
         }
         if (str_eq_ci(value, "lower") || str_eq_ci(value, "lc")) {
             petscii_lowercase_opt = 1;
             petscii_set_lowercase(1);
-#ifdef GFX_VIDEO
-            if (gfx_vs) {
-                gfx_vs->charset_lowercase = 1;
-                gfx_load_default_charrom(gfx_vs);
-            }
+#if defined(GFX_VIDEO) && defined(__EMSCRIPTEN__)
+            wasm_canvas_sync_charset_from_options();
 #endif
             return 0;
         }
@@ -1645,10 +1730,7 @@ static char *dupstr_local(const char *s);
 static struct value eval_expr(char **p);
 static int eval_condition(char **p);
 static void execute_statement(char **p);
-#if defined(__EMSCRIPTEN__)
-static void wasm_maybe_yield_loop(void);
-#endif
-static struct value *get_var_reference(char **p, int *is_array_out, int *is_string_out);
+static struct value *get_var_reference(char **p, int *is_array_out, int *is_string_out, char *name_out);
 static struct value make_num(double v);
 static struct value make_str(const char *s);
 static struct var *find_or_create_var(const char *name, int is_string, int want_array, int dims, const int *dim_sizes, int total_size);
@@ -1998,10 +2080,10 @@ static void print_spaces(int count)
             continue;
         }
 #endif
-        fputc(' ', stdout);
+        OUTC(' ');
         print_col++;
         if (print_col >= print_width && !petscii_no_wrap && !terminal_no_wrap) {
-            fputc('\n', stdout);
+            OUTC('\n');
             print_col = 0;
         }
     }
@@ -2110,7 +2192,7 @@ static void statement_read(char **p)
             runtime_error("Expected variable in READ");
             return;
         }
-        vp = get_var_reference(p, &is_array, &is_string);
+        vp = get_var_reference(p, &is_array, &is_string, NULL);
         if (!vp) {
             return;
         }
@@ -2597,20 +2679,20 @@ static void print_value(struct value *v)
              * zero-width; cursor-right (C) / cursor-left (D) adjust print_col.
              */
             if (petscii_mode && c == 0x1b) {
-                fputc(c, stdout);
+                OUTC(c);
                 s++;
                 if (!*s) {
                     break;
                 }
                 unsigned char d = (unsigned char)*s;
-                fputc(d, stdout);
+                OUTC(d);
                 if (d == '[') {
                     int n = 0;
                     int have_num = 0;
                     s++;
                     while (*s) {
                         d = (unsigned char)*s;
-                        fputc(d, stdout);
+                        OUTC(d);
                         if (d >= '0' && d <= '9') {
                             n = n * 10 + (d - '0');
                             have_num = 1;
@@ -2629,7 +2711,7 @@ static void print_value(struct value *v)
                             /* Cursor right */
                             print_col += n;
                             if (print_col >= print_width && !petscii_no_wrap && !terminal_no_wrap) {
-                                fputc('\n', stdout);
+                                OUTC('\n');
                                 print_col = 0;
                             }
                         } else if (d == 'D') {
@@ -2651,7 +2733,7 @@ static void print_value(struct value *v)
                 }
                 continue;
             }
-            fputc(c, stdout);
+            OUTC(c);
             if (c == '\n') {
                 print_col = 0;
             } else {
@@ -2660,7 +2742,7 @@ static void print_value(struct value *v)
                 if (c < 0x80 || (c & 0xC0) != 0x80) {
                     print_col++;
                     if (print_col >= print_width && !petscii_no_wrap && !terminal_no_wrap) {
-                        fputc('\n', stdout);
+                        OUTC('\n');
                         print_col = 0;
                     }
                 }
@@ -2679,7 +2761,7 @@ static void print_value(struct value *v)
             return;
         }
 #endif
-        fputs(buf, stdout);
+        OUTS(buf);
         print_col += (int)strlen(buf);
     }
 }
@@ -2906,7 +2988,13 @@ static void statement_sleep(char **p)
         v = eval_expr(p);
     }
     ensure_num(&v);
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+    wasm_gfx_refresh_js();
+#endif
     do_sleep_ticks(v.num);
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+    wasm_gfx_refresh_js();
+#endif
 }
 
 static void statement_cursor(char **p)
@@ -2914,16 +3002,18 @@ static void statement_cursor(char **p)
     skip_spaces(p);
     if (starts_with_kw(*p, "ON")) {
         *p += 2;
+        BEFORE_CSTDIO();
         printf("\033[?25h");
         cursor_hidden = 0;
-        fflush(stdout);
+        OUTFLUSH();
         return;
     }
     if (starts_with_kw(*p, "OFF")) {
         *p += 3;
+        BEFORE_CSTDIO();
         printf("\033[?25l");
         cursor_hidden = 1;
-        fflush(stdout);
+        OUTFLUSH();
         return;
     }
     runtime_error("CURSOR expects ON or OFF");
@@ -2952,6 +3042,7 @@ static void statement_color(char **p)
 #endif
 
     /* Map C64 color index to ANSI foreground SGR. */
+    BEFORE_CSTDIO();
     switch (idx) {
     case 0:  printf("\033[30m"); break;       /* black */
     case 1:  printf("\033[37m"); break;       /* white */
@@ -2972,7 +3063,7 @@ static void statement_color(char **p)
     default:
         break;
     }
-    fflush(stdout);
+    OUTFLUSH();
 }
 
 static void statement_background(char **p)
@@ -2998,6 +3089,7 @@ static void statement_background(char **p)
 #endif
 
     /* Map C64 color index to ANSI background SGR. */
+    BEFORE_CSTDIO();
     switch (idx) {
     case 0:  printf("\033[40m"); break;        /* black */
     case 1:  printf("\033[47m"); break;        /* white */
@@ -3018,7 +3110,7 @@ static void statement_background(char **p)
     default:
         break;
     }
-    fflush(stdout);
+    OUTFLUSH();
 }
 
 static void statement_pset(char **p, int preset)
@@ -3461,7 +3553,7 @@ static void statement_get(char **p)
     int ch;
 
     skip_spaces(p);
-    vp = get_var_reference(p, &is_array, &is_string);
+    vp = get_var_reference(p, &is_array, &is_string, NULL);
     if (!vp) {
         return;
     }
@@ -3470,7 +3562,7 @@ static void statement_get(char **p)
         return;
     }
 
-    fflush(stdout);
+    OUTFLUSH();
 #ifdef GFX_VIDEO
     if (gfx_vs) {
         uint8_t b = 0;
@@ -4175,11 +4267,11 @@ static struct value eval_function(const char *name, char **p)
         }
         cur = print_col;
         if (target < cur) {
-            fputc('\n', stdout);
+            OUTC('\n');
             cur = 0;
         }
         while (cur < target) {
-            fputc(' ', stdout);
+            OUTC(' ');
             cur++;
         }
         print_col = cur;
@@ -4613,8 +4705,41 @@ static struct value eval_function(const char *name, char **p)
         }
         {
             char buf[MAX_STR_LEN];
+            char *q;
             strncpy(buf, arg.str, sizeof(buf) - 1);
             buf[sizeof(buf) - 1] = '\0';
+            q = buf;
+            skip_spaces(&q);
+            /* LET-style assignment: "a=a+10" is not a comparison inside eval_expr; treat as assign. */
+            if (isalpha((unsigned char)*q)) {
+                char namebuf[VAR_NAME_MAX];
+                char norm[VAR_NAME_MAX];
+                char *scan = q;
+                int is_slhs = 0;
+                struct var *v;
+                read_identifier(&scan, namebuf, sizeof(namebuf));
+                uppercase_name(namebuf, norm, sizeof(norm), &is_slhs);
+                if (norm[0] != '\0' && !is_reserved_word(norm)) {
+                    skip_spaces(&scan);
+                    if (*scan == '=') {
+                        scan++;
+                        skip_spaces(&scan);
+                        v = find_or_create_var(norm, is_slhs, 0, 0, NULL, 0);
+                        if (v) {
+                            struct value rhs = eval_expr(&scan);
+                            if (is_slhs) {
+                                ensure_str(&rhs);
+                                rhs.type = VAL_STR;
+                            } else {
+                                ensure_num(&rhs);
+                                rhs.type = VAL_NUM;
+                            }
+                            v->scalar = rhs;
+                            return rhs;
+                        }
+                    }
+                }
+            }
             ep = buf;
             result = eval_expr(&ep);
         }
@@ -4803,8 +4928,9 @@ static int read_identifier(char **p, char *buf, int buf_size)
     return i;
 }
 
-/* Resolve a variable (and optional array index) creating it if needed. */
-static struct value *get_var_reference(char **p, int *is_array_out, int *is_string_out)
+/* Resolve a variable (and optional array index) creating it if needed.
+ * If name_out is non-NULL, store the normalized variable name there (for FOR stack, etc.). */
+static struct value *get_var_reference(char **p, int *is_array_out, int *is_string_out, char *name_out)
 {
     char namebuf[VAR_NAME_MAX];
     int is_string;
@@ -4824,6 +4950,10 @@ static struct value *get_var_reference(char **p, int *is_array_out, int *is_stri
     }
     read_identifier(p, namebuf, sizeof(namebuf));
     uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
+    if (name_out) {
+        strncpy(name_out, namebuf, VAR_NAME_MAX - 1);
+        name_out[VAR_NAME_MAX - 1] = '\0';
+    }
     if (is_reserved_word(namebuf)) {
         runtime_error("Reserved word cannot be used as variable");
         return NULL;
@@ -5167,7 +5297,7 @@ static struct value eval_factor(char **p)
             }
             {
                 struct value *vp;
-                vp = get_var_reference(p, NULL, NULL);
+                vp = get_var_reference(p, NULL, NULL, NULL);
                 if (!vp) return make_num(0.0);
                 return *vp;
             }
@@ -5570,9 +5700,9 @@ static void statement_print(char **p)
             return;
         }
 #endif
-        fputc('\n', stdout);
+        OUTC('\n');
         print_col = 0;
-        fflush(stdout);
+        OUTFLUSH();
         return;
     }
 
@@ -5584,10 +5714,10 @@ static void statement_print(char **p)
             return;
         }
 #endif
-        fputc('\n', stdout);
+        OUTC('\n');
         print_col = 0;
     }
-    fflush(stdout);
+    OUTFLUSH();
 }
 
 
@@ -5639,9 +5769,10 @@ static void statement_textat(char **p)
 #endif
 
     /* Move cursor with ANSI: rows/cols are 1-based */
+    BEFORE_CSTDIO();
     printf("\033[%d;%dH", y + 1, x + 1);
-    fputs(vtext.str, stdout);
-    fflush(stdout);
+    OUTS(vtext.str);
+    OUTFLUSH();
 }
 
 
@@ -5672,8 +5803,9 @@ static void statement_locate(char **p)
 #endif
 
     // Move cursor with ANSI: rows/cols are 1-based
+    BEFORE_CSTDIO();
     printf("\033[%d;%dH", y + 1, x + 1);
-    fflush(stdout);
+    OUTFLUSH();
 }
 
 #ifdef GFX_VIDEO
@@ -5736,18 +5868,8 @@ static int gfx_read_line(char *buf, int size)
                 gfx_put_byte((unsigned char)b);
             }
         } else {
-#if defined(__EMSCRIPTEN__)
-            if (gfx_vs) {
-                int pw = (gfx_vs->cols >= 80) ? 640 : 320;
-                gfx_canvas_render_rgba(gfx_vs, wasm_gfx_shadow.rgba, sizeof(wasm_gfx_shadow.rgba));
-                wasm_gfx_shadow.version++;
-                EM_ASM({
-                    if (typeof Module !== 'undefined') {
-                        Module['wasmGfxFbW'] = $0;
-                        Module['wasmGfxFbH'] = $1;
-                    }
-                }, pw, 25 * 8);
-            }
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+            wasm_gfx_refresh_js();
 #endif
             do_sleep_ticks(1.0 / 60.0);
         }
@@ -5789,7 +5911,7 @@ static void statement_input(char **p)
             runtime_error("Expected variable in INPUT");
             return;
         }
-        vp = get_var_reference(p, &is_array, &is_string);
+        vp = get_var_reference(p, &is_array, &is_string, NULL);
         if (!vp) {
             return;
         }
@@ -5811,14 +5933,13 @@ static void statement_input(char **p)
             const char *s;
             if (prompt[0] != '\0' && first_prompt) {
                 for (s = prompt; *s; s++) {
-                    putchar((unsigned char)*s);
+                    OUTC((unsigned char)*s);
                 }
             }
             for (s = "? "; *s; s++) {
-                putchar((unsigned char)*s);
+                OUTC((unsigned char)*s);
             }
-            fflush(stdout);
-            wasm_set_input_prompt_for_js(prompt[0] != '\0' && first_prompt ? prompt : "");
+            OUTFLUSH();
             wasm_read_input_line_blocking(linebuf, sizeof(linebuf));
             trim_newline(linebuf);
         }
@@ -6415,7 +6536,7 @@ static void statement_join(char **p)
     *p += 4;
     skip_spaces(p);
     {
-        struct value *out = get_var_reference(p, &i, &is_string);
+        struct value *out = get_var_reference(p, &i, &is_string, NULL);
         if (!out || !is_string) {
             runtime_error("JOIN: expected string variable for result");
             return;
@@ -6667,7 +6788,7 @@ static void statement_input_hash(char **p)
     for (;;) {
         if (**p == '\0' || **p == ':') break;
         if (!isalpha((unsigned char)**p)) break;
-        vp = get_var_reference(p, &is_array, &is_string);
+        vp = get_var_reference(p, &is_array, &is_string, NULL);
         if (!vp) return;
         if (is_array) {
             runtime_error("INPUT#: array not allowed");
@@ -6717,7 +6838,7 @@ static void statement_get_hash(char **p)
         runtime_error("GET#: expected string variable");
         return;
     }
-    vp = get_var_reference(p, &is_array, &is_string);
+    vp = get_var_reference(p, &is_array, &is_string, NULL);
     if (!vp || !is_string || is_array) {
         runtime_error("GET#: requires string variable");
         return;
@@ -6744,7 +6865,7 @@ static void statement_let(char **p)
     int is_array;
     int is_string;
 
-    vp = get_var_reference(p, &is_array, &is_string);
+    vp = get_var_reference(p, &is_array, &is_string, NULL);
     if (!vp) {
         return;
     }
@@ -6798,9 +6919,8 @@ static void statement_goto(char **p)
     } else {
         runtime_error("Expected line number or label in GOTO");
     }
-#if defined(__EMSCRIPTEN__)
-    /* Tight GOTO loops otherwise never hit emscripten_sleep (no ticks60 advance). */
-    emscripten_sleep(0);
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+    wasm_maybe_yield_loop();
 #endif
 }
 
@@ -7173,7 +7293,7 @@ static void statement_wend(char **p)
         current_line = while_stack[idx].line_index;
         statement_pos = while_stack[idx].position;
         while_top--;
-#if defined(__EMSCRIPTEN__)
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
         wasm_maybe_yield_loop();
 #endif
     }
@@ -7282,7 +7402,7 @@ static void statement_loop(char **p)
         current_line = do_stack[idx].line_index;
         statement_pos = do_stack[idx].position;
         *p = statement_pos;
-#if defined(__EMSCRIPTEN__)
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
         wasm_maybe_yield_loop();
 #endif
     }
@@ -7305,7 +7425,8 @@ static void statement_for(char **p)
     int is_array;
     int is_string;
     int i;
-    vp = get_var_reference(p, &is_array, &is_string);
+    char loop_name[VAR_NAME_MAX];
+    vp = get_var_reference(p, &is_array, &is_string, loop_name);
     if (!vp) {
         return;
     }
@@ -7343,28 +7464,23 @@ static void statement_for(char **p)
     }
     *vp = startv;
 
-    /* Recover loop variable name from vp by searching var table. */
-    for_stack[for_top].name[0] = '\0';
-    if (var_count > 0) {
-        for (i = 0; i < var_count; i++) {
-            if (&vars[i].scalar == vp ||
-                (vars[i].is_array && vp >= vars[i].array && vp < vars[i].array + vars[i].size)) {
-                strncpy(for_stack[for_top].name, vars[i].name, VAR_NAME_MAX - 1);
-                for_stack[for_top].name[VAR_NAME_MAX - 1] = '\0';
-                break;
-            }
-        }
-    }
+    /* FOR stack needs the normalized loop variable name for NEXT and duplicate-FOR cleanup. */
+    strncpy(for_stack[for_top].name, loop_name, VAR_NAME_MAX - 1);
+    for_stack[for_top].name[VAR_NAME_MAX - 1] = '\0';
 
     /* Abandon any outstanding FOR for the same control variable.
      * This models classic BASIC behaviour where jumping out of a loop
      * effectively discards it, so reusing the same variable does not
      * grow the FOR stack without bound.
+     * Empty names must not match (nested FOR could otherwise collapse the stack).
      */
-    for (i = for_top - 1; i >= 0; i--) {
-        if (strcmp(for_stack[i].name, for_stack[for_top].name) == 0) {
-            for_top = i;
-            break;
+    if (for_stack[for_top].name[0] != '\0') {
+        for (i = for_top - 1; i >= 0; i--) {
+            if (for_stack[i].name[0] != '\0' &&
+                strcmp(for_stack[i].name, for_stack[for_top].name) == 0) {
+                for_top = i;
+                break;
+            }
         }
     }
 
@@ -7381,9 +7497,33 @@ static void statement_for(char **p)
     for_top++;
 }
 
+/* Recover variable name from FOR stack var pointer (when frame name was empty). */
+static int for_stack_var_name(const struct value *vp, char *out, size_t outsz)
+{
+    int j;
+    if (!vp || !out || outsz < 2) {
+        return 0;
+    }
+    for (j = 0; j < var_count; j++) {
+        if (&vars[j].scalar == vp) {
+            strncpy(out, vars[j].name, outsz - 1);
+            out[outsz - 1] = '\0';
+            return 1;
+        }
+        if (vars[j].is_array && vars[j].array &&
+            vp >= vars[j].array && vp < vars[j].array + vars[j].size) {
+            strncpy(out, vars[j].name, outsz - 1);
+            out[outsz - 1] = '\0';
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static void statement_next(char **p)
 {
     char namebuf[VAR_NAME_MAX];
+    char recovered[VAR_NAME_MAX];
     int i;
     struct value *vp;
     int is_string;
@@ -7395,7 +7535,18 @@ static void statement_next(char **p)
         namebuf[0] = '\0';
     }
     for (i = for_top - 1; i >= 0; i--) {
-        if (namebuf[0] == '\0' || strcmp(for_stack[i].name, namebuf) == 0) {
+        if (namebuf[0] == '\0') {
+            break;
+        }
+        if (for_stack[i].name[0] != '\0') {
+            if (strcmp(for_stack[i].name, namebuf) == 0) {
+                break;
+            }
+            continue;
+        }
+        /* Older builds / edge cases: frame name empty but var pointer is valid. */
+        if (for_stack_var_name(for_stack[i].var, recovered, sizeof(recovered)) &&
+            strcmp(recovered, namebuf) == 0) {
             break;
         }
     }
@@ -7414,7 +7565,7 @@ static void statement_next(char **p)
         (for_stack[for_top - 1].step < 0 && vp->num >= for_stack[for_top - 1].end_value)) {
         current_line = for_stack[for_top - 1].line_index;
         statement_pos = for_stack[for_top - 1].resume_pos;
-#if defined(__EMSCRIPTEN__)
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
         wasm_maybe_yield_loop();
 #endif
     } else {
@@ -8329,6 +8480,12 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
     if_depth = 0;
     while (!halted && current_line >= 0 && current_line < line_count) {
         char *p;
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+        if (EM_ASM_INT({ return (typeof Module !== 'undefined' && Module['wasmStopRequested']) ? 1 : 0; })) {
+            halted = 1;
+            break;
+        }
+#endif
         if (statement_pos == NULL) {
             statement_pos = program_lines[current_line]->text;
         }
@@ -8343,17 +8500,16 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
         execute_statement(&statement_pos);
 #if defined(__EMSCRIPTEN__)
         wasm_stmt_budget++;
+#if defined(GFX_VIDEO)
         if ((wasm_stmt_budget & 31) == 0) {
-            if (EM_ASM_INT({ return (typeof Module !== 'undefined' && Module['wasmStopRequested']) ? 1 : 0; })) {
-                halted = 1;
-            }
+            wasm_gfx_refresh_js();
+            emscripten_sleep(0);
+        }
+#else
+        if ((wasm_stmt_budget & 2047) == 0) {
             emscripten_sleep(0);
         }
 #endif
-#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
-        if (gfx_vs) {
-            gfx_vs->ticks60++;
-        }
 #endif
         if (halted) {
             break;
@@ -8560,7 +8716,79 @@ int basic_get_gfx_border_color(void)
 {
     return gfx_border_color;
 }
-#endif
+
+#if defined(__EMSCRIPTEN__)
+/* Browser canvas: shared video + RGBA framebuffer for JS rAF (Asyncify-safe). */
+#define WASM_GFX_RGBA_BYTES (640u * 200u * 4u)
+static GfxVideoState wasm_gfx_state;
+static uint8_t wasm_gfx_rgba[WASM_GFX_RGBA_BYTES];
+static volatile uint32_t wasm_gfx_rgba_version;
+
+static void wasm_gfx_refresh_js(void)
+{
+    if (!gfx_vs) {
+        return;
+    }
+    gfx_canvas_render_rgba(gfx_vs, wasm_gfx_rgba, sizeof(wasm_gfx_rgba));
+    wasm_gfx_rgba_version++;
+    EM_ASM({
+        if (typeof Module !== 'undefined') {
+            Module['wasmGfxFbW'] = $0;
+            Module['wasmGfxFbH'] = $1;
+            Module['wasmGfxRgbaVersion'] = $2;
+        }
+    }, gfx_cols() * 8, GFX_ROWS * 8, wasm_gfx_rgba_version);
+}
+
+static void wasm_canvas_sync_charset_from_options(void)
+{
+    if (!gfx_vs) {
+        return;
+    }
+    wasm_gfx_state.charset_lowercase = (uint8_t)(petscii_get_lowercase() ? 1 : 0);
+    gfx_vs->charset_lowercase = wasm_gfx_state.charset_lowercase;
+    gfx_canvas_load_default_charrom(gfx_vs);
+    wasm_gfx_refresh_js();
+}
+
+EMSCRIPTEN_KEEPALIVE uint8_t *wasm_gfx_rgba_ptr(void)
+{
+    return wasm_gfx_rgba;
+}
+
+EMSCRIPTEN_KEEPALIVE uint32_t wasm_gfx_rgba_version_read(void)
+{
+    return wasm_gfx_rgba_version;
+}
+
+static void wasm_gfx_set_video(void)
+{
+    gfx_video_init(&wasm_gfx_state);
+    wasm_gfx_state.charset_lowercase = (uint8_t)(petscii_get_lowercase() ? 1 : 0);
+    gfx_canvas_load_default_charrom(&wasm_gfx_state);
+    memset(wasm_gfx_state.screen, 32, GFX_TEXT_SIZE);
+    memset(wasm_gfx_state.color, 14, GFX_COLOR_SIZE);
+    basic_set_video(&wasm_gfx_state);
+    wasm_gfx_refresh_js();
+}
+
+EMSCRIPTEN_KEEPALIVE void basic_load_and_run_gfx(const char *path)
+{
+    EM_ASM({ if (typeof Module !== 'undefined') { Module['wasmGfxRunDone'] = 0; } });
+    load_program(path);
+    wasm_gfx_set_video();
+    run_program(path, 0, NULL);
+    wasm_gfx_refresh_js();
+    EM_ASM({ if (typeof Module !== 'undefined') { Module['wasmGfxRunDone'] = 1; } });
+}
+
+static void wasm_maybe_yield_loop(void)
+{
+    wasm_gfx_refresh_js();
+    emscripten_sleep(0);
+}
+#endif /* __EMSCRIPTEN__ */
+#endif /* GFX_VIDEO */
 
 /* ── Terminal-mode entry point (not used when GFX_VIDEO or __EMSCRIPTEN__) ── */
 
