@@ -17,6 +17,7 @@ This produces:
 | `web/basic-modular.js` | Emscripten loader with `MODULARIZE=1`; exports `createBasicModular` |
 | `web/basic-modular.wasm` | Same interpreter as `basic.wasm` (terminal I/O, not canvas PETSCII) |
 | `web/tutorial-embed.js` | Helper that mounts UI + one WASM instance per container |
+| `web/vfs-helpers.js` | Shared **upload/download** helpers for `Module.FS` (loaded automatically by tutorial embeds) |
 | `web/tutorial-example.html` | Minimal page with **two** embeds (smoke test reference) |
 
 Serve the `web/` directory over **HTTP** (WASM is blocked on many browsers for `file://`).
@@ -43,8 +44,31 @@ Requirements:
 
 1. **`tutorial-embed.js`** must be loadable (same folder as `basic-modular.js` by default, or set `baseUrl`).
 2. **`basic-modular.js`** and **`basic-modular.wasm`** must live in that **base URL** directory.
+3. **`vfs-helpers.js`** in the same folder (for **Upload to VFS** / **Download from VFS** on each embed). If the file is missing, embeds still run; VFS buttons are omitted.
 
 The script loads `basic-modular.js` once (first mount) and reuses `createBasicModular` for every subsequent mount.
+
+## Virtual filesystem: upload and export
+
+**Full demos** `web/index.html` and `web/canvas.html` include **Upload to VFS** and **Download from VFS** (via `vfs-helpers.js`). **Tutorial embeds** load `vfs-helpers.js` from `baseUrl` when `showVfsTools` is true (default).
+
+Programmatic API (after `vfs-helpers.js` is on the page):
+
+```javascript
+// Upload browser files → MEMFS at /filename (creates parent dirs)
+CbmVfsHelpers.vfsUploadFiles(Module, fileList, function (msg, err) { console.log(msg); });
+
+// Download one file from VFS
+CbmVfsHelpers.vfsExportFile(Module, '/out.txt');
+
+// Or mount the default toolbar into a div
+CbmVfsHelpers.vfsMountUI(document.getElementById('vfs'), Module, {
+  pathDefault: '/out.txt',
+  onStatus: function (m, isErr) { ... }
+});
+```
+
+Paths must be single-segment filenames or `/path/...` with **no `..`**. Export uses a temporary object URL (browser download).
 
 ## Multiple embeds on one page
 
@@ -77,6 +101,8 @@ Each embed gets its own **virtual filesystem** and **Asyncify** state; they do n
 | `flags` | string | `'-petscii -palette ansi -charset upper'` | Passed to `basic_apply_arg_string` (same as CLI) |
 | `showEditor` | boolean | `true` | If false, hides the textarea; program is fixed to `program` |
 | `showPauseStop` | boolean | `true` | If false, only **Run** is shown (no Pause/Resume/Stop) |
+| `showVfsTools` | boolean | `true` | VFS upload/download row (skip if `vfs-helpers.js` unavailable) |
+| `vfsExportPath` | string | `'/out.txt'` | Default path in the download field |
 | `editorMinHeight` | string | `'120px'` | CSS min-height for textarea |
 | `outputMinHeight` | string | `'100px'` | CSS min-height for output panel |
 
@@ -146,6 +172,7 @@ Minimum for tutorial embeds:
 - `basic-modular.js`
 - `basic-modular.wasm`
 - `tutorial-embed.js`
+- `vfs-helpers.js` (optional but recommended for OPEN/PRINT# workflows)
 
 Optional:
 

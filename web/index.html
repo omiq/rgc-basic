@@ -52,7 +52,7 @@
       </select></label>
       <label>Columns <input type="number" id="optColumns" min="1" max="255" value="40" style="width:4em"></label>
     </div>
-    <p class="hint">These map to the same flags as the native <code>basic</code> binary. OPEN/PRINT#/INPUT# use the virtual filesystem (paths like <code>out.txt</code>).</p>
+    <p class="hint">These map to the same flags as the native <code>basic</code> binary. OPEN/PRINT#/INPUT# use the virtual filesystem (paths like <code>out.txt</code>). Use <strong>Upload to VFS</strong> / <strong>Download from VFS</strong> below to move files in or out of WASM memory.</p>
   </fieldset>
   <p>
     <button id="run" disabled>Run</button>
@@ -60,12 +60,14 @@
     <button id="resume" disabled>Resume</button>
     <button id="stop" disabled>Stop</button>
   </p>
+  <div id="vfsHost"></div>
   <div id="output" tabindex="0" aria-live="polite" title="Click here, then type for GET / INKEY$"></div>
   <div id="inputLineRow">
     <label id="inputLabel" for="inputLine">INPUT</label>
     <input type="text" id="inputLine" autocomplete="off" spellcheck="false" />
   </div>
 
+  <script src="vfs-helpers.js"></script>
   <script>
     (function() {
       const output = document.getElementById('output');
@@ -82,6 +84,7 @@
       const inputLineRow = document.getElementById('inputLineRow');
       const inputLineEl = document.getElementById('inputLine');
       const inputLabelEl = document.getElementById('inputLabel');
+      const vfsHost = document.getElementById('vfsHost');
 
       function escHtml(t) {
         return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -320,6 +323,18 @@
               output.focus();
             }
           });
+
+          if (typeof CbmVfsHelpers !== 'undefined') {
+            CbmVfsHelpers.vfsMountUI(vfsHost, Module, {
+              pathDefault: '/out.txt',
+              onStatus: function(msg, isErr) {
+                appendOutputHtml(
+                  '<span' + (isErr ? ' class="err"' : '') + '>' + escHtml(msg) + '</span><br>',
+                  false
+                );
+              }
+            });
+          }
         },
         onAbort: function(what) {
           output.innerHTML = '<span class="err">Failed to load BASIC: ' + escHtml(what || 'abort') + '</span>';
