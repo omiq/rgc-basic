@@ -53,9 +53,9 @@
 #ifdef GFX_VIDEO
 #include "gfx_video.h"
 #include "basic_api.h"
+#include "gfx/gfx_charrom.h"
 #if defined(__EMSCRIPTEN__)
 #include "gfx/gfx_canvas.h"
-#include "gfx/gfx_charrom.h"
 #endif
 #endif
 #if defined(__EMSCRIPTEN__)
