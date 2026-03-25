@@ -13,7 +13,7 @@ Requires [Emscripten](https://emscripten.org/) (emsdk). Install and activate, th
 
 The terminal build (`basic.js`) enables **Asyncify** (`emscripten_sleep`) so **INPUT**, **GET**, and **INKEY$** can block without freezing the tab; call `basic_load_and_run` with **`ccall(..., { async: true })`** so the returned Promise resolves when the program finishes.
 
-The **canvas** build (`basic-canvas.js`) links **`GFX_VIDEO`** (plus `gfx_canvas.c` for RGBA export). Use **`basic_load_and_run_gfx`** and **`wasm_gfx_render_rgba`** (see **`canvas.html`**). **`INPUT`** and **`GET`/`INKEY$`** use the **PETSCII canvas**: focus the canvas (click it), then type. Keys are written into a **heap ring buffer** (address from **`wasm_js_key_ring_mem`**) via **`DataView`** — never **`ccall('wasm_push_key')` from `keydown`** while the async run may be suspended (Asyncify deadlock). **`wasm_push_key`** remains for programmatic use when safe. While waiting for **`GET`**, **`Module.wasmWaitingKey`** is `1` (green outline). **LOADSPRITE** / **DRAWSPRITE** are stubbed (no textures in WASM).
+The **canvas** build (`basic-canvas.js`) links **`GFX_VIDEO`** (plus `gfx_canvas.c` for RGBA export). Use **`basic_load_and_run_gfx`** and **`wasm_gfx_render_rgba`** (see **`canvas.html`**). **`#OPTION columns 80`** in the program selects a **640×200** framebuffer (else 320×200). **`INPUT`** and **`GET`/`INKEY$`** use the **PETSCII canvas**: focus the canvas (click it), then type. Keys go to a **heap ring buffer** via **`DataView`** (see **`canvas.html`**). **Stop** sets **`Module.wasmStopRequested`** so the run can exit cooperatively. While waiting for **`GET`**, **`Module.wasmWaitingKey`** is `1` (green outline). **LOADSPRITE** / **DRAWSPRITE** are stubbed (no textures in WASM).
 
 ## Run
 
