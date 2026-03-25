@@ -5,10 +5,13 @@
   <title>CBM-BASIC Canvas (PETSCII)</title>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 960px; margin: 1em auto; padding: 0 1em; }
+    body.fs-active { max-width: none; margin: 0; padding: 0.5em; }
     h1 { font-size: 1.2em; }
     textarea { width: 100%; height: 160px; font-family: ui-monospace, monospace; font-size: 13px; }
+    .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75em; margin: 0.5em 0; }
+    .toolbar label { font-size: 0.9em; white-space: nowrap; }
     #screenWrap { background: #222; padding: 8px; border-radius: 6px; display: inline-block; }
-    /* Solid C64-blue behind canvas so it never looks “black” if pixels are transparent */
+    body.fs-active #screenWrap { display: block; text-align: center; }
     #screen {
       display: block;
       background-color: rgb(0, 0, 170);
@@ -18,6 +21,7 @@
       height: auto;
     }
     #log {
+      display: none;
       background: #1e1e1e;
       color: #ccc;
       font-family: ui-monospace, monospace;
@@ -28,17 +32,28 @@
       white-space: pre-wrap;
       margin-top: 0.5em;
     }
+    #log.has-content { display: block; }
     .hint { font-size: 0.85em; color: #555; }
     #screen:focus { outline: 2px solid #2472c8; outline-offset: 2px; }
   </style>
 </head>
 <body>
-  <h1>CBM-BASIC — Canvas (40×25 PETSCII)</h1>
-  <p class="hint">Uses the GfxVideoState text screen. <strong>Click the canvas</strong> to focus it; <code>INPUT</code> and <code>GET</code> / <code>INKEY$</code> read keys only while the canvas is focused. Use <code>#OPTION petscii</code> / <code>#OPTION charset upper</code> at the <strong>start</strong> of a line (same as the CLI). Default run flags are PETSCII + C64 palette; <code>#OPTION</code> in your program overrides. <strong>Rebuild</strong> <code>basic-canvas.js</code> + <code>basic-canvas.wasm</code> (<code>make basic-wasm-canvas</code>).</p>
+  <h1>CBM-BASIC — Canvas (40×25 / 80×25 PETSCII)</h1>
+  <p class="hint">Click the <strong>canvas</strong> for <code>INPUT</code> / <code>GET</code>. Use <code>#OPTION columns 80</code> for wide mode (640×200 framebuffer). <code>#OPTION petscii</code> / <code>#OPTION charset upper</code> on their own lines. <strong>Stop</strong> ends a run (checked every ~256 statements, <code>SLEEP</code>, and each <code>GOTO</code>). Rebuild: <code>make basic-wasm-canvas</code>.</p>
   <textarea id="program">10 PRINT "{CLR}{WHT}HELLO FROM CANVAS"
 20 LOCATE 0,12: PRINT "POKE 1024,1 : PEEK(1024)"
 30 END</textarea>
-  <p><button id="run" disabled>Run</button></p>
+  <div class="toolbar">
+    <button id="run" disabled>Run</button>
+    <button id="stop" type="button" disabled>Stop</button>
+    <label>Zoom <select id="zoom">
+      <option value="1">1×</option>
+      <option value="2" selected>2×</option>
+      <option value="3">3×</option>
+      <option value="4">4×</option>
+    </select></label>
+    <button id="fullscreen" type="button">Fullscreen</button>
+  </div>
   <div id="screenWrap">
     <canvas id="screen" width="320" height="200" tabindex="0"></canvas>
   </div>
@@ -46,16 +61,20 @@
 
   <script>
 (function() {
-  /* One version id for BOTH .js and .wasm — avoids “cache-busted JS + stale WASM” black screen */
   var CACHEBUST = String(Date.now());
 
   var canvas = document.getElementById('screen');
   var ctx = canvas.getContext('2d', { alpha: false });
   var runBtn = document.getElementById('run');
+  var stopBtn = document.getElementById('stop');
   var programEl = document.getElementById('program');
   var logEl = document.getElementById('log');
+  var zoomEl = document.getElementById('zoom');
+  var fsBtn = document.getElementById('fullscreen');
+  var screenWrap = document.getElementById('screenWrap');
 
   var rgbaPtr = 0;
+  var rgbaCap = 640 * 200 * 4;
   var rgbaSize = 320 * 200 * 4;
   var frameErrCount = 0;
   var wasmRunPending = false;
@@ -63,16 +82,49 @@
   var lastShadowVer = 0xffffffff;
   var keyRingPtr = 0;
   var WASM_JS_KEY_CAP = 512;
+  var shadowImg = null;
+  var imgBuf = null;
+
+  function fbW() {
+    var M = window.Module;
+    var w = M && M.wasmGfxFbW;
+    return (typeof w === 'number' && w > 0) ? w : 320;
+  }
+  function fbH() {
+    var M = window.Module;
+    var h = M && M.wasmGfxFbH;
+    return (typeof h === 'number' && h > 0) ? h : 200;
+  }
+  function rgbBytes() {
+    return fbW() * fbH() * 4;
+  }
+
+  function applyZoom() {
+    var z = parseInt(zoomEl.value, 10) || 1;
+    var w = fbW();
+    var h = fbH();
+    canvas.style.width = (w * z) + 'px';
+    canvas.style.height = (h * z) + 'px';
+  }
+
+  zoomEl.addEventListener('change', applyZoom);
+
+  fsBtn.addEventListener('click', function() {
+    if (!document.fullscreenElement) {
+      screenWrap.requestFullscreen().catch(function() {});
+    } else {
+      document.exitFullscreen();
+    }
+  });
+  document.addEventListener('fullscreenchange', function() {
+    document.body.classList.toggle('fs-active', !!document.fullscreenElement);
+  });
 
   function heapU8() {
     var M = window.Module;
     return (M && (M['HEAPU8'] || M.HEAPU8)) || null;
   }
 
-  /* Linear memory backing the heap. Older glue: Module.asm.memory + Module.HEAPU8.
-     Newer Emscripten often keeps WebAssembly.Memory in global wasmMemory / wasmExports
-     (Module.asm may be absent). Always prefer the Memory object's .buffer — it stays
-     valid when HEAPU8 was recreated after memory growth (stale typed arrays). */
   function wasmMemoryBuffer() {
     var M = window.Module;
     var g = typeof window !== 'undefined' ? window : globalThis;
@@ -111,7 +163,7 @@
       try {
         dstU8.set(new Uint8Array(buf, p, len));
         return true;
-      } catch (e0) { /* fall through to HEAPU8 */ }
+      } catch (e0) { /* fall through */ }
     }
     var h = heapU8();
     if (h) {
@@ -141,9 +193,13 @@
   function appendLog(text, err) {
     logEl.textContent += text;
     if (err) logEl.style.color = '#f88';
+    if (logEl.textContent.replace(/\s/g, '').length) {
+      logEl.classList.add('has-content');
+    } else {
+      logEl.classList.remove('has-content');
+    }
   }
 
-  /* Ring in wasm linear mem: u32 head, u32 tail, 512 bytes (see basic.c WasmJsKeyRing). */
   function wasmKeyPushByte(b) {
     if (!keyRingPtr) return;
     var buf = wasmMemoryBuffer();
@@ -171,6 +227,9 @@
   requestAnimationFrame(pollUi);
 
   window.Module = {
+    wasmGfxFbW: 320,
+    wasmGfxFbH: 200,
+    wasmStopRequested: 0,
     locateFile: function(path) {
       if (path.endsWith('.wasm')) {
         return path + '?cb=' + CACHEBUST;
@@ -185,24 +244,25 @@
         appendLog('Runtime error: ccall missing — put inline script BEFORE basic-canvas.js.\n', true);
         return;
       }
-      rgbaPtr = M._malloc(rgbaSize);
+      rgbaPtr = M._malloc(rgbaCap);
       if (!rgbaPtr) {
         appendLog('_malloc failed for framebuffer.\n', true);
         return;
       }
-      clearRgbaBuffer(rgbaPtr, rgbaSize);
+      rgbaSize = rgbBytes();
+      clearRgbaBuffer(rgbaPtr, rgbaCap);
       try {
         M.ccall('wasm_gfx_set_video', null, [], []);
+        rgbaSize = rgbBytes();
+        canvas.width = fbW();
+        canvas.height = fbH();
+        shadowImg = ctx.createImageData(fbW(), fbH());
+        imgBuf = ctx.createImageData(fbW(), fbH());
         M.ccall('wasm_gfx_render_rgba', null, ['number', 'number'], [rgbaPtr, rgbaSize]);
-        var img0 = ctx.createImageData(320, 200);
-        if (!copyHeapToRgba(img0.data, rgbaPtr, rgbaSize)) {
+        if (!copyHeapToRgba(imgBuf.data, rgbaPtr, rgbaSize)) {
           appendLog('Could not read framebuffer after init.\n', true);
         } else {
-          ctx.putImageData(img0, 0, 0);
-          var d = img0.data;
-          if (d[3] === 0) {
-            appendLog('Warning: framebuffer alpha is 0 — check WASM/JS match (make basic-wasm-canvas).\n', true);
-          }
+          ctx.putImageData(imgBuf, 0, 0);
         }
       } catch (e) {
         appendLog('Init canvas: ' + e + '\n', true);
@@ -213,15 +273,23 @@
       } catch (e2) {
         appendLog('Init: wasm exports missing — rebuild with make basic-wasm-canvas\n', true);
       }
-      var shadowImg = ctx.createImageData(320, 200);
+      applyZoom();
 
       runBtn.disabled = false;
+      stopBtn.disabled = true;
+
+      stopBtn.onclick = function() {
+        window.Module.wasmStopRequested = 1;
+      };
+
       runBtn.onclick = function() {
         var Mo = window.Module;
         logEl.textContent = '';
         logEl.style.color = '#ccc';
+        logEl.classList.remove('has-content');
         frameErrCount = 0;
         lastShadowVer = 0xffffffff;
+        Mo.wasmStopRequested = 0;
         try {
           Mo.ccall('wasm_js_key_ring_reset', null, [], []);
         } catch (e0) { /* ignore */ }
@@ -236,6 +304,8 @@
         canvas.focus();
         Mo.wasmGfxRunDone = 0;
         wasmRunPending = true;
+        stopBtn.disabled = false;
+        runBtn.disabled = true;
         try {
           Mo.ccall('basic_load_and_run_gfx', null, ['string'], ['/program.bas'], { async: true })
             .catch(function(e) {
@@ -243,25 +313,46 @@
             })
             .finally(function() {
               wasmRunPending = false;
+              stopBtn.disabled = true;
+              runBtn.disabled = false;
+              rgbaSize = rgbBytes();
+              canvas.width = fbW();
+              canvas.height = fbH();
+              shadowImg = ctx.createImageData(fbW(), fbH());
+              imgBuf = ctx.createImageData(fbW(), fbH());
+              applyZoom();
             });
         } catch (e) {
           wasmRunPending = false;
+          stopBtn.disabled = true;
+          runBtn.disabled = false;
           appendLog(String(e && e.message ? e.message : e) + '\n', true);
         }
       };
 
-      var imgBuf = ctx.createImageData(320, 200);
-
       function frame() {
         var Mo = window.Module;
+        var need = rgbBytes();
+        if (need !== rgbaSize && rgbaPtr && !wasmRunPending) {
+          rgbaSize = need;
+          canvas.width = fbW();
+          canvas.height = fbH();
+          shadowImg = ctx.createImageData(fbW(), fbH());
+          imgBuf = ctx.createImageData(fbW(), fbH());
+          applyZoom();
+        }
         if (wasmRunPending && shadowBase) {
           var buf = wasmMemoryBuffer();
-          if (buf && shadowBase + 4 + rgbaSize <= buf.byteLength) {
+          var sb = need;
+          if (buf && shadowBase + 4 + sb <= buf.byteLength) {
             var dv = new DataView(buf);
             var ver = dv.getUint32(shadowBase, true);
             if (ver !== lastShadowVer) {
               lastShadowVer = ver;
-              if (copyHeapToRgba(shadowImg.data, shadowBase + 4, rgbaSize)) {
+              if (shadowImg.width !== fbW() || shadowImg.height !== fbH()) {
+                shadowImg = ctx.createImageData(fbW(), fbH());
+              }
+              if (copyHeapToRgba(shadowImg.data, shadowBase + 4, sb)) {
                 ctx.putImageData(shadowImg, 0, 0);
               }
             }
@@ -272,11 +363,14 @@
         if (rgbaPtr && typeof Mo.ccall === 'function') {
           try {
             Mo.ccall('wasm_gfx_render_rgba', null, ['number', 'number'], [rgbaPtr, rgbaSize]);
+            if (imgBuf.width !== fbW() || imgBuf.height !== fbH()) {
+              imgBuf = ctx.createImageData(fbW(), fbH());
+            }
             if (copyHeapToRgba(imgBuf.data, rgbaPtr, rgbaSize)) {
               ctx.putImageData(imgBuf, 0, 0);
             } else if (frameErrCount < 3) {
               frameErrCount++;
-              appendLog('frame: could not read RGBA from WASM heap (ptr=' + rgbaPtr + ').\n', true);
+              appendLog('frame: could not read WASM heap (ptr=' + rgbaPtr + ' len=' + rgbaSize + ').\n', true);
             }
           } catch (e) {
             frameErrCount++;
