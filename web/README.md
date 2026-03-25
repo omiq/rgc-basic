@@ -29,7 +29,7 @@ cd web && python3 -m http.server 8080
 
 - **Run** calls `basic_load_and_run_gfx` (Asyncify). The interpreter renders the 40×25 (or 80×25) text screen into a shared **RGBA buffer**; the page’s `requestAnimationFrame` loop copies pixels to a `<canvas>` so the display **updates during** `SLEEP`, tight loops, and `INPUT` / `gfx_read_line` waits.
 - **GET** / **INKEY$**: focus the canvas, then type. Keys go to `wasm_push_key` (and the gfx key queue when `GFX_VIDEO` is enabled).
-- **Stop** sets `Module.wasmStopRequested = 1`; the interpreter checks it in the main loop.
+- **Pause** / **Resume** set `Module.wasmPaused = 1` / `0`; the interpreter waits in a yield loop (GFX canvas only) so the screen stops advancing until you resume. **Stop** still sets `Module.wasmStopRequested = 1` and clears pause; both are checked in the main loop and at yield points (`NEXT`, `GOTO`, `SLEEP`, `INPUT` idle).
 - **Safari / some browsers**: WASM pointers can be **BigInt**; the page coerces them. If the canvas stays black, check the red **log** under the canvas for heap read errors, or use **Chrome/Firefox**. Ensure **Asyncify** is enabled in the build (`make basic-wasm-canvas`).
 
 ## Usage (terminal `index.html`)

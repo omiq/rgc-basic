@@ -27,6 +27,11 @@ def _serve_web() -> tuple[socketserver.TCPServer, int]:
     return httpd, port
 
 
+def _click_run(page) -> None:
+    """Dispatch Run without Playwright actionability (rAF can keep layout 'unstable')."""
+    page.evaluate("document.getElementById('run').click()")
+
+
 def _canvas_top_left_rgba(page) -> tuple[int, int, int, int]:
     return page.evaluate(
         """() => {
@@ -75,7 +80,7 @@ def main() -> int:
                 "40 NEXT I\n"
                 "50 END\n",
             )
-            page.click("#run")
+            _click_run(page)
             time.sleep(1.5)
             mid = _canvas_top_left_rgba(page)
             if mid == before:
@@ -93,6 +98,57 @@ def main() -> int:
                 browser.close()
                 raise RuntimeError(f"unexpected canvas error log: {log!r}")
 
+            # Pause / Resume: long FOR/NEXT (yields on NEXT); screen frozen while wasmPaused
+            page.fill(
+                "#program",
+                "10 FOR I=1 TO 500000\n"
+                "20 POKE 1024,(I AND 255)\n"
+                "30 NEXT I\n"
+                "40 END\n",
+            )
+            page.wait_for_function(
+                "() => !document.getElementById('run').disabled",
+                timeout=60000,
+            )
+            # force: canvas rAF can keep layout "unstable" for Playwright's actionability check
+            _click_run(page)
+            page.wait_for_function(
+                """() => {
+                  const p = document.getElementById('pause');
+                  return p && !p.disabled;
+                }""",
+                timeout=60000,
+            )
+            time.sleep(0.35)
+            # Long FOR/NEXT yields on NEXT; pause via same flag as Pause button
+            page.evaluate("Module.wasmPaused = 1")
+            time.sleep(0.35)
+            px1 = _canvas_top_left_rgba(page)
+            time.sleep(0.45)
+            px2 = _canvas_top_left_rgba(page)
+            if px1 != px2:
+                browser.close()
+                raise RuntimeError(
+                    f"canvas changed while paused (expected frozen frame): {px1!r} vs {px2!r}"
+                )
+            page.evaluate("Module.wasmPaused = 0")
+            time.sleep(0.35)
+            px3 = _canvas_top_left_rgba(page)
+            if px3 == px1:
+                browser.close()
+                raise RuntimeError(
+                    f"canvas did not advance after resume (expected change): {px1!r} -> {px3!r}"
+                )
+            page.evaluate("Module.wasmStopRequested = 1")
+            page.wait_for_function(
+                "() => (window.Module && Module.wasmGfxRunDone === 1)",
+                timeout=120000,
+            )
+            log3 = page.text_content("#log") or ""
+            if log3.strip():
+                browser.close()
+                raise RuntimeError(f"pause/resume run error log: {log3!r}")
+
             # Nested FOR/NEXT
             page.fill(
                 "#program",
@@ -103,7 +159,7 @@ def main() -> int:
                 "50 NEXT Y\n"
                 "60 END\n",
             )
-            page.click("#run")
+            _click_run(page)
             page.wait_for_function(
                 "() => (window.Module && Module.wasmGfxRunDone === 1)",
                 timeout=60000,

@@ -1293,6 +1293,9 @@ static void wasm_read_input_line_blocking(char *buf, size_t cap)
 
 #if defined(__EMSCRIPTEN__)
 static void wasm_gfx_refresh_js(void);
+#if defined(GFX_VIDEO)
+static void wasm_canvas_pause_point(void);
+#endif
 static void wasm_maybe_yield_loop(void);
 static void wasm_canvas_sync_charset_from_options(void);
 #endif
@@ -3049,9 +3052,33 @@ static int function_lookup(const char *name, int len)
 }
 
 #if defined(__EMSCRIPTEN__)
+#if defined(GFX_VIDEO)
+/* Canvas: cooperative pause (JS sets Module.wasmPaused); refresh screen while waiting. */
+static void wasm_canvas_pause_point(void)
+{
+    for (;;) {
+        if (EM_ASM_INT({ return (typeof Module !== 'undefined' && Module['wasmStopRequested']) ? 1 : 0; })) {
+            halted = 1;
+            return;
+        }
+        if (!EM_ASM_INT({ return (typeof Module !== 'undefined' && Module['wasmPaused']) ? 1 : 0; })) {
+            return;
+        }
+        wasm_gfx_refresh_js();
+        emscripten_sleep(16);
+    }
+}
+#endif
+
 /* WHILE/FOR/DO jump back inside one run_program "statement" — yield here too. */
 static void wasm_maybe_yield_loop(void)
 {
+#if defined(GFX_VIDEO)
+    wasm_canvas_pause_point();
+    if (halted) {
+        return;
+    }
+#endif
     if (EM_ASM_INT({ return (typeof Module !== 'undefined' && Module['wasmStopRequested']) ? 1 : 0; })) {
         halted = 1;
         return;
@@ -3066,6 +3093,12 @@ static void wasm_maybe_yield_loop(void)
 static void do_sleep_ticks(double ticks)
 {
     int ms;
+#if defined(GFX_VIDEO)
+    wasm_canvas_pause_point();
+    if (halted) {
+        return;
+    }
+#endif
     if (EM_ASM_INT({ return (typeof Module !== 'undefined' && Module['wasmStopRequested']) ? 1 : 0; })) {
         halted = 1;
         return;
@@ -3126,6 +3159,12 @@ static void do_sleep_ticks(double ticks)
 static void statement_sleep(char **p)
 {
     struct value v;
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+    wasm_canvas_pause_point();
+    if (halted) {
+        return;
+    }
+#endif
 #if defined(__EMSCRIPTEN__)
     if (EM_ASM_INT({ return (typeof Module !== 'undefined' && Module['wasmStopRequested']) ? 1 : 0; })) {
         halted = 1;
@@ -6028,6 +6067,11 @@ static int gfx_read_line(char *buf, int size)
             }
         } else {
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+            wasm_canvas_pause_point();
+            if (halted) {
+                buf[0] = '\0';
+                return 0;
+            }
             wasm_gfx_refresh_js();
 #endif
             do_sleep_ticks(1.0 / 60.0);
@@ -8650,6 +8694,7 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
     EM_ASM({
         if (typeof Module !== 'undefined') {
             Module['wasmStopRequested'] = 0;
+            Module['wasmPaused'] = 0;
         }
     });
 #endif
@@ -8673,6 +8718,10 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
     while (!halted && current_line >= 0 && current_line < line_count) {
         char *p;
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+        wasm_canvas_pause_point();
+        if (halted) {
+            break;
+        }
         if (EM_ASM_INT({ return (typeof Module !== 'undefined' && Module['wasmStopRequested']) ? 1 : 0; })) {
             halted = 1;
             break;
@@ -8694,6 +8743,10 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
         wasm_stmt_budget++;
 #if defined(GFX_VIDEO)
         if ((wasm_stmt_budget & 31) == 0) {
+            wasm_canvas_pause_point();
+            if (halted) {
+                break;
+            }
             wasm_gfx_refresh_js();
             emscripten_sleep(0);
         }
