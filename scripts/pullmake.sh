@@ -7,7 +7,12 @@ BRANCH=$(git rev-parse --abbrev-ref HEAD)
 git pull origin "$BRANCH"
 make clean
 make
-make basic-gfx
+# basic-gfx needs Raylib (pkg-config raylib). Skip if headers are not installed.
+if pkg-config --exists raylib 2>/dev/null; then
+  make basic-gfx
+else
+  echo "pullmake: skipping basic-gfx (raylib not found — e.g. apt install libraylib-dev)" >&2
+fi
 make basic-wasm
 make basic-wasm-modular
 make basic-wasm-canvas
