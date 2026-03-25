@@ -4,7 +4,8 @@
 
 ```bash
 # From project root
-make basic-wasm
+make basic-wasm          # terminal demo: web/index.html
+make basic-wasm-canvas   # PETSCII canvas: web/canvas.html
 ```
 
 Requires [Emscripten](https://emscripten.org/) (emsdk). Install and activate, then run the above.
@@ -19,9 +20,16 @@ Serve the `web/` folder over HTTP (WASM has restrictions with `file://`):
 cd web && python3 -m http.server 8080
 # Or: npx serve web
 # Then open http://localhost:8080
+# Canvas build: http://localhost:8080/canvas.html
 ```
 
-## Usage
+## Canvas build (`canvas.html`)
+
+- **Run** calls `basic_load_and_run_gfx` (Asyncify). The interpreter renders the 40×25 (or 80×25) text screen into a shared **RGBA buffer**; the page’s `requestAnimationFrame` loop copies pixels to a `<canvas>` so the display **updates during** `SLEEP`, tight loops, and `INPUT` / `gfx_read_line` waits.
+- **GET** / **INKEY$**: focus the canvas, then type. Keys go to `wasm_push_key` (and the gfx key queue when `GFX_VIDEO` is enabled).
+- **Stop** sets `Module.wasmStopRequested = 1`; the interpreter checks it in the main loop.
+
+## Usage (terminal `index.html`)
 
 - Edit the BASIC program in the textarea and click **Run**.
 - **Interpreter options** on the page map to the same flags as the native binary (`-petscii`, `-palette`, `-charset`, `-columns`). Before each run the demo calls `basic_apply_arg_string` so PETSCII colours render in the output panel (ANSI → HTML).

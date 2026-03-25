@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CBM-BASIC — Canvas (PETSCII)</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 1rem; max-width: 960px; }
+    textarea#program { width: 100%; height: 220px; font-family: monospace; }
+    #canvasWrap { margin-top: 0.75rem; border: 2px solid #333; display: inline-block; background: #000; }
+    canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; cursor: text; }
+    canvas:focus { outline: 2px solid #4a9eff; }
+    #log { margin-top: 0.5rem; padding: 0.5rem; background: #111; color: #f55; font-family: monospace; white-space: pre-wrap; min-height: 1.5em; display: none; }
+    #log.has-content { display: block; }
+    #inputLineRow { margin-top: 0.5rem; display: none; align-items: center; gap: 0.5rem; }
+    #inputLineRow.active { display: flex; }
+    fieldset { margin: 0.75rem 0; }
+  </style>
+</head>
+<body>
+  <h1>CBM-BASIC — Canvas (40×25 / 80×25 PETSCII)</h1>
+  <p>Click the <strong>canvas</strong> for <code>GET</code> / <code>INKEY$</code>. <code>#OPTION columns 80</code> for wide mode. Rebuild: <code>make basic-wasm-canvas</code>.</p>
+
+  <textarea id="program" spellcheck="false">10 PRINT "{WHT}HELLO FROM CANVAS"
+20 END
+</textarea>
+
+  <fieldset>
+    <legend>Interpreter options</legend>
+    <label><input type="checkbox" id="optPetscii" checked /> PETSCII (-petscii)</label><br />
+    <label><input type="checkbox" id="optPlain" /> Plain PETSCII (-petscii-plain)</label><br />
+    <label>Charset <select id="optCharset"><option>upper</option><option>lower</option></select></label><br />
+    <label>Palette <select id="optPalette"><option>ansi</option><option>c64</option></select></label><br />
+    <label>Columns <input type="number" id="optColumns" value="40" min="1" max="255" style="width:4rem" /></label>
+  </fieldset>
+
+  <div>
+    <button type="button" id="run">Run</button>
+    <button type="button" id="stop" disabled>Stop</button>
+    <label>Zoom <select id="zoomEl"><option value="1">1x</option><option value="2" selected>2x</option><option value="3">3x</option><option value="4">4x</option></select></label>
+    <button type="button" id="fsBtn">Fullscreen</button>
+  </div>
+
+  <div id="canvasWrap">
+    <canvas id="screen" width="320" height="200" tabindex="0" title="Click here, then type for GET / INKEY$"></canvas>
+  </div>
+
+  <div id="inputLineRow">
+    <label id="inputLabel" for="inputLine">INPUT</label>
+    <input type="text" id="inputLine" autocomplete="off" spellcheck="false" size="60" />
+  </div>
+
+  <div id="log"></div>
+
+  <script>
+(function() {
+  var canvas = document.getElementById('screen');
+  var ctx = canvas.getContext('2d', { alpha: false });
+  var programEl = document.getElementById('program');
+  var runBtn = document.getElementById('run');
+  var stopBtn = document.getElementById('stop');
+  var logEl = document.getElementById('log');
+  var optPetscii = document.getElementById('optPetscii');
+  var optPlain = document.getElementById('optPlain');
+  var optCharset = document.getElementById('optCharset');
+  var optPalette = document.getElementById('optPalette');
+  var optColumns = document.getElementById('optColumns');
+  var zoomEl = document.getElementById('zoomEl');
+  var fsBtn = document.getElementById('fsBtn');
+  var canvasWrap = document.getElementById('canvasWrap');
+  var inputLineRow = document.getElementById('inputLineRow');
+  var inputLineEl = document.getElementById('inputLine');
+  var inputLabelEl = document.getElementById('inputLabel');
+
+  var img = ctx.createImageData(320, 200);
+  var wasmRunPending = false;
+  var lastRgbaVer = 0;
+
+  function logErr(msg) {
+    logEl.textContent = msg || '';
+    logEl.classList.toggle('has-content', !!(msg && msg.length));
+  }
+
+  function buildArgString() {
+    var parts = [];
+    if (optPlain.checked) parts.push('-petscii-plain');
+    else if (optPetscii.checked) parts.push('-petscii');
+    parts.push('-charset', optCharset.value);
+    parts.push('-palette', optPalette.value);
+    var c = parseInt(optColumns.value, 10);
+    if (!isNaN(c) && c >= 1 && c <= 255) parts.push('-columns', String(c));
+    return parts.join(' ');
+  }
+
+  function wasmMemoryBuffer() {
+    var M = window.Module;
+    if (!M) return null;
+    if (M.asm && M.asm.memory) return M.asm.memory.buffer;
+    if (M.HEAPU8 && M.HEAPU8.buffer) return M.HEAPU8.buffer;
+    return null;
+  }
+
+  function heapU8() {
+    var M = window.Module;
+    return M && M.HEAPU8 ? M.HEAPU8 : null;
+  }
+
+  function applyZoom() {
+    var z = parseInt(zoomEl.value, 10) || 2;
+    canvas.style.width = (canvas.width * z) + 'px';
+    canvas.style.height = (canvas.height * z) + 'px';
+  }
+  zoomEl.addEventListener('change', applyZoom);
+
+  fsBtn.addEventListener('click', function() {
+    if (!document.fullscreenElement) canvasWrap.requestFullscreen().catch(function() {});
+    else document.exitFullscreen();
+  });
+
+  optPlain.addEventListener('change', function() { if (optPlain.checked) optPetscii.checked = true; });
+  optPetscii.addEventListener('change', function() { if (!optPetscii.checked) optPlain.checked = false; });
+
+  function copyRgbaFromWasm() {
+    var M = Module;
+    if (!M || !M._wasm_gfx_rgba_ptr) return false;
+    var ptr = Number(M._wasm_gfx_rgba_ptr());
+    var buf = wasmMemoryBuffer();
+    var w = M.wasmGfxFbW || 320;
+    var h = M.wasmGfxFbH || 200;
+    var need = w * h * 4;
+    if (!buf || ptr < 0 || ptr + need > buf.byteLength) return false;
+    var u8 = new Uint8Array(buf, ptr, need);
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+      img = ctx.createImageData(w, h);
+    }
+    img.data.set(u8);
+    ctx.putImageData(img, 0, 0);
+    return true;
+  }
+
+  function frame() {
+    requestAnimationFrame(frame);
+    if (!wasmRunPending) return;
+    var M = Module;
+    if (!M || !M._wasm_gfx_rgba_version_read) return;
+    var ver = M._wasm_gfx_rgba_version_read();
+    if (ver !== lastRgbaVer) {
+      lastRgbaVer = ver;
+      copyRgbaFromWasm();
+    }
+  }
+  requestAnimationFrame(frame);
+
+  var Module = {
+    locateFile: function(p) {
+      if (p.endsWith('.wasm')) return 'basic-canvas.wasm?cb=' + Date.now();
+      return p;
+    },
+    printErr: function(t) { logErr(String(t)); },
+    onWasmNeedInputLine: function() {
+      inputLabelEl.textContent = (Module.wasmInputLabel && String(Module.wasmInputLabel).length) ? Module.wasmInputLabel : 'INPUT';
+      inputLineRow.classList.add('active');
+      inputLineEl.value = '';
+      inputLineEl.focus();
+    },
+    onRuntimeInitialized: function() {
+      runBtn.disabled = false;
+      applyZoom();
+      copyRgbaFromWasm();
+      lastRgbaVer = Module._wasm_gfx_rgba_version_read ? Module._wasm_gfx_rgba_version_read() : 0;
+
+      runBtn.onclick = function() {
+        logErr('');
+        inputLineRow.classList.remove('active');
+        Module.wasmStopRequested = 0;
+        wasmRunPending = true;
+        lastRgbaVer = -1;
+        runBtn.disabled = true;
+        stopBtn.disabled = false;
+        var flags = buildArgString();
+        var rc = Module.ccall('basic_apply_arg_string', 'number', ['string'], [flags]);
+        if (rc !== 0) {
+          logErr('Invalid interpreter options.');
+          wasmRunPending = false;
+          runBtn.disabled = false;
+          stopBtn.disabled = true;
+          return;
+        }
+        Module.FS.writeFile('/program.bas', programEl.value);
+        canvas.focus();
+        Module.ccall('basic_load_and_run_gfx', null, ['string'], ['/program.bas'], { async: true })
+          .catch(function(e) { logErr(String(e && e.message ? e.message : e)); })
+          .finally(function() {
+            wasmRunPending = false;
+            runBtn.disabled = false;
+            stopBtn.disabled = true;
+            copyRgbaFromWasm();
+          });
+      };
+
+      stopBtn.onclick = function() { Module.wasmStopRequested = 1; };
+
+      canvas.addEventListener('keydown', function(ev) {
+        if (inputLineRow.classList.contains('active')) return;
+        ev.preventDefault();
+        var code = ev.keyCode || ev.which;
+        if (code === 13) Module.ccall('wasm_push_key', null, ['number'], [13]);
+        else if (ev.key && ev.key.length === 1) Module.ccall('wasm_push_key', null, ['number'], [ev.key.charCodeAt(0) & 0xFF]);
+      }, true);
+
+      inputLineEl.addEventListener('keydown', function(ev) {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          Module.wasmInputLineText = inputLineEl.value;
+          Module.wasmInputLineReady = 1;
+          inputLineRow.classList.remove('active');
+          canvas.focus();
+        }
+      });
+    }
+  };
+  window.Module = Module;
+})();
+  </script>
+  <script src="basic-canvas.js"></script>
+</body>
+</html>

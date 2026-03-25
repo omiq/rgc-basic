@@ -74,3 +74,6 @@ CHARS.DAT
 web/basic.js
 web/basic.wasm
 web/basic.wasm.map
+web/basic-canvas.js
+web/basic-canvas.wasm
+web/basic-canvas.wasm.map
