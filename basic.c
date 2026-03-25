@@ -1645,6 +1645,9 @@ static char *dupstr_local(const char *s);
 static struct value eval_expr(char **p);
 static int eval_condition(char **p);
 static void execute_statement(char **p);
+#if defined(__EMSCRIPTEN__)
+static void wasm_maybe_yield_loop(void);
+#endif
 static struct value *get_var_reference(char **p, int *is_array_out, int *is_string_out);
 static struct value make_num(double v);
 static struct value make_str(const char *s);
@@ -2808,6 +2811,16 @@ static int function_lookup(const char *name, int len)
 }
 
 #if defined(__EMSCRIPTEN__)
+/* WHILE/FOR/DO jump back inside one run_program "statement" — yield here too. */
+static void wasm_maybe_yield_loop(void)
+{
+    if (EM_ASM_INT({ return (typeof Module !== 'undefined' && Module['wasmStopRequested']) ? 1 : 0; })) {
+        halted = 1;
+        return;
+    }
+    emscripten_sleep(0);
+}
+
 /* Browser: use emscripten_sleep to yield to event loop. */
 static void do_sleep_ticks(double ticks)
 {
@@ -7160,6 +7173,9 @@ static void statement_wend(char **p)
         current_line = while_stack[idx].line_index;
         statement_pos = while_stack[idx].position;
         while_top--;
+#if defined(__EMSCRIPTEN__)
+        wasm_maybe_yield_loop();
+#endif
     }
 }
 
@@ -7266,6 +7282,9 @@ static void statement_loop(char **p)
         current_line = do_stack[idx].line_index;
         statement_pos = do_stack[idx].position;
         *p = statement_pos;
+#if defined(__EMSCRIPTEN__)
+        wasm_maybe_yield_loop();
+#endif
     }
 }
 
@@ -7395,6 +7414,9 @@ static void statement_next(char **p)
         (for_stack[for_top - 1].step < 0 && vp->num >= for_stack[for_top - 1].end_value)) {
         current_line = for_stack[for_top - 1].line_index;
         statement_pos = for_stack[for_top - 1].resume_pos;
+#if defined(__EMSCRIPTEN__)
+        wasm_maybe_yield_loop();
+#endif
     } else {
         for_top--;
     }
@@ -8321,7 +8343,7 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
         execute_statement(&statement_pos);
 #if defined(__EMSCRIPTEN__)
         wasm_stmt_budget++;
-        if ((wasm_stmt_budget & 255) == 0) {
+        if ((wasm_stmt_budget & 31) == 0) {
             if (EM_ASM_INT({ return (typeof Module !== 'undefined' && Module['wasmStopRequested']) ? 1 : 0; })) {
                 halted = 1;
             }
