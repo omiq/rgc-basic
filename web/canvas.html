@@ -36,6 +36,8 @@
 
   <div>
     <button type="button" id="run">Run</button>
+    <button type="button" id="pause" disabled>Pause</button>
+    <button type="button" id="resume" disabled>Resume</button>
     <button type="button" id="stop" disabled>Stop</button>
     <label>Zoom <select id="zoomEl"><option value="1">1x</option><option value="2" selected>2x</option><option value="3">3x</option><option value="4">4x</option></select></label>
     <button type="button" id="fsBtn">Fullscreen</button>
@@ -58,6 +60,8 @@
   var ctx = canvas.getContext('2d', { alpha: false });
   var programEl = document.getElementById('program');
   var runBtn = document.getElementById('run');
+  var pauseBtn = document.getElementById('pause');
+  var resumeBtn = document.getElementById('resume');
   var stopBtn = document.getElementById('stop');
   var logEl = document.getElementById('log');
   var optPetscii = document.getElementById('optPetscii');
@@ -245,7 +249,10 @@
       logErr('WASM aborted: ' + (what || 'unknown'));
       wasmRunPending = false;
       runBtn.disabled = false;
+      pauseBtn.disabled = true;
+      resumeBtn.disabled = true;
       stopBtn.disabled = true;
+      Module.wasmPaused = 0;
     },
     onRuntimeInitialized: function() {
       runBtn.disabled = false;
@@ -288,9 +295,12 @@
         copyFailLogged = false;
         inputLineRow.classList.remove('active');
         Module.wasmStopRequested = 0;
+        Module.wasmPaused = 0;
         wasmRunPending = true;
         lastRgbaVer = -1;
         runBtn.disabled = true;
+        pauseBtn.disabled = false;
+        resumeBtn.disabled = true;
         stopBtn.disabled = false;
         var flags = buildArgString();
         var rc = Module.ccall('basic_apply_arg_string', 'number', ['string'], [flags]);
@@ -298,6 +308,8 @@
           logErr('Invalid interpreter options.');
           wasmRunPending = false;
           runBtn.disabled = false;
+          pauseBtn.disabled = true;
+          resumeBtn.disabled = true;
           stopBtn.disabled = true;
           return;
         }
@@ -311,7 +323,10 @@
           .catch(function(e) { logErr(String(e && e.message ? e.message : e)); })
           .finally(function() {
             wasmRunPending = false;
+            Module.wasmPaused = 0;
             runBtn.disabled = false;
+            pauseBtn.disabled = true;
+            resumeBtn.disabled = true;
             stopBtn.disabled = true;
             if (canvasDebugEnabled && Module._wasm_debug_log_stacks) {
               canvasDbg('--- stacks after RUN ---');
@@ -321,7 +336,20 @@
           });
       };
 
-      stopBtn.onclick = function() { Module.wasmStopRequested = 1; };
+      pauseBtn.onclick = function() {
+        Module.wasmPaused = 1;
+        pauseBtn.disabled = true;
+        resumeBtn.disabled = false;
+      };
+      resumeBtn.onclick = function() {
+        Module.wasmPaused = 0;
+        pauseBtn.disabled = false;
+        resumeBtn.disabled = true;
+      };
+      stopBtn.onclick = function() {
+        Module.wasmStopRequested = 1;
+        Module.wasmPaused = 0;
+      };
 
       canvas.addEventListener('keydown', function(ev) {
         if (inputLineRow.classList.contains('active')) return;
