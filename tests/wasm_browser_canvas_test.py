@@ -43,6 +43,18 @@ def _canvas_top_left_rgba(page) -> tuple[int, int, int, int]:
     )
 
 
+def _canvas_pixel_rgba(page, x: int, y: int) -> tuple[int, int, int, int]:
+    return page.evaluate(
+        """([x, y]) => {
+      const c = document.getElementById('screen');
+      const ctx = c.getContext('2d');
+      const d = ctx.getImageData(x, y, 1, 1).data;
+      return [d[0], d[1], d[2], d[3]];
+    }""",
+        [x, y],
+    )
+
+
 def main() -> int:
     if not (WEB / "basic-canvas.js").is_file() or not (WEB / "basic-canvas.wasm").is_file():
         print(
@@ -168,6 +180,74 @@ def main() -> int:
             if "NEXT without FOR" in log2 or log2.strip():
                 browser.close()
                 raise RuntimeError(f"nested FOR failed or error: {log2!r}")
+
+            # SCREEN 1 bitmap: top-left pixel should be pen colour (COLOR 1 = white)
+            page.wait_for_function(
+                "() => !document.getElementById('run').disabled",
+                timeout=60000,
+            )
+            page.fill(
+                "#program",
+                "10 SCREEN 1\n"
+                "20 COLOR 1\n"
+                "30 BACKGROUND 6\n"
+                "40 PSET 0,0\n"
+                "50 SLEEP 30\n"
+                "60 END\n",
+            )
+            _click_run(page)
+            time.sleep(0.6)
+            bmp_px = _canvas_top_left_rgba(page)
+            if list(bmp_px[:3]) != [255, 255, 255]:
+                browser.close()
+                raise RuntimeError(
+                    f"bitmap mode: expected white pixel at (0,0), got {bmp_px!r}"
+                )
+            page.wait_for_function(
+                "() => (window.Module && Module.wasmGfxRunDone === 1)",
+                timeout=120000,
+            )
+            log_bm = page.text_content("#log") or ""
+            if log_bm.strip():
+                browser.close()
+                raise RuntimeError(f"bitmap test error log: {log_bm!r}")
+
+            # PNG sprite over PETSCII (software decode + alpha composite)
+            page.wait_for_function(
+                "() => !document.getElementById('run').disabled",
+                timeout=60000,
+            )
+            page.evaluate(
+                """async () => {
+              const r = await fetch('testfixtures/red8x8.png');
+              const buf = await r.arrayBuffer();
+              Module.FS.writeFile('/red8x8.png', new Uint8Array(buf));
+            }"""
+            )
+            page.fill(
+                "#program",
+                '10 LOADSPRITE 0,"/red8x8.png"\n'
+                "20 DRAWSPRITE 0,0,0,1\n"
+                "30 SLEEP 40\n"
+                "40 END\n",
+            )
+            _click_run(page)
+            time.sleep(0.6)
+            spr_px = _canvas_pixel_rgba(page, 4, 4)
+            r, g, b = int(spr_px[0]), int(spr_px[1]), int(spr_px[2])
+            if r < 200 or g > 80 or b > 80:
+                browser.close()
+                raise RuntimeError(
+                    f"sprite composite: expected red at (4,4), got rgba={spr_px!r}"
+                )
+            page.wait_for_function(
+                "() => (window.Module && Module.wasmGfxRunDone === 1)",
+                timeout=120000,
+            )
+            log_sp = page.text_content("#log") or ""
+            if log_sp.strip():
+                browser.close()
+                raise RuntimeError(f"sprite test error log: {log_sp!r}")
 
             browser.close()
     finally:

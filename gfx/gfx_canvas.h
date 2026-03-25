@@ -8,5 +8,7 @@
 
 void gfx_canvas_load_default_charrom(GfxVideoState *s);
 void gfx_canvas_render_rgba(const GfxVideoState *s, uint8_t *rgba, size_t rgba_bytes);
+/* 40- or 80-column framebuffer + sprite overlay (640×200 buffer). */
+void gfx_canvas_render_full_frame(const GfxVideoState *s, uint8_t *rgba, size_t rgba_bytes);
 
 #endif

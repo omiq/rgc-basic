@@ -62,7 +62,7 @@
   6. **Sprite animation** — Multiple frames per slot; `SPRITEFRAME slot, n` or frame parameter in `DRAWSPRITE`; optional frame rate / timing.
 
 * **Browser / WASM** (see `docs/browser-wasm-plan.md`, `web/README.md`, `README.md`)
-  * ~**Emscripten builds**~ — `make basic-wasm` → `web/basic.js` + `basic.wasm`; `make basic-wasm-canvas` → `basic-canvas.js` + `basic-canvas.wasm` (GFX_VIDEO, Canvas 2D PETSCII via `gfx_canvas.c`; sprites stubbed). Asyncify for `SLEEP`, `INPUT`, `GET` / `INKEY$`.
+  * ~**Emscripten builds**~ — `make basic-wasm` → `web/basic.js` + `basic.wasm`; `make basic-wasm-canvas` → `basic-canvas.js` + `basic-canvas.wasm` (GFX_VIDEO: PETSCII + `SCREEN 1` bitmap + PNG sprites via `gfx_software_sprites.c` / stb_image, parity with basic-gfx). Asyncify for `SLEEP`, `INPUT`, `GET` / `INKEY$`.
   * ~**Demos**~ — `web/index.html` (terminal output div, inline INPUT, `wasm_push_key`); `web/canvas.html` (40×25 / 80×25 PETSCII canvas, shared RGBA buffer + `requestAnimationFrame` refresh during loops/SLEEP).
   * ~**Controls**~ — **Pause** / **Resume** (`Module.wasmPaused`), **Stop** (`Module.wasmStopRequested`); terminal sets `Module.wasmRunDone` when `basic_load_and_run` finishes. Cooperative pause at statement boundaries and yield points (canvas also refreshes while paused).
   * ~**Interpreter fixes for browser**~ — e.g. FOR stack unwind on `RETURN` from `GOSUB` into loops; `EVAL` assignment form; terminal stdout line-buffering for `Module.print`; runtime errors batched for `printErr` on canvas.
