@@ -1,9 +1,10 @@
 #!/bin/sh
 # Pulls the **current branch** from origin (no local upstream needed), then rebuilds.
 # Example on main: same as  git pull origin main && make ...
+# Uses a normal merge pull (not --ff-only) so local commits on top of origin still work.
 set -e
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
-git pull --ff-only origin "$BRANCH"
+git pull origin "$BRANCH"
 make clean
 make
 make basic-gfx
