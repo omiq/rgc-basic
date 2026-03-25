@@ -116,7 +116,8 @@
 
   function heapU8() {
     var M = window.Module;
-    return M && M.HEAPU8 ? M.HEAPU8 : null;
+    if (!M) return null;
+    return M.HEAPU8 || M['HEAPU8'] || null;
   }
 
   function applyZoom() {
@@ -160,12 +161,25 @@
     if (!u8 && hu && ptr >= 0 && ptr + need <= hu.length) {
       u8 = hu.subarray(ptr, ptr + need);
     }
+    /* Last resort: byte-by-byte (slow; needs getValue in EXPORTED_RUNTIME_METHODS). */
+    if (!u8 && M.getValue && ptr >= 0 && need > 0 && need <= 640 * 200 * 4) {
+      try {
+        var tmp = new Uint8Array(need);
+        for (var bi = 0; bi < need; bi++) {
+          tmp[bi] = M.getValue(ptr + bi, 'i8') & 255;
+        }
+        u8 = tmp;
+      } catch (e) {
+        u8 = null;
+      }
+    }
     if (!u8) {
       if (!copyFailLogged) {
         copyFailLogged = true;
         logErr('Canvas: could not read RGBA from WASM heap (ptr=' + ptr + ', need=' + need +
           ', heapLen=' + (hu ? hu.length : 'n/a') + ', memBuf=' + (buf ? buf.byteLength : 'null') +
-          '). Try another browser or check DevTools console for WASM errors.');
+          ', hasGetValue=' + (!!M.getValue) +
+          '). Run: git pull && make basic-wasm-canvas (Makefile exports HEAPU8/wasmMemory).');
       }
       return false;
     }

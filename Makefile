@@ -63,7 +63,7 @@ basic-wasm:
 	@mkdir -p web
 	$(EMCC) -w -O2 -s WASM=1 \
 		-s EXPORTED_FUNCTIONS='["_basic_load","_basic_run","_basic_halted","_basic_load_and_run","_basic_apply_arg_string","_wasm_push_key"]' \
-		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS"]' \
+		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","HEAPU8","wasmMemory","getValue"]' \
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
 		-s INITIAL_MEMORY=33554432 \
 		-s ASYNCIFY=1 -s ASYNCIFY_IMPORTS='["emscripten_sleep"]' \
@@ -75,7 +75,7 @@ basic-wasm-canvas:
 	@mkdir -p web
 	$(EMCC) -w -O2 -s WASM=1 -DGFX_VIDEO -Igfx \
 		-s EXPORTED_FUNCTIONS='["_basic_apply_arg_string","_basic_load_and_run_gfx","_wasm_push_key","_wasm_gfx_rgba_ptr","_wasm_gfx_rgba_version_read"]' \
-		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS"]' \
+		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","HEAPU8","wasmMemory","getValue"]' \
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
 		-s INITIAL_MEMORY=67108864 \
 		-s ASYNCIFY=1 -s ASYNCIFY_IMPORTS='["emscripten_sleep"]' \
