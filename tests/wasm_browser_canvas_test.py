@@ -105,6 +105,15 @@ def main() -> int:
                 get_key,
             )
 
+            def noop_keys(_pg):
+                pass
+
+            run_canvas_case(
+                "COLUMNS80",
+                "#OPTION columns 80\n10 PRINT \"WIDE\"\n20 END\n",
+                noop_keys,
+            )
+
             browser.close()
     finally:
         httpd.shutdown()

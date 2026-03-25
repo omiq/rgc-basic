@@ -1509,6 +1509,11 @@ static int apply_option_directive(const char *name, const char *value)
         n = (int)strtol(value, &end, 10);
         if (end == value || *end != '\0' || n < 1 || n > 255) return -1;
         print_width = n;
+#ifdef GFX_VIDEO
+        if (gfx_vs) {
+            gfx_vs->cols = (print_width >= 80) ? 80 : 40;
+        }
+#endif
         return 0;
     }
     if (str_eq_ci(name, "nowrap")) {
@@ -2807,6 +2812,10 @@ static int function_lookup(const char *name, int len)
 static void do_sleep_ticks(double ticks)
 {
     int ms;
+    if (EM_ASM_INT({ return (typeof Module !== 'undefined' && Module['wasmStopRequested']) ? 1 : 0; })) {
+        halted = 1;
+        return;
+    }
     if (ticks <= 0.0) return;
     ms = (int)(ticks * (1000.0 / 60.0) + 0.5);
     /* Asyncify needs a real sleep; rounding to 0 would busy-spin (e.g. fractional ticks). */
@@ -2863,6 +2872,12 @@ static void do_sleep_ticks(double ticks)
 static void statement_sleep(char **p)
 {
     struct value v;
+#if defined(__EMSCRIPTEN__)
+    if (EM_ASM_INT({ return (typeof Module !== 'undefined' && Module['wasmStopRequested']) ? 1 : 0; })) {
+        halted = 1;
+        return;
+    }
+#endif
     skip_spaces(p);
     if (**p == '(') {
         (*p)++;
@@ -5652,7 +5667,8 @@ static void statement_locate(char **p)
 #if defined(__EMSCRIPTEN__)
 /* Shadow framebuffer + version: C updates while waiting for INPUT; JS rAF copies from
  * linear memory only (no EM_ASM / no wasm ccall while Asyncify is suspended). */
-#define WASM_GFX_SHADOW_RGBA_BYTES (320u * 200u * 4u)
+/* Max 80×25×8×8 RGBA (same as gfx_canvas); 40-col uses left portion only. */
+#define WASM_GFX_SHADOW_RGBA_BYTES (640u * 200u * 4u)
 typedef struct {
     volatile uint32_t version;
     uint8_t rgba[WASM_GFX_SHADOW_RGBA_BYTES];
@@ -5709,8 +5725,15 @@ static int gfx_read_line(char *buf, int size)
         } else {
 #if defined(__EMSCRIPTEN__)
             if (gfx_vs) {
+                int pw = (gfx_vs->cols >= 80) ? 640 : 320;
                 gfx_canvas_render_rgba(gfx_vs, wasm_gfx_shadow.rgba, sizeof(wasm_gfx_shadow.rgba));
                 wasm_gfx_shadow.version++;
+                EM_ASM({
+                    if (typeof Module !== 'undefined') {
+                        Module['wasmGfxFbW'] = $0;
+                        Module['wasmGfxFbH'] = $1;
+                    }
+                }, pw, 25 * 8);
             }
 #endif
             do_sleep_ticks(1.0 / 60.0);
@@ -6762,6 +6785,10 @@ static void statement_goto(char **p)
     } else {
         runtime_error("Expected line number or label in GOTO");
     }
+#if defined(__EMSCRIPTEN__)
+    /* Tight GOTO loops otherwise never hit emscripten_sleep (no ticks60 advance). */
+    emscripten_sleep(0);
+#endif
 }
 
 static void statement_gosub(char **p)
@@ -8236,6 +8263,15 @@ static void load_program(const char *path)
     }
     gfx_set_sprite_base_dir(base_dir);
 #endif
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+    /* Canvas JS resizes framebuffer from this after #OPTION columns in file. */
+    EM_ASM({
+        if (typeof Module !== 'undefined') {
+            Module['wasmGfxFbW'] = $0;
+            Module['wasmGfxFbH'] = 200;
+        }
+    }, (print_width >= 80) ? 640 : 320);
+#endif
 }
 
 static void run_program(const char *script_path_arg, int nargs, char **args)
@@ -8245,6 +8281,13 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
 #endif
     /* Fresh run: same effect as CLR so prior RUN does not leave variables (browser re-RUN, etc.). */
     basic_clr_memory();
+#if defined(__EMSCRIPTEN__)
+    EM_ASM({
+        if (typeof Module !== 'undefined') {
+            Module['wasmStopRequested'] = 0;
+        }
+    });
+#endif
     script_path = script_path_arg;
     script_argc = nargs;
     script_argv = args;
@@ -8252,6 +8295,12 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
     current_line = 0;
     statement_pos = NULL;
     print_col = 0;
+#ifdef GFX_VIDEO
+    if (gfx_vs) {
+        gfx_x = 0;
+        gfx_y = 0;
+    }
+#endif
     for_top = 0;
     while_top = 0;
     do_top = 0;
@@ -8272,7 +8321,10 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
         execute_statement(&statement_pos);
 #if defined(__EMSCRIPTEN__)
         wasm_stmt_budget++;
-        if ((wasm_stmt_budget & 2047) == 0) {
+        if ((wasm_stmt_budget & 255) == 0) {
+            if (EM_ASM_INT({ return (typeof Module !== 'undefined' && Module['wasmStopRequested']) ? 1 : 0; })) {
+                halted = 1;
+            }
             emscripten_sleep(0);
         }
 #endif
@@ -8658,7 +8710,14 @@ EMSCRIPTEN_KEEPALIVE void wasm_gfx_set_video(void)
     memset(wasm_gfx_state.screen, 32, GFX_TEXT_SIZE);
     memset(wasm_gfx_state.color, 14, GFX_COLOR_SIZE);
     wasm_gfx_state.bg_color = 6;
+    wasm_gfx_state.cols = (print_width >= 80) ? 80 : 40;
     basic_set_video(&wasm_gfx_state);
+    EM_ASM({
+        if (typeof Module !== 'undefined') {
+            Module['wasmGfxFbW'] = $0;
+            Module['wasmGfxFbH'] = 200;
+        }
+    }, (print_width >= 80) ? 640 : 320);
 }
 
 EMSCRIPTEN_KEEPALIVE void basic_load_and_run_gfx(const char *path)
@@ -8677,6 +8736,7 @@ EMSCRIPTEN_KEEPALIVE void basic_load_and_run_gfx(const char *path)
 
 EMSCRIPTEN_KEEPALIVE void wasm_gfx_render_rgba(uint8_t *rgba, int nbytes)
 {
+    int pw;
     if (!rgba || nbytes <= 0) {
         return;
     }
@@ -8684,6 +8744,14 @@ EMSCRIPTEN_KEEPALIVE void wasm_gfx_render_rgba(uint8_t *rgba, int nbytes)
         return;
     }
     gfx_canvas_render_rgba(gfx_vs, rgba, (size_t)nbytes);
+    pw = (gfx_vs->cols >= 80) ? 640 : 320;
+    EM_ASM({
+        if (typeof Module !== 'undefined') {
+            Module['wasmGfxFbW'] = $0;
+            Module['wasmGfxFbH'] = $1;
+        }
+    }, pw, 25 * 8);
 }
+
 #endif /* GFX_VIDEO */
 #endif
