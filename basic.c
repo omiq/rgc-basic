@@ -915,6 +915,73 @@ static char *statement_pos = NULL;
 static volatile int halted = 0;
 static int print_col = 0;
 
+#if defined(__EMSCRIPTEN__) && !defined(GFX_VIDEO)
+/* Terminal WASM: libc batches stdout so PRINT newlines never reach Module.print until exit.
+ * Buffer bytes and call Module.print once per logical line (at '\n'). */
+#define WASM_STDOUT_BUF 4096
+static char wasm_stdout_buf[WASM_STDOUT_BUF];
+static int wasm_stdout_len;
+
+static void wasm_stdout_flush_partial(void)
+{
+    if (wasm_stdout_len <= 0) {
+        return;
+    }
+    wasm_stdout_buf[wasm_stdout_len] = '\0';
+    EM_ASM({
+        if (typeof Module !== 'undefined' && Module['print']) {
+            Module['print'](UTF8ToString($0));
+        }
+    }, wasm_stdout_buf);
+    wasm_stdout_len = 0;
+}
+
+static void wasm_stdout_putc(int c)
+{
+    unsigned char uc = (unsigned char)c;
+    if (uc == '\n') {
+        wasm_stdout_buf[wasm_stdout_len] = '\0';
+        EM_ASM({
+            if (typeof Module !== 'undefined' && Module['print']) {
+                /* Include newline so index.html split sees each PRINT as its own line. */
+                Module['print'](UTF8ToString($0) + '\n');
+            }
+        }, wasm_stdout_buf);
+        wasm_stdout_len = 0;
+        return;
+    }
+    if (wasm_stdout_len >= WASM_STDOUT_BUF - 1) {
+        wasm_stdout_flush_partial();
+    }
+    wasm_stdout_buf[wasm_stdout_len++] = (char)uc;
+}
+
+static void wasm_stdout_puts(const char *s)
+{
+    if (!s) {
+        return;
+    }
+    while (*s) {
+        wasm_stdout_putc((unsigned char)*s++);
+    }
+}
+
+static void wasm_stdout_before_cstdio(void)
+{
+    wasm_stdout_flush_partial();
+}
+
+#define OUTC(c) wasm_stdout_putc(c)
+#define OUTS(s) wasm_stdout_puts(s)
+#define OUTFLUSH() wasm_stdout_flush_partial()
+#define BEFORE_CSTDIO() wasm_stdout_before_cstdio()
+#else
+#define OUTC(c) fputc((c), stdout)
+#define OUTS(s) fputs((s), stdout)
+#define OUTFLUSH() fflush(stdout)
+#define BEFORE_CSTDIO() ((void)0)
+#endif
+
 #ifdef __EMSCRIPTEN__
 /* Ring buffer for single-key reads (GET, INKEY$) from JS (wasm_push_key). */
 #define WASM_KEY_RING 512
@@ -1843,10 +1910,10 @@ static void print_spaces(int count)
             continue;
         }
 #endif
-        fputc(' ', stdout);
+        OUTC(' ');
         print_col++;
         if (print_col >= print_width && !petscii_no_wrap && !terminal_no_wrap) {
-            fputc('\n', stdout);
+            OUTC('\n');
             print_col = 0;
         }
     }
@@ -2442,20 +2509,20 @@ static void print_value(struct value *v)
              * zero-width; cursor-right (C) / cursor-left (D) adjust print_col.
              */
             if (petscii_mode && c == 0x1b) {
-                fputc(c, stdout);
+                OUTC(c);
                 s++;
                 if (!*s) {
                     break;
                 }
                 unsigned char d = (unsigned char)*s;
-                fputc(d, stdout);
+                OUTC(d);
                 if (d == '[') {
                     int n = 0;
                     int have_num = 0;
                     s++;
                     while (*s) {
                         d = (unsigned char)*s;
-                        fputc(d, stdout);
+                        OUTC(d);
                         if (d >= '0' && d <= '9') {
                             n = n * 10 + (d - '0');
                             have_num = 1;
@@ -2474,7 +2541,7 @@ static void print_value(struct value *v)
                             /* Cursor right */
                             print_col += n;
                             if (print_col >= print_width && !petscii_no_wrap && !terminal_no_wrap) {
-                                fputc('\n', stdout);
+                                OUTC('\n');
                                 print_col = 0;
                             }
                         } else if (d == 'D') {
@@ -2496,7 +2563,7 @@ static void print_value(struct value *v)
                 }
                 continue;
             }
-            fputc(c, stdout);
+            OUTC(c);
             if (c == '\n') {
                 print_col = 0;
             } else {
@@ -2505,7 +2572,7 @@ static void print_value(struct value *v)
                 if (c < 0x80 || (c & 0xC0) != 0x80) {
                     print_col++;
                     if (print_col >= print_width && !petscii_no_wrap && !terminal_no_wrap) {
-                        fputc('\n', stdout);
+                        OUTC('\n');
                         print_col = 0;
                     }
                 }
@@ -2524,7 +2591,7 @@ static void print_value(struct value *v)
             return;
         }
 #endif
-        fputs(buf, stdout);
+        OUTS(buf);
         print_col += (int)strlen(buf);
     }
 }
@@ -2736,16 +2803,18 @@ static void statement_cursor(char **p)
     skip_spaces(p);
     if (starts_with_kw(*p, "ON")) {
         *p += 2;
+        BEFORE_CSTDIO();
         printf("\033[?25h");
         cursor_hidden = 0;
-        fflush(stdout);
+        OUTFLUSH();
         return;
     }
     if (starts_with_kw(*p, "OFF")) {
         *p += 3;
+        BEFORE_CSTDIO();
         printf("\033[?25l");
         cursor_hidden = 1;
-        fflush(stdout);
+        OUTFLUSH();
         return;
     }
     runtime_error("CURSOR expects ON or OFF");
@@ -2774,6 +2843,7 @@ static void statement_color(char **p)
 #endif
 
     /* Map C64 color index to ANSI foreground SGR. */
+    BEFORE_CSTDIO();
     switch (idx) {
     case 0:  printf("\033[30m"); break;       /* black */
     case 1:  printf("\033[37m"); break;       /* white */
@@ -2794,7 +2864,7 @@ static void statement_color(char **p)
     default:
         break;
     }
-    fflush(stdout);
+    OUTFLUSH();
 }
 
 static void statement_background(char **p)
@@ -2820,6 +2890,7 @@ static void statement_background(char **p)
 #endif
 
     /* Map C64 color index to ANSI background SGR. */
+    BEFORE_CSTDIO();
     switch (idx) {
     case 0:  printf("\033[40m"); break;        /* black */
     case 1:  printf("\033[47m"); break;        /* white */
@@ -2840,7 +2911,7 @@ static void statement_background(char **p)
     default:
         break;
     }
-    fflush(stdout);
+    OUTFLUSH();
 }
 
 static void statement_pset(char **p, int preset)
@@ -3292,7 +3363,7 @@ static void statement_get(char **p)
         return;
     }
 
-    fflush(stdout);
+    OUTFLUSH();
 #ifdef GFX_VIDEO
     if (gfx_vs) {
         uint8_t b = 0;
@@ -3997,11 +4068,11 @@ static struct value eval_function(const char *name, char **p)
         }
         cur = print_col;
         if (target < cur) {
-            fputc('\n', stdout);
+            OUTC('\n');
             cur = 0;
         }
         while (cur < target) {
-            fputc(' ', stdout);
+            OUTC(' ');
             cur++;
         }
         print_col = cur;
@@ -5392,9 +5463,9 @@ static void statement_print(char **p)
             return;
         }
 #endif
-        fputc('\n', stdout);
+        OUTC('\n');
         print_col = 0;
-        fflush(stdout);
+        OUTFLUSH();
         return;
     }
 
@@ -5406,10 +5477,10 @@ static void statement_print(char **p)
             return;
         }
 #endif
-        fputc('\n', stdout);
+        OUTC('\n');
         print_col = 0;
     }
-    fflush(stdout);
+    OUTFLUSH();
 }
 
 
@@ -5461,9 +5532,10 @@ static void statement_textat(char **p)
 #endif
 
     /* Move cursor with ANSI: rows/cols are 1-based */
+    BEFORE_CSTDIO();
     printf("\033[%d;%dH", y + 1, x + 1);
-    fputs(vtext.str, stdout);
-    fflush(stdout);
+    OUTS(vtext.str);
+    OUTFLUSH();
 }
 
 
@@ -5494,8 +5566,9 @@ static void statement_locate(char **p)
 #endif
 
     // Move cursor with ANSI: rows/cols are 1-based
+    BEFORE_CSTDIO();
     printf("\033[%d;%dH", y + 1, x + 1);
-    fflush(stdout);
+    OUTFLUSH();
 }
 
 #ifdef GFX_VIDEO
@@ -5599,13 +5672,13 @@ static void statement_input(char **p)
             const char *s;
             if (prompt[0] != '\0' && first_prompt) {
                 for (s = prompt; *s; s++) {
-                    putchar((unsigned char)*s);
+                    OUTC((unsigned char)*s);
                 }
             }
             for (s = "? "; *s; s++) {
-                putchar((unsigned char)*s);
+                OUTC((unsigned char)*s);
             }
-            fflush(stdout);
+            OUTFLUSH();
             wasm_read_input_line_blocking(linebuf, sizeof(linebuf));
             trim_newline(linebuf);
         }
