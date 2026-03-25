@@ -19,7 +19,7 @@
 </head>
 <body>
   <h1>CBM-BASIC — Canvas (40×25 / 80×25 PETSCII)</h1>
-  <p>Click the <strong>canvas</strong> for <code>GET</code> / <code>INKEY$</code>. <code>#OPTION columns 80</code> for wide mode. Rebuild: <code>make basic-wasm-canvas</code>. Diagnostics: open <code>canvas.html?debug=1</code> and watch the browser console (build stamp, FOR/GOSUB stacks on error; optional <code>Module.canvasDebugDumpStacks()</code> anytime).</p>
+  <p>Click the <strong>canvas</strong> for <code>GET</code> / <code>INKEY$</code>. <code>#OPTION columns 80</code> for wide mode. Rebuild: <code>make basic-wasm-canvas</code>. After deploy, use <code>canvas.html?cb=</code><em>anything</em> once if you see <code>ASM_CONSTS</code> errors (forces JS+WASM to load as a pair). Diagnostics: <code>canvas.html?debug=1</code> — console shows build stamp and stacks; <code>Module.canvasDebugDumpStacks()</code> anytime.</p>
 
   <textarea id="program" spellcheck="false">10 PRINT "{WHT}HELLO FROM CANVAS"
 20 END
@@ -79,6 +79,9 @@
 
   var urlParams = new URLSearchParams(window.location.search);
   var canvasDebugEnabled = urlParams.get('debug') === '1' || urlParams.get('canvasdebug') === '1';
+  /* One cache-bust id for basic-canvas.js AND basic-canvas.wasm — mismatched pairs cause
+   * "ASM_CONSTS[code] is not a function" when the browser caches .js but fetches fresh .wasm. */
+  var canvasAssetCb = urlParams.get('cb') || urlParams.get('v') || String(Date.now());
 
   function canvasDbg() {
     if (!canvasDebugEnabled || typeof console === 'undefined' || !console.log) return;
@@ -218,7 +221,8 @@
 
   var Module = {
     locateFile: function(p) {
-      if (p.endsWith('.wasm')) return 'basic-canvas.wasm?cb=' + Date.now();
+      var cb = (typeof Module !== 'undefined' && Module.canvasAssetCb) ? Module.canvasAssetCb : String(Date.now());
+      if (p.endsWith('.wasm')) return 'basic-canvas.wasm?cb=' + encodeURIComponent(cb);
       return p;
     },
     /* Append stderr chunks: Emscripten may call printErr once per fprintf;
@@ -338,9 +342,15 @@
       });
     }
   };
+  Module.canvasAssetCb = canvasAssetCb;
   window.Module = Module;
+  (function loadCanvasJs() {
+    var s = document.createElement('script');
+    s.src = 'basic-canvas.js?cb=' + encodeURIComponent(canvasAssetCb);
+    s.async = false;
+    document.body.appendChild(s);
+  })();
 })();
   </script>
-  <script src="basic-canvas.js"></script>
 </body>
 </html>
