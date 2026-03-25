@@ -68,7 +68,8 @@
   * ~**Interpreter fixes for browser**~ — e.g. FOR stack unwind on `RETURN` from `GOSUB` into loops; `EVAL` assignment form; terminal stdout line-buffering for `Module.print`; runtime errors batched for `printErr` on canvas.
   * ~**CI**~ — GitHub Actions WASM job uses **emsdk** (`install latest`), builds both targets, runs Playwright: `tests/wasm_browser_test.py`, `tests/wasm_browser_canvas_test.py`.
   * ~**Deploy hygiene**~ — `canvas.html` pairs cache-bust query on `basic-canvas.js` and `basic-canvas.wasm`; optional `?debug=1` for console diagnostics (`wasm_canvas_build_stamp`, stack dumps).
-  * **Still open — tutorial embedding**: Example code blocks with live output in embedded divs (Run / live / step-by-step) for docs or IDE chrome — not the same as the standalone `web/*.html` demos.
+  * ~**Tutorial embedding**~ — `make basic-wasm-modular`; `web/tutorial-embed.js` + `CbmBasicTutorialEmbed.mount()` for **multiple** terminal instances per page. Guide: **`docs/tutorial-embedding.md`**. Example: `web/tutorial-example.html`. CI: `tests/wasm_tutorial_embed_test.py`, `make wasm-tutorial-test`.
+  * **Still open — richer tutorial UX**: “Live” auto-run on edit, step-through debugging, or synchronized markdown blocks (beyond Run button + static program text).
 
 * ~~Subroutines and Functions~~
   * **User-defined FUNCTIONS** implemented — `FUNCTION name[(params)]` … `RETURN [expr]` … `END FUNCTION`; call with `name()` or `name(a,b)`; recursion supported. See `docs/user-functions-plan.md`.
@@ -134,7 +135,7 @@
 | **11** | Bitmap/sprites (remaining) | `SPRITECOLLIDE`, tilemap `LOADSPRITE`; joystick, layers, animation — see sprite plan. |
 | **Later** | Optional debug logging (load + exec) | `-debug load`, `-debug exec`; verbose but useful for diagnostics. |
 | **Later** | Program preprocessor, #OPTION memory | Polish; niche. |
-| **Later** | WASM tutorial embedding | Live code blocks in docs/IDE — beyond current `index.html` / `canvas.html`. |
+| **Later** | WASM tutorial UX extras | Auto-run, stepping, deep IDE integration (embed API exists). |
 
 ---
 

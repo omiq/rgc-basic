@@ -70,6 +70,19 @@ basic-wasm:
 		-o web/basic.js basic.c petscii.c -lm
 	@echo "Built web/basic.js and web/basic.wasm"
 
+# Same interpreter as basic-wasm but MODULARIZE=1 for multiple instances (tutorial embeds).
+# JS calls createBasicModular(opts).then(function(Module) { ... }).
+basic-wasm-modular:
+	@mkdir -p web
+	$(EMCC) -w -O2 -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME=createBasicModular \
+		-s EXPORTED_FUNCTIONS='["_basic_load","_basic_run","_basic_halted","_basic_load_and_run","_basic_apply_arg_string","_wasm_push_key"]' \
+		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","HEAPU8","wasmMemory","getValue"]' \
+		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
+		-s INITIAL_MEMORY=33554432 \
+		-s ASYNCIFY=1 -s ASYNCIFY_IMPORTS='["emscripten_sleep"]' \
+		-o web/basic-modular.js basic.c petscii.c -lm
+	@echo "Built web/basic-modular.js and web/basic-modular.wasm"
+
 # PETSCII canvas (GFX_VIDEO, no Raylib): web/basic-canvas.js + web/basic-canvas.wasm + canvas.html
 basic-wasm-canvas:
 	@mkdir -p web
@@ -89,11 +102,15 @@ wasm-test: basic-wasm
 wasm-canvas-test: basic-wasm-canvas
 	python3 tests/wasm_browser_canvas_test.py
 
+wasm-tutorial-test: basic-wasm-modular
+	python3 tests/wasm_tutorial_embed_test.py
+
 clean:
 	$(RM) $(TARGET)$(EXE) gfx_video_test$(EXE) gfx-demo$(EXE) basic-gfx$(EXE)
 	$(RM) web/basic.js web/basic.wasm web/basic.wasm.map 2>/dev/null || true
 	$(RM) web/basic-canvas.js web/basic-canvas.wasm web/basic-canvas.wasm.map 2>/dev/null || true
+	$(RM) web/basic-modular.js web/basic-modular.wasm web/basic-modular.wasm.map 2>/dev/null || true
 
-.PHONY: all clean gfx_video_test gfx-demo basic-gfx basic-wasm basic-wasm-canvas wasm-test wasm-canvas-test
+.PHONY: all clean gfx_video_test gfx-demo basic-gfx basic-wasm basic-wasm-modular basic-wasm-canvas wasm-test wasm-canvas-test wasm-tutorial-test
 
 # End of Makefile
