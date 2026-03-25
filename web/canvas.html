@@ -34,7 +34,7 @@
 </head>
 <body>
   <h1>CBM-BASIC — Canvas (40×25 PETSCII)</h1>
-  <p class="hint">Uses the GfxVideoState text screen. <strong>Click the canvas</strong> to focus it; <code>INPUT</code> and <code>GET</code> / <code>INKEY$</code> read keys only while the canvas is focused (click the program or elsewhere to type there). <strong>Rebuild both</strong> <code>basic-canvas.js</code> and <code>basic-canvas.wasm</code> together (<code>make basic-wasm-canvas</code>).</p>
+  <p class="hint">Uses the GfxVideoState text screen. <strong>Click the canvas</strong> to focus it; <code>INPUT</code> and <code>GET</code> / <code>INKEY$</code> read keys only while the canvas is focused. Use <code>#OPTION petscii</code> / <code>#OPTION charset upper</code> at the <strong>start</strong> of a line (same as the CLI). Default run flags are PETSCII + C64 palette; <code>#OPTION</code> in your program overrides. <strong>Rebuild</strong> <code>basic-canvas.js</code> + <code>basic-canvas.wasm</code> (<code>make basic-wasm-canvas</code>).</p>
   <textarea id="program">10 PRINT "{CLR}{WHT}HELLO FROM CANVAS"
 20 LOCATE 0,12: PRINT "POKE 1024,1 : PEEK(1024)"
 30 END</textarea>

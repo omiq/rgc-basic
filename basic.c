@@ -1460,11 +1460,23 @@ static int apply_option_directive(const char *name, const char *value)
         if (str_eq_ci(value, "upper") || str_eq_ci(value, "uc")) {
             petscii_lowercase_opt = 0;
             petscii_set_lowercase(0);
+#ifdef GFX_VIDEO
+            if (gfx_vs) {
+                gfx_vs->charset_lowercase = 0;
+                gfx_load_default_charrom(gfx_vs);
+            }
+#endif
             return 0;
         }
         if (str_eq_ci(value, "lower") || str_eq_ci(value, "lc")) {
             petscii_lowercase_opt = 1;
             petscii_set_lowercase(1);
+#ifdef GFX_VIDEO
+            if (gfx_vs) {
+                gfx_vs->charset_lowercase = 1;
+                gfx_load_default_charrom(gfx_vs);
+            }
+#endif
             return 0;
         }
         return -1;
@@ -8651,8 +8663,9 @@ EMSCRIPTEN_KEEPALIVE void wasm_gfx_set_video(void)
 
 EMSCRIPTEN_KEEPALIVE void basic_load_and_run_gfx(const char *path)
 {
-    wasm_gfx_set_video();
+    /* Load first so #OPTION in the file applies before char ROM init (wasm_gfx_set_video). */
     load_program(path);
+    wasm_gfx_set_video();
     run_program(path, 0, NULL);
     /* Keep gfx_vs set so the canvas can keep rendering the final screen; next Run calls wasm_gfx_set_video again. */
     EM_ASM({
