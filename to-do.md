@@ -35,19 +35,18 @@
   * E.g. `#OPTION screen 32768` (PET: $8000) vs default 1024 (C64: $0400). PET programs can be pasted and run with screen address changed.
   * Presets: `#OPTION memory c64` (default) / `#OPTION memory pet`.
 
-* **MEMSET, MEMCPY** (basic-gfx; see `docs/memory-commands-plan.md`)
-  * XC=BASIC-style: `MEMSET addr, len, val`; `MEMCPY dest, src, len`. Operate via gfx_peek/gfx_poke on virtual address space.
-  * **MEMSHIFT not needed**: Implement MEMCPY with overlap handling (like memmove); covers both directions.
+* ~**MEMSET, MEMCPY**~ (basic-gfx; see `docs/memory-commands-plan.md`) — **done** (overlap-safe MEMCPY).
 
 * ~**LOAD INTO memory**~ (basic-gfx; see `docs/load-into-memory-plan.md`) — implemented:
   * `LOAD "path" INTO addr [, length]` — load raw binary from file.
   * `LOAD @label INTO addr [, length]` — load from DATA block at label.
   * Terminal build: runtime error "LOAD INTO requires basic-gfx".
 
-* **80-column option** (terminal and basic-gfx)
+* ~**80-column option**~ (terminal, basic-gfx, **WASM canvas**)
   * `#OPTION columns 80` / `-columns 80`; default 40.
-  * ~**Terminal**~: Configurable `print_width`; wrap, TAB, comma zones (10 vs 20). Optional **no wrap** mode (`#OPTION nowrap` / `-nowrap`). Done.
-  * ~**basic-gfx**~: 80×25 mode via `-columns 80`; 2000-byte buffer; window 640×200. Done.
+  * ~**Terminal**~: `print_width`, wrap, TAB, comma zones; `#OPTION nowrap` / `-nowrap`. Done.
+  * ~**basic-gfx**~: 80×25; 640×200 window. Done.
+  * ~**basic-wasm-canvas**~: `#OPTION columns 80` selects 640×200 RGBA framebuffer in browser. Done.
 
 * PETSCII symbols & graphics
   * ~Unicode stand-ins~
@@ -62,9 +61,14 @@
   5. **Tilemap handling** — `LOADSPRITE slot, "path", "tilemap"`; define tile size (e.g. 16×16); render tile grid from sprite sheet. Efficient level/world rendering.
   6. **Sprite animation** — Multiple frames per slot; `SPRITEFRAME slot, n` or frame parameter in `DRAWSPRITE`; optional frame rate / timing.
 
-* **Browser / WASM target** (after bitmap; see `docs/browser-wasm-plan.md`)
-  * Compile to WebAssembly via Emscripten; pluggable I/O (terminal div, canvas, compute-only).
-  * **Tutorial embedding**: Example code blocks with output in embedded divs, interpreted in real time (Run / live / step-by-step).
+* **Browser / WASM** (see `docs/browser-wasm-plan.md`, `web/README.md`, `README.md`)
+  * ~**Emscripten builds**~ — `make basic-wasm` → `web/basic.js` + `basic.wasm`; `make basic-wasm-canvas` → `basic-canvas.js` + `basic-canvas.wasm` (GFX_VIDEO, Canvas 2D PETSCII via `gfx_canvas.c`; sprites stubbed). Asyncify for `SLEEP`, `INPUT`, `GET` / `INKEY$`.
+  * ~**Demos**~ — `web/index.html` (terminal output div, inline INPUT, `wasm_push_key`); `web/canvas.html` (40×25 / 80×25 PETSCII canvas, shared RGBA buffer + `requestAnimationFrame` refresh during loops/SLEEP).
+  * ~**Controls**~ — **Pause** / **Resume** (`Module.wasmPaused`), **Stop** (`Module.wasmStopRequested`); terminal sets `Module.wasmRunDone` when `basic_load_and_run` finishes. Cooperative pause at statement boundaries and yield points (canvas also refreshes while paused).
+  * ~**Interpreter fixes for browser**~ — e.g. FOR stack unwind on `RETURN` from `GOSUB` into loops; `EVAL` assignment form; terminal stdout line-buffering for `Module.print`; runtime errors batched for `printErr` on canvas.
+  * ~**CI**~ — GitHub Actions WASM job uses **emsdk** (`install latest`), builds both targets, runs Playwright: `tests/wasm_browser_test.py`, `tests/wasm_browser_canvas_test.py`.
+  * ~**Deploy hygiene**~ — `canvas.html` pairs cache-bust query on `basic-canvas.js` and `basic-canvas.wasm`; optional `?debug=1` for console diagnostics (`wasm_canvas_build_stamp`, stack dumps).
+  * **Still open — tutorial embedding**: Example code blocks with live output in embedded divs (Run / live / step-by-step) for docs or IDE chrome — not the same as the standalone `web/*.html` demos.
 
 * ~~Subroutines and Functions~~
   * **User-defined FUNCTIONS** implemented — `FUNCTION name[(params)]` … `RETURN [expr]` … `END FUNCTION`; call with `name()` or `name(a,b)`; recursion supported. See `docs/user-functions-plan.md`.
@@ -125,11 +129,12 @@
 | ~**6**~ | ~INDEXOF, LASTINDEXOF~ | Done. |
 | ~**7**~ | ~MEMSET, MEMCPY~ | Done. |
 | ~**8**~ | ~ENV$, PLATFORM$, JSON$, EVAL~ | Done. |
-| ~**9**~ | ~80-column option (terminal + basic-gfx)~ | Done. |
-| **10** | Bitmap/sprites | Bigger phase; depends on LOAD. |
+| ~**9**~ | ~80-column option (terminal + basic-gfx + WASM canvas)~ | Done. |
+| ~**10**~ | ~Browser/WASM (terminal + canvas demos, CI, pause/stop)~ | **Done** (see bullet list above). |
+| **11** | Bitmap/sprites (remaining) | `SPRITECOLLIDE`, tilemap `LOADSPRITE`; joystick, layers, animation — see sprite plan. |
 | **Later** | Optional debug logging (load + exec) | `-debug load`, `-debug exec`; verbose but useful for diagnostics. |
 | **Later** | Program preprocessor, #OPTION memory | Polish; niche. |
-| **Later** | Browser/WASM target | See `docs/browser-wasm-plan.md` — Emscripten, virtual FS, tutorial embedding, retro IDE. |
+| **Later** | WASM tutorial embedding | Live code blocks in docs/IDE — beyond current `index.html` / `canvas.html`. |
 
 ---
 
@@ -162,4 +167,6 @@
 - **WHILE WEND** — Pre-test loop `WHILE cond` … `WEND`; nested loops supported.
 - **DO LOOP UNTIL EXIT** — `DO` … `LOOP [UNTIL cond]`; `EXIT` leaves the innermost DO; nested loops supported.
 - **Meta directives** — Shebang, #OPTION (petscii, charset, palette), #INCLUDE; duplicate line/label errors; circular include detection. See `docs/meta-directives-plan.md`.
+
+- **Browser / WASM** — `make basic-wasm` / `make basic-wasm-canvas`; `web/index.html` and `web/canvas.html`; Asyncify; virtual FS; Playwright smoke tests; CI via emsdk; Pause/Resume/Stop; paired JS+WASM cache-bust on canvas page. See `README.md`, `web/README.md`, `AGENTS.md`.
 

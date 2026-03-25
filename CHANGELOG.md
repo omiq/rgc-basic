@@ -2,9 +2,19 @@
 
 ### Unreleased
 
-- **80-column option (terminal + basic-gfx)**
+- **Browser / WASM (Emscripten)**
+  - **Builds**: `make basic-wasm` → `web/basic.js` + `basic.wasm`; `make basic-wasm-canvas` → `basic-canvas.js` + `basic-canvas.wasm` (PETSCII canvas via `gfx_canvas.c`, `GFX_VIDEO`, sprite calls stubbed). Asyncify for cooperative `SLEEP`, `INPUT`, `GET` / `INKEY$`.
+  - **Demos**: `web/index.html` — terminal-style output, inline INPUT, `wasm_push_key` for GET/INKEY$; `web/canvas.html` — 40×25 or 80×25 canvas, shared RGBA framebuffer refreshed during loops and SLEEP.
+  - **Controls**: Pause / Resume (`Module.wasmPaused`), Stop (`Module.wasmStopRequested`); terminal run sets `Module.wasmRunDone` when `basic_load_and_run` completes. FOR stack unwinds on `RETURN` from subroutines using inner `FOR` loops (e.g. GOSUB loaders).
+  - **Interpreter / glue**: Terminal WASM stdout line-buffering for correct `PRINT` newlines in HTML; canvas runtime errors batched for `printErr`; `EVAL` supports `VAR = expr` assignment form in evaluated string. `canvas.html` uses matching `?cb=` on JS and WASM to avoid `ASM_CONSTS` mismatch from partial cache.
+  - **CI**: GitHub Actions WASM job installs **emsdk** (`latest`) instead of distro `apt` emscripten; builds both targets; runs `tests/wasm_browser_test.py` and `tests/wasm_browser_canvas_test.py`.
+  - **Optional**: `canvas.html?debug=1` — console diagnostics (`wasm_canvas_build_stamp`, stack dumps on error).
+  - **Still planned**: embedded “tutorial” code blocks with live output (see `to-do.md`).
+
+- **80-column option (terminal + basic-gfx + WASM canvas)**
   - **Terminal**: `#OPTION columns N` / `-columns N` (1–255); default 40. Comma/TAB zones scale: 10 at 40 cols, 20 at 80 cols. `#OPTION nowrap` / `-nowrap`: disable wrapping.
   - **basic-gfx**: `-columns 80` for 80×25 screen; 2000-byte buffer; window 640×200. `#OPTION columns 80` in program also supported.
+  - **WASM canvas**: `#OPTION columns 80` selects 640×200 framebuffer in browser (`basic-wasm-canvas`).
 - **basic-gfx — hires bitmap (Phase 3)**
   - `SCREEN 0` / `SCREEN 1` (text vs 320×200 monochrome); `PSET` / `PRESET` / `LINE x1,y1 TO x2,y2`; bitmap RAM at `GFX_BITMAP_BASE` (0x2000).
 - **basic-gfx — PNG sprites**
