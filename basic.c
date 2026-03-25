@@ -56,6 +56,8 @@
 #if defined(__EMSCRIPTEN__)
 #include "gfx_canvas.h"
 #endif
+/* Video state pointer; must precede __EMSCRIPTEN__ key helpers that reference gfx_vs. */
+static GfxVideoState *gfx_vs = NULL;
 #endif
 #if defined(__EMSCRIPTEN__)
 /* Browser: no termios, no Windows API */
@@ -1207,7 +1209,6 @@ static void wasm_read_input_line_blocking(char *buf, size_t cap)
 #endif /* __EMSCRIPTEN__ */
 
 #ifdef GFX_VIDEO
-static GfxVideoState *gfx_vs = NULL;
 
 #if defined(__EMSCRIPTEN__)
 static void wasm_gfx_refresh_js(void);
@@ -2900,6 +2901,9 @@ static void wasm_maybe_yield_loop(void)
         halted = 1;
         return;
     }
+#if defined(GFX_VIDEO)
+    wasm_gfx_refresh_js();
+#endif
     emscripten_sleep(0);
 }
 
@@ -8781,12 +8785,6 @@ EMSCRIPTEN_KEEPALIVE void basic_load_and_run_gfx(const char *path)
     wasm_gfx_refresh_js();
     EM_ASM({ if (typeof Module !== 'undefined') { Module['wasmGfxRunDone'] = 1; } });
 }
-
-static void wasm_maybe_yield_loop(void)
-{
-    wasm_gfx_refresh_js();
-    emscripten_sleep(0);
-}
 #endif /* __EMSCRIPTEN__ */
 #endif /* GFX_VIDEO */
 
@@ -8948,60 +8946,4 @@ EMSCRIPTEN_KEEPALIVE void basic_load_and_run(const char *path)
     load_program(path);
     run_program(path, 0, NULL);
 }
-
-#ifdef GFX_VIDEO
-static GfxVideoState wasm_gfx_state;
-
-EMSCRIPTEN_KEEPALIVE void wasm_gfx_set_video(void)
-{
-    gfx_video_init(&wasm_gfx_state);
-    wasm_gfx_state.charset_lowercase = (uint8_t)(petscii_get_lowercase() ? 1 : 0);
-    gfx_load_default_charrom(&wasm_gfx_state);
-    memset(wasm_gfx_state.screen, 32, GFX_TEXT_SIZE);
-    memset(wasm_gfx_state.color, 14, GFX_COLOR_SIZE);
-    wasm_gfx_state.bg_color = 6;
-    wasm_gfx_state.cols = (print_width >= 80) ? 80 : 40;
-    basic_set_video(&wasm_gfx_state);
-    EM_ASM({
-        if (typeof Module !== 'undefined') {
-            Module['wasmGfxFbW'] = $0;
-            Module['wasmGfxFbH'] = 200;
-        }
-    }, (print_width >= 80) ? 640 : 320);
-}
-
-EMSCRIPTEN_KEEPALIVE void basic_load_and_run_gfx(const char *path)
-{
-    /* Load first so #OPTION in the file applies before char ROM init (wasm_gfx_set_video). */
-    load_program(path);
-    wasm_gfx_set_video();
-    run_program(path, 0, NULL);
-    /* Keep gfx_vs set so the canvas can keep rendering the final screen; next Run calls wasm_gfx_set_video again. */
-    EM_ASM({
-        if (typeof Module !== 'undefined') {
-            Module['wasmGfxRunDone'] = 1;
-        }
-    });
-}
-
-EMSCRIPTEN_KEEPALIVE void wasm_gfx_render_rgba(uint8_t *rgba, int nbytes)
-{
-    int pw;
-    if (!rgba || nbytes <= 0) {
-        return;
-    }
-    if (!gfx_vs) {
-        return;
-    }
-    gfx_canvas_render_rgba(gfx_vs, rgba, (size_t)nbytes);
-    pw = (gfx_vs->cols >= 80) ? 640 : 320;
-    EM_ASM({
-        if (typeof Module !== 'undefined') {
-            Module['wasmGfxFbW'] = $0;
-            Module['wasmGfxFbH'] = $1;
-        }
-    }, pw, 25 * 8);
-}
-
-#endif /* GFX_VIDEO */
 #endif
