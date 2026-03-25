@@ -9,11 +9,16 @@ import http.server
 import socketserver
 import sys
 import threading
+import time
 from functools import partial
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "web"
+
+
+def _click_run(page) -> None:
+    page.evaluate("document.getElementById('run').click()")
 
 
 def _serve_web() -> tuple[socketserver.TCPServer, int]:
@@ -55,7 +60,7 @@ def main() -> int:
                 "() => !document.getElementById('run').disabled",
                 timeout=120000,
             )
-            page.click("#run")
+            _click_run(page)
             page.wait_for_function(
                 "() => (document.getElementById('output').textContent || '').includes('HELLO, WORLD!')",
                 timeout=60000,
@@ -66,7 +71,7 @@ def main() -> int:
                 "#program",
                 '10 PRINT "FIRST"\n20 PRINT "SECOND"\n30 END\n',
             )
-            page.click("#run")
+            _click_run(page)
             page.wait_for_function(
                 "() => (document.getElementById('output').textContent || '').includes('SECOND')",
                 timeout=60000,
@@ -80,13 +85,38 @@ def main() -> int:
                 "#program",
                 '10 INPUT "N"; N\n20 PRINT N\n30 END\n',
             )
-            page.click("#run")
+            _click_run(page)
             page.wait_for_selector("#inputLineRow.active", timeout=60000)
             page.fill("#inputLine", "99")
             page.press("#inputLine", "Enter")
             page.wait_for_function(
                 "() => (document.getElementById('output').textContent || '').includes('99')",
                 timeout=60000,
+            )
+
+            # Pause / Stop: infinite loop must still finish when Stop is pressed
+            page.fill(
+                "#program",
+                "10 I=0\n"
+                "20 I=I+1\n"
+                "30 GOTO 20\n",
+            )
+            _click_run(page)
+            page.wait_for_function(
+                """() => {
+                  const p = document.getElementById('pause');
+                  return p && !p.disabled;
+                }""",
+                timeout=60000,
+            )
+            page.evaluate("Module.wasmPaused = 1")
+            time.sleep(0.25)
+            page.evaluate(
+                "Module.wasmStopRequested = 1; Module.wasmPaused = 0"
+            )
+            page.wait_for_function(
+                "() => (window.Module && Module.wasmRunDone === 1)",
+                timeout=120000,
             )
 
             browser.close()

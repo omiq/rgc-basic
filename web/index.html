@@ -56,6 +56,9 @@
   </fieldset>
   <p>
     <button id="run" disabled>Run</button>
+    <button id="pause" disabled>Pause</button>
+    <button id="resume" disabled>Resume</button>
+    <button id="stop" disabled>Stop</button>
   </p>
   <div id="output" tabindex="0" aria-live="polite" title="Click here, then type for GET / INKEY$"></div>
   <div id="inputLineRow">
@@ -67,6 +70,9 @@
     (function() {
       const output = document.getElementById('output');
       const runBtn = document.getElementById('run');
+      const pauseBtn = document.getElementById('pause');
+      const resumeBtn = document.getElementById('resume');
+      const stopBtn = document.getElementById('stop');
       const programEl = document.getElementById('program');
       const optPetscii = document.getElementById('optPetscii');
       const optPlain = document.getElementById('optPlain');
@@ -235,12 +241,17 @@
         },
         onRuntimeInitialized: function() {
           runBtn.disabled = false;
+          pauseBtn.disabled = true;
+          resumeBtn.disabled = true;
+          stopBtn.disabled = true;
           runBtn.onclick = function() {
             clearOutput();
             inputLineRow.classList.remove('active');
             inputLineEl.value = '';
             inputLabelEl.textContent = 'INPUT';
             Module.wasmInputLabel = 'INPUT';
+            Module.wasmStopRequested = 0;
+            Module.wasmPaused = 0;
             var prog = programEl.value;
             var flags = buildArgString();
             var rc = Module.ccall('basic_apply_arg_string', 'number', ['string'], [flags]);
@@ -250,14 +261,38 @@
             }
             Module.FS.writeFile('/program.bas', prog);
             output.focus();
+            runBtn.disabled = true;
+            pauseBtn.disabled = false;
+            resumeBtn.disabled = true;
+            stopBtn.disabled = false;
             Module.ccall('basic_load_and_run', null, ['string'], ['/program.bas'], { async: true })
               .catch(function(e) {
                 appendOutputHtml('<span class="err">' + escHtml(e && e.message ? e.message : e) + '</span>', true);
               })
               .finally(function() {
+                Module.wasmPaused = 0;
                 flushStreamTail(false);
                 flushStreamTail(true);
+                runBtn.disabled = false;
+                pauseBtn.disabled = true;
+                resumeBtn.disabled = true;
+                stopBtn.disabled = true;
               });
+          };
+
+          pauseBtn.onclick = function() {
+            Module.wasmPaused = 1;
+            pauseBtn.disabled = true;
+            resumeBtn.disabled = false;
+          };
+          resumeBtn.onclick = function() {
+            Module.wasmPaused = 0;
+            pauseBtn.disabled = false;
+            resumeBtn.disabled = true;
+          };
+          stopBtn.onclick = function() {
+            Module.wasmStopRequested = 1;
+            Module.wasmPaused = 0;
           };
 
           document.addEventListener('keydown', function(ev) {
@@ -289,6 +324,11 @@
         onAbort: function(what) {
           output.innerHTML = '<span class="err">Failed to load BASIC: ' + escHtml(what || 'abort') + '</span>';
           output.classList.add('err');
+          runBtn.disabled = false;
+          pauseBtn.disabled = true;
+          resumeBtn.disabled = true;
+          stopBtn.disabled = true;
+          Module.wasmPaused = 0;
         }
       };
 
