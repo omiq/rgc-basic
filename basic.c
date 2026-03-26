@@ -1601,7 +1601,8 @@ static void gfx_put_byte(unsigned char b)
         sc = 109;
     } else if (gfx_raw_screen_codes) {
         sc = petscii_to_screencode(b);
-    } else if (petscii_mode && gfx_vs && gfx_vs->charset_lowercase && b >= 32 && b <= 126) {
+    } else if (gfx_vs && gfx_vs->charset_lowercase && b >= 32 && b <= 126) {
+        /* Lowercase char ROM: map ASCII literals for any -petscii setting (IDE may omit -petscii). */
         sc = gfx_ascii_to_screencode_lowcharset(b);
     } else if (petscii_mode) {
         sc = petscii_to_screencode(b);

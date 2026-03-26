@@ -243,6 +243,37 @@ def main() -> int:
                     f"got space={px_space!r} x={px_x!r}"
                 )
 
+            # Same with PETSCII *unchecked* (IDE may omit -petscii); #OPTION charset lower must still work.
+            page.wait_for_function(
+                "() => !document.getElementById('run').disabled",
+                timeout=60000,
+            )
+            page.evaluate("() => { document.getElementById('optPetscii').checked = false; }")
+            page.fill(
+                "#program",
+                '#OPTION charset lower\n'
+                '10 PRINT "X X"\n'
+                "20 END\n",
+            )
+            _click_run(page)
+            page.wait_for_function(
+                "() => (window.Module && Module.wasmGfxRunDone === 1)",
+                timeout=120000,
+            )
+            log_cs2 = page.text_content("#log") or ""
+            if log_cs2.strip():
+                browser.close()
+                raise RuntimeError(f"charset lower (no -petscii) error log: {log_cs2!r}")
+            px_space2 = _canvas_pixel_rgba(page, 12, 4)
+            px_x2 = _canvas_pixel_rgba(page, 4, 4)
+            if list(px_space2[:3]) == list(px_x2[:3]):
+                browser.close()
+                raise RuntimeError(
+                    f"charset lower without -petscii: space vs X body, "
+                    f"space={px_space2!r} x={px_x2!r}"
+                )
+            page.evaluate("() => { document.getElementById('optPetscii').checked = true; }")
+
             # PNG sprite over PETSCII (software decode + alpha composite)
             page.wait_for_function(
                 "() => !document.getElementById('run').disabled",
