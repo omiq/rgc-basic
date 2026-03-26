@@ -6176,7 +6176,12 @@ static void statement_input(char **p)
             }
             for (s = "? "; *s; s++) gfx_put_byte((unsigned char)*s);
             if (!gfx_read_line(linebuf, (int)sizeof(linebuf))) {
-                runtime_error("Unexpected end of input");
+                /* Watchdog / Stop sets wasmStopRequested → halted; not stdin EOF. */
+                if (halted) {
+                    runtime_error("Stopped");
+                } else {
+                    runtime_error("Unexpected end of input");
+                }
                 return;
             }
         } else
