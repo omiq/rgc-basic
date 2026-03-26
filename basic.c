@@ -59,6 +59,10 @@
 #endif
 /* Video state pointer; must precede __EMSCRIPTEN__ key helpers that reference gfx_vs. */
 static GfxVideoState *gfx_vs = NULL;
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+/* Canvas WASM: trek.bas-style lines pack many ':' statements; yield inside long PRINT too. */
+static unsigned wasm_gfx_put_budget;
+#endif
 #endif
 #if defined(__EMSCRIPTEN__)
 /* Browser: no termios, no Windows API */
@@ -1592,6 +1596,17 @@ static void gfx_put_byte(unsigned char b)
     uint8_t sc;
 
     if (!gfx_vs) return;
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+    wasm_gfx_put_budget++;
+    if ((wasm_gfx_put_budget & 127u) == 0u) {
+        wasm_browser_pause_point();
+        if (halted) {
+            return;
+        }
+        wasm_gfx_refresh_js();
+        emscripten_sleep(0);
+    }
+#endif
     if (gfx_apply_control_code(b)) return;
 
     /* Byte 92 (0x5C): In ASCII it's backslash; in C64 PETSCII it's £.
@@ -8821,6 +8836,9 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
     current_line = 0;
     statement_pos = NULL;
     print_col = 0;
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+    wasm_gfx_put_budget = 0;
+#endif
 #ifdef GFX_VIDEO
     if (gfx_vs) {
         gfx_x = 0;
@@ -8858,7 +8876,8 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
 #if defined(__EMSCRIPTEN__)
         wasm_stmt_budget++;
 #if defined(GFX_VIDEO)
-        if ((wasm_stmt_budget & 31) == 0) {
+        /* Compound lines (trek.bas) run many statements before next line; yield often. */
+        if ((wasm_stmt_budget & 7) == 0) {
             wasm_browser_pause_point();
             if (halted) {
                 break;
