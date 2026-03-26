@@ -123,7 +123,7 @@
       };
 
     var wrap = document.createElement('div');
-    wrap.className = 'cbm-vfs-tools';
+    wrap.className = 'rgc-vfs-tools';
     wrap.style.marginTop = '0.35rem';
 
     var fileInput = document.createElement('input');
@@ -193,10 +193,13 @@
     };
   }
 
-  global.CbmVfsHelpers = {
+  var vfsApi = {
     normalizeVfsPath: normalizeVfsPath,
     vfsUploadFiles: vfsUploadFiles,
     vfsExportFile: vfsExportFile,
     vfsMountUI: vfsMountUI
   };
+  global.RgcVfsHelpers = vfsApi;
+  /** @deprecated Use RgcVfsHelpers (RGC-BASIC rename). */
+  global.CbmVfsHelpers = vfsApi;
 })(typeof window !== 'undefined' ? window : this);

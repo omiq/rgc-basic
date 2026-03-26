@@ -1,4 +1,4 @@
-/* gfx/gfx_raylib.c – Raylib front-end for CBM-BASIC GFX.
+/* gfx/gfx_raylib.c – Raylib front-end for RGC-BASIC GFX.
  *
  * Two compile modes:
  *   1. Standalone demo  (no GFX_VIDEO): builds as gfx-demo with a
@@ -581,7 +581,7 @@ int main(int argc, char **argv)
         SetTraceLogLevel(LOG_WARNING);
         {
             const char *title = basic_get_gfx_window_title();
-            InitWindow(win_w, win_h, title ? title : "CBM-BASIC GFX");
+            InitWindow(win_w, win_h, title ? title : "RGC-BASIC GFX");
         }
         SetTargetFPS(60);
         target = LoadRenderTexture(nat_w, nat_h);
@@ -825,7 +825,7 @@ static void setup_demo(GfxVideoState *s)
     memset(s->screen, 32, GFX_TEXT_SIZE);
     memset(s->color, 14, GFX_COLOR_SIZE);
 
-    write_text(s, 4, 1, "**** CBM-BASIC GFX V1 ****", 1);
+    write_text(s, 4, 1, "**** RGC-BASIC GFX V1 ****", 1);
     write_text(s, 4, 3, "RAYLIB PHASE 1 - VIDEO MEMORY", 14);
     write_text(s, 4, 4, "40X25 TEXT SCREEN + 8X8 FONT", 14);
     write_text(s, 1, 6, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", 1);
@@ -877,7 +877,7 @@ int main(void)
 
     /* Suppress raylib INFO trace logs (e.g. timer messages). */
     SetTraceLogLevel(LOG_WARNING);
-    InitWindow(WIN_W, WIN_H, "CBM-BASIC GFX \xe2\x80\x93 Phase 1 Demo");
+    InitWindow(WIN_W, WIN_H, "RGC-BASIC GFX \xe2\x80\x93 Phase 1 Demo");
     SetTargetFPS(60);
     target = LoadRenderTexture(NATIVE_W, NATIVE_H);
 

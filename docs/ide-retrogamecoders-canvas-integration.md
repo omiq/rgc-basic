@@ -1,4 +1,4 @@
-# Integrating CBM-BASIC canvas WASM into an online IDE
+# Integrating RGC-BASIC canvas WASM into an online IDE
 
 This guide is written for hosts such as **[Retro Game Coders IDE](https://ide.retrogamecoders.com)** that want to run **Commodore-style BASIC** in an embedded frame with **Play / Pause / Stop**, while pushing **program source** and **binary assets** (PNGs, data files) into the interpreter.
 
@@ -23,7 +23,7 @@ Related docs: **`docs/gfx-canvas-parity.md`** (feature parity with `basic-gfx`),
 
 ## 2. Deploy the build on your origin
 
-1. From the [cbm-basic](https://github.com/omiq/cbm-basic) repo: **`make basic-wasm-canvas`**.
+1. From the [rgc-basic](https://github.com/omiq/rgc-basic) repo: **`make basic-wasm-canvas`**.
 2. Publish **`basic-canvas.js`** and **`basic-canvas.wasm`** under a stable URL on **the same site** as your IDE (or enable **CORS** on the asset host; many setups keep JS+WASM on the IDE origin to avoid COOP/CORS issues).
 3. Optional but useful: copy **`web/vfs-helpers.js`** if you want reuse of upload/download helpers (see §8).
 
@@ -58,11 +58,11 @@ Skeleton:
     canvasAssetCb: ASSET_CB,
     locateFile: function (path) {
       if (path.endsWith('.wasm')) {
-        return 'https://ide.retrogamecoders.com/cbm-basic/basic-canvas.wasm?cb=' + encodeURIComponent(ASSET_CB);
+        return 'https://ide.retrogamecoders.com/rgc-basic/basic-canvas.wasm?cb=' + encodeURIComponent(ASSET_CB);
       }
       return path;
     },
-    printErr: function (t) { console.error('[cbm-basic]', t); },
+    printErr: function (t) { console.error('[rgc-basic]', t); },
     onWasmNeedInputLine: function () {
       /* Show your INPUT UI; see §6 */
     },
@@ -73,14 +73,14 @@ Skeleton:
   window.Module = Module;
 
   var s = document.createElement('script');
-  s.src = 'https://ide.retrogamecoders.com/cbm-basic/basic-canvas.js?cb=' + encodeURIComponent(ASSET_CB);
+  s.src = 'https://ide.retrogamecoders.com/rgc-basic/basic-canvas.js?cb=' + encodeURIComponent(ASSET_CB);
   s.async = false;
   document.body.appendChild(s);
 })();
 </script>
 ```
 
-Adjust base URLs to match where you host the files (e.g. under `/cbm-basic/` on the IDE domain).
+Adjust base URLs to match where you host the files (e.g. under `/rgc-basic/` on the IDE domain).
 
 ---
 
@@ -118,7 +118,7 @@ Module.FS.writeFile('/gfx/hero.png', new Uint8Array(pngBytes));
 3. Before **`basic_load_and_run_gfx`**, call **`Module.FS.writeFile('/…', bytes)`** for each asset.
 4. Ensure **`LOADSPRITE` / `OPEN` paths** in the program match those MEMFS paths.
 
-For a minimal end-to-end sample, see **`examples/gfx_canvas_demo.bas`** and **`examples/gfx_canvas_demo.png`** in the cbm-basic repo.
+For a minimal end-to-end sample, see **`examples/gfx_canvas_demo.bas`** and **`examples/gfx_canvas_demo.png`** in the **rgc-basic** repo.
 
 ### 4.3 Clearing between runs (optional)
 
@@ -207,7 +207,7 @@ Reuse the logic in **`web/canvas.html`** functions **`copyRgbaFromWasm`** and th
 
 ## 8. Optional: upload UX
 
-The project ships **`web/vfs-helpers.js`** with **`CbmVfsHelpers.vfsUploadFiles(Module, fileList)`** and **`vfsMountUI`** for a small toolbar. You can load it on your IDE page and call upload after **`onRuntimeInitialized`**, or implement your own file picker that **`FS.writeFile`**s into MEMFS.
+The project ships **`web/vfs-helpers.js`** with **`RgcVfsHelpers.vfsUploadFiles(Module, fileList)`** (alias: `CbmVfsHelpers`) and **`vfsMountUI`** for a small toolbar. You can load it on your IDE page and call upload after **`onRuntimeInitialized`**, or implement your own file picker that **`FS.writeFile`**s into MEMFS.
 
 ---
 
@@ -215,7 +215,7 @@ The project ships **`web/vfs-helpers.js`** with **`CbmVfsHelpers.vfsUploadFiles(
 
 Typical pattern:
 
-1. **Route**: e.g. **`/embed/cbm-basic-canvas`** serves the minimal shell (canvas + controls + `Module` bootstrap).
+1. **Route**: e.g. **`/embed/rgc-basic-canvas`** serves the minimal shell (canvas + controls + `Module` bootstrap).
 2. **Parent IDE**: `postMessage` to the iframe with **`{ type: 'RUN', source: '...', files: { '/a.png': ArrayBuffer, ... }, flags: '-petscii ...' }`**. The iframe **`message`** listener writes **`FS`**, applies flags, calls **`basic_load_and_run_gfx`**.
 3. **Sandbox**: If you use **`sandbox`** on the iframe, allow **`allow-scripts`**, **`allow-same-origin`** (if assets are same-origin), and ensure **`postMessage`** origins are validated both ways.
 

@@ -21,7 +21,7 @@ git checkout main
 git pull
 
 # 2) Create an annotated tag
-git tag -a "v$VERSION" -m "cbm-basic v$VERSION"
+git tag -a "v$VERSION" -m "rgc-basic v$VERSION"
 
 # 3) Push main and the tag to GitHub
 git push

@@ -1,4 +1,4 @@
-/* gfx_video.h - Graphics/video memory model for CBM-BASIC gfx builds.
+/* gfx_video.h - Graphics/video memory model for RGC-BASIC gfx builds.
  *
  * This module is deliberately raylib-free and purely in-memory so it can be
  * tested headless. A separate front-end (e.g. gfx_raylib.c) can render from

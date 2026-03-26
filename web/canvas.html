@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CBM-BASIC — Canvas (PETSCII)</title>
+  <title>RGC-BASIC — Canvas (PETSCII)</title>
   <style>
     body { font-family: system-ui, sans-serif; margin: 1rem; max-width: 960px; }
     textarea#program { width: 100%; height: 220px; font-family: monospace; }
@@ -18,7 +18,8 @@
   </style>
 </head>
 <body>
-  <h1>CBM-BASIC — Canvas (40×25 / 80×25 PETSCII)</h1>
+  <h1>RGC-BASIC — Canvas (40×25 / 80×25 PETSCII)</h1>
+  <p style="font-size:0.95em;color:#555;margin:0.25rem 0 0.75rem">Retro Game Coders BASIC</p>
   <p>Click the <strong>canvas</strong> for <code>GET</code> / <code>INKEY$</code>. <strong>Upload to VFS</strong> / <strong>Download from VFS</strong> move files into or out of WASM memory for <code>OPEN</code> / <code>PRINT#</code>. <code>#OPTION columns 80</code> for wide mode. Rebuild: <code>make basic-wasm-canvas</code>. After deploy, use <code>canvas.html?cb=</code><em>anything</em> once if you see <code>ASM_CONSTS</code> errors (forces JS+WASM to load as a pair). Diagnostics: <code>canvas.html?debug=1</code> — console shows build stamp and stacks; <code>Module.canvasDebugDumpStacks()</code> anytime.</p>
 
   <textarea id="program" spellcheck="false">10 PRINT "{WHT}HELLO FROM CANVAS"
@@ -94,7 +95,7 @@
   function canvasDbg() {
     if (!canvasDebugEnabled || typeof console === 'undefined' || !console.log) return;
     var args = Array.prototype.slice.call(arguments);
-    args.unshift('[cbm-basic canvas]');
+    args.unshift('[rgc-basic canvas]');
     console.log.apply(console, args);
   }
 
@@ -315,8 +316,8 @@
         }
       };
 
-      if (typeof CbmVfsHelpers !== 'undefined' && vfsHost) {
-        CbmVfsHelpers.vfsMountUI(vfsHost, Module, {
+      if (typeof RgcVfsHelpers !== 'undefined' && vfsHost) {
+        RgcVfsHelpers.vfsMountUI(vfsHost, Module, {
           pathDefault: '/out.txt',
           onStatus: function(msg, isErr) {
             logErr(msg);

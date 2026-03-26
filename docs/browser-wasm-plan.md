@@ -1,6 +1,6 @@
 # Browser / WASM Target Plan
 
-Goal: Run the CBM-BASIC interpreter in the browser, performant enough for user-supplied programs and assets (data, graphics, game levels), with support for tutorial embedding and integration into an online retro IDE.
+Goal: Run the RGC-BASIC interpreter in the browser, performant enough for user-supplied programs and assets (data, graphics, game levels), with support for tutorial embedding and integration into an online retro IDE.
 
 ---
 
