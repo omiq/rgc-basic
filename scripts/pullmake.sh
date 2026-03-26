@@ -4,6 +4,7 @@
 # Uses a normal merge pull (not --ff-only) so local commits on top of origin still work.
 #
 # WASM steps need emcc: set EMSDK to your emsdk dir, or put ./emsdk in the repo.
+git remote set-url origin https://github.com/omiq/rgc-basic.git
 set -e
 EMS_ENV=""
 if [ -n "${EMSDK:-}" ] && [ -f "$EMSDK/emsdk_env.sh" ]; then
