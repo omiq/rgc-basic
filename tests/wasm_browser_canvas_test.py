@@ -225,6 +225,26 @@ def main() -> int:
                 browser.close()
                 raise RuntimeError(f"GET non-blocking tail test error log: {log_nb!r}")
 
+            # Long single PRINT (many gfx_put_byte): must yield inside PRINT or browser hangs
+            # (trek.bas packs heavy output; run_program only counts ':'-separated statements).
+            page.wait_for_function(
+                "() => !document.getElementById('run').disabled",
+                timeout=60000,
+            )
+            page.fill(
+                "#program",
+                '10 PRINT STRING$(3000,".")\n20 END\n',
+            )
+            _click_run(page)
+            page.wait_for_function(
+                "() => (window.Module && Module.wasmGfxRunDone === 1)",
+                timeout=120000,
+            )
+            log_longp = page.text_content("#log") or ""
+            if log_longp.strip():
+                browser.close()
+                raise RuntimeError(f"long PRINT yield test error log: {log_longp!r}")
+
             # SCREEN 1 bitmap: top-left pixel should be pen colour (COLOR 1 = white)
             page.wait_for_function(
                 "() => !document.getElementById('run').disabled",
