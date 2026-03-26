@@ -6,21 +6,33 @@ set -e
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 git pull origin "$BRANCH"
 
-EMS_ENV=""
-if [ -n "${EMSDK:-}" ] && [ -f "$EMSDK/emsdk_env.sh" ]; then
-  EMS_ENV="$EMSDK/emsdk_env.sh"
-elif [ -f ./emsdk/emsdk_env.sh ]; then
-  EMS_ENV="./emsdk/emsdk_env.sh"
-elif [ -f "$HOME/emsdk/emsdk_env.sh" ]; then
-  EMS_ENV="$HOME/emsdk/emsdk_env.sh"
+if [ -f ./scripts/emsdk-env.sh ]; then
+  # shellcheck disable=SC1090
+  . ./scripts/emsdk-env.sh
+else
+  _ems_prev=$(pwd)
+  if [ -n "${EMSDK:-}" ] && [ -f "$EMSDK/emsdk_env.sh" ]; then
+    cd "$EMSDK" || exit 1
+    # shellcheck disable=SC1091
+    . ./emsdk_env.sh
+    cd "$_ems_prev" || true
+  elif [ -f ./emsdk/emsdk_env.sh ]; then
+    cd ./emsdk || exit 1
+    # shellcheck disable=SC1091
+    . ./emsdk_env.sh
+    cd "$_ems_prev" || true
+  elif [ -f "$HOME/emsdk/emsdk_env.sh" ]; then
+    cd "$HOME/emsdk" || exit 1
+    # shellcheck disable=SC1091
+    . ./emsdk_env.sh
+    cd "$_ems_prev" || true
+  else
+    echo "pullmake-wasm: set EMSDK or clone ./emsdk, then:" >&2
+    echo "  cd emsdk && ./emsdk install latest && ./emsdk activate latest" >&2
+    exit 1
+  fi
+  unset _ems_prev
 fi
-if [ -z "$EMS_ENV" ]; then
-  echo "pullmake-wasm: set EMSDK to your emsdk directory, or clone:" >&2
-  echo "  git clone https://github.com/emscripten-core/emsdk.git && cd emsdk && ./emsdk install latest && ./emsdk activate latest" >&2
-  exit 1
-fi
-# shellcheck disable=SC1090
-. "$EMS_ENV"
 
 make clean
 make basic-wasm

@@ -6,19 +6,31 @@
 # WASM steps need emcc: set EMSDK to your emsdk dir, or put ./emsdk in the repo.
 git remote set-url origin https://github.com/omiq/rgc-basic.git
 set -e
-EMS_ENV=""
-if [ -n "${EMSDK:-}" ] && [ -f "$EMSDK/emsdk_env.sh" ]; then
-  EMS_ENV="$EMSDK/emsdk_env.sh"
-elif [ -f ./emsdk/emsdk_env.sh ]; then
-  EMS_ENV="./emsdk/emsdk_env.sh"
-elif [ -f "$HOME/emsdk/emsdk_env.sh" ]; then
-  EMS_ENV="$HOME/emsdk/emsdk_env.sh"
-fi
-if [ -n "$EMS_ENV" ]; then
+# emsdk_env.sh needs cwd=emsdk/ in sh/dash; use wrapper (do not use a subshell or PATH is lost).
+if [ -f ./scripts/emsdk-env.sh ]; then
   # shellcheck disable=SC1090
-  . "$EMS_ENV"
+  . ./scripts/emsdk-env.sh || true
 else
-  echo "pullmake: warning: emsdk_env.sh not found; WASM makes may fail (set EMSDK or clone ./emsdk)" >&2
+  _ems_prev=$(pwd)
+  if [ -n "${EMSDK:-}" ] && [ -f "$EMSDK/emsdk_env.sh" ]; then
+    cd "$EMSDK" || exit 1
+    # shellcheck disable=SC1091
+    . ./emsdk_env.sh
+    cd "$_ems_prev" || true
+  elif [ -f ./emsdk/emsdk_env.sh ]; then
+    cd ./emsdk || exit 1
+    # shellcheck disable=SC1091
+    . ./emsdk_env.sh
+    cd "$_ems_prev" || true
+  elif [ -f "$HOME/emsdk/emsdk_env.sh" ]; then
+    cd "$HOME/emsdk" || exit 1
+    # shellcheck disable=SC1091
+    . ./emsdk_env.sh
+    cd "$_ems_prev" || true
+  else
+    echo "pullmake: warning: emsdk not found; WASM makes may fail (clone ./emsdk or set EMSDK)" >&2
+  fi
+  unset _ems_prev
 fi
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 git pull origin "$BRANCH"
