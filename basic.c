@@ -8579,6 +8579,40 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
             p += 3;
         if (*p == '\0') continue;
 
+        /* "10 #OPTION ..." / "20 #INCLUDE ..." pasted in canvas (numberless program):
+         * without this, load fails or #OPTION is skipped and charset stays wrong. */
+        {
+            char *scan = p;
+            if (isdigit((unsigned char)*scan)) {
+                while (isdigit((unsigned char)*scan)) {
+                    scan++;
+                }
+                if (*scan == ' ' || *scan == '\t') {
+                    while (*scan == ' ' || *scan == '\t') {
+                        scan++;
+                    }
+                    if (*scan == '#') {
+                        char *dir = scan + 1;
+                        while (*dir == ' ' || *dir == '\t') {
+                            dir++;
+                        }
+                        if ((toupper((unsigned char)dir[0]) == 'O' && toupper((unsigned char)dir[1]) == 'P' &&
+                             toupper((unsigned char)dir[2]) == 'T' && toupper((unsigned char)dir[3]) == 'I' &&
+                             toupper((unsigned char)dir[4]) == 'O' && toupper((unsigned char)dir[5]) == 'N') &&
+                            (dir[6] == '\0' || dir[6] == ' ' || dir[6] == '\t')) {
+                            p = scan;
+                        } else if ((toupper((unsigned char)dir[0]) == 'I' && toupper((unsigned char)dir[1]) == 'N' &&
+                                    toupper((unsigned char)dir[2]) == 'C' && toupper((unsigned char)dir[3]) == 'L' &&
+                                    toupper((unsigned char)dir[4]) == 'U' && toupper((unsigned char)dir[5]) == 'D' &&
+                                    toupper((unsigned char)dir[6]) == 'E') &&
+                                   (dir[7] == '\0' || dir[7] == ' ' || dir[7] == '\t')) {
+                            p = scan;
+                        }
+                    }
+                }
+            }
+        }
+
         /* Shebang: first line of first file only */
         if (!*first_line_seen && p[0] == '#' && p[1] == '!') {
             *first_line_seen = 1;
