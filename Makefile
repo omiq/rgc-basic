@@ -92,7 +92,7 @@ basic-wasm-canvas:
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
 		-s INITIAL_MEMORY=67108864 \
 		-s ASYNCIFY=1 -s ASYNCIFY_IMPORTS='["emscripten_sleep"]' \
-		-o web/basic-canvas.js basic.c petscii.c gfx/gfx_video.c gfx/gfx_canvas.c gfx/gfx_software_sprites.c -lm
+		-o web/basic-canvas.js basic.c petscii.c gfx/gfx_video.c gfx/gfx_charrom.c gfx/gfx_canvas.c gfx/gfx_software_sprites.c -lm
 	@echo "Built web/basic-canvas.js and web/basic-canvas.wasm"
 
 # Headless browser smoke test (needs: pip install -r tests/requirements-wasm.txt && playwright install chromium)
