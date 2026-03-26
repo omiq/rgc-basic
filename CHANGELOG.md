@@ -2,7 +2,7 @@
 
 ### Unreleased
 
-- **WASM canvas GET**: With **`GFX_VIDEO`** and an empty key queue, **`GET`** now **blocks** (Asyncify) on Emscripten instead of returning **`""`** immediately. Fixes **`examples/trek.bas`** and similar **`GET`-poll loops** freezing the browser; native **`basic-gfx`** still uses a non-blocking fallback so piped input works.
+- **WASM canvas GET**: **`GET`** stays **non-blocking** (empty string when no key, C64-style). When the key queue is empty, the runtime now **`emscripten_sleep(0)`** and refreshes the framebuffer so **`examples/trek.bas`**-style tight **`GET` polls** do not freeze the tab (earlier “always block” wasm fix broke programs that only **`GET`** later in the run).
 
 - **WASM canvas / basic-gfx parity (glyph ROM)**: **`make basic-wasm-canvas`** now links **`gfx/gfx_charrom.c`** and **`gfx_canvas_load_default_charrom`** delegates to **`gfx_load_default_charrom`** (same bitmap data as **`basic-gfx`**). Removed duplicate **`petscii_font_*_body.inc`** tables that could drift and make canvas output differ from the native window.
 

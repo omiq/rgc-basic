@@ -182,34 +182,48 @@ def main() -> int:
                 browser.close()
                 raise RuntimeError(f"nested FOR failed or error: {log2!r}")
 
-            # GET must block (Asyncify) when no key queued — trek.bas polls GET in a tight loop;
-            # non-blocking EOF used to freeze the browser tab.
+            # GET is non-blocking (empty if no key) like C64; empty-queue path must still
+            # yield (emscripten_sleep(0)) or trek.bas-style tight GET polls freeze the tab.
             page.wait_for_function(
                 "() => !document.getElementById('run').disabled",
                 timeout=60000,
             )
             page.fill(
                 "#program",
-                '10 GET A$\n'
-                '20 IF A$="" THEN PRINT "EMPTY": GOTO 10\n'
-                "30 END\n",
+                "10 FOR I=1 TO 80\n"
+                "20 GET A$\n"
+                "30 NEXT I\n"
+                "40 END\n",
             )
             _click_run(page)
-            page.wait_for_function(
-                "() => window.Module && Module.wasmWaitingKey === 1",
-                timeout=30000,
-            )
-            page.evaluate(
-                "() => { Module.ccall('wasm_push_key', null, ['number'], [88]); }"
-            )
             page.wait_for_function(
                 "() => (window.Module && Module.wasmGfxRunDone === 1)",
                 timeout=120000,
             )
-            log_get = page.text_content("#log") or ""
-            if log_get.strip():
+            log_poll = page.text_content("#log") or ""
+            if log_poll.strip():
                 browser.close()
-                raise RuntimeError(f"GET blocking test error log: {log_get!r}")
+                raise RuntimeError(f"GET poll-yield test error log: {log_poll!r}")
+            # GET after other statements must not block waiting for a key (no push).
+            page.wait_for_function(
+                "() => !document.getElementById('run').disabled",
+                timeout=60000,
+            )
+            page.fill(
+                "#program",
+                "10 REM done\n"
+                "20 GET A$\n"
+                "30 END\n",
+            )
+            _click_run(page)
+            page.wait_for_function(
+                "() => (window.Module && Module.wasmGfxRunDone === 1)",
+                timeout=30000,
+            )
+            log_nb = page.text_content("#log") or ""
+            if log_nb.strip():
+                browser.close()
+                raise RuntimeError(f"GET non-blocking tail test error log: {log_nb!r}")
 
             # SCREEN 1 bitmap: top-left pixel should be pen colour (COLOR 1 = white)
             page.wait_for_function(
