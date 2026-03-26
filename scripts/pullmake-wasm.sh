@@ -1,6 +1,7 @@
 #!/bin/sh
 # Server / CI-style: pull + WASM artifacts only (no native basic, no Raylib basic-gfx).
 # Requires: emsdk on PATH (see below), emcc.
+git remote set-url origin https://github.com/omiq/rgc-basic.git
 set -e
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 git pull origin "$BRANCH"
