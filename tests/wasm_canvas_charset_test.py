@@ -122,6 +122,38 @@ def _run_charset_suite(page, *, petscii_checked: bool, numbered_option: bool) ->
         )
 
 
+def _run_user_four_line_repro(page) -> None:
+    """Exact user repro: #OPTION charset lower + four PRINTs; PETSCII off, charset lower UI."""
+    _set_petscii(page, False)
+    page.wait_for_function("() => !document.getElementById('run').disabled", timeout=60000)
+    page.fill(
+        "#program",
+        "#OPTION charset lower\n"
+        'PRINT "hEY hEY"\n'
+        "PRINT CHR$(32)\n"
+        'PRINT "TEST test"\n'
+        "PRINT CHR$(65)\n"
+        "END\n",
+    )
+    _click_run(page)
+    page.wait_for_function(
+        "() => (window.Module && Module.wasmGfxRunDone === 1)",
+        timeout=120000,
+    )
+    log = page.text_content("#log") or ""
+    if log.strip():
+        raise RuntimeError(f"user repro: error log: {log!r}")
+    # Row 2 "TEST test": both lowercase 't' (cols 5 and 8) must match (not uftu +1 bug)
+    y = 4 + 8 * 2 + 4
+    px_t1 = _canvas_pixel_rgba(page, 5 * 8 + 4, y)
+    px_t2 = _canvas_pixel_rgba(page, 8 * 8 + 4, y)
+    if list(px_t1[:3]) != list(px_t2[:3]):
+        raise RuntimeError(
+            f"user repro: two 't' in 'TEST test' should match, got t1={px_t1!r} t2={px_t2!r}"
+        )
+    # CHR$(65) row vs "A" would need another line index if we add; charset test already covers CHR65 vs A
+
+
 def main() -> int:
     if not (WEB / "basic-canvas.js").is_file() or not (WEB / "basic-canvas.wasm").is_file():
         print("error: run make basic-wasm-canvas first", file=sys.stderr)
@@ -149,6 +181,7 @@ def main() -> int:
             # Pasted "10 #OPTION ..." in numberless program (canvas / IDE)
             _run_charset_suite(page, petscii_checked=False, numbered_option=True)
             _run_charset_suite(page, petscii_checked=True, numbered_option=True)
+            _run_user_four_line_repro(page)
             _set_petscii(page, True)
 
             browser.close()

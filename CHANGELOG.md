@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **PRINT (GFX)**: Unicode→PETSCII branch in **`print_value`** now routes through **`gfx_put_byte`** instead of writing **`petscii_to_screencode`** directly (kept **`charset_lower`** / **`CHR$`** semantics consistent; fixes stray +1 lowercase bugs when UTF-8 decode path runs).
+
 - **Loader**: Lines like **`10 #OPTION charset lower`** in a **numberless** program (first line starts with a digit) are accepted — strip the numeric prefix so **`#OPTION` / `#INCLUDE`** apply (fixes canvas paste style where charset never switched).
 - **Charset lower + CHR$**: With lowercase char ROM, non-letter bytes from **`CHR$(n)`** (and punctuation) use **raw screen code** `sc = byte`; **`petscii_to_screencode(65)`** was mapping to lowercase glyphs. **Regression**: `tests/wasm_canvas_charset_test.py`, **`make wasm-canvas-charset-test`** (includes numbered-`#OPTION` paste); CI workflow **`wasm-tests.yml`** runs full WASM Playwright suite on **push/PR to `main`**; release WASM job runs charset test too.
 

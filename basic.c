@@ -2864,21 +2864,8 @@ static void print_value(struct value *v)
                     if (u >= 0) {
                         int pet = unicode_to_petscii(u);
                         if (pet >= 0) {
-                            uint8_t sc = (uint8_t)petscii_to_screencode((unsigned char)pet);
-                            int idx;
-                            if (gfx_reverse && sc < 128) sc |= 0x80;
-                            if (gfx_x < 0) gfx_x = 0;
-                            if (gfx_x >= gfx_cols()) gfx_newline();
-                            if (gfx_y < 0) gfx_y = 0;
-                            if (gfx_y >= GFX_ROWS) gfx_y = GFX_ROWS - 1;
-                            idx = gfx_y * gfx_cols() + gfx_x;
-                            if (idx >= 0 && idx < (int)GFX_TEXT_SIZE) {
-                                gfx_vs->screen[idx] = sc;
-                                gfx_vs->color[idx]  = (uint8_t)(gfx_fg & 0x0F);
-                            }
-                            gfx_x++;
-                            if (gfx_x >= gfx_cols()) gfx_newline();
-                            else print_col = gfx_x;
+                            /* Route through gfx_put_byte so charset_lower / PETSCII / CHR$ rules match. */
+                            gfx_put_byte((unsigned char)pet);
                             continue;
                         }
                         /* Unknown Unicode: output space to avoid garbage */
