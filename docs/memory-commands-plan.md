@@ -23,7 +23,7 @@ Copies overlapping regions **upwards** (dest &gt; src). Uses a backward copy so 
 
 ## Our Simulated Memory Model
 
-CBM-BASIC uses a virtual 16-bit address space backed by arrays:
+RGC-BASIC uses a virtual 16-bit address space backed by arrays:
 
 | Range        | Base     | Size  | Backing array |
 |--------------|----------|-------|----------------|

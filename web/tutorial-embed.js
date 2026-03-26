@@ -1,8 +1,8 @@
 /**
- * CBM-BASIC tutorial embeds: multiple terminal-style WASM instances on one page.
+ * RGC-BASIC (Retro Game Coders BASIC) tutorial embeds: multiple terminal-style WASM instances on one page.
  * Requires: basic-modular.js + basic-modular.wasm (make basic-wasm-modular).
  *
- *   CbmBasicTutorialEmbed.mount(container, options).then(function(api) { ... });
+ *   RgcBasicTutorialEmbed.mount(container, options).then(function(api) { ... });
  *
  * See docs/tutorial-embedding.md
  */
@@ -157,7 +157,7 @@
   }
 
   function loadVfsHelpers(baseUrl) {
-    if (global.CbmVfsHelpers) {
+    if (global.RgcVfsHelpers || global.CbmVfsHelpers) {
       return Promise.resolve();
     }
     if (vfsHelpersPromise) {
@@ -168,10 +168,10 @@
       s.src = baseUrl + 'vfs-helpers.js';
       s.async = true;
       s.onload = function () {
-        if (global.CbmVfsHelpers) {
+        if (global.RgcVfsHelpers) {
           resolve();
         } else {
-          reject(new Error('CbmVfsHelpers missing after vfs-helpers.js'));
+          reject(new Error('RgcVfsHelpers missing after vfs-helpers.js'));
         }
       };
       s.onerror = function () {
@@ -208,11 +208,11 @@
     var showPauseStop = opts.showPauseStop !== false;
     var showVfsTools = opts.showVfsTools !== false;
 
-    container.classList.add('cbm-tutorial-embed');
+    container.classList.add('rgc-tutorial-embed');
     container.innerHTML = '';
 
     var ta = document.createElement('textarea');
-    ta.className = 'cbm-tutorial-program';
+    ta.className = 'rgc-tutorial-program';
     ta.spellcheck = false;
     ta.value = programDefault;
     ta.style.width = '100%';
@@ -224,7 +224,7 @@
     }
 
     var toolbar = document.createElement('div');
-    toolbar.className = 'cbm-tutorial-toolbar';
+    toolbar.className = 'rgc-tutorial-toolbar';
     toolbar.style.marginTop = '0.5rem';
 
     var runBtn = document.createElement('button');
@@ -253,12 +253,12 @@
     container.appendChild(toolbar);
 
     var vfsHost = document.createElement('div');
-    vfsHost.className = 'cbm-tutorial-vfs';
+    vfsHost.className = 'rgc-tutorial-vfs';
     vfsHost.style.marginTop = '0.35rem';
     container.appendChild(vfsHost);
 
     var out = document.createElement('div');
-    out.className = 'cbm-tutorial-output';
+    out.className = 'rgc-tutorial-output';
     out.tabIndex = 0;
     out.setAttribute('aria-live', 'polite');
     out.title = 'Click here, then type for GET / INKEY$';
@@ -275,7 +275,7 @@
     container.appendChild(out);
 
     var inputRow = document.createElement('div');
-    inputRow.className = 'cbm-tutorial-input-row';
+    inputRow.className = 'rgc-tutorial-input-row';
     inputRow.style.display = 'none';
     inputRow.style.marginTop = '0.5rem';
     inputRow.style.alignItems = 'center';
@@ -285,7 +285,7 @@
     inputLabelText.textContent = 'INPUT';
     var inputLine = document.createElement('input');
     inputLine.type = 'text';
-    inputLine.id = 'cbm-tut-in-' + Math.random().toString(36).slice(2, 9);
+    inputLine.id = 'rgc-tut-in-' + Math.random().toString(36).slice(2, 9);
     inputLine.autocomplete = 'off';
     inputLine.spellcheck = false;
     inputLine.style.flex = '1';
@@ -401,9 +401,9 @@
           moduleRef = this;
           runBtn.disabled = false;
 
-          if (showVfsTools && global.CbmVfsHelpers && vfsHost) {
+          if (showVfsTools && global.RgcVfsHelpers && vfsHost) {
             try {
-              var ui = global.CbmVfsHelpers.vfsMountUI(vfsHost, moduleRef, {
+              var ui = global.RgcVfsHelpers.vfsMountUI(vfsHost, moduleRef, {
                 pathDefault: opts.vfsExportPath || '/out.txt',
                 onStatus: function (msg, isErr) {
                   appendOutputHtml(
@@ -528,7 +528,7 @@
               } catch (e) {}
             }
             container.innerHTML = '';
-            container.classList.remove('cbm-tutorial-embed');
+            container.classList.remove('rgc-tutorial-embed');
           },
           getModule: function () {
             return moduleRef;
@@ -538,8 +538,11 @@
     });
   }
 
-  global.CbmBasicTutorialEmbed = {
+  var embedApi = {
     mount: mount,
     resolveBaseUrl: resolveBaseUrl
   };
+  global.RgcBasicTutorialEmbed = embedApi;
+  /** @deprecated Use RgcBasicTutorialEmbed (RGC-BASIC rename). */
+  global.CbmBasicTutorialEmbed = embedApi;
 })(typeof window !== 'undefined' ? window : this);

@@ -4,7 +4,7 @@
 
 ### Overview
 
-CBM-BASIC is a Commodore BASIC v2-style interpreter written in C. It compiles to a single `basic` binary with zero runtime dependencies beyond the C standard library and POSIX math (`-lm`).
+**RGC-BASIC** (Retro Game Coders BASIC) is a modern cross-platform BASIC interpreter with classic (Commodore-style) syntax compatibility, written in C. It compiles to a single `basic` binary with zero runtime dependencies beyond the C standard library and POSIX math (`-lm`).
 
 ### Build & Run
 

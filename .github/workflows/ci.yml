@@ -1,4 +1,4 @@
-name: Build cbm-basic on all platforms
+name: Build RGC-BASIC on all platforms
 
 on:
   push:
@@ -242,13 +242,13 @@ jobs:
           cp web/basic-canvas.js web/basic-canvas.wasm web/canvas.html out/wasm/
           cp web/README.md out/wasm/
           cd out
-          tar czf cbm-basic-wasm.tar.gz wasm
+          tar czf rgc-basic-wasm.tar.gz wasm
 
       - name: Upload WASM artifact
         uses: actions/upload-artifact@v4
         with:
-          name: cbm-basic-wasm
-          path: out/cbm-basic-wasm.tar.gz
+          name: rgc-basic-wasm
+          path: out/rgc-basic-wasm.tar.gz
 
   release:
     name: Release tagged build

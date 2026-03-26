@@ -1,18 +1,8 @@
-# CBM-BASIC
+# RGC-BASIC
 
-```
-   _____ ____  __  __        ____           _____ _____ _____ 
-  / ____|  _ \|  \/  |      |  _ \   /\    / ____|_   _/ ____|
- | |    | |_) | \  / |______| |_) | /  \  | (___   | || |     
- | |    |  _ <| |\/| |______|  _ < / /\ \  \___ \  | || |     
- | |____| |_) | |  | |      | |_) / ____ \ ____) |_| || |____ 
-  \_____|____/|_|  |_|      |____/_/    \_\_____/|_____\_____|
-  ............................................................
-```
+**Retro Game Coders BASIC** — modern cross-platform BASIC interpreter with classic syntax compatibility, written in C.
 
-## Commodore BASIC –style interpreter written in C.
-
-CBM-BASIC is, as the name suggests, a BASIC interpreter *inspired* by CBM BASIC v2 as found on classic Commodore machines. This means while you *can* use `GOTO`, you don't *have* to. You do you. This is a readme file, not the code police.
+RGC-BASIC is *inspired by* CBM BASIC v2 as found on classic Commodore machines, extended with modern features (graphics, browser/WASM, structured syntax, and more). This means while you *can* use `GOTO`, you don't *have* to. You do you. This is a readme file, not the code police.
 
 Unlike emulators, this is a BASIC interpreter that can already do real work: reading and writing files, user-defined functions, structured control flow, and more. In addition to the **terminal interpreter** (`basic`), there is a full **graphical interpreter** (`basic-gfx`) built with Raylib — a complete 40×25 PETSCII windowed environment with `POKE`/`PEEK` screen memory, `INKEY$`, `TI`/`TI$`, and `.seq` art viewers.
 
@@ -24,13 +14,13 @@ Current release: **1.5.0** (2026-03-18). See `CHANGELOG.md` for the full version
 
 ## 💾 DOWNLOADS
 
-[The latest binaries for Win/Mac/Linux are in Releases](https://github.com/omiq/cbm-basic/releases/). For bleeding-edge builds from `main`, use the [**nightly** release](https://github.com/omiq/cbm-basic/releases/tag/nightly) (built automatically every night).
+[The latest binaries for Win/Mac/Linux are in Releases](https://github.com/omiq/rgc-basic/releases/). For bleeding-edge builds from `main`, use the [**nightly** release](https://github.com/omiq/rgc-basic/releases/tag/nightly) (built automatically every night).
 
 Extract the files after downloading.
 
 Each release archive includes the terminal interpreter (`basic`), the graphical interpreter (`basic-gfx`), and the `examples` folder. Run programs such as `./basic examples/trek.bas` or `./basic-gfx -petscii examples/gfx_colaburger_viewer.bas` (Windows: `basic.exe`, `basic-gfx.exe`).
 
-![gitscreenshot1.png](https://github.com/omiq/cbm-basic/blob/main/docs/git-screenshot1.png)
+![gitscreenshot1.png](https://github.com/omiq/rgc-basic/blob/main/docs/git-screenshot1.png)
 
 
 
@@ -319,7 +309,7 @@ Program text is normalized at load time so **compact CBM BASIC** without spaces 
 
 Releases include **basic-gfx** — a full graphical version of the interpreter built with Raylib. It provides a 40×25 (or 80×25 with `-columns 80`) PETSCII windowed display with `POKE`/`PEEK` screen memory, `INKEY$`, `TI`/`TI$`, `.seq` art viewers, and full PETSCII symbols:
 
-![Cola Burger](https://github.com/omiq/cbm-basic/blob/main/docs/git-screenshot2.png)
+![Cola Burger](https://github.com/omiq/rgc-basic/blob/main/docs/git-screenshot2.png)
 
 
 
@@ -382,7 +372,7 @@ Releases include **basic-gfx** — a full graphical version of the interpreter b
 
 **Window title (basic-gfx)**:
 
-- Set the window title via `#OPTION gfx_title "My Game"` or the CLI `-gfx-title "My Game"`. Default is `CBM-BASIC GFX`.
+- Set the window title via `#OPTION gfx_title "My Game"` or the CLI `-gfx-title "My Game"`. Default is `RGC-BASIC GFX`.
 
 **Border padding (basic-gfx)**:
 
@@ -517,7 +507,7 @@ Produces `web/basic.js` and `web/basic.wasm` (Asyncify-enabled), **`web/basic-mo
 
 **PETSCII canvas** (no Raylib): `make basic-wasm-canvas` produces `web/basic-canvas.js`, `web/basic-canvas.wasm`, and `web/canvas.html`. The page refreshes the canvas during `SLEEP` and loops via a shared RGBA framebuffer (PETSCII, `SCREEN 1` bitmap, and **`LOADSPRITE`/`DRAWSPRITE`** like **basic-gfx**). Try **`examples/gfx_canvas_demo.bas`**: paste into the canvas page, use **Upload to VFS** to add **`gfx_canvas_demo.png`** (same file is copied to **`web/gfx_canvas_demo.png`** for local fetch tests), then Run.
 
-**Automated WASM smoke tests** (headless Chromium via Playwright): install `pip install -r tests/requirements-wasm.txt`, run `python3 -m playwright install chromium`, then `make wasm-test`, `make wasm-canvas-test`, and **`make wasm-tutorial-test`**. These run in GitHub Actions for **tagged releases** and the **nightly** workflow; artifacts include `cbm-basic-wasm.tar.gz` (terminal, modular tutorial files, and canvas).
+**Automated WASM smoke tests** (headless Chromium via Playwright): install `pip install -r tests/requirements-wasm.txt`, run `python3 -m playwright install chromium`, then `make wasm-test`, `make wasm-canvas-test`, and **`make wasm-tutorial-test`**. These run in GitHub Actions for **tagged releases** and the **nightly** workflow; artifacts include `rgc-basic-wasm.tar.gz` (terminal, modular tutorial files, and canvas).
 
 #### Manual compilation
 

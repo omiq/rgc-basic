@@ -1,4 +1,4 @@
-# CBM-BASIC in the Browser
+# RGC-BASIC in the Browser
 
 **Embedding in another site (e.g. an online IDE)** — see **[`docs/ide-retrogamecoders-canvas-integration.md`](../docs/ide-retrogamecoders-canvas-integration.md)** for hosting `basic-canvas.js` / `.wasm`, MEMFS assets, Run/Pause/Stop, and iframe `postMessage` patterns.
 

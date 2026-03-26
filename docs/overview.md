@@ -1,4 +1,4 @@
-## Developer overview – `cbm-basic` interpreter
+## Developer overview – RGC-BASIC (`rgc-basic`) interpreter
 
 This document is a high‑level guide to how the interpreter in `basic.c` is structured, how execution flows, and how to add new BASIC features safely.
 

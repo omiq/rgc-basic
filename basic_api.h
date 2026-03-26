@@ -1,4 +1,4 @@
-/* basic_api.h – Public interface for embedding the CBM-BASIC interpreter.
+/* basic_api.h – Public interface for embedding the RGC-BASIC interpreter.
  *
  * Used by the gfx build (basic-gfx) so that gfx_raylib.c can drive the
  * interpreter from its own main().  The terminal build ignores this header
@@ -38,7 +38,7 @@ int basic_halted(void);
  * can reach the graphics memory.  Must be called before basic_run(). */
 void basic_set_video(GfxVideoState *vs);
 
-/* Window title for basic-gfx. NULL = use default "CBM-BASIC GFX". */
+/* Window title for basic-gfx. NULL = use default "RGC-BASIC GFX". */
 void basic_set_gfx_window_title(const char *title);
 const char *basic_get_gfx_window_title(void);
 

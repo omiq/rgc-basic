@@ -946,25 +946,25 @@ static void wasm_canvas_debug_dump_stacks(const char *tag)
     char buf[384];
 
     EM_ASM({
-        console.log('[cbm-basic canvas] browser:', {
+        console.log('[rgc-basic canvas] browser:', {
             userAgent: (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '',
             language: (typeof navigator !== 'undefined' && navigator.language) ? navigator.language : '',
             platform: (typeof navigator !== 'undefined' && navigator.platform) ? navigator.platform : '',
             wasmStopRequested: (typeof Module !== 'undefined' && Module['wasmStopRequested']) ? Module['wasmStopRequested'] : 0
         });
     });
-    snprintf(buf, sizeof(buf), "[cbm-basic canvas] --- %s ---",
+    snprintf(buf, sizeof(buf), "[rgc-basic canvas] --- %s ---",
         tag ? tag : "stack dump");
     wasm_canvas_debug_log_cstr(buf);
     snprintf(buf, sizeof(buf),
-        "[cbm-basic canvas] summary: gosub_top=%d for_top=%d current_line_idx=%d halted=%d line_count=%d",
+        "[rgc-basic canvas] summary: gosub_top=%d for_top=%d current_line_idx=%d halted=%d line_count=%d",
         gosub_top, for_top, current_line, halted, line_count);
     wasm_canvas_debug_log_cstr(buf);
     for (gi = gosub_top - 1; gi >= 0; gi--) {
         int li = gosub_stack[gi].line_index;
         int lnum = (li >= 0 && li < line_count && program_lines[li]) ? program_lines[li]->number : -1;
         snprintf(buf, sizeof(buf),
-            "[cbm-basic canvas]   gosub[%d] resume_line_idx=%d BASIC_line=%d",
+            "[rgc-basic canvas]   gosub[%d] resume_line_idx=%d BASIC_line=%d",
             gi, li, lnum);
         wasm_canvas_debug_log_cstr(buf);
     }
@@ -975,7 +975,7 @@ static void wasm_canvas_debug_dump_stacks(const char *tag)
         double vnum = (vp && vp->type == VAL_NUM) ? vp->num : -1.0;
         int vok = (vp && vp->type == VAL_NUM) ? 1 : 0;
         snprintf(buf, sizeof(buf),
-            "[cbm-basic canvas]   for[%d] name=%s gosubDepthAtEntry=%d line_idx=%d BASIC_line=%d var=%p numOk=%d val=%.6g",
+            "[rgc-basic canvas]   for[%d] name=%s gosubDepthAtEntry=%d line_idx=%d BASIC_line=%d var=%p numOk=%d val=%.6g",
             fi, for_stack[fi].name, for_stack[fi].gosub_depth_at_entry, li, lnum,
             (void *)vp, vok, vnum);
         wasm_canvas_debug_log_cstr(buf);
@@ -994,7 +994,7 @@ EMSCRIPTEN_KEEPALIVE void wasm_canvas_set_debug_trace_for(int on)
 
 EMSCRIPTEN_KEEPALIVE const char *wasm_canvas_build_stamp(void)
 {
-    return "cbm-basic canvas " __DATE__ " " __TIME__;
+    return "rgc-basic canvas " __DATE__ " " __TIME__;
 }
 
 EMSCRIPTEN_KEEPALIVE void wasm_debug_log_stacks(void)
@@ -7214,7 +7214,7 @@ static void statement_return(char **p)
     if (wasm_canvas_debug_trace_for) {
         char tb[160];
         snprintf(tb, sizeof(tb),
-            "[cbm-basic canvas] trace RETURN gosub_top=%d for_top=%d",
+            "[rgc-basic canvas] trace RETURN gosub_top=%d for_top=%d",
             gosub_top, for_top);
         wasm_canvas_debug_log_cstr(tb);
     }
@@ -7732,7 +7732,7 @@ static void statement_for(char **p)
         int bl = (current_line >= 0 && current_line < line_count && program_lines[current_line])
             ? program_lines[current_line]->number : -1;
         snprintf(tb, sizeof(tb),
-            "[cbm-basic canvas] trace FOR push name=%s gosub_top=%d for_top=%d BASIC_line=%d var=%p",
+            "[rgc-basic canvas] trace FOR push name=%s gosub_top=%d for_top=%d BASIC_line=%d var=%p",
             loop_name, gosub_top, for_top, bl, (void *)vp);
         wasm_canvas_debug_log_cstr(tb);
     }
@@ -7804,7 +7804,7 @@ static void statement_next(char **p)
         int bl = (current_line >= 0 && current_line < line_count && program_lines[current_line])
             ? program_lines[current_line]->number : -1;
         snprintf(tb, sizeof(tb),
-            "[cbm-basic canvas] trace NEXT name=%s slot=%d for_top=%d BASIC_line=%d vp=%p",
+            "[rgc-basic canvas] trace NEXT name=%s slot=%d for_top=%d BASIC_line=%d vp=%p",
             namebuf[0] ? namebuf : "(implicit)", i, for_top, bl, (void *)vp);
         wasm_canvas_debug_log_cstr(tb);
     }

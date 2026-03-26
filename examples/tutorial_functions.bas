@@ -7,7 +7,7 @@ REM Shows: library include, multi-line functions, WHILE loops,
 REM         IF ELSE END IF blocks, recursion-friendly calls
 REM ============================================================
 
-PRINT "=== CBM-BASIC Modern Features Tutorial ==="
+PRINT "=== RGC-BASIC Modern Features Tutorial ==="
 PRINT
 
 REM --- Demo 1: Functions from included library ---

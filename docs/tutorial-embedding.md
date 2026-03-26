@@ -1,4 +1,4 @@
-# Embedding CBM-BASIC in tutorials (multiple instances per page)
+# Embedding RGC-BASIC in tutorials (multiple instances per page)
 
 This guide explains how to run **one or more** terminal-style BASIC interpreters in HTML (e.g. documentation, course pages, or a custom IDE). The full-page demos `web/index.html` and `web/canvas.html` use a **single** global `Module` and are not suitable for multiple copies on the same document. For tutorials, use the **modular** WASM build plus **`web/tutorial-embed.js`**.
 
@@ -34,11 +34,13 @@ make wasm-tutorial-test   # headless Chromium; needs Playwright (see tests/requi
 <div id="lesson1"></div>
 <script src="tutorial-embed.js"></script>
 <script>
-  CbmBasicTutorialEmbed.mount(document.getElementById('lesson1'), {
+  RgcBasicTutorialEmbed.mount(document.getElementById('lesson1'), {
     program: '10 PRINT "Hello from the tutorial"\n20 END\n'
   });
 </script>
 ```
+
+(`CbmBasicTutorialEmbed` remains as a deprecated alias for one release.)
 
 Requirements:
 
@@ -56,17 +58,19 @@ Programmatic API (after `vfs-helpers.js` is on the page):
 
 ```javascript
 // Upload browser files → MEMFS at /filename (creates parent dirs)
-CbmVfsHelpers.vfsUploadFiles(Module, fileList, function (msg, err) { console.log(msg); });
+RgcVfsHelpers.vfsUploadFiles(Module, fileList, function (msg, err) { console.log(msg); });
 
 // Download one file from VFS
-CbmVfsHelpers.vfsExportFile(Module, '/out.txt');
+RgcVfsHelpers.vfsExportFile(Module, '/out.txt');
 
 // Or mount the default toolbar into a div
-CbmVfsHelpers.vfsMountUI(document.getElementById('vfs'), Module, {
+RgcVfsHelpers.vfsMountUI(document.getElementById('vfs'), Module, {
   pathDefault: '/out.txt',
   onStatus: function (m, isErr) { ... }
 });
 ```
+
+(`CbmVfsHelpers` is a deprecated alias.)
 
 Paths must be single-segment filenames or `/path/...` with **no `..`**. Export uses a temporary object URL (browser download).
 
@@ -79,10 +83,10 @@ Give each snippet its own container and call `mount` once per container:
 <div id="exB"></div>
 <script src="tutorial-embed.js"></script>
 <script>
-  CbmBasicTutorialEmbed.mount(document.getElementById('exA'), {
+  RgcBasicTutorialEmbed.mount(document.getElementById('exA'), {
     program: '10 PRINT "Exercise A"\n20 END\n'
   });
-  CbmBasicTutorialEmbed.mount(document.getElementById('exB'), {
+  RgcBasicTutorialEmbed.mount(document.getElementById('exB'), {
     program: '10 PRINT "Exercise B"\n20 END\n'
   });
 </script>
@@ -121,7 +125,7 @@ Each embed gets its own **virtual filesystem** and **Asyncify** state; they do n
 Example:
 
 ```javascript
-CbmBasicTutorialEmbed.mount(el, { program: '10 END\n' }).then(function (api) {
+RgcBasicTutorialEmbed.mount(el, { program: '10 END\n' }).then(function (api) {
   document.getElementById('rerun').onclick = function () {
     api.resetOutput();
     api.run();
@@ -139,12 +143,12 @@ Same behavior as `web/index.html`:
 
 ## Styling
 
-The helper adds the class **`cbm-tutorial-embed`** on the container and uses BEM-like classes:
+The helper adds the class **`rgc-tutorial-embed`** on the container and uses BEM-like classes:
 
-- `cbm-tutorial-program` — textarea  
-- `cbm-tutorial-toolbar` — button row  
-- `cbm-tutorial-output` — output  
-- `cbm-tutorial-input-row` — INPUT row  
+- `rgc-tutorial-program` — textarea  
+- `rgc-tutorial-toolbar` — button row  
+- `rgc-tutorial-output` — output  
+- `rgc-tutorial-input-row` — INPUT row  
 
 Override these in your site CSS. The example page `tutorial-example.html` shows a minimal border.
 
@@ -153,7 +157,7 @@ Override these in your site CSS. The example page `tutorial-example.html` shows 
 - Put **`basic-modular.js`** and **`basic-modular.wasm`** in the **same directory** (Emscripten’s default `locateFile` expects that).
 - After upgrading the interpreter, bump a cache query on **both** files or rename them (same issue as `canvas.html` + mismatched JS/WASM).
 - If your tutorial lives in a subdirectory, set **`baseUrl`** to the folder that contains the modular assets, e.g.  
-  `baseUrl: '/assets/cbm-basic/'`
+  `baseUrl: '/assets/rgc-basic/'`
 
 ## Canvas (PETSCII) tutorials
 
@@ -179,4 +183,4 @@ Optional:
 - `tutorial-example.html` — reference layout  
 - `docs/tutorial-embedding.md` — this guide  
 
-The CI artifact tarball also includes these when you download **cbm-basic-wasm** from Actions.
+The CI artifact tarball also includes these when you download **rgc-basic-wasm** from Actions.

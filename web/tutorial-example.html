@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CBM-BASIC — tutorial embed example</title>
+  <title>RGC-BASIC — tutorial embed example</title>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 720px; margin: 1.5rem auto; padding: 0 1rem; }
     h1 { font-size: 1.25rem; }
-    .cbm-tutorial-embed { border: 1px solid #ccc; border-radius: 6px; padding: 0.75rem; margin: 1rem 0; }
-    .cbm-tutorial-toolbar button { margin-right: 0.5rem; margin-top: 0.25rem; }
+    .rgc-tutorial-embed { border: 1px solid #ccc; border-radius: 6px; padding: 0.75rem; margin: 1rem 0; }
+    .rgc-tutorial-toolbar button { margin-right: 0.5rem; margin-top: 0.25rem; }
   </style>
 </head>
 <body>
@@ -18,10 +18,10 @@
   <div id="ex2"></div>
   <script src="tutorial-embed.js"></script>
   <script>
-    CbmBasicTutorialEmbed.mount(document.getElementById('ex1'), {
+    RgcBasicTutorialEmbed.mount(document.getElementById('ex1'), {
       program: '10 PRINT "FIRST EXAMPLE"\n20 END\n'
     });
-    CbmBasicTutorialEmbed.mount(document.getElementById('ex2'), {
+    RgcBasicTutorialEmbed.mount(document.getElementById('ex2'), {
       program: '10 PRINT "SECOND EXAMPLE"\n20 END\n',
       showEditor: false,
       showPauseStop: false

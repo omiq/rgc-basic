@@ -1,4 +1,4 @@
-## Portable Makefile for cbm-basic
+## Portable Makefile for RGC-BASIC (Retro Game Coders BASIC)
 ##
 ## Targets:
 ##   make         - build native binary for the current host

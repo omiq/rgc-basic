@@ -2,7 +2,7 @@
 
 **Status**: Implemented.
 
-This document outlines what it would take to add structured `IF … THEN … ELSE … END IF` blocks to CBM-BASIC, spanning multiple lines and statements.
+This document outlines what it would take to add structured `IF … THEN … ELSE … END IF` blocks to RGC-BASIC, spanning multiple lines and statements.
 
 ---
 
