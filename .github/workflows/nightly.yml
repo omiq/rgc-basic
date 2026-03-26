@@ -229,6 +229,7 @@ jobs:
         run: |
           python3 tests/wasm_browser_test.py
           python3 tests/wasm_browser_canvas_test.py
+          python3 tests/wasm_canvas_charset_test.py
           python3 tests/wasm_tutorial_embed_test.py
 
       - name: Package WASM artifact

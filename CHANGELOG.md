@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **Charset lower + CHR$**: With lowercase char ROM, non-letter bytes from **`CHR$(n)`** (and punctuation) use **raw screen code** `sc = byte`; **`petscii_to_screencode(65)`** was mapping to lowercase glyphs. **Regression**: `tests/wasm_canvas_charset_test.py`, **`make wasm-canvas-charset-test`**; CI workflow **`wasm-tests.yml`** runs full WASM Playwright suite on **push/PR to `main`**; release WASM job runs charset test too.
+
 - **Browser canvas**: `#OPTION charset lower` (and charset from CLI before run) now applies when video state attaches — fixes PETSCII space (screen code 32) drawing as wrong glyph (e.g. `!`) because the uppercase char ROM was still active.
 - **INPUT (canvas / GFX)**: When **Stop** / watchdog sets `wasmStopRequested` while waiting in `gfx_read_line`, report **"Stopped"** instead of **"Unexpected end of input"** (misleading; not EOF).
 

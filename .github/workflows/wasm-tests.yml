@@ -1,0 +1,49 @@
+# Run headless browser WASM tests on every push to main (charset, canvas, terminal, tutorial).
+name: WASM browser tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wasm-playwright:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Emscripten (emsdk)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3 git
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$GITHUB_WORKSPACE/emsdk"
+          cd "$GITHUB_WORKSPACE/emsdk"
+          ./emsdk install latest
+          ./emsdk activate latest
+
+      - name: Build WASM targets
+        run: |
+          source "$GITHUB_WORKSPACE/emsdk/emsdk_env.sh"
+          emcc --version
+          make basic-wasm basic-wasm-modular basic-wasm-canvas
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Playwright
+        run: |
+          pip install -r tests/requirements-wasm.txt
+          python -m playwright install chromium --with-deps
+
+      - name: Run WASM browser tests
+        run: |
+          python3 tests/wasm_browser_test.py
+          python3 tests/wasm_browser_canvas_test.py
+          python3 tests/wasm_canvas_charset_test.py
+          python3 tests/wasm_tutorial_embed_test.py
