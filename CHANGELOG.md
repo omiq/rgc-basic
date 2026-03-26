@@ -13,6 +13,7 @@
   - **Virtual FS upload/export**: `web/vfs-helpers.js` — `CbmVfsHelpers.vfsUploadFiles`, `vfsExportFile`, `vfsMountUI` (browser → MEMFS and MEMFS → download). Wired into `web/index.html`, `web/canvas.html`, and tutorial embeds (`showVfsTools`). CI WASM artifacts include `vfs-helpers.js`.
   - **Canvas GFX parity with basic-gfx**: `SCREEN 1` bitmap rendering; software PNG sprites (`gfx/gfx_software_sprites.c`, vendored `gfx/stb_image.h`) replacing the old WASM sprite stubs; compositing order matches Raylib (base then z-sorted sprites). `web/canvas.html` draws `#OPTION border` padding from `Module.wasmGfxBorderPx` / `wasmGfxBorderColorIdx`. Guide: `docs/gfx-canvas-parity.md`. `tests/wasm_browser_canvas_test.py` covers bitmap + sprite smoke.
   - **Example**: `examples/gfx_canvas_demo.bas` + `gfx_canvas_demo.png` (and `web/gfx_canvas_demo.png` for Playwright fetch); canvas test runs the full demo source.
+  - **Docs**: `docs/ide-retrogamecoders-canvas-integration.md` — embed canvas WASM in an online IDE (MEMFS, play/pause/stop, iframe flow); linked from `web/README.md`.
 
 - **80-column option (terminal + basic-gfx + WASM canvas)**
   - **Terminal**: `#OPTION columns N` / `-columns N` (1–255); default 40. Comma/TAB zones scale: 10 at 40 cols, 20 at 80 cols. `#OPTION nowrap` / `-nowrap`: disable wrapping.
