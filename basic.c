@@ -3811,8 +3811,15 @@ static void statement_get(char **p)
         if (gfx_keyq_pop(&b)) {
             ch = (int)b;
         } else {
-            /* Fallback to stdin when queue empty (allows pipe/redirect). */
+#if defined(__EMSCRIPTEN__)
+            /* Browser: no real stdin; nonblock returns EOF immediately. Programs that
+             * poll GET in a tight loop (e.g. examples/trek.bas) would freeze the tab.
+             * Block with Asyncify until wasm_push_key / canvas keydown delivers a byte. */
+            ch = read_single_char();
+#else
+            /* Native basic-gfx: allow pipe/redirect (non-interactive GET returns ""). */
             ch = read_single_char_nonblock();
+#endif
         }
     } else
 #endif
