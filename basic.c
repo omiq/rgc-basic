@@ -8943,6 +8943,11 @@ void basic_set_video(GfxVideoState *vs) {
     if (vs) {
         vs->cols = (print_width >= 80) ? 80 : 40;
         vs->bitmap_fg = gfx_fg;
+#if defined(__EMSCRIPTEN__)
+        /* #OPTION charset runs during load before wasm_gfx_set_video(); sync ROM when
+         * video attaches so PETSCII space (sc 32) matches the selected charset. */
+        wasm_canvas_sync_charset_from_options();
+#endif
     }
 }
 
