@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **WASM canvas GET**: With **`GFX_VIDEO`** and an empty key queue, **`GET`** now **blocks** (Asyncify) on Emscripten instead of returning **`""`** immediately. Fixes **`examples/trek.bas`** and similar **`GET`-poll loops** freezing the browser; native **`basic-gfx`** still uses a non-blocking fallback so piped input works.
+
 - **WASM canvas / basic-gfx parity (glyph ROM)**: **`make basic-wasm-canvas`** now links **`gfx/gfx_charrom.c`** and **`gfx_canvas_load_default_charrom`** delegates to **`gfx_load_default_charrom`** (same bitmap data as **`basic-gfx`**). Removed duplicate **`petscii_font_*_body.inc`** tables that could drift and make canvas output differ from the native window.
 
 - **PRINT (GFX)**: Unicode→PETSCII branch in **`print_value`** now routes through **`gfx_put_byte`** instead of writing **`petscii_to_screencode`** directly (kept **`charset_lower`** / **`CHR$`** semantics consistent; fixes stray +1 lowercase bugs when UTF-8 decode path runs).
