@@ -51,24 +51,39 @@ def _set_petscii(page, on: bool) -> None:
     page.evaluate(f"() => {{ document.getElementById('optPetscii').checked = {str(on).lower()}; }}")
 
 
-def _run_charset_suite(page, *, petscii_checked: bool) -> None:
+def _run_charset_suite(page, *, petscii_checked: bool, numbered_option: bool) -> None:
     """Assert mixed-case string, space, and CHR$(65) match \"A\" on same charset."""
-    label = "petscii on" if petscii_checked else "petscii off"
+    label = ("petscii on" if petscii_checked else "petscii off") + (
+        ", numbered #OPTION" if numbered_option else ", bare #OPTION"
+    )
     _set_petscii(page, petscii_checked)
     page.wait_for_function("() => !document.getElementById('run').disabled", timeout=60000)
 
+    if numbered_option:
+        opt = "10 #OPTION charset lower\n"
+        rest = (
+            "20 COLOR 1\n"
+            "30 BACKGROUND 6\n"
+            '40 PRINT "hEY hEY"\n'
+            "50 PRINT CHR$(32)\n"
+            "60 PRINT CHR$(65)\n"
+            '70 PRINT "A"\n'
+            "80 END\n"
+        )
+    else:
+        opt = "#OPTION charset lower\n"
+        rest = (
+            "10 COLOR 1\n"
+            "20 BACKGROUND 6\n"
+            '30 PRINT "hEY hEY"\n'
+            "40 PRINT CHR$(32)\n"
+            "50 PRINT CHR$(65)\n"
+            '60 PRINT "A"\n'
+            "70 END\n"
+        )
+
     # Line 0: mixed case + spaces (user-reported pattern)
-    page.fill(
-        "#program",
-        '#OPTION charset lower\n'
-        '10 COLOR 1\n'
-        '20 BACKGROUND 6\n'
-        '30 PRINT "hEY hEY"\n'
-        '40 PRINT CHR$(32)\n'
-        '50 PRINT CHR$(65)\n'
-        '60 PRINT "A"\n'
-        "70 END\n",
-    )
+    page.fill("#program", opt + rest)
     _click_run(page)
     page.wait_for_function(
         "() => (window.Module && Module.wasmGfxRunDone === 1)",
@@ -87,7 +102,10 @@ def _run_charset_suite(page, *, petscii_checked: bool) -> None:
         )
 
     # CHR$(32) line: only a space — interior of cell should match word-space (both true space)
-    px_chr32 = _canvas_pixel_rgba(page, 4, 12)
+    y_chr32 = 20 if numbered_option else 12
+    y_chr65 = 28 if numbered_option else 20
+    y_quote_a = 36 if numbered_option else 28
+    px_chr32 = _canvas_pixel_rgba(page, 4, y_chr32)
     if list(px_chr32[:3]) != list(px_space_word[:3]):
         raise RuntimeError(
             f"{label}: CHR$(32) center should match literal space pixel, "
@@ -95,11 +113,11 @@ def _run_charset_suite(page, *, petscii_checked: bool) -> None:
         )
 
     # CHR$(65) vs "A" on next lines (y=20 and y=28 for rows 2 and 3 at cell center y=4+8*r)
-    px_chr65 = _canvas_pixel_rgba(page, 4, 20)
-    px_quote_a = _canvas_pixel_rgba(page, 4, 28)
+    px_chr65 = _canvas_pixel_rgba(page, 4, y_chr65)
+    px_quote_a = _canvas_pixel_rgba(page, 4, y_quote_a)
     if list(px_chr65[:3]) != list(px_quote_a[:3]):
         raise RuntimeError(
-            f"{label}: CHR$(65) vs PRINT \"A\" should match at (4,20) vs (4,28), "
+            f"{label}: CHR$(65) vs PRINT \"A\" should match, "
             f"chr65={px_chr65!r} qA={px_quote_a!r}"
         )
 
@@ -126,8 +144,11 @@ def main() -> int:
             page.goto(url, wait_until="networkidle", timeout=120000)
             page.wait_for_function("() => !document.getElementById('run').disabled", timeout=120000)
 
-            _run_charset_suite(page, petscii_checked=True)
-            _run_charset_suite(page, petscii_checked=False)
+            _run_charset_suite(page, petscii_checked=True, numbered_option=False)
+            _run_charset_suite(page, petscii_checked=False, numbered_option=False)
+            # Pasted "10 #OPTION ..." in numberless program (canvas / IDE)
+            _run_charset_suite(page, petscii_checked=False, numbered_option=True)
+            _run_charset_suite(page, petscii_checked=True, numbered_option=True)
             _set_petscii(page, True)
 
             browser.close()
