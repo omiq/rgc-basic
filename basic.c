@@ -1384,6 +1384,35 @@ static uint8_t gfx_ascii_to_screencode(unsigned char c)
     return 32;
 }
 
+/* With gfx_canvas_load_default_charrom lowercase layout: sc 1-26 = a-z, 65-90 = A-Z,
+ * 32 = space, etc. String literals are ASCII, not PETSCII — petscii_to_screencode()
+ * is wrong here (e.g. ASCII space 32 → sc 33 → "!" in upper ROM). */
+static uint8_t gfx_ascii_to_screencode_lowcharset(unsigned char c)
+{
+    if (c >= 'a' && c <= 'z') {
+        return (uint8_t)(c - 'a' + 1);
+    }
+    if (c >= 'A' && c <= 'Z') {
+        return (uint8_t)(c - 'A' + 65);
+    }
+    if (c == '@') {
+        return 0;
+    }
+    if (c >= ' ' && c <= '?') {
+        return (uint8_t)c;
+    }
+    if (c >= '[' && c <= '_') {
+        return (uint8_t)c;
+    }
+    if (c == '`') {
+        return 64;
+    }
+    if (c >= '{' && c <= '~') {
+        return (uint8_t)(c - '{' + 91);
+    }
+    return 32;
+}
+
 static void gfx_scroll_up(void)
 {
     int row;
@@ -1570,7 +1599,11 @@ static void gfx_put_byte(unsigned char b)
      * Use screen code 109 (diagonal glyph) so GFX matches terminal. */
     if (b == 0x5C) {
         sc = 109;
-    } else if (gfx_raw_screen_codes || petscii_mode) {
+    } else if (gfx_raw_screen_codes) {
+        sc = petscii_to_screencode(b);
+    } else if (petscii_mode && gfx_vs && gfx_vs->charset_lowercase && b >= 32 && b <= 126) {
+        sc = gfx_ascii_to_screencode_lowcharset(b);
+    } else if (petscii_mode) {
         sc = petscii_to_screencode(b);
     } else if (b >= 32 && b <= 126) {
         sc = gfx_ascii_to_screencode(b);

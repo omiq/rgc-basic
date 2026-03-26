@@ -213,6 +213,36 @@ def main() -> int:
                 browser.close()
                 raise RuntimeError(f"bitmap test error log: {log_bm!r}")
 
+            # PETSCII + #OPTION charset lower: ASCII string literals must map to lowercase
+            # char ROM (space = sc 32, not PETSCII-mapped 32→33 which drew as "!").
+            page.wait_for_function(
+                "() => !document.getElementById('run').disabled",
+                timeout=60000,
+            )
+            page.fill(
+                "#program",
+                '#OPTION charset lower\n'
+                '10 PRINT "X X"\n'
+                "20 END\n",
+            )
+            _click_run(page)
+            page.wait_for_function(
+                "() => (window.Module && Module.wasmGfxRunDone === 1)",
+                timeout=120000,
+            )
+            log_cs = page.text_content("#log") or ""
+            if log_cs.strip():
+                browser.close()
+                raise RuntimeError(f"charset lower test error log: {log_cs!r}")
+            px_space = _canvas_pixel_rgba(page, 12, 4)
+            px_x = _canvas_pixel_rgba(page, 4, 4)
+            if list(px_space[:3]) == list(px_x[:3]):
+                browser.close()
+                raise RuntimeError(
+                    f"charset lower: space pixel should differ from 'X' body, "
+                    f"got space={px_space!r} x={px_x!r}"
+                )
+
             # PNG sprite over PETSCII (software decode + alpha composite)
             page.wait_for_function(
                 "() => !document.getElementById('run').disabled",

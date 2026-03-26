@@ -3,6 +3,7 @@
 ### Unreleased
 
 - **Browser canvas**: `#OPTION charset lower` (and charset from CLI before run) now applies when video state attaches — fixes PETSCII space (screen code 32) drawing as wrong glyph (e.g. `!`) because the uppercase char ROM was still active.
+- **PETSCII + lowercase charset**: With `-petscii` and lowercase video charset, `PRINT` / `CHR$` now map **ASCII** string bytes to screen codes for the lowercase char layout instead of `petscii_to_screencode()` (which expects PETSCII byte values and broke mixed-case ASCII like `hEY` and space/`CHR$(32)`).
 
 - **Project**: Renamed to **RGC-BASIC** (Retro Game Coders BASIC). GitHub: **`omiq/rgc-basic`**. Tagline: modern cross-platform BASIC interpreter with classic syntax compatibility, written in C. WASM CI artifact: **`rgc-basic-wasm.tar.gz`**. Tutorial CSS classes: `rgc-tutorial-*` (`cbm-tutorial-*` removed). JS: prefer **`RgcBasicTutorialEmbed`** / **`RgcVfsHelpers`** (deprecated **`Cbm*`** aliases retained briefly).
 
