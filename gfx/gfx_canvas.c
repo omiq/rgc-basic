@@ -1,4 +1,5 @@
 #include "gfx_canvas.h"
+#include "gfx_charrom.h"
 #include "gfx_software_sprites.h"
 #include <string.h>
 
@@ -24,29 +25,10 @@ static const uint8_t gfx_c64_palette_rgb[16][3] = {
     {0xBB, 0xBB, 0xBB},
 };
 
-static const uint8_t petscii_font[256][8] = {
-#include "petscii_font_upper_body.inc"
-};
-
-static const uint8_t petscii_font_lower[256][8] = {
-#include "petscii_font_lower_body.inc"
-};
-
 void gfx_canvas_load_default_charrom(GfxVideoState *s)
 {
-    int i;
-    if (!s) {
-        return;
-    }
-    if (s->charset_lowercase) {
-        memcpy(s->chars, petscii_font_lower, sizeof(petscii_font_lower));
-        for (i = 0; i < 26; i++) {
-            memcpy(&s->chars[(65 + i) * 8], &petscii_font[1 + i][0], 8);
-        }
-        memcpy(&s->chars[96 * 8], &petscii_font[96][0], 160 * 8);
-    } else {
-        memcpy(s->chars, petscii_font, sizeof(petscii_font));
-    }
+    /* Same ROM layout as basic-gfx (gfx_load_default_charrom in gfx_charrom.c). */
+    gfx_load_default_charrom(s);
 }
 
 static void render_text_layer(const GfxVideoState *s, uint8_t *rgba, int fb_w, int fb_h)

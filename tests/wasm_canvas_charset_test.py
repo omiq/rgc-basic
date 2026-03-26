@@ -93,8 +93,9 @@ def _run_charset_suite(page, *, petscii_checked: bool, numbered_option: bool) ->
     if log.strip():
         raise RuntimeError(f"{label}: error log: {log!r}")
 
-    # Row 0 "hEY hEY" — space between words at column 3 (0-based), center x = 3*8+4 = 28
-    px_h = _canvas_pixel_rgba(page, 4, 4)
+    # Row 0 "hEY hEY" — space between words at column 3 (0-based); probe x=2 in first
+    # cell (lowercase 'h' has no ink at x=4 in the canonical char ROM, same as space).
+    px_h = _canvas_pixel_rgba(page, 2, 4)
     px_space_word = _canvas_pixel_rgba(page, 28, 4)
     if list(px_h[:3]) == list(px_space_word[:3]):
         raise RuntimeError(

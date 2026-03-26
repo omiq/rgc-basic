@@ -235,7 +235,7 @@ def main() -> int:
                 browser.close()
                 raise RuntimeError(f"charset lower test error log: {log_cs!r}")
             px_space = _canvas_pixel_rgba(page, 12, 4)
-            px_x = _canvas_pixel_rgba(page, 4, 4)
+            px_x = _canvas_pixel_rgba(page, 2, 4)
             if list(px_space[:3]) == list(px_x[:3]):
                 browser.close()
                 raise RuntimeError(
@@ -265,7 +265,7 @@ def main() -> int:
                 browser.close()
                 raise RuntimeError(f"charset lower (no -petscii) error log: {log_cs2!r}")
             px_space2 = _canvas_pixel_rgba(page, 12, 4)
-            px_x2 = _canvas_pixel_rgba(page, 4, 4)
+            px_x2 = _canvas_pixel_rgba(page, 2, 4)
             if list(px_space2[:3]) == list(px_x2[:3]):
                 browser.close()
                 raise RuntimeError(
