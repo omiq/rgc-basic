@@ -1602,8 +1602,13 @@ static void gfx_put_byte(unsigned char b)
     } else if (gfx_raw_screen_codes) {
         sc = petscii_to_screencode(b);
     } else if (gfx_vs && gfx_vs->charset_lowercase && b >= 32 && b <= 126) {
-        /* Lowercase char ROM: map ASCII literals for any -petscii setting (IDE may omit -petscii). */
-        sc = gfx_ascii_to_screencode_lowcharset(b);
+        /* Lowercase char ROM + ASCII string literals: only A–Z / a–z are ASCII letters.
+         * CHR$(n) and punctuation use PETSCII semantics (see FN_CHR raw byte in gfx). */
+        if ((b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')) {
+            sc = gfx_ascii_to_screencode_lowcharset(b);
+        } else {
+            sc = petscii_to_screencode(b);
+        }
     } else if (petscii_mode) {
         sc = petscii_to_screencode(b);
     } else if (b >= 32 && b <= 126) {
