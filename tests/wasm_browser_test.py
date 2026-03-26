@@ -94,6 +94,31 @@ def main() -> int:
                 timeout=60000,
             )
 
+            # GET poll loop (terminal wasm): must yield when queue empty or tab freezes
+            page.fill(
+                "#program",
+                '10 PRINT "OK"\n'
+                "20 GET K$\n"
+                '30 IF K$="" THEN GOTO 20\n'
+                "40 PRINT K$\n"
+                "50 END\n",
+            )
+            _click_run(page)
+            page.wait_for_function(
+                "() => (document.getElementById('output').textContent || '').includes('OK')",
+                timeout=60000,
+            )
+            page.evaluate(
+                "() => { Module.ccall('wasm_push_key', null, ['number'], [88]); }"
+            )
+            page.wait_for_function(
+                "() => (window.Module && Module.wasmRunDone === 1)",
+                timeout=120000,
+            )
+            out = page.text_content("#output") or ""
+            if "X" not in out:
+                raise RuntimeError(f"GET poll: expected key X in output, got {out!r}")
+
             # Pause / Stop: infinite loop must still finish when Stop is pressed
             page.fill(
                 "#program",

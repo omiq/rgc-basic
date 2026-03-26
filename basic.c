@@ -3836,7 +3836,19 @@ static void statement_get(char **p)
 #if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
         ensure_get_raw_mode();
 #endif
+#if defined(__EMSCRIPTEN__)
+        /* Terminal WASM (no GFX_VIDEO): same as canvas — empty GET must yield or
+         * IF K$="" GOTO tight loops freeze the browser with no Asyncify unwind. */
+        wasm_browser_pause_point();
+        if (halted) {
+            ch = EOF;
+        } else {
+            emscripten_sleep(0);
+            ch = read_single_char_nonblock();
+        }
+#else
         ch = read_single_char_nonblock();
+#endif
     }
     if (ch == EOF) {
         *vp = make_str("");

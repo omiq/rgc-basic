@@ -2,7 +2,7 @@
 
 ### Unreleased
 
-- **WASM canvas GET**: **`GET`** stays **non-blocking** (empty string when no key, C64-style). When the key queue is empty, the runtime now **`emscripten_sleep(0)`** and refreshes the framebuffer so **`examples/trek.bas`**-style tight **`GET` polls** do not freeze the tab (earlier “always block” wasm fix broke programs that only **`GET`** later in the run).
+- **WASM GET (terminal + canvas)**: Non-blocking **`GET`** (empty string when no key) now **`emscripten_sleep(0)`** on every empty read for **all** Emscripten builds. **Terminal** **`basic.js`** had no yield, so **`IF K$="" GOTO`** loops froze the tab; **canvas** also refreshes the framebuffer on empty **`GET`**. Regression: **`tests/wasm_browser_test.py`** (**`GET`** poll + **`wasm_push_key`**).
 
 - **WASM canvas / basic-gfx parity (glyph ROM)**: **`make basic-wasm-canvas`** now links **`gfx/gfx_charrom.c`** and **`gfx_canvas_load_default_charrom`** delegates to **`gfx_load_default_charrom`** (same bitmap data as **`basic-gfx`**). Removed duplicate **`petscii_font_*_body.inc`** tables that could drift and make canvas output differ from the native window.
 
