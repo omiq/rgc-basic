@@ -3812,10 +3812,19 @@ static void statement_get(char **p)
             ch = (int)b;
         } else {
 #if defined(__EMSCRIPTEN__)
-            /* Browser: no real stdin; nonblock returns EOF immediately. Programs that
-             * poll GET in a tight loop (e.g. examples/trek.bas) would freeze the tab.
-             * Block with Asyncify until wasm_push_key / canvas keydown delivers a byte. */
-            ch = read_single_char();
+            /* C64-style GET is non-blocking (empty string if no key). A plain nonblock
+             * read returns EOF immediately on wasm, so trek.bas-style "IF Y$=\"\" GOTO"
+             * loops would freeze the tab without yielding. Yield once per empty GET. */
+            wasm_browser_pause_point();
+            if (halted) {
+                ch = EOF;
+            } else {
+#if defined(GFX_VIDEO)
+                wasm_gfx_refresh_js();
+#endif
+                emscripten_sleep(0);
+                ch = read_single_char_nonblock();
+            }
 #else
             /* Native basic-gfx: allow pipe/redirect (non-interactive GET returns ""). */
             ch = read_single_char_nonblock();
