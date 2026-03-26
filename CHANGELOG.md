@@ -5,7 +5,7 @@
 - **Browser canvas**: `#OPTION charset lower` (and charset from CLI before run) now applies when video state attaches — fixes PETSCII space (screen code 32) drawing as wrong glyph (e.g. `!`) because the uppercase char ROM was still active.
 - **INPUT (canvas / GFX)**: When **Stop** / watchdog sets `wasmStopRequested` while waiting in `gfx_read_line`, report **"Stopped"** instead of **"Unexpected end of input"** (misleading; not EOF).
 
-- **PETSCII + lowercase charset**: With `-petscii` and lowercase video charset, `PRINT` / `CHR$` now map **ASCII** string bytes to screen codes for the lowercase char layout instead of `petscii_to_screencode()` (which expects PETSCII byte values and broke mixed-case ASCII like `hEY` and space/`CHR$(32)`).
+- **PETSCII + lowercase charset**: With lowercase video charset (`#OPTION charset lower` / `-charset lower`), `PRINT` / `CHR$` map **ASCII** bytes via `gfx_ascii_to_screencode_lowcharset()` whenever `petscii_to_screencode()` would be wrong — including when the host **omits `-petscii`** (previously used upper-ROM ASCII mapping with the lower char ROM). `wasm_browser_canvas_test` covers charset lower with and without the PETSCII checkbox.
 
 - **Project**: Renamed to **RGC-BASIC** (Retro Game Coders BASIC). GitHub: **`omiq/rgc-basic`**. Tagline: modern cross-platform BASIC interpreter with classic syntax compatibility, written in C. WASM CI artifact: **`rgc-basic-wasm.tar.gz`**. Tutorial CSS classes: `rgc-tutorial-*` (`cbm-tutorial-*` removed). JS: prefer **`RgcBasicTutorialEmbed`** / **`RgcVfsHelpers`** (deprecated **`Cbm*`** aliases retained briefly).
 
