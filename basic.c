@@ -5582,7 +5582,6 @@ static struct value eval_factor(char **p)
             char namebuf[VAR_NAME_MAX];
             char *q;
             int i, arg_count, udf_idx, uf_index;
-            struct value args[MAX_UDF_PARAMS];
             q = *p;
             read_identifier(&q, namebuf, sizeof(namebuf));
             for (i = 0; namebuf[i]; i++) {
@@ -5590,6 +5589,8 @@ static struct value eval_factor(char **p)
             }
             skip_spaces(&q);
             if (*q == '(') {
+                struct value *args = (struct value *)calloc(MAX_UDF_PARAMS, sizeof(struct value));
+                if (!args) { runtime_error("Out of memory"); return make_num(0.0); }
                 char *saved_p = *p;
                 *p = q + 1;
                 skip_spaces(p);
@@ -5597,6 +5598,7 @@ static struct value eval_factor(char **p)
                 if (**p != ')') {
                     for (;;) {
                         if (arg_count >= MAX_UDF_PARAMS) {
+                            free(args);
                             runtime_error("Too many arguments");
                             return make_num(0.0);
                         }
@@ -5605,6 +5607,7 @@ static struct value eval_factor(char **p)
                         skip_spaces(p);
                         if (**p == ')') break;
                         if (**p != ',') {
+                            free(args);
                             runtime_error("Expected ',' or ')'");
                             return make_num(0.0);
                         }
@@ -5615,7 +5618,9 @@ static struct value eval_factor(char **p)
                 if (**p == ')') (*p)++;
                 udf_idx = udf_lookup(namebuf, arg_count);
                 if (udf_idx >= 0) {
-                    return invoke_udf(udf_idx, args, arg_count);
+                    struct value ret = invoke_udf(udf_idx, args, arg_count);
+                    free(args);
+                    return ret;
                 }
                 if (arg_count == 1) {
                     uf_index = user_func_lookup(namebuf);
@@ -5629,7 +5634,7 @@ static struct value eval_factor(char **p)
                         strncpy(pname_buf, uf->param_name, sizeof(pname_buf) - 1);
                         pname_buf[sizeof(pname_buf) - 1] = '\0';
                         param_var = find_or_create_var(pname_buf, uf->param_is_string, 0, 0, NULL, 0);
-                        if (!param_var) return make_num(0.0);
+                        if (!param_var) { free(args); return make_num(0.0); }
                         saved_scalar = param_var->scalar;
                         if (uf->param_is_string) {
                             ensure_str(&args[0]);
@@ -5642,10 +5647,12 @@ static struct value eval_factor(char **p)
                         }
                         { char *body_p = uf->body; result = eval_expr(&body_p); }
                         param_var->scalar = saved_scalar;
+                        free(args);
                         return result;
                     }
                 }
                 /* No UDF or DEF FN matched; treat as array/variable */
+                free(args);
                 *p = saved_p;
             }
             {
@@ -8472,11 +8479,12 @@ static void execute_statement(char **p)
             char namebuf[VAR_NAME_MAX];
             char *q = *p;
             int arg_count, udf_idx, uf_index, i;
-            struct value args[MAX_UDF_PARAMS];
             read_identifier(&q, namebuf, sizeof(namebuf));
             for (i = 0; namebuf[i]; i++) namebuf[i] = (char)toupper((unsigned char)namebuf[i]);
             skip_spaces(&q);
             if (*q == '(') {
+                struct value *args = (struct value *)calloc(MAX_UDF_PARAMS, sizeof(struct value));
+                if (!args) { runtime_error("Out of memory"); return; }
                 char *saved_p = *p;
                 *p = q + 1;
                 skip_spaces(p);
@@ -8484,6 +8492,7 @@ static void execute_statement(char **p)
                 if (**p != ')') {
                     for (;;) {
                         if (arg_count >= MAX_UDF_PARAMS) {
+                            free(args);
                             runtime_error("Too many arguments");
                             return;
                         }
@@ -8492,6 +8501,7 @@ static void execute_statement(char **p)
                         skip_spaces(p);
                         if (**p == ')') break;
                         if (**p != ',') {
+                            free(args);
                             runtime_error("Expected ',' or ')'");
                             return;
                         }
@@ -8503,6 +8513,7 @@ static void execute_statement(char **p)
                 udf_idx = udf_lookup(namebuf, arg_count);
                 if (udf_idx >= 0) {
                     (void)invoke_udf(udf_idx, args, arg_count);
+                    free(args);
                     return;
                 }
                 if (arg_count == 1) {
@@ -8529,10 +8540,12 @@ static void execute_statement(char **p)
                             { char *body_p = uf->body; (void)eval_expr(&body_p); }
                             param_var->scalar = saved_scalar;
                         }
+                        free(args);
                         return;
                     }
                 }
                 /* No match; restore and fall through to implicit LET */
+                free(args);
                 *p = saved_p;
             }
         }
