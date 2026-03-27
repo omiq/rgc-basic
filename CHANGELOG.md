@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **WASM canvas trek / compound lines**: **`wasm_stmt_budget`** in **`run_program`** advances once per **`execute_statement` chain** from a source line, but **`trek.bas`** can run **hundreds** of **`:`**-separated statements (**`LET`**, **`IF`**, **`GOTO`**) without **`PRINT`** → no **`gfx_put_byte`** yield → tab **unresponsive**. **`execute_statement`** now yields every **4** statements (**pause**, **`wasm_gfx_refresh_js`**, **`emscripten_sleep(0)`**) when **`__EMSCRIPTEN__` + `GFX_VIDEO`**.
+
 - **Loader / UTF-8 source lines**: **`fgets(..., MAX_LINE_LEN)`** split physical lines longer than **255 bytes**; the continuation had no line number → **`Line missing number`** with mojibake (common when **`trek.bas`** uses UTF-8 box-drawing inside **`PRINT`**). **`load_file_into_program`** now reads full lines up to **64KiB** via **`read_source_line`**.
 
 - **WASM canvas long PRINT / trek.bas**: **`run_program`** only yields every N **':'**-separated statements; **`trek.bas`** packs huge loops on one line, and a single **`PRINT`** can call **`gfx_put_byte`** thousands of times without another yield — tab froze during galaxy generation. **Canvas WASM** now yields every 128 **`gfx_put_byte`** calls and yields every **8** statements (was 32). Regression: **`tests/wasm_browser_canvas_test.py`** (**`PRINT STRING$(3000,…)`**).
