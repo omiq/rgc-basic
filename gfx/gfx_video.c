@@ -2,6 +2,17 @@
 #include <stdlib.h>
 #include <string.h>
 
+void gfx_video_advance_ticks60(GfxVideoState *s, uint32_t delta_ticks)
+{
+    uint64_t t;
+    if (!s || delta_ticks == 0) {
+        return;
+    }
+    t = (uint64_t)s->ticks60 + (uint64_t)delta_ticks;
+    t %= (uint64_t)GFX_TICKS60_WRAP;
+    s->ticks60 = (uint32_t)t;
+}
+
 void gfx_video_init(GfxVideoState *s)
 {
     if (!s) return;
