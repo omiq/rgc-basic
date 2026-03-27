@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **WASM canvas string concat (`Q$=LEFT$+…`)**: **`trek.bas`** **`GOSUB 5440`** builds **`Q$`** with **`+`** ( **`eval_addsub`** ) without a **`MID$`** per assignment — no prior yield path. **Canvas WASM** now yields every **256** string concatenations (**`wasm_str_concat_budget`**, separate from **`MID$`** counter).
+
 - **WASM canvas yields**: **`execute_statement`** / **`run_program`** yield intervals relaxed (**128** / **32** statements) so **pause → resume** keeps advancing tight **`FOR`** loops in tests; **string-builtin** yields still cover **`trek.bas`**-style **`MID$`** storms.
 
 - **Canvas `wasm_push_key` duplicate keys**: **`wasm_push_key`** was enqueueing every byte into **both** the **GFX key queue** and **`wasm_key_ring`**. **`GET`** consumed the queue first, then **`read_single_char_nonblock`** read the **same** byte again from the ring → **double keypresses** and **skipped “press RETURN”** waits in **`trek.bas`**. **Canvas GFX** now pushes **only** to the **GFX queue** (ring used when **`gfx_vs`** is unset).
@@ -29,6 +31,8 @@
 - **PETSCII + lowercase charset**: With lowercase video charset, **ASCII letters** in string literals use `gfx_ascii_to_screencode_lowcharset()`; **all other bytes** (including **`CHR$(n)`** and punctuation) use **`petscii_to_screencode()`** so `CHR$(32)` is space and `CHR$(65)` matches PETSCII semantics (was wrongly treated as ASCII, shifting output). Works with or without **`-petscii`** on the host. `wasm_browser_canvas_test` covers charset lower with and without the PETSCII checkbox.
 
 - **Project**: Renamed to **RGC-BASIC** (Retro Game Coders BASIC). GitHub: **`omiq/rgc-basic`**. Tagline: modern cross-platform BASIC interpreter with classic syntax compatibility, written in C. WASM CI artifact: **`rgc-basic-wasm.tar.gz`**. Tutorial CSS classes: `rgc-tutorial-*` (`cbm-tutorial-*` removed). JS: prefer **`RgcBasicTutorialEmbed`** / **`RgcVfsHelpers`** (deprecated **`Cbm*`** aliases retained briefly).
+
+- **CI / tests**: **`tests/wasm_browser_canvas_test.py`** — string-concat stress (**`LEFT$+A$+RIGHT$`** loop), **GOTO** stress, **`examples/trek.bas`** smoke (**Stop** after ~2.5s), **`SCREEN 0`** reset after bitmap test (fixes charset pixel assertions).
 
 - **Browser / WASM (Emscripten)**
   - **Builds**: `make basic-wasm` → `web/basic.js` + `basic.wasm`; `make basic-wasm-canvas` → `basic-canvas.js` + `basic-canvas.wasm` (PETSCII + bitmap + PNG sprites via `gfx_canvas.c` / `gfx_software_sprites.c`, `GFX_VIDEO`). Asyncify for cooperative `SLEEP`, `INPUT`, `GET` / `INKEY$`.

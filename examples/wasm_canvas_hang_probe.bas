@@ -8,6 +8,15 @@ REM 30 IF K$="" THEN 20
 REM 40 PRINT K$
 REM 50 GOTO 20
 
+REM Phase B2: string concat like trek GOSUB 5440 (LEFT$+A$+RIGHT$)
+REM 10 Q$=STRING$(190," ")
+REM 20 A$="   "
+REM 30 FOR I=1 TO 400
+REM 40 Q$=LEFT$(Q$,80)+A$+RIGHT$(Q$,107)
+REM 50 NEXT I
+REM 60 PRINT "OK B2"
+REM 70 END
+
 REM Phase B: MID$ storm (similar workload to trek SRS inner loop)
 10 PRINT "PHASE B: MID$ x2000 — should finish without freezing"
 20 Q$=STRING$(200,"x")
