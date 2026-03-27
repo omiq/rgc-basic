@@ -1,0 +1,15 @@
+10 REM 2D array test — previously caused WASM stack overflow (eval_factor args[])
+20 DIM A(2,3)
+30 FOR P=0 TO 2:A(P,0)=0:A(P,1)=1:A(P,2)=2:A(P,3)=3: NEXT P
+40 FOR I=0 TO 1
+50 FOR J=0 TO 2
+60 A(I,J)=I*10+J
+70 NEXT J
+80 NEXT I
+90 FOR I=0 TO 1
+100 FOR J=0 TO 2
+110 IF A(I,J)<>I*10+J THEN PRINT "FAIL":END
+120 NEXT J
+130 NEXT I
+140 PRINT "OK"
+150 END
