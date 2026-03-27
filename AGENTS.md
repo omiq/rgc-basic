@@ -42,8 +42,24 @@ done
 
 **Canvas WASM** (PETSCII 40×25, GfxVideoState, bitmap + PNG sprites): `make basic-wasm-canvas` produces `web/basic-canvas.js` + `basic-canvas.wasm`; open **`web/canvas.html`**. **INPUT**/**GET** type on the **canvas** (focus it first). Headless: **`make wasm-canvas-test`**, **`make wasm-canvas-charset-test`**. Use **`basic_load_and_run_gfx`** and the RGBA refresh path (see `canvas.html`).
 
+### Raylib (basic-gfx)
+
+Raylib is installed from source at `/usr/local/lib` (shared library). The `basic-gfx` binary links dynamically.
+
+- `make basic-gfx` — builds the graphical interpreter
+- `basic-gfx` requires a display server to open a window; it cannot be tested headlessly in the Cloud Agent VM (no X11/Wayland). The headless `gfx_video_test` covers the GFX video memory logic without a display.
+- When building raylib from source, use `CC=gcc CXX=g++` with cmake — the default clang on Ubuntu 24.04 may fail to link `libstdc++`.
+
+### Emscripten (emsdk)
+
+emsdk is installed at `$HOME/emsdk` and sourced via `~/.bashrc`. The `emcc` compiler is available in all new shells.
+
+- `make basic-wasm` / `make basic-wasm-canvas` / `make basic-wasm-modular` — WASM build targets
+- `make wasm-test` / `make wasm-canvas-test` / `make wasm-canvas-charset-test` / `make wasm-tutorial-test` — Playwright headless browser tests (require `pip install -r tests/requirements-wasm.txt` and `python3 -m playwright install chromium`)
+
 ### Caveats
 
 - Several example programs (`dartmouth.bas`, `guess.bas`, `adventure.bas`, `get-input.bas`, `test_get.bas`) and test files (`codes-replaced.bas`, `locate.bas`, `kbuffer.bas`) require interactive or piped keyboard input — skip these in automated runs.
 - The `petscii_plain_output_test.sh` has a pre-existing failure on the `feature/raylib-gfx` branch; this is not an environment issue.
 - `xxd` may not be pre-installed; it is needed by `tests/40col_test.sh`. Install via `sudo apt-get install -y xxd` if missing.
+- `basic-gfx` cannot open a Raylib window in headless Cloud Agent VMs (no display). Use `gfx_video_test` for headless GFX logic verification.
