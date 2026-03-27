@@ -2,6 +2,10 @@
 
 ### Unreleased
 
+- **WASM canvas yields**: **`execute_statement`** / **`run_program`** yield intervals relaxed (**128** / **32** statements) so **pause → resume** keeps advancing tight **`FOR`** loops in tests; **string-builtin** yields still cover **`trek.bas`**-style **`MID$`** storms.
+
+- **Canvas `wasm_push_key` duplicate keys**: **`wasm_push_key`** was enqueueing every byte into **both** the **GFX key queue** and **`wasm_key_ring`**. **`GET`** consumed the queue first, then **`read_single_char_nonblock`** read the **same** byte again from the ring → **double keypresses** and **skipped “press RETURN”** waits in **`trek.bas`**. **Canvas GFX** now pushes **only** to the **GFX queue** (ring used when **`gfx_vs`** is unset).
+
 - **WASM canvas trek / string builtins**: **`trek.bas`** SRS **`PRINT`** evaluates **`MID$` / `LEFT$` / `RIGHT$`** hundreds of times **inside one** **`PRINT`** (few **`gfx_put_byte`** calls until the line ends). **Canvas WASM** now yields every **64** **`MID$`/`LEFT$`/`RIGHT$`** completions, plus periodic yields in **`INSTR`** / **`REPLACE`** scans and **`STRING$`** expansion.
 
 - **WASM canvas trek / compound lines**: **`wasm_stmt_budget`** in **`run_program`** advances once per **`execute_statement` chain** from a source line, but **`trek.bas`** can run **hundreds** of **`:`**-separated statements (**`LET`**, **`IF`**, **`GOTO`**) without **`PRINT`** → no **`gfx_put_byte`** yield → tab **unresponsive**. **`execute_statement`** now yields every **4** statements (**pause**, **`wasm_gfx_refresh_js`**, **`emscripten_sleep(0)`**) when **`__EMSCRIPTEN__` + `GFX_VIDEO`**.
