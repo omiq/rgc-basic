@@ -60,6 +60,8 @@
 /* Video state pointer; must precede __EMSCRIPTEN__ key helpers that reference gfx_vs. */
 static GfxVideoState *gfx_vs = NULL;
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+/* Canvas WASM: TI/TI$ from high-res clock (tight GOTO loops have no SLEEP). */
+static double wasm_gfx_ti_epoch_ms;
 /* Canvas WASM: trek.bas-style lines pack many ':' statements; yield inside long PRINT too. */
 static unsigned wasm_gfx_put_budget;
 /* Yield every few execute_statement calls — LET/GOTO/IF on one line skip gfx_put_byte. */
@@ -3180,16 +3182,6 @@ static void do_sleep_ticks(double ticks)
         ms = 1;
     }
     emscripten_sleep(ms);
-#if defined(GFX_VIDEO)
-    /* Canvas WASM has no per-frame loop like Raylib; advance TI/TI$ from real sleep. */
-    if (gfx_vs) {
-        uint32_t add = (uint32_t)((ms * 60 + 500) / 1000);
-        if (add < 1u) {
-            add = 1u;
-        }
-        gfx_video_advance_ticks60(gfx_vs, add);
-    }
-#endif
 }
 #elif defined(_WIN32)
 /* Windows: sleep using Sleep() in milliseconds derived from 60Hz ticks. */
@@ -5548,7 +5540,21 @@ static struct value eval_factor(char **p)
                 int is_str = (len > 0 && namebuf[len - 1] == '$');
 #ifdef GFX_VIDEO
                 if (gfx_vs) {
-                    uint32_t t = gfx_vs->ticks60;
+                    uint32_t t;
+#if defined(__EMSCRIPTEN__)
+                    /* Canvas WASM: no per-frame tick increment; use monotonic ms → 60 Hz jiffies. */
+                    {
+                        double now = emscripten_get_now();
+                        double elapsed_ms = now - wasm_gfx_ti_epoch_ms;
+                        if (elapsed_ms < 0.0) {
+                            elapsed_ms = 0.0;
+                        }
+                        t = (uint32_t)((elapsed_ms * 60.0 / 1000.0) + 0.5);
+                        t %= GFX_TICKS60_WRAP;
+                    }
+#else
+                    t = gfx_vs->ticks60;
+#endif
                     *p = q;
                     if (!is_str) {
                         return make_num((double)t);
@@ -9352,6 +9358,7 @@ EMSCRIPTEN_KEEPALIVE int wasm_gfx_screen_screencode_at(int col, int row)
 
 static void wasm_gfx_set_video(void)
 {
+    wasm_gfx_ti_epoch_ms = emscripten_get_now();
     gfx_sprite_shutdown();
     gfx_video_init(&wasm_gfx_state);
     wasm_gfx_state.charset_lowercase = (uint8_t)(petscii_get_lowercase() ? 1 : 0);
