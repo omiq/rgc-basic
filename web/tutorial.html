@@ -94,6 +94,8 @@
       <li><a href="#input">INPUT</a></li>
       <li><a href="#if">Decisions (IF)</a></li>
       <li><a href="#for">FOR … NEXT loops</a></li>
+      <li><a href="#while">WHILE … WEND loops</a></li>
+      <li><a href="#do">DO … LOOP</a></li>
       <li><a href="#rem">REM and END</a></li>
       <li><a href="#next">What to try next</a></li>
     </ul>
@@ -136,18 +138,34 @@
 
   <h2 id="for">6. FOR … NEXT loops</h2>
   <p>
-    <code>FOR</code> repeats a block until <code>NEXT</code>. The loop variable counts from the starting value through the limit (step defaults to 1).
+    <code>FOR</code> repeats a block until <code>NEXT</code>. The loop variable counts from the start value through the limit. The step is <code>1</code> unless you add
+    <code>STEP n</code> (which can be negative to count down).
   </p>
   <div id="tut-for"></div>
 
-  <h2 id="rem">7. REM and END</h2>
+  <h2 id="while">7. WHILE … WEND loops</h2>
+  <p>
+    <code>WHILE condition</code> tests <em>before</em> each iteration. The lines between <code>WHILE</code> and <code>WEND</code> run only while the condition is true.
+    If it is false at the start, the body never runs. Use this when you do not know in advance how many times you need to loop.
+  </p>
+  <div id="tut-while"></div>
+
+  <h2 id="do">8. DO … LOOP</h2>
+  <p>
+    <code>DO</code> … <code>LOOP</code> is a post-test style loop: the body runs at least once unless you exit early.
+    <code>LOOP UNTIL condition</code> stops when the condition becomes true.
+    <code>EXIT</code> leaves the innermost <code>DO</code> loop immediately (handy for “read until done” patterns).
+  </p>
+  <div id="tut-do"></div>
+
+  <h2 id="rem">9. REM and END</h2>
   <p>
     <code>REM</code> starts a comment (everything after it on that line is ignored). An apostrophe <code>'</code> also starts a comment.
     Always finish interactive examples with <code>END</code> or <code>STOP</code> when you are done.
   </p>
   <div id="tut-rem"></div>
 
-  <h2 id="next">8. What to try next</h2>
+  <h2 id="next">10. What to try next</h2>
   <p>
     On your computer, install the release or build from source, then run <code>./basic examples/hello.bas</code> (or any <code>.bas</code> under <code>examples/</code>).
     The repository <code>README.md</code> lists statements, functions, PETSCII colour tokens in strings, file I/O, and more.
@@ -192,10 +210,39 @@
           '40 IF X = 0 THEN PRINT "ZERO"\n' +
           '50 END\n',
         forloop:
-          '10 FOR I = 1 TO 5\n' +
-          '20 PRINT I\n' +
-          '30 NEXT I\n' +
-          '40 END\n',
+          '10 PRINT "COUNT UP 1..3:"\n' +
+          '20 FOR I = 1 TO 3\n' +
+          '30 PRINT I\n' +
+          '40 NEXT I\n' +
+          '50 PRINT "COUNT DOWN BY 2:"\n' +
+          '60 FOR J = 10 TO 2 STEP -2\n' +
+          '70 PRINT J\n' +
+          '80 NEXT J\n' +
+          '90 END\n',
+        whileloop:
+          '10 I = 0\n' +
+          '20 WHILE I < 3\n' +
+          '30 PRINT I\n' +
+          '40 I = I + 1\n' +
+          '50 WEND\n' +
+          '60 PRINT "DONE"\n' +
+          '70 END\n',
+        doloop:
+          '10 REM LOOP UNTIL (test after body)\n' +
+          '20 I = 0\n' +
+          '30 DO\n' +
+          '40 I = I + 1\n' +
+          '50 PRINT "UNTIL:"; I\n' +
+          '60 LOOP UNTIL I >= 3\n' +
+          '70 REM EXIT leaves innermost DO\n' +
+          '80 N = 0\n' +
+          '90 DO\n' +
+          '100 N = N + 1\n' +
+          '110 IF N > 2 THEN EXIT\n' +
+          '120 PRINT "EXIT DEMO"; N\n' +
+          '130 LOOP\n' +
+          '140 PRINT "END"\n' +
+          '150 END\n',
         rem:
           '10 REM THIS LINE IS A COMMENT\n' +
           "20 ' APOSTROPHE COMMENT: REST OF LINE IS IGNORED\n" +
@@ -213,6 +260,8 @@
       RgcBasicTutorialEmbed.mount(document.getElementById('tut-input'), { program: progs.input });
       RgcBasicTutorialEmbed.mount(document.getElementById('tut-if'), { program: progs.ifstmt });
       RgcBasicTutorialEmbed.mount(document.getElementById('tut-for'), { program: progs.forloop });
+      RgcBasicTutorialEmbed.mount(document.getElementById('tut-while'), { program: progs.whileloop });
+      RgcBasicTutorialEmbed.mount(document.getElementById('tut-do'), { program: progs.doloop });
       RgcBasicTutorialEmbed.mount(document.getElementById('tut-rem'), { program: progs.rem });
       RgcBasicTutorialEmbed.mount(document.getElementById('tut-playground'), { program: progs.playground });
     })();
