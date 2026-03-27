@@ -1353,7 +1353,8 @@ static void wasm_canvas_sync_charset_from_options(void);
 EMSCRIPTEN_KEEPALIVE void wasm_push_key(unsigned int code)
 {
     unsigned char b = (unsigned char)(code & 0xFF);
-    wasm_key_push_byte(b);
+    /* Canvas: GET uses gfx key queue only. Pushing to wasm_key_ring too would
+     * deliver the same key twice (queue first, then ring in read_single_char_nonblock). */
     if (gfx_vs) {
         uint8_t next = (uint8_t)(gfx_vs->key_q_tail + 1);
         if (next >= (uint8_t)sizeof(gfx_vs->key_queue)) {
@@ -1363,6 +1364,8 @@ EMSCRIPTEN_KEEPALIVE void wasm_push_key(unsigned int code)
             gfx_vs->key_queue[gfx_vs->key_q_tail] = b;
             gfx_vs->key_q_tail = next;
         }
+    } else {
+        wasm_key_push_byte(b);
     }
 }
 #endif
@@ -8043,7 +8046,8 @@ static void execute_statement(char **p)
     }
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
     wasm_gfx_stmt_exec_budget++;
-    if ((wasm_gfx_stmt_exec_budget & 3u) == 0u) {
+    /* Rare: tight FOR/NEXT (pause/resume test) must advance POKE every few ms when unpaused. */
+    if ((wasm_gfx_stmt_exec_budget & 127u) == 0u) {
         wasm_browser_pause_point();
         if (!halted) {
             wasm_gfx_refresh_js();
@@ -9006,8 +9010,8 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
 #if defined(__EMSCRIPTEN__)
         wasm_stmt_budget++;
 #if defined(GFX_VIDEO)
-        /* Compound lines (trek.bas) run many statements before next line; yield often. */
-        if ((wasm_stmt_budget & 7) == 0) {
+        /* Compound lines (trek.bas): yield without slowing tight FOR/NEXT too much. */
+        if ((wasm_stmt_budget & 31) == 0) {
             wasm_browser_pause_point();
             if (halted) {
                 break;
