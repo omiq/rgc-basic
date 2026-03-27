@@ -64,6 +64,8 @@ static GfxVideoState *gfx_vs = NULL;
 static unsigned wasm_gfx_put_budget;
 /* Yield every few execute_statement calls — LET/GOTO/IF on one line skip gfx_put_byte. */
 static unsigned wasm_gfx_stmt_exec_budget;
+/* Trek SRS: thousands of MID$/LEFT$/RIGHT$ per PRINT — yield every N builtin calls. */
+static unsigned wasm_str_builtin_budget;
 #endif
 #endif
 #if defined(__EMSCRIPTEN__)
@@ -4632,6 +4634,16 @@ static struct value eval_function(const char *name, char **p)
             char out[MAX_STR_LEN];
             memcpy(out, src.str + start_pos, (size_t)sub_len);
             out[sub_len] = '\0';
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+            wasm_str_builtin_budget++;
+            if ((wasm_str_builtin_budget & 63u) == 0u) {
+                wasm_browser_pause_point();
+                if (!halted) {
+                    wasm_gfx_refresh_js();
+                    emscripten_sleep(0);
+                }
+            }
+#endif
             return make_str(out);
         }
     }
@@ -4672,6 +4684,16 @@ static struct value eval_function(const char *name, char **p)
             char out[MAX_STR_LEN];
             memcpy(out, src.str, (size_t)sub_len);
             out[sub_len] = '\0';
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+            wasm_str_builtin_budget++;
+            if ((wasm_str_builtin_budget & 63u) == 0u) {
+                wasm_browser_pause_point();
+                if (!halted) {
+                    wasm_gfx_refresh_js();
+                    emscripten_sleep(0);
+                }
+            }
+#endif
             return make_str(out);
         }
     }
@@ -4717,6 +4739,16 @@ static struct value eval_function(const char *name, char **p)
             char out[MAX_STR_LEN];
             memcpy(out, src.str + start_pos, (size_t)sub_len);
             out[sub_len] = '\0';
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+            wasm_str_builtin_budget++;
+            if ((wasm_str_builtin_budget & 63u) == 0u) {
+                wasm_browser_pause_point();
+                if (!halted) {
+                    wasm_gfx_refresh_js();
+                    emscripten_sleep(0);
+                }
+            }
+#endif
             return make_str(out);
         }
     }
@@ -4766,6 +4798,15 @@ static struct value eval_function(const char *name, char **p)
             return make_num(0.0);
         }
         for (i = start_pos; i <= s_len - sub_len; i++) {
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+            if (((i - start_pos) & 127) == 0 && i > start_pos) {
+                wasm_browser_pause_point();
+                if (!halted) {
+                    wasm_gfx_refresh_js();
+                    emscripten_sleep(0);
+                }
+            }
+#endif
             if (strncmp(v_source.str + i, v_search.str, (size_t)sub_len) == 0) {
                 return make_num((double)(i + 1));
             }
@@ -4814,6 +4855,15 @@ static struct value eval_function(const char *name, char **p)
         out_len = 0;
         pos = 0;
         while (pos <= len - flen && out_len < (size_t)(max_str_limit - 1)) {
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+            if ((pos & 255) == 0 && pos > 0) {
+                wasm_browser_pause_point();
+                if (!halted) {
+                    wasm_gfx_refresh_js();
+                    emscripten_sleep(0);
+                }
+            }
+#endif
             if (strncmp(v_str.str + pos, v_find.str, (size_t)flen) == 0) {
                 for (int j = 0; j < rlen && out_len < (size_t)(max_str_limit - 1); j++)
                     out[out_len++] = v_repl.str[j];
@@ -4921,6 +4971,15 @@ static struct value eval_function(const char *name, char **p)
             char out[MAX_STR_LEN];
             int i;
             for (i = 0; i < count; i++) {
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+                if ((i & 1023) == 0 && i > 0) {
+                    wasm_browser_pause_point();
+                    if (!halted) {
+                        wasm_gfx_refresh_js();
+                        emscripten_sleep(0);
+                    }
+                }
+#endif
                 out[i] = ch;
             }
             out[count] = '\0';
@@ -8908,6 +8967,7 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
     wasm_gfx_put_budget = 0;
     wasm_gfx_stmt_exec_budget = 0;
+    wasm_str_builtin_budget = 0;
 #endif
 #ifdef GFX_VIDEO
     if (gfx_vs) {

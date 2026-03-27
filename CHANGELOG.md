@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **WASM canvas trek / string builtins**: **`trek.bas`** SRS **`PRINT`** evaluates **`MID$` / `LEFT$` / `RIGHT$`** hundreds of times **inside one** **`PRINT`** (few **`gfx_put_byte`** calls until the line ends). **Canvas WASM** now yields every **64** **`MID$`/`LEFT$`/`RIGHT$`** completions, plus periodic yields in **`INSTR`** / **`REPLACE`** scans and **`STRING$`** expansion.
+
 - **WASM canvas trek / compound lines**: **`wasm_stmt_budget`** in **`run_program`** advances once per **`execute_statement` chain** from a source line, but **`trek.bas`** can run **hundreds** of **`:`**-separated statements (**`LET`**, **`IF`**, **`GOTO`**) without **`PRINT`** → no **`gfx_put_byte`** yield → tab **unresponsive**. **`execute_statement`** now yields every **4** statements (**pause**, **`wasm_gfx_refresh_js`**, **`emscripten_sleep(0)`**) when **`__EMSCRIPTEN__` + `GFX_VIDEO`**.
 
 - **Loader / UTF-8 source lines**: **`fgets(..., MAX_LINE_LEN)`** split physical lines longer than **255 bytes**; the continuation had no line number → **`Line missing number`** with mojibake (common when **`trek.bas`** uses UTF-8 box-drawing inside **`PRINT`**). **`load_file_into_program`** now reads full lines up to **64KiB** via **`read_source_line`**.
