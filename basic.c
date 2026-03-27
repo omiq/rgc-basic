@@ -4562,6 +4562,17 @@ static struct value eval_function(const char *name, char **p)
             target += width;
         }
         cur = print_col;
+#ifdef GFX_VIDEO
+        /* Canvas/GFX: must move the framebuffer cursor (gfx_x), not only stdout. */
+        if (gfx_vs) {
+            if (target < cur) {
+                gfx_newline();
+                cur = 0;
+            }
+            print_spaces(target - cur);
+            return make_str("");
+        }
+#endif
         if (target < cur) {
             OUTC('\n');
             cur = 0;
@@ -9308,6 +9319,25 @@ EMSCRIPTEN_KEEPALIVE uint8_t *wasm_gfx_rgba_ptr(void)
 EMSCRIPTEN_KEEPALIVE uint32_t wasm_gfx_rgba_version_read(void)
 {
     return wasm_gfx_rgba_version;
+}
+
+/* Test hook: screen RAM screencode at text column / row (for canvas WASM TAB, etc.). */
+EMSCRIPTEN_KEEPALIVE int wasm_gfx_screen_screencode_at(int col, int row)
+{
+    int c;
+    int idx;
+    if (!gfx_vs) {
+        return -1;
+    }
+    c = gfx_cols();
+    if (col < 0 || row < 0 || col >= c || row >= GFX_ROWS) {
+        return -1;
+    }
+    idx = row * c + col;
+    if (idx < 0 || idx >= (int)GFX_TEXT_SIZE) {
+        return -1;
+    }
+    return (int)gfx_vs->screen[idx];
 }
 
 static void wasm_gfx_set_video(void)
