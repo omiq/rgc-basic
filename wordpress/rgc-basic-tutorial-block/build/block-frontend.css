@@ -1,0 +1,10 @@
+/**
+ * Front-end + editor: borders for embed roots (tutorial-embed.js adds inner structure).
+ */
+.rgc-basic-tutorial-block-root {
+  margin: 1.25em 0;
+}
+
+.rgc-basic-tutorial-block-editor .rgc-tutorial-embed {
+  margin-top: 1em;
+}
