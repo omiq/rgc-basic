@@ -62,6 +62,8 @@ static GfxVideoState *gfx_vs = NULL;
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
 /* Canvas WASM: trek.bas-style lines pack many ':' statements; yield inside long PRINT too. */
 static unsigned wasm_gfx_put_budget;
+/* Yield every few execute_statement calls — LET/GOTO/IF on one line skip gfx_put_byte. */
+static unsigned wasm_gfx_stmt_exec_budget;
 #endif
 #endif
 #if defined(__EMSCRIPTEN__)
@@ -7980,6 +7982,16 @@ static void execute_statement(char **p)
     if (**p == '\0') {
         return;
     }
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+    wasm_gfx_stmt_exec_budget++;
+    if ((wasm_gfx_stmt_exec_budget & 3u) == 0u) {
+        wasm_browser_pause_point();
+        if (!halted) {
+            wasm_gfx_refresh_js();
+            emscripten_sleep(0);
+        }
+    }
+#endif
     /* Explicit PRINT# / INPUT# / GET# (allow optional space before #). */
     if ((*p)[0] != '\0' && toupper((unsigned char)(*p)[0]) == 'P' && toupper((unsigned char)(*p)[1]) == 'R' &&
         toupper((unsigned char)(*p)[2]) == 'I' && toupper((unsigned char)(*p)[3]) == 'N' &&
@@ -8895,6 +8907,7 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
     print_col = 0;
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
     wasm_gfx_put_budget = 0;
+    wasm_gfx_stmt_exec_budget = 0;
 #endif
 #ifdef GFX_VIDEO
     if (gfx_vs) {
