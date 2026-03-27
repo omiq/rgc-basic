@@ -515,7 +515,7 @@ make basic-wasm-modular
 make basic-wasm-canvas
 ```
 
-Produces `web/basic.js` and `web/basic.wasm` (Asyncify-enabled), **`web/basic-modular.js`** / **`web/basic-modular.wasm`** for **`tutorial-embed.js`**, and optionally `web/basic-canvas.js` / `web/basic-canvas.wasm` plus **`web/canvas.html`** for a Canvas 2D PETSCII screen. Serve `web/` over HTTP (e.g. `cd web && python3 -m http.server 8080`) and open in a browser. The terminal demo uses an inline **INPUT** field and keyboard routing for **GET** / **INKEY$**; see `web/README.md` for details.
+Produces `web/basic.js` and `web/basic.wasm` (Asyncify-enabled), **`web/basic-modular.js`** / **`web/basic-modular.wasm`** for **`tutorial-embed.js`**, and optionally `web/basic-canvas.js` / `web/basic-canvas.wasm` plus **`web/canvas.html`** for a Canvas 2D PETSCII screen. After **`make basic-wasm-modular`**, open **`web/tutorial.html`** for a step-by-step **getting started** page with multiple embedded interpreters (see also **`docs/tutorial-embedding.md`**). Serve `web/` over HTTP (e.g. `cd web && python3 -m http.server 8080`) and open in a browser. The terminal demo uses an inline **INPUT** field and keyboard routing for **GET** / **INKEY$**; see `web/README.md` for details.
 
 **PETSCII canvas** (no Raylib): `make basic-wasm-canvas` produces `web/basic-canvas.js`, `web/basic-canvas.wasm`, and `web/canvas.html`. The page refreshes the canvas during `SLEEP` and loops via a shared RGBA framebuffer (PETSCII, `SCREEN 1` bitmap, and **`LOADSPRITE`/`DRAWSPRITE`** like **basic-gfx**). Try **`examples/gfx_canvas_demo.bas`**: paste into the canvas page, use **Upload to VFS** to add **`gfx_canvas_demo.png`** (same file is copied to **`web/gfx_canvas_demo.png`** for local fetch tests), then Run.
 

@@ -19,6 +19,7 @@ This produces:
 | `web/tutorial-embed.js` | Helper that mounts UI + one WASM instance per container |
 | `web/vfs-helpers.js` | Shared **upload/download** helpers for `Module.FS` (loaded automatically by tutorial embeds) |
 | `web/tutorial-example.html` | Minimal page with **two** embeds (smoke test reference) |
+| `web/tutorial.html` | **Getting started** walkthrough with **eight** lesson embeds (serve `web/` over HTTP) |
 
 Serve the `web/` directory over **HTTP** (WASM is blocked on many browsers for `file://`).
 
