@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RGC-BASIC — Getting started (browser tutorial)</title>
+  <style>
+    :root {
+      --text: #1a1a1a;
+      --muted: #555;
+      --border: #ccc;
+      --bg: #fafafa;
+      --accent: #2472c8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.55;
+      color: var(--text);
+      max-width: 52rem;
+      margin: 0 auto;
+      padding: 1.25rem 1rem 3rem;
+      background: var(--bg);
+    }
+    h1 { font-size: 1.65rem; margin-top: 0; }
+    h2 {
+      font-size: 1.2rem;
+      margin-top: 2rem;
+      padding-top: 0.5rem;
+      border-top: 1px solid var(--border);
+    }
+    h2:first-of-type { border-top: none; margin-top: 1rem; }
+    p, li { color: var(--text); }
+    .lead { font-size: 1.05rem; color: var(--muted); }
+    .note {
+      font-size: 0.9rem;
+      color: var(--muted);
+      border-left: 3px solid var(--accent);
+      padding: 0.5rem 0 0.5rem 0.75rem;
+      margin: 1rem 0;
+      background: #fff;
+    }
+    code, kbd {
+      font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+      font-size: 0.92em;
+      background: #eee;
+      padding: 0.12em 0.35em;
+      border-radius: 4px;
+    }
+    nav.toc {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      margin: 1.25rem 0;
+    }
+    nav.toc ul { margin: 0.35rem 0 0; padding-left: 1.25rem; }
+    nav.toc a { color: var(--accent); }
+    .rgc-tutorial-embed {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem;
+      margin: 1rem 0;
+      background: #fff;
+    }
+    .rgc-tutorial-toolbar button { margin-right: 0.5rem; margin-top: 0.25rem; }
+    footer {
+      margin-top: 2.5rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <h1>Getting started with RGC-BASIC</h1>
+  <p class="lead">
+    <strong>RGC-BASIC</strong> (Retro Game Coders BASIC) is a modern interpreter with classic Commodore-style syntax.
+    This page walks through the basics. Each box below is a real interpreter running in your browser (WebAssembly).
+  </p>
+  <div class="note">
+    <strong>Local use:</strong> from the project root, run <code>make basic-wasm-modular</code>, then serve the
+    <code>web/</code> folder over HTTP (WASM does not load from <code>file://</code> in most browsers).
+    Example: <code>cd web &amp;&amp; python3 -m http.server 8080</code> — then open this file’s URL.
+  </div>
+
+  <nav class="toc" aria-label="Lesson outline">
+    <strong>Lessons</strong>
+    <ul>
+      <li><a href="#hello">Hello, world</a></li>
+      <li><a href="#print">PRINT and expressions</a></li>
+      <li><a href="#variables">Variables</a></li>
+      <li><a href="#input">INPUT</a></li>
+      <li><a href="#if">Decisions (IF)</a></li>
+      <li><a href="#for">FOR … NEXT loops</a></li>
+      <li><a href="#rem">REM and END</a></li>
+      <li><a href="#next">What to try next</a></li>
+    </ul>
+  </nav>
+
+  <h2 id="hello">1. Hello, world</h2>
+  <p>
+    Programs use line numbers (like <code>10</code>, <code>20</code>) or can be written without them — the interpreter accepts both.
+    <code>PRINT</code> writes to the screen. <code>END</code> stops the program. Press <strong>Run</strong> to execute.
+  </p>
+  <div id="tut-hello"></div>
+
+  <h2 id="print">2. PRINT and expressions</h2>
+  <p>
+    Use a semicolon (<code>;</code>) to print items without a newline between them. Commas (<code>,</code>) move to the next print “zone” (tab-like).
+    Arithmetic uses <code>+</code> <code>-</code> <code>*</code> <code>/</code> with normal precedence.
+  </p>
+  <div id="tut-print"></div>
+
+  <h2 id="variables">3. Variables</h2>
+  <p>
+    Numeric variables are letters or words (e.g. <code>A</code>, <code>SCORE</code>). String variables end with <code>$</code>.
+    <code>LET</code> is optional: <code>LET X = 1</code> and <code>X = 1</code> are the same.
+  </p>
+  <div id="tut-vars"></div>
+
+  <h2 id="input">4. INPUT</h2>
+  <p>
+    <code>INPUT</code> reads what the user types. After you click <strong>Run</strong>, a prompt appears under the output — type a value and press Enter.
+    String variables end with <code>$</code>; numeric variables do not.
+  </p>
+  <div id="tut-input"></div>
+
+  <h2 id="if">5. Decisions (IF)</h2>
+  <p>
+    <code>IF condition THEN …</code> runs the rest of the line when the condition is true. Here, one <code>INPUT</code> is followed by several one-line <code>IF</code>s.
+    (RGC-BASIC also supports multi-line <code>IF … THEN … ELSE … END IF</code> — see the examples in the repo.)
+  </p>
+  <div id="tut-if"></div>
+
+  <h2 id="for">6. FOR … NEXT loops</h2>
+  <p>
+    <code>FOR</code> repeats a block until <code>NEXT</code>. The loop variable counts from the starting value through the limit (step defaults to 1).
+  </p>
+  <div id="tut-for"></div>
+
+  <h2 id="rem">7. REM and END</h2>
+  <p>
+    <code>REM</code> starts a comment (everything after it on that line is ignored). An apostrophe <code>'</code> also starts a comment.
+    Always finish interactive examples with <code>END</code> or <code>STOP</code> when you are done.
+  </p>
+  <div id="tut-rem"></div>
+
+  <h2 id="next">8. What to try next</h2>
+  <p>
+    On your computer, install the release or build from source, then run <code>./basic examples/hello.bas</code> (or any <code>.bas</code> under <code>examples/</code>).
+    The repository <code>README.md</code> lists statements, functions, PETSCII colour tokens in strings, file I/O, and more.
+    For embedding interpreters in your own pages, see <code>docs/tutorial-embedding.md</code>.
+  </p>
+  <p>
+    Edit the program below and experiment — for example, add a second <code>PRINT</code> or change the message.
+  </p>
+  <div id="tut-playground"></div>
+
+  <footer>
+    RGC-BASIC browser build: terminal-style output with PETSCII/ANSI colouring (same defaults as the full tutorial embed).
+    Graphics demos use <code>basic-gfx</code> or the canvas WASM demo separately; this page focuses on core language basics.
+  </footer>
+
+  <script src="tutorial-embed.js"></script>
+  <script>
+    (function () {
+      var progs = {
+        hello:
+          '10 PRINT "HELLO FROM RGC-BASIC"\n' +
+          '20 END\n',
+        print:
+          '10 PRINT "ONE";"TWO"\n' +
+          '20 PRINT 2 + 3 * 4\n' +
+          '30 PRINT\n' +
+          '40 END\n',
+        vars:
+          '10 LET A = 10\n' +
+          '20 B = 20\n' +
+          '30 PRINT "A ="; A, "B ="; B\n' +
+          '40 PRINT "SUM ="; A + B\n' +
+          '50 END\n',
+        input:
+          '10 INPUT "YOUR NAME"; N$\n' +
+          '20 PRINT "HI,"; N$\n' +
+          '30 END\n',
+        ifstmt:
+          '10 INPUT "ENTER A NUMBER"; X\n' +
+          '20 IF X > 0 THEN PRINT "POSITIVE"\n' +
+          '30 IF X < 0 THEN PRINT "NEGATIVE"\n' +
+          '40 IF X = 0 THEN PRINT "ZERO"\n' +
+          '50 END\n',
+        forloop:
+          '10 FOR I = 1 TO 5\n' +
+          '20 PRINT I\n' +
+          '30 NEXT I\n' +
+          '40 END\n',
+        rem:
+          '10 REM THIS LINE IS A COMMENT\n' +
+          "20 ' APOSTROPHE COMMENT: REST OF LINE IS IGNORED\n" +
+          '30 PRINT "SEE README FOR THE FULL LANGUAGE LIST"\n' +
+          '40 END\n',
+        playground:
+          '10 REM YOUR TURN — EDIT AND RUN\n' +
+          '20 PRINT "HELLO FROM MY PROGRAM"\n' +
+          '30 END\n'
+      };
+
+      RgcBasicTutorialEmbed.mount(document.getElementById('tut-hello'), { program: progs.hello });
+      RgcBasicTutorialEmbed.mount(document.getElementById('tut-print'), { program: progs.print });
+      RgcBasicTutorialEmbed.mount(document.getElementById('tut-vars'), { program: progs.vars });
+      RgcBasicTutorialEmbed.mount(document.getElementById('tut-input'), { program: progs.input });
+      RgcBasicTutorialEmbed.mount(document.getElementById('tut-if'), { program: progs.ifstmt });
+      RgcBasicTutorialEmbed.mount(document.getElementById('tut-for'), { program: progs.forloop });
+      RgcBasicTutorialEmbed.mount(document.getElementById('tut-rem'), { program: progs.rem });
+      RgcBasicTutorialEmbed.mount(document.getElementById('tut-playground'), { program: progs.playground });
+    })();
+  </script>
+</body>
+</html>
