@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **Canvas WASM `TI` / `TI$`**: **`GfxVideoState.ticks60`** was only advanced in the **Raylib** main loop, so **canvas** builds left **`TI`** / **`TI$`** frozen. **`emscripten_sleep`** in **`do_sleep_ticks`** now advances **`ticks60`** by elapsed milliseconds (60 Hz), shared via **`gfx_video_advance_ticks60`**. **Terminal WASM** (`basic.js`, no **`GFX_VIDEO`**) still uses wall-clock **`time()`** for **`TI`** / **`TI$`** (seconds + `HHMMSS`), not C64 jiffies.
+
 - **WordPress**: New plugin **`wordpress/rgc-basic-tutorial-block`** — Gutenberg block **RGC-BASIC embed** with automatic script/style enqueue, **`copy-web-assets.sh`** to sync **`web/tutorial-embed.js`**, **`vfs-helpers.js`**, and modular WASM into **`assets/`**; optional **Settings → RGC-BASIC Tutorial** base URL.
 
 - **Canvas WASM `TAB`**: **`FN_TAB`** used **`OUTC`** for newline/spaces, which updates **`print_col`** but not the **GFX** cursor, so **`PRINT … TAB(n) …`** misaligned on the canvas. **GFX** path now uses **`gfx_newline`** + **`print_spaces`** (same as **`SPC`**). **`wasm_gfx_screen_screencode_at`** exported for **`wasm_browser_canvas_test`** regression.

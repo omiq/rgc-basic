@@ -602,10 +602,7 @@ int main(int argc, char **argv)
             last_charset = vs.charset_lowercase;
         }
         /* 60 Hz jiffy clock (C64-style TI), wraps every 24 hours. */
-        vs.ticks60++;
-        if (vs.ticks60 >= 5184000u) {
-            vs.ticks60 = 0;
-        }
+        gfx_video_advance_ticks60(&vs, 1u);
 
         /* Update simple keyboard state map (ASCII-like indices) so BASIC can
          * poll via PEEK(GFX_KEY_BASE + code). */
