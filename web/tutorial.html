@@ -155,9 +155,9 @@
 
   <h2 id="do">8. DO … LOOP</h2>
   <p>
-    <code>DO</code> … <code>LOOP</code> is a post-test style loop: the body runs at least once unless you exit early.
-    <code>LOOP UNTIL condition</code> stops when the condition becomes true.
-    <code>EXIT</code> leaves the innermost <code>DO</code> loop immediately (handy for “read until done” patterns).
+    <code>DO</code> … <code>LOOP UNTIL condition</code> runs the body, then repeats until the condition is true (so the body always runs at least once).
+    A plain <code>DO</code> … <code>LOOP</code> with no <code>UNTIL</code> repeats forever unless you use <code>EXIT</code> — execution continues on the line <em>after</em> <code>LOOP</code>.
+    <code>EXIT</code> only leaves the innermost <code>DO</code> loop (see <code>tests/do_exit.bas</code> in the repo).
   </p>
   <div id="tut-do"></div>
 
@@ -257,21 +257,22 @@
           '60 PRINT "DONE"\n' +
           '70 END\n',
         doloop:
-          '10 REM LOOP UNTIL (test after body)\n' +
+          '10 REM --- LOOP UNTIL (condition after body) ---\n' +
           '20 I = 0\n' +
           '30 DO\n' +
           '40 I = I + 1\n' +
           '50 PRINT "UNTIL:"; I\n' +
           '60 LOOP UNTIL I >= 3\n' +
-          '70 REM EXIT leaves innermost DO\n' +
-          '80 N = 0\n' +
-          '90 DO\n' +
-          '100 N = N + 1\n' +
-          '110 IF N > 2 THEN EXIT\n' +
-          '120 PRINT "EXIT DEMO"; N\n' +
-          '130 LOOP\n' +
-          '140 PRINT "END"\n' +
-          '150 END\n',
+          '70 PRINT "---"\n' +
+          '80 REM --- DO LOOP + EXIT (plain LOOP repeats until EXIT) ---\n' +
+          '90 N = 0\n' +
+          '100 DO\n' +
+          '110 N = N + 1\n' +
+          '120 IF N > 2 THEN EXIT\n' +
+          '130 PRINT "BEFORE EXIT"; N\n' +
+          '140 LOOP\n' +
+          '150 PRINT "AFTER EXIT (N="; N; ")"\n' +
+          '160 END\n',
         strings:
           '10 REM STRING HELPERS (see README for JSON$, etc.)\n' +
           '20 S$ = "  hi  "\n' +
