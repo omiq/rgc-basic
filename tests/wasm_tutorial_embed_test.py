@@ -90,7 +90,7 @@ def main() -> int:
             )
             browser.close()
 
-        # Full getting-started page: eight independent embeds
+        # Full getting-started page: thirteen independent embeds
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page(viewport={"width": 1100, "height": 900})
@@ -100,7 +100,7 @@ def main() -> int:
                 timeout=120000,
             )
             page.wait_for_function(
-                "() => document.querySelectorAll('.rgc-tutorial-embed').length === 8",
+                "() => document.querySelectorAll('.rgc-tutorial-embed').length === 13",
                 timeout=120000,
             )
             page.wait_for_function(
