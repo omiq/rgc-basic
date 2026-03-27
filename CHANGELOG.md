@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **Canvas / basic-gfx INPUT line (`gfx_read_line`)**: Removed same-character time debounce (~80 ms) that dropped consecutive identical keys, so words like **"LOOK"** work. **Raylib `keyq_push`** no longer applies the same filter (parity with canvas).
+
 - **WASM `run_program`**: Reset **`wasm_str_concat_budget`** each **`RUN`** (was missing; concat-yield counter could carry across runs).
 
 - **WASM canvas string concat (`Q$=LEFT$+…`)**: **`trek.bas`** **`GOSUB 5440`** builds **`Q$`** with **`+`** ( **`eval_addsub`** ) without a **`MID$`** per assignment — no prior yield path. **Canvas WASM** now yields every **256** string concatenations (**`wasm_str_concat_budget`**, separate from **`MID$`** counter).
