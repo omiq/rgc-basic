@@ -27,7 +27,13 @@ def _serve_web() -> tuple[socketserver.TCPServer, int]:
 
 
 def main() -> int:
-    for name in ("basic-modular.js", "basic-modular.wasm", "tutorial-embed.js", "tutorial-example.html"):
+    for name in (
+        "basic-modular.js",
+        "basic-modular.wasm",
+        "tutorial-embed.js",
+        "tutorial-example.html",
+        "tutorial.html",
+    ):
         if not (WEB / name).is_file():
             print(f"error: web/{name} not found; run: make basic-wasm-modular", file=sys.stderr)
             return 1
@@ -80,6 +86,36 @@ def main() -> int:
             page.evaluate("document.querySelector('#ex2 .rgc-tutorial-toolbar button').click()")
             page.wait_for_function(
                 "() => (document.querySelector('#ex2 .rgc-tutorial-output').textContent || '').includes('SECOND EXAMPLE')",
+                timeout=120000,
+            )
+            browser.close()
+
+        # Full getting-started page: eight independent embeds
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1100, "height": 900})
+            page.goto(
+                f"http://127.0.0.1:{port}/tutorial.html",
+                wait_until="networkidle",
+                timeout=120000,
+            )
+            page.wait_for_function(
+                "() => document.querySelectorAll('.rgc-tutorial-embed').length === 8",
+                timeout=120000,
+            )
+            page.wait_for_function(
+                """() => {
+                  const b = document.querySelector('#tut-hello .rgc-tutorial-toolbar button');
+                  return b && !b.disabled && b.textContent === 'Run';
+                }""",
+                timeout=120000,
+            )
+            page.evaluate(
+                "document.querySelector('#tut-hello .rgc-tutorial-toolbar button').click()"
+            )
+            page.wait_for_function(
+                "() => (document.querySelector('#tut-hello .rgc-tutorial-output').textContent || '')"
+                ".includes('HELLO FROM RGC-BASIC')",
                 timeout=120000,
             )
             browser.close()
