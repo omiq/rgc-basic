@@ -40,6 +40,9 @@ REM 40 NEXT I
 REM 50 PRINT "OK D"
 REM 60 END
 
+REM Phase F: nested FOR + DIM + PRINT (see examples/nested_dim_print.bas)
+REM Same idea as user IDE repro; if only canvas hangs, suspect missing yields on path.
+
 REM Phase E: trek-style GET loop (press RETURN to exit)
 REM 10 PRINT "PHASE E: press RETURN once to continue"
 REM 20 GET K$

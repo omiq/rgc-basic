@@ -8985,6 +8985,7 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
     wasm_gfx_put_budget = 0;
     wasm_gfx_stmt_exec_budget = 0;
     wasm_str_builtin_budget = 0;
+    wasm_str_concat_budget = 0;
 #endif
 #ifdef GFX_VIDEO
     if (gfx_vs) {
@@ -9023,7 +9024,7 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
 #if defined(__EMSCRIPTEN__)
         wasm_stmt_budget++;
 #if defined(GFX_VIDEO)
-        /* Compound lines (trek.bas): yield without slowing tight FOR/NEXT too much. */
+        /* Compound lines (trek.bas): yield without slowing full suite too much. */
         if ((wasm_stmt_budget & 31) == 0) {
             wasm_browser_pause_point();
             if (halted) {

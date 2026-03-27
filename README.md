@@ -519,6 +519,8 @@ Produces `web/basic.js` and `web/basic.wasm` (Asyncify-enabled), **`web/basic-mo
 
 **PETSCII canvas** (no Raylib): `make basic-wasm-canvas` produces `web/basic-canvas.js`, `web/basic-canvas.wasm`, and `web/canvas.html`. The page refreshes the canvas during `SLEEP` and loops via a shared RGBA framebuffer (PETSCII, `SCREEN 1` bitmap, and **`LOADSPRITE`/`DRAWSPRITE`** like **basic-gfx**). Try **`examples/gfx_canvas_demo.bas`**: paste into the canvas page, use **Upload to VFS** to add **`gfx_canvas_demo.png`** (same file is copied to **`web/gfx_canvas_demo.png`** for local fetch tests), then Run.
 
+**Canvas WASM vs `basic-gfx`**: The **same** `basic.c` runs in both. In the browser, the interpreter must periodically **`emscripten_sleep`** so the tab can paint and handle keys. Tight loops with little output can still make Chrome report “Page Unresponsive” while **`basic-gfx`** feels fine. For a small repro, see **`examples/nested_dim_print.bas`** and **`examples/wasm_canvas_hang_probe.bas`**.
+
 **Automated WASM smoke tests** (headless Chromium via Playwright): install `pip install -r tests/requirements-wasm.txt`, run `python3 -m playwright install chromium`, then **`make wasm-test`**, **`make wasm-canvas-test`**, **`make wasm-canvas-charset-test`** (regression for `#OPTION charset lower`, `CHR$(32)` / `CHR$(65)`, with and without **`-petscii`**), and **`make wasm-tutorial-test`**. On **push to `main`**, workflow **`.github/workflows/wasm-tests.yml`** runs the same Playwright suite. Tagged releases and **nightly** also build WASM; artifacts include `rgc-basic-wasm.tar.gz` (terminal, modular tutorial files, and canvas).
 
 #### Manual compilation
