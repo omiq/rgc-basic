@@ -66,6 +66,8 @@ static unsigned wasm_gfx_put_budget;
 static unsigned wasm_gfx_stmt_exec_budget;
 /* Trek SRS: thousands of MID$/LEFT$/RIGHT$ per PRINT — yield every N builtin calls. */
 static unsigned wasm_str_builtin_budget;
+/* Q$=LEFT$+A$+RIGHT$ (eval_addsub): separate budget so FOR/NEXT tests are not slowed. */
+static unsigned wasm_str_concat_budget;
 #endif
 #endif
 #if defined(__EMSCRIPTEN__)
@@ -5779,6 +5781,17 @@ static struct value eval_addsub(char **p)
                     size_t cur, avail;
                     ensure_str(&left);
                     ensure_str(&right);
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+                    /* trek.bas GOSUB 5440: Q$=LEFT$+A$+RIGHT$ — no MID$; must yield here. */
+                    wasm_str_concat_budget++;
+                    if ((wasm_str_concat_budget & 255u) == 0u) {
+                        wasm_browser_pause_point();
+                        if (!halted) {
+                            wasm_gfx_refresh_js();
+                            emscripten_sleep(0);
+                        }
+                    }
+#endif
                     cur = strlen(left.str);
                     avail = (size_t)max_str_limit - cur;
                     if (avail > MAX_STR_LEN - 1 - cur) avail = MAX_STR_LEN - 1 - cur;
