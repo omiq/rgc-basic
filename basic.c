@@ -764,6 +764,8 @@ static void init_console_ansi(void)
 
 #define MAX_LINES 65536  /* 64K; classic BASIC line-number range; trek.bas ~680 lines */
 #define MAX_LINE_LEN 256
+/* Source lines when loading from disk (UTF-8 PETSCII art can exceed 256 bytes). */
+#define MAX_LINE_LEN_LOAD 65536
 #define MAX_INCLUDE_DEPTH 16
 #define MAX_INCLUDE_PATH  512
 
@@ -8565,12 +8567,53 @@ static const char *resolve_include_path(const char *base_dir, const char *rel_pa
 static char loading_paths[MAX_INCLUDE_DEPTH][MAX_INCLUDE_PATH];
 static int loading_count = 0;
 
+/* Read one logical line (to \n, \r\n, or EOF). Returns 1 with *out_line malloc'd, or 0 at EOF. */
+static int read_source_line(FILE *f, const char *path_for_err, char **out_line)
+{
+    StrBuf sb;
+    int c;
+
+    sb_init(&sb);
+    for (;;) {
+        c = fgetc(f);
+        if (c == EOF) {
+            if (sb.len == 0) {
+                free(sb.buf);
+                *out_line = NULL;
+                return 0;
+            }
+            break;
+        }
+        if (c == '\n') {
+            break;
+        }
+        if (c == '\r') {
+            {
+                int c2 = fgetc(f);
+                if (c2 != '\n' && c2 != EOF) {
+                    ungetc(c2, f);
+                }
+            }
+            break;
+        }
+        if (sb.len >= (size_t)(MAX_LINE_LEN_LOAD - 1)) {
+            free(sb.buf);
+            fprintf(stderr, "Program line too long (max %d bytes) in %s\n",
+                MAX_LINE_LEN_LOAD - 1, path_for_err ? path_for_err : "?");
+            exit(1);
+        }
+        sb_append_char(&sb, (char)c);
+    }
+    *out_line = sb.buf;
+    return 1;
+}
+
 /* Load a file into the program, with directive processing. Recursive for #INCLUDE. */
 static void load_file_into_program(const char *path, const char *base_dir, int include_depth,
     int *use_explicit_numbers, int *auto_line_no, int *first_line_seen)
 {
     FILE *f;
-    char linebuf[MAX_LINE_LEN];
+    char *linebuf;
     char *p;
     int number;
     const char *resolved;
@@ -8601,13 +8644,15 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
         exit(1);
     }
 
-    while (fgets(linebuf, sizeof(linebuf), f)) {
-        trim_newline(linebuf);
+    while (read_source_line(f, path, &linebuf)) {
         p = linebuf;
         while (*p == ' ' || *p == '\t') p++;
         if ((unsigned char)p[0] == 0xef && (unsigned char)p[1] == 0xbb && (unsigned char)p[2] == 0xbf)
             p += 3;
-        if (*p == '\0') continue;
+        if (*p == '\0') {
+            free(linebuf);
+            continue;
+        }
 
         /* "10 #OPTION ..." / "20 #INCLUDE ..." pasted in canvas (numberless program):
          * without this, load fails or #OPTION is skipped and charset stays wrong. */
@@ -8646,6 +8691,7 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
         /* Shebang: first line of first file only */
         if (!*first_line_seen && p[0] == '#' && p[1] == '!') {
             *first_line_seen = 1;
+            free(linebuf);
             continue;
         }
 
@@ -8670,8 +8716,10 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
                 while (q > opt_val && (q[-1] == ' ' || q[-1] == '\t')) *--q = '\0';
                 if (apply_option_directive(opt_name, opt_val[0] ? opt_val : NULL) != 0) {
                     fprintf(stderr, "Unknown or invalid #OPTION: %s %s\n", opt_name, opt_val);
+                    free(linebuf);
                     exit(1);
                 }
+                free(linebuf);
                 continue;
             }
             if ((toupper((unsigned char)p[0])=='I' && toupper((unsigned char)p[1])=='N' && toupper((unsigned char)p[2])=='C' && toupper((unsigned char)p[3])=='L' && toupper((unsigned char)p[4])=='U' && toupper((unsigned char)p[5])=='D' && toupper((unsigned char)p[6])=='E') && (p[7]=='\0' || p[7]==' ' || p[7]=='\t')) {
@@ -8680,6 +8728,7 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
                 while (*p == ' ' || *p == '\t') p++;
                 if (*p != '"' && *p != '\'') {
                     fprintf(stderr, "Expected quoted path in #INCLUDE\n");
+                    free(linebuf);
                     exit(1);
                 }
                 {
@@ -8698,9 +8747,11 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
                 include_path_store[MAX_INCLUDE_DEPTH - 1][MAX_INCLUDE_PATH - 1] = '\0';
                 load_file_into_program(include_path_store[MAX_INCLUDE_DEPTH - 1], get_base_dir(include_path_store[MAX_INCLUDE_DEPTH - 1]), include_depth + 1,
                     use_explicit_numbers, auto_line_no, first_line_seen);
+                free(linebuf);
                 continue;
             }
             fprintf(stderr, "Unknown directive: #%.*s\n", 60, p);
+            free(linebuf);
             exit(1);
         }
 
@@ -8714,6 +8765,7 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
             char *transformed;
             if (!isdigit((unsigned char)*p)) {
                 fprintf(stderr, "Line missing number: %s\n", linebuf);
+                free(linebuf);
                 exit(1);
             }
             number = atoi(p);
@@ -8739,12 +8791,15 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
                     while (q > opt_val && (q[-1] == ' ' || q[-1] == '\t')) *--q = '\0';
                     if (apply_option_directive(opt_name, opt_val[0] ? opt_val : NULL) != 0) {
                         fprintf(stderr, "Unknown or invalid #OPTION: %s %s\n", opt_name, opt_val);
+                        free(linebuf);
                         exit(1);
                     }
+                    free(linebuf);
                     continue;
                 }
                 if ((toupper((unsigned char)dir[0])=='I' && toupper((unsigned char)dir[1])=='N' && toupper((unsigned char)dir[2])=='C' && toupper((unsigned char)dir[3])=='L' && toupper((unsigned char)dir[4])=='U' && toupper((unsigned char)dir[5])=='D' && toupper((unsigned char)dir[6])=='E') && (dir[7]=='\0' || dir[7]==' ' || dir[7]=='\t')) {
                     fprintf(stderr, "#INCLUDE on numbered line not supported\n");
+                    free(linebuf);
                     exit(1);
                 }
             }
@@ -8759,6 +8814,7 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
         } else {
             if (isdigit((unsigned char)*p)) {
                 fprintf(stderr, "Mixed numbered and numberless lines are not supported: %s\n", linebuf);
+                free(linebuf);
                 exit(1);
             }
             number = *auto_line_no;
@@ -8771,6 +8827,7 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
                 free(transformed);
             }
         }
+        free(linebuf);
     }
     fclose(f);
     loading_count--;
