@@ -13,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "web"
 GFX_CANVAS_DEMO_BAS = ROOT / "examples" / "gfx_canvas_demo.bas"
+TREK_BAS = ROOT / "examples" / "trek.bas"
 
 
 def _serve_web() -> tuple[socketserver.TCPServer, int]:
@@ -145,8 +146,13 @@ def main() -> int:
                     f"canvas changed while paused (expected frozen frame): {px1!r} vs {px2!r}"
                 )
             page.evaluate("Module.wasmPaused = 0")
-            time.sleep(0.35)
-            px3 = _canvas_top_left_rgba(page)
+            # rAF + Asyncify: allow several frames for POKE/NEXT to advance after resume
+            px3 = px1
+            for _ in range(40):
+                time.sleep(0.1)
+                px3 = _canvas_top_left_rgba(page)
+                if px3 != px1:
+                    break
             if px3 == px1:
                 browser.close()
                 raise RuntimeError(
@@ -245,6 +251,55 @@ def main() -> int:
                 browser.close()
                 raise RuntimeError(f"long PRINT yield test error log: {log_longp!r}")
 
+            # trek-like: string concat in a loop (GOSUB 5440 pattern) must yield (eval_addsub).
+            page.wait_for_function(
+                "() => !document.getElementById('run').disabled",
+                timeout=60000,
+            )
+            page.fill(
+                "#program",
+                '10 Q$=STRING$(190," ")\n'
+                '20 A$="   "\n'
+                "30 FOR I=1 TO 600\n"
+                '40 Q$=LEFT$(Q$,80)+A$+RIGHT$(Q$,107)\n'
+                "50 NEXT I\n"
+                '60 PRINT "OKCAT"\n'
+                "70 END\n",
+            )
+            _click_run(page)
+            page.wait_for_function(
+                "() => (window.Module && Module.wasmGfxRunDone === 1)",
+                timeout=120000,
+            )
+            log_cat = page.text_content("#log") or ""
+            if log_cat.strip():
+                browser.close()
+                raise RuntimeError(f"string concat stress error log: {log_cat!r}")
+
+            # GOTO-heavy loop (trek-style line hopping) must stay responsive (yield on GOTO).
+            page.wait_for_function(
+                "() => !document.getElementById('run').disabled",
+                timeout=60000,
+            )
+            page.fill(
+                "#program",
+                "10 N=0\n"
+                "20 N=N+1\n"
+                "30 IF N>8000 THEN 50\n"
+                "40 GOTO 20\n"
+                '50 PRINT "OKGOTO"\n'
+                "60 END\n",
+            )
+            _click_run(page)
+            page.wait_for_function(
+                "() => (window.Module && Module.wasmGfxRunDone === 1)",
+                timeout=120000,
+            )
+            log_goto = page.text_content("#log") or ""
+            if log_goto.strip():
+                browser.close()
+                raise RuntimeError(f"GOTO stress error log: {log_goto!r}")
+
             # SCREEN 1 bitmap: top-left pixel should be pen colour (COLOR 1 = white)
             page.wait_for_function(
                 "() => !document.getElementById('run').disabled",
@@ -275,6 +330,22 @@ def main() -> int:
             if log_bm.strip():
                 browser.close()
                 raise RuntimeError(f"bitmap test error log: {log_bm!r}")
+
+            # Bitmap test leaves SCREEN 1; PETSCII text tests need text mode.
+            page.wait_for_function(
+                "() => !document.getElementById('run').disabled",
+                timeout=60000,
+            )
+            page.fill("#program", "10 SCREEN 0\n20 END\n")
+            _click_run(page)
+            page.wait_for_function(
+                "() => (window.Module && Module.wasmGfxRunDone === 1)",
+                timeout=120000,
+            )
+            log_scr0 = page.text_content("#log") or ""
+            if log_scr0.strip():
+                browser.close()
+                raise RuntimeError(f"SCREEN 0 reset error log: {log_scr0!r}")
 
             # PETSCII + #OPTION charset lower: ASCII string literals must map to lowercase
             # char ROM (space = sc 32, not PETSCII-mapped 32→33 which drew as "!").
@@ -408,6 +479,28 @@ def main() -> int:
             if log_demo.strip():
                 browser.close()
                 raise RuntimeError(f"gfx_canvas_demo error log: {log_demo!r}")
+
+            # trek.bas smoke (last): full game can leave gfx state; run after all pixel tests.
+            if not TREK_BAS.is_file():
+                browser.close()
+                raise RuntimeError(f"missing {TREK_BAS}")
+            trek_src = TREK_BAS.read_text(encoding="utf-8")
+            page.wait_for_function(
+                "() => !document.getElementById('run').disabled",
+                timeout=60000,
+            )
+            page.fill("#program", trek_src)
+            _click_run(page)
+            time.sleep(2.5)
+            page.evaluate("() => { if (window.Module) Module.wasmStopRequested = 1; }")
+            page.wait_for_function(
+                "() => (window.Module && Module.wasmGfxRunDone === 1)",
+                timeout=180000,
+            )
+            log_trek = page.text_content("#log") or ""
+            if log_trek.strip():
+                browser.close()
+                raise RuntimeError(f"trek.bas smoke error log: {log_trek!r}")
 
             browser.close()
     finally:
