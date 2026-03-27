@@ -94,6 +94,11 @@
       <li><a href="#input">INPUT</a></li>
       <li><a href="#if">Decisions (IF)</a></li>
       <li><a href="#for">FOR … NEXT loops</a></li>
+      <li><a href="#while">WHILE … WEND loops</a></li>
+      <li><a href="#do">DO … LOOP</a></li>
+      <li><a href="#strings">String functions</a></li>
+      <li><a href="#arrays">Arrays and DIM</a></li>
+      <li><a href="#functions">User-defined functions</a></li>
       <li><a href="#rem">REM and END</a></li>
       <li><a href="#next">What to try next</a></li>
     </ul>
@@ -136,18 +141,60 @@
 
   <h2 id="for">6. FOR … NEXT loops</h2>
   <p>
-    <code>FOR</code> repeats a block until <code>NEXT</code>. The loop variable counts from the starting value through the limit (step defaults to 1).
+    <code>FOR</code> repeats a block until <code>NEXT</code>. The loop variable counts from the start value through the limit. The step is <code>1</code> unless you add
+    <code>STEP n</code> (which can be negative to count down).
   </p>
   <div id="tut-for"></div>
 
-  <h2 id="rem">7. REM and END</h2>
+  <h2 id="while">7. WHILE … WEND loops</h2>
+  <p>
+    <code>WHILE condition</code> tests <em>before</em> each iteration. The lines between <code>WHILE</code> and <code>WEND</code> run only while the condition is true.
+    If it is false at the start, the body never runs. Use this when you do not know in advance how many times you need to loop.
+  </p>
+  <div id="tut-while"></div>
+
+  <h2 id="do">8. DO … LOOP</h2>
+  <p>
+    <code>DO</code> … <code>LOOP UNTIL condition</code> runs the body, then repeats until the condition is true (so the body always runs at least once).
+    A plain <code>DO</code> … <code>LOOP</code> with no <code>UNTIL</code> repeats forever unless you use <code>EXIT</code> — execution continues on the line <em>after</em> <code>LOOP</code>.
+    <code>EXIT</code> only leaves the innermost <code>DO</code> loop (see <code>tests/do_exit.bas</code> in the repo).
+  </p>
+  <div id="tut-do"></div>
+
+  <h2 id="strings">9. String functions</h2>
+  <p>
+    String variables end with <code>$</code>. RGC-BASIC includes C64-style <code>MID$</code>, <code>LEFT$</code>, <code>RIGHT$</code> (1-based positions),
+    <code>LEN</code>, <code>VAL</code>, <code>STR$</code>, <code>CHR$</code>, <code>ASC</code>, <code>INSTR</code> (optional third argument: start position),
+    <code>REPLACE</code>, <code>TRIM$</code> / <code>LTRIM$</code> / <code>RTRIM$</code>, <code>UCASE$</code> / <code>LCASE$</code>, and <code>FIELD$</code> (delimited “columns”).
+    <code>SPLIT string$, delim$ INTO array$</code> fills a pre-<code>DIM</code>ed string array; <code>JOIN array$, delim$ INTO result$ [, count]</code> builds a string back.
+    <code>HEX$</code> and <code>DEC</code> convert to/from hex; <code>STR$</code> formats a number as text. For searching inside <strong>arrays</strong>, use <code>INDEXOF</code> / <code>LASTINDEXOF</code> (see <code>README.md</code>). <code>JSON$</code> extracts values from JSON text.
+  </p>
+  <div id="tut-strings"></div>
+
+  <h2 id="arrays">10. Arrays and DIM</h2>
+  <p>
+    Declare arrays with <code>DIM name(size)</code> or <code>DIM name(rows, cols)</code> for two dimensions. Indices are <strong>0-based</strong>:
+    <code>DIM A(10)</code> allows <code>A(0)</code> through <code>A(10)</code>. Likewise <code>DIM M(2,3)</code> is a 3×4 grid — row indices <code>0..2</code>, column indices <code>0..3</code>.
+    Use nested <code>FOR</code> loops to walk a table. String arrays use a <code>$</code> name, e.g. <code>DIM T$(20)</code>.
+  </p>
+  <div id="tut-arrays"></div>
+
+  <h2 id="functions">11. User-defined functions</h2>
+  <p>
+    <strong>Multi-line functions</strong> use <code>FUNCTION name (a, b, …)</code> … <code>RETURN expr</code> … <code>END FUNCTION</code>. Call with parentheses: <code>add(2, 3)</code>.
+    Parameters are local; recursion is allowed. For a small formula on one line, classic <code>DEF FN</code> still works: <code>DEF FNSQ(X) = X*X</code> then <code>FNSQ(5)</code>.
+    Larger examples with <code>#INCLUDE</code> live under <code>examples/tutorial_functions.bas</code> and <code>examples/tutorial_lib.bas</code>.
+  </p>
+  <div id="tut-functions"></div>
+
+  <h2 id="rem">12. REM and END</h2>
   <p>
     <code>REM</code> starts a comment (everything after it on that line is ignored). An apostrophe <code>'</code> also starts a comment.
     Always finish interactive examples with <code>END</code> or <code>STOP</code> when you are done.
   </p>
   <div id="tut-rem"></div>
 
-  <h2 id="next">8. What to try next</h2>
+  <h2 id="next">13. What to try next</h2>
   <p>
     On your computer, install the release or build from source, then run <code>./basic examples/hello.bas</code> (or any <code>.bas</code> under <code>examples/</code>).
     The repository <code>README.md</code> lists statements, functions, PETSCII colour tokens in strings, file I/O, and more.
@@ -192,10 +239,77 @@
           '40 IF X = 0 THEN PRINT "ZERO"\n' +
           '50 END\n',
         forloop:
-          '10 FOR I = 1 TO 5\n' +
-          '20 PRINT I\n' +
-          '30 NEXT I\n' +
-          '40 END\n',
+          '10 PRINT "COUNT UP 1..3:"\n' +
+          '20 FOR I = 1 TO 3\n' +
+          '30 PRINT I\n' +
+          '40 NEXT I\n' +
+          '50 PRINT "COUNT DOWN BY 2:"\n' +
+          '60 FOR J = 10 TO 2 STEP -2\n' +
+          '70 PRINT J\n' +
+          '80 NEXT J\n' +
+          '90 END\n',
+        whileloop:
+          '10 I = 0\n' +
+          '20 WHILE I < 3\n' +
+          '30 PRINT I\n' +
+          '40 I = I + 1\n' +
+          '50 WEND\n' +
+          '60 PRINT "DONE"\n' +
+          '70 END\n',
+        doloop:
+          '10 REM --- LOOP UNTIL (condition after body) ---\n' +
+          '20 I = 0\n' +
+          '30 DO\n' +
+          '40 I = I + 1\n' +
+          '50 PRINT "UNTIL:"; I\n' +
+          '60 LOOP UNTIL I >= 3\n' +
+          '70 PRINT "---"\n' +
+          '80 REM --- DO LOOP + EXIT (plain LOOP repeats until EXIT) ---\n' +
+          '90 N = 0\n' +
+          '100 DO\n' +
+          '110 N = N + 1\n' +
+          '120 IF N > 2 THEN EXIT\n' +
+          '130 PRINT "BEFORE EXIT"; N\n' +
+          '140 LOOP\n' +
+          '150 PRINT "AFTER EXIT (N="; N; ")"\n' +
+          '160 END\n',
+        strings:
+          '10 REM STRING HELPERS (see README for JSON$, etc.)\n' +
+          '20 S$ = "  hi  "\n' +
+          '30 PRINT "LEN="; LEN(S$)\n' +
+          '40 PRINT "VAL/STR="; VAL("12.5"); "["; STR$(42); "]"\n' +
+          '50 PRINT "ASC/CHR="; ASC("B"); CHR$(66)\n' +
+          '60 A$ = "abcdef"\n' +
+          '70 PRINT "MID="; MID$(A$, 2, 3); " LEFT="; LEFT$(A$, 2); " RIGHT="; RIGHT$(A$, 2)\n' +
+          '80 PRINT "INSTR="; INSTR("banana", "na")\n' +
+          '90 PRINT "INSTR FROM 4="; INSTR("banana", "na", 4)\n' +
+          '100 PRINT "REPLACE="; REPLACE("a-b-c", "-", "/")\n' +
+          '110 PRINT "TRIM=["; TRIM$(S$); "] UCASE="; UCASE$("ok")\n' +
+          '120 PRINT "FIELD="; FIELD$("one,two,three", ",", 2)\n' +
+          '130 DIM P$(5)\n' +
+          '140 SPLIT "x,y,z", "," INTO P$\n' +
+          '150 JOIN P$, ";" INTO Q$, 3\n' +
+          '160 PRINT "JOIN="; Q$\n' +
+          '170 PRINT "HEX="; HEX$(255); " DEC="; DEC("FF")\n' +
+          '180 END\n',
+        arrays:
+          '10 REM DIM(2,3): rows 0..2, cols 0..3\n' +
+          '20 DIM M(2, 3)\n' +
+          '30 FOR R = 0 TO 2\n' +
+          '40 FOR C = 0 TO 3\n' +
+          '50 M(R, C) = R * 10 + C\n' +
+          '60 NEXT C\n' +
+          '70 NEXT R\n' +
+          '80 PRINT "M(1,2)="; M(1, 2)\n' +
+          '90 END\n',
+        functions:
+          '10 FUNCTION add(a, b)\n' +
+          '20 RETURN a + b\n' +
+          '30 END FUNCTION\n' +
+          '40 PRINT "add(2,3)="; add(2, 3)\n' +
+          '50 DEF FNSQ(x) = x * x\n' +
+          '60 PRINT "FNSQ(5)="; FNSQ(5)\n' +
+          '70 END\n',
         rem:
           '10 REM THIS LINE IS A COMMENT\n' +
           "20 ' APOSTROPHE COMMENT: REST OF LINE IS IGNORED\n" +
@@ -213,6 +327,11 @@
       RgcBasicTutorialEmbed.mount(document.getElementById('tut-input'), { program: progs.input });
       RgcBasicTutorialEmbed.mount(document.getElementById('tut-if'), { program: progs.ifstmt });
       RgcBasicTutorialEmbed.mount(document.getElementById('tut-for'), { program: progs.forloop });
+      RgcBasicTutorialEmbed.mount(document.getElementById('tut-while'), { program: progs.whileloop });
+      RgcBasicTutorialEmbed.mount(document.getElementById('tut-do'), { program: progs.doloop });
+      RgcBasicTutorialEmbed.mount(document.getElementById('tut-strings'), { program: progs.strings });
+      RgcBasicTutorialEmbed.mount(document.getElementById('tut-arrays'), { program: progs.arrays });
+      RgcBasicTutorialEmbed.mount(document.getElementById('tut-functions'), { program: progs.functions });
       RgcBasicTutorialEmbed.mount(document.getElementById('tut-rem'), { program: progs.rem });
       RgcBasicTutorialEmbed.mount(document.getElementById('tut-playground'), { program: progs.playground });
     })();
