@@ -523,17 +523,6 @@ static void keyq_push(GfxVideoState *vs, uint8_t b)
     if (next == vs->key_q_head) {
         return;  /* full: drop */
     }
-    /* Debounce: suppress key-repeat for printable chars within ~80ms */
-    if (b >= 32 && b <= 126) {
-        static uint8_t last_b = 0;
-        static uint32_t last_tick = 0;
-        uint32_t t = vs->ticks60;
-        if (last_b == b && (t - last_tick) < 5) {
-            return;  /* same char too soon, skip */
-        }
-        last_b = b;
-        last_tick = t;
-    }
     vs->key_queue[vs->key_q_tail] = b;
     vs->key_q_tail = next;
 }

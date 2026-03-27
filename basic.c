@@ -6197,20 +6197,17 @@ EMSCRIPTEN_KEEPALIVE int wasm_gfx_shadow_base(void)
 }
 #endif
 /* Read a line from gfx key queue; echo to screen; handle backspace (20).
- * Debounce: ignore same printable char within ~80ms (key-repeat suppression). */
+ * Do not debounce repeated printable bytes: OS key-repeat and fast typing
+ * (e.g. "LOOK", "book") must deliver every character. */
 static int gfx_read_line(char *buf, int size)
 {
     int len = 0;
     uint8_t b;
-    uint8_t last_printable = 0;
-    uint32_t last_tick = 0;
     buf[0] = '\0';
     if (size <= 0) return 0;
     while (len < size - 1) {
         if (gfx_keyq_pop(&b)) {
 #if defined(__EMSCRIPTEN__)
-            /* Pop path used to `continue` without emscripten_sleep (debounce, etc.),
-             * so key-repeat could spin forever and freeze the tab. */
             emscripten_sleep(0);
 #endif
             if (b == 13 || b == 10) {
@@ -6224,16 +6221,9 @@ static int gfx_read_line(char *buf, int size)
                     buf[len] = '\0';
                     gfx_put_byte((unsigned char)b);
                 }
-                last_printable = 0;
                 continue;
             }
             if (b >= 32 && b <= 126) {
-                if (gfx_vs && last_printable == b && (gfx_vs->ticks60 - last_tick) < 5) {
-                    /* Debounce: same char within ~80ms, skip (key repeat) */
-                    continue;
-                }
-                last_printable = b;
-                last_tick = gfx_vs ? gfx_vs->ticks60 : 0;
                 buf[len++] = (char)b;
                 buf[len] = '\0';
                 gfx_put_byte((unsigned char)b);
