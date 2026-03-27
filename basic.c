@@ -3180,6 +3180,16 @@ static void do_sleep_ticks(double ticks)
         ms = 1;
     }
     emscripten_sleep(ms);
+#if defined(GFX_VIDEO)
+    /* Canvas WASM has no per-frame loop like Raylib; advance TI/TI$ from real sleep. */
+    if (gfx_vs) {
+        uint32_t add = (uint32_t)((ms * 60 + 500) / 1000);
+        if (add < 1u) {
+            add = 1u;
+        }
+        gfx_video_advance_ticks60(gfx_vs, add);
+    }
+#endif
 }
 #elif defined(_WIN32)
 /* Windows: sleep using Sleep() in milliseconds derived from 60Hz ticks. */
