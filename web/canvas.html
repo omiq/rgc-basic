@@ -349,6 +349,9 @@
           return;
         }
         Module.FS.writeFile('/program.bas', programEl.value);
+        if (Module._wasm_gfx_key_state_clear) {
+          Module.ccall('wasm_gfx_key_state_clear', null, [], []);
+        }
         canvas.focus();
         if (canvasDebugEnabled && Module._wasm_debug_log_stacks) {
           canvasDbg('--- stacks before RUN ---');
@@ -386,12 +389,42 @@
         Module.wasmPaused = 0;
       };
 
+      /* PEEK(56320+n) / GFX_KEY_BASE: same key_state[] as basic-gfx (Raylib). */
+      function wasmGfxKeyIndex(ev) {
+        var k = ev.key;
+        if (k === 'Escape') return 27;
+        if (k === 'Enter') return 13;
+        if (k === ' ' || k === 'Spacebar') return 32;
+        if (k === 'ArrowUp') return 145;
+        if (k === 'ArrowDown') return 17;
+        if (k === 'ArrowLeft') return 157;
+        if (k === 'ArrowRight') return 29;
+        if (k === 'Tab') return 9;
+        if (k.length === 1) {
+          var c = k.charCodeAt(0);
+          if (c >= 97 && c <= 122) c -= 32;
+          if ((c >= 65 && c <= 90) || (c >= 48 && c <= 57)) return c;
+        }
+        return -1;
+      }
+      function wasmGfxKeyStateSync(ev, down) {
+        if (!Module || !Module._wasm_gfx_key_state_set) return;
+        if (inputLineRow.classList.contains('active')) return;
+        var idx = wasmGfxKeyIndex(ev);
+        if (idx >= 0 && idx < 256) {
+          Module.ccall('wasm_gfx_key_state_set', null, ['number', 'number'], [idx, down ? 1 : 0]);
+        }
+      }
       canvas.addEventListener('keydown', function(ev) {
         if (inputLineRow.classList.contains('active')) return;
         ev.preventDefault();
+        wasmGfxKeyStateSync(ev, true);
         var code = ev.keyCode || ev.which;
         if (code === 13) Module.ccall('wasm_push_key', null, ['number'], [13]);
         else if (ev.key && ev.key.length === 1) Module.ccall('wasm_push_key', null, ['number'], [ev.key.charCodeAt(0) & 0xFF]);
+      }, true);
+      canvas.addEventListener('keyup', function(ev) {
+        wasmGfxKeyStateSync(ev, false);
       }, true);
 
       inputLineEl.addEventListener('keydown', function(ev) {

@@ -9356,6 +9356,23 @@ EMSCRIPTEN_KEEPALIVE int wasm_gfx_screen_screencode_at(int col, int row)
     return (int)gfx_vs->screen[idx];
 }
 
+/* Browser: mirror Raylib key_state[] so PEEK(GFX_KEY_BASE + code) works (e.g. gfx_jiffy_game_demo.bas). */
+EMSCRIPTEN_KEEPALIVE void wasm_gfx_key_state_set(unsigned int offset, unsigned int down)
+{
+    if (!gfx_vs || offset >= GFX_KEY_SIZE) {
+        return;
+    }
+    gfx_vs->key_state[offset] = down ? (uint8_t)1 : (uint8_t)0;
+}
+
+EMSCRIPTEN_KEEPALIVE void wasm_gfx_key_state_clear(void)
+{
+    if (!gfx_vs) {
+        return;
+    }
+    gfx_video_clear_keys(gfx_vs);
+}
+
 static void wasm_gfx_set_video(void)
 {
     wasm_gfx_ti_epoch_ms = emscripten_get_now();
