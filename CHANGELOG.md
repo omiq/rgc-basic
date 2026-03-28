@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **Canvas WASM `PEEK(56320+n)` keyboard**: **`key_state[]`** was never updated in the browser (only **basic-gfx** / Raylib did). **`canvas.html`** now drives **`wasm_gfx_key_state_set`** / **`wasm_gfx_key_state_clear`** on key up/down (A–Z, 0–9, arrows, Escape, Space, Enter, Tab) so **`examples/gfx_jiffy_game_demo.bas`**-style **`PEEK(KEYBASE+…)`** works.
+
 - **Canvas WASM `TI` / `TI$`**: **`GfxVideoState.ticks60`** was only advanced in the **Raylib** main loop, so **canvas** **`TI`** / **`TI$`** stayed frozen (especially in tight **`GOTO`** loops). **Canvas** now derives 60 Hz jiffies from **`emscripten_get_now()`** since **`basic_load_and_run_gfx`** ( **`gfx_video_advance_ticks60`** still drives **basic-gfx** each frame). **Terminal WASM** (`basic.js`, no **`GFX_VIDEO`**) still uses **`time()`** for **`TI`** / **`TI$`** (seconds + wall-clock `HHMMSS`), not C64 jiffies.
 
 - **WordPress**: New plugin **`wordpress/rgc-basic-tutorial-block`** — Gutenberg block **RGC-BASIC embed** with automatic script/style enqueue, **`copy-web-assets.sh`** to sync **`web/tutorial-embed.js`**, **`vfs-helpers.js`**, and modular WASM into **`assets/`**; optional **Settings → RGC-BASIC Tutorial** base URL.
