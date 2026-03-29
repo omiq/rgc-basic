@@ -5915,6 +5915,8 @@ static struct value eval_expr(char **p)
     return eval_bit_or(p);
 }
 
+static int eval_condition(char **p);
+
 /* Evaluate IF conditions with BASIC relational operators. */
 /* Evaluate a single relational comparison (no AND/OR). */
 static int eval_simple_condition(char **p)
@@ -5923,6 +5925,86 @@ static int eval_simple_condition(char **p)
     char op1, op2;
 
     skip_spaces(p);
+    /* Leading '(': either "(expr) relop rhs" e.g. (1+1)=2, or boolean group "(J=F OR ...)" */
+    if (**p == '(') {
+        char *after_open;
+        (*p)++;
+        after_open = *p;
+        left = eval_expr(p);
+        skip_spaces(p);
+        if (**p == ')') {
+            (*p)++;
+            skip_spaces(p);
+            op1 = **p;
+            op2 = *(*p + 1);
+            if (op1 == '<' || op1 == '>' || op1 == '=' ||
+                (op1 == '<' && op2 == '>') || (op1 == '<' && op2 == '=') || (op1 == '>' && op2 == '=')) {
+                if (op1 == '<' && op2 == '>') {
+                    *p += 2;
+                    right = eval_addsub(p);
+                    if (left.type == VAL_STR || right.type == VAL_STR) {
+                        ensure_str(&left);
+                        ensure_str(&right);
+                        return strcmp(left.str, right.str) != 0;
+                    }
+                    return left.num != right.num;
+                }
+                if (op1 == '<' && op2 == '=') {
+                    *p += 2;
+                    right = eval_addsub(p);
+                    ensure_num(&left);
+                    ensure_num(&right);
+                    return left.num <= right.num;
+                }
+                if (op1 == '>' && op2 == '=') {
+                    *p += 2;
+                    right = eval_addsub(p);
+                    ensure_num(&left);
+                    ensure_num(&right);
+                    return left.num >= right.num;
+                }
+                if (op1 == '<' || op1 == '>' || op1 == '=') {
+                    (*p)++;
+                    right = eval_addsub(p);
+                    if (left.type == VAL_STR || right.type == VAL_STR) {
+                        ensure_str(&left);
+                        ensure_str(&right);
+                        if (op1 == '<') {
+                            return strcmp(left.str, right.str) < 0;
+                        }
+                        if (op1 == '>') {
+                            return strcmp(left.str, right.str) > 0;
+                        }
+                        return strcmp(left.str, right.str) == 0;
+                    }
+                    if (op1 == '<') {
+                        return left.num < right.num;
+                    }
+                    if (op1 == '>') {
+                        return left.num > right.num;
+                    }
+                    return left.num == right.num;
+                }
+            }
+            if (left.type == VAL_STR) {
+                ensure_str(&left);
+                return strlen(left.str) > 0;
+            }
+            return left.num != 0.0;
+        }
+        /* No closing ')' yet after one expr — boolean group "(J=F OR ...)" */
+        *p = after_open;
+        {
+            int inner = eval_condition(p);
+            skip_spaces(p);
+            if (**p != ')') {
+                runtime_error("Missing ')'");
+                return 0;
+            }
+            (*p)++;
+            return inner;
+        }
+    }
     left = eval_expr(p);
     skip_spaces(p);
     /* Workaround: TRIM$, REPLACE etc. may leave ')' unconsumed; consume before relational op */
