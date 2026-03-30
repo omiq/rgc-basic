@@ -6583,7 +6583,8 @@ static void statement_on(char **p)
         is_gosub = 1;
         *p += 5;
     } else {
-        runtime_error("ON must be followed by GOTO or GOSUB");
+        runtime_error_hint("ON must be followed by GOTO or GOSUB",
+                             "Use ON X GOTO 100,200,300 or ON X GOSUB 100,200,300");
         return;
     }
 
@@ -6595,7 +6596,8 @@ static void statement_on(char **p)
 
             skip_spaces(p);
             if (!isdigit((unsigned char)**p)) {
-                runtime_error("Expected line number in ON");
+                runtime_error_hint("Expected line number in ON",
+                                     "After GOTO/GOSUB list comma-separated line numbers only.");
                 return;
             }
             target = atoi(*p);
@@ -6615,7 +6617,8 @@ static void statement_on(char **p)
                 }
                 if (is_gosub) {
                     if (gosub_top >= MAX_GOSUB) {
-                        runtime_error("GOSUB stack overflow");
+                        runtime_error_hint("GOSUB stack overflow",
+                                             "Too many nested GOSUBs; RETURN before deeper GOSUB.");
                         return;
                     }
                     gosub_stack[gosub_top].line_index = current_line;
@@ -7568,7 +7571,8 @@ static void statement_gosub(char **p)
     int len;
 
     if (gosub_top >= MAX_GOSUB) {
-        runtime_error("GOSUB stack overflow");
+        runtime_error_hint("GOSUB stack overflow",
+                             "Too many nested GOSUBs without RETURN; reduce nesting.");
         return;
     }
     skip_spaces(p);
@@ -7790,7 +7794,7 @@ static void statement_if(char **p)
     /* Block mode: THEN at EOL or followed only by ':' then EOL */
     if (!*after_then || (*after_then == ':' && !after_then[1])) {
         if (if_depth >= MAX_IF_DEPTH) {
-            runtime_error("IF nesting too deep");
+            runtime_error_hint("IF nesting too deep", "Too many nested block IFs; simplify or split lines.");
             return;
         }
         if_stack[if_depth].took_then = cond_true ? 1 : 0;
@@ -7841,7 +7845,7 @@ static void statement_else(char **p)
 static void statement_end_if(char **p)
 {
     if (if_depth <= 0) {
-        runtime_error("END IF without matching IF");
+        runtime_error_hint("END IF without matching IF", "Each END IF closes a block IF above it.");
         return;
     }
     skip_spaces(p);
@@ -8091,16 +8095,18 @@ static void statement_for(char **p)
         return;
     }
     if (is_array) {
-        runtime_error("FOR variable must be scalar");
+        runtime_error_hint("FOR variable must be scalar",
+                             "Use a simple variable (e.g. I), not an array element.");
         return;
     }
     if (is_string) {
-        runtime_error("FOR variable must be numeric");
+        runtime_error_hint("FOR variable must be numeric",
+                             "FOR only works with numeric variables (not names ending in $).");
         return;
     }
     skip_spaces(p);
     if (**p != '=') {
-        runtime_error("Expected '=' in FOR");
+        runtime_error_hint("Expected '=' in FOR", "Use FOR I = 1 TO 10 ( = after the variable).");
         return;
     }
     (*p)++;
@@ -8108,7 +8114,7 @@ static void statement_for(char **p)
     ensure_num(&startv);
     skip_spaces(p);
     if (!starts_with_kw(*p, "TO")) {
-        runtime_error("Expected TO in FOR");
+        runtime_error_hint("Expected TO in FOR", "Use FOR var = start TO end [STEP n].");
         return;
     }
     *p += 2;
@@ -8223,7 +8229,8 @@ static void statement_next(char **p)
         }
     }
     if (i < 0) {
-        runtime_error("NEXT without FOR");
+        runtime_error_hint("NEXT without FOR",
+                             "Every NEXT needs a matching FOR above; NEXT I pairs with FOR I = …");
         return;
     }
     for_top = i + 1;
