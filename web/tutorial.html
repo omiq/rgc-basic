@@ -202,6 +202,7 @@
   </p>
   <p>
     Edit the program below and experiment — for example, add a second <code>PRINT</code> or change the message.
+    After you stop typing for about half a second, the run updates automatically (you can still use <strong>Run</strong> anytime).
   </p>
   <div id="tut-playground"></div>
 
@@ -333,7 +334,11 @@
       RgcBasicTutorialEmbed.mount(document.getElementById('tut-arrays'), { program: progs.arrays });
       RgcBasicTutorialEmbed.mount(document.getElementById('tut-functions'), { program: progs.functions });
       RgcBasicTutorialEmbed.mount(document.getElementById('tut-rem'), { program: progs.rem });
-      RgcBasicTutorialEmbed.mount(document.getElementById('tut-playground'), { program: progs.playground });
+      RgcBasicTutorialEmbed.mount(document.getElementById('tut-playground'), {
+        program: progs.playground,
+        runOnEdit: true,
+        runOnEditMs: 550
+      });
     })();
   </script>
 </body>
