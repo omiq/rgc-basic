@@ -54,6 +54,10 @@ typedef struct GfxVideoState {
     uint8_t screen_mode;                    /* GFX_SCREEN_TEXT or GFX_SCREEN_BITMAP */
 } GfxVideoState;
 
+/* Advance 60 Hz jiffy counter (TI / TI$); wraps every 24h like C64. */
+#define GFX_TICKS60_WRAP 5184000u
+void gfx_video_advance_ticks60(GfxVideoState *s, uint32_t delta_ticks);
+
 /* Initialise state to a clean default (all zeros). */
 void gfx_video_init(GfxVideoState *s);
 
