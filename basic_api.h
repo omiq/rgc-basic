@@ -60,6 +60,8 @@ void gfx_sprite_enqueue_visible(int slot, int on);
 void gfx_sprite_enqueue_draw(int slot, float x, float y, int z, int sx, int sy, int sw, int sh);
 int gfx_sprite_slot_width(int slot);
 int gfx_sprite_slot_height(int slot);
+/* Axis-aligned bounding box overlap of last DRAWSPRITE rects (basic-gfx / canvas). */
+int gfx_sprite_slots_overlap_aabb(int slot_a, int slot_b);
 #endif
 
 #endif /* BASIC_API_H */

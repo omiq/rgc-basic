@@ -193,6 +193,8 @@
    * @param {boolean} [opts.showEditor=true]
    * @param {boolean} [opts.showPauseStop=true]
    * @param {boolean} [opts.showVfsTools=true] - Upload/Download virtual FS (needs vfs-helpers.js beside basic-modular.js)
+   * @param {boolean} [opts.runOnEdit=false] - After edits, auto-run after a short debounce (handy for tutorials)
+   * @param {number} [opts.runOnEditMs=600] - Debounce delay for runOnEdit
    * @returns {Promise<{ run: function, resetOutput: function, destroy: function, getModule: function }>}
    */
   function mount(container, opts) {
@@ -207,6 +209,10 @@
     var showEditor = opts.showEditor !== false;
     var showPauseStop = opts.showPauseStop !== false;
     var showVfsTools = opts.showVfsTools !== false;
+    var runOnEdit = opts.runOnEdit === true;
+    var runOnEditMs =
+      typeof opts.runOnEditMs === 'number' && opts.runOnEditMs >= 0 ? opts.runOnEditMs : 600;
+    var runOnEditTimer = null;
 
     container.classList.add('rgc-tutorial-embed');
     container.innerHTML = '';
@@ -421,7 +427,7 @@
             }
           }
 
-          runBtn.onclick = function () {
+          function doRunFromEditor() {
             clearOutput();
             inputRow.style.display = 'none';
             inputLine.value = '';
@@ -457,7 +463,25 @@
                 resumeBtn.disabled = true;
                 stopBtn.disabled = true;
               });
+          }
+
+          runBtn.onclick = function () {
+            doRunFromEditor();
           };
+
+          if (runOnEdit && showEditor) {
+            ta.addEventListener('input', function () {
+              if (runOnEditTimer) {
+                clearTimeout(runOnEditTimer);
+              }
+              runOnEditTimer = setTimeout(function () {
+                runOnEditTimer = null;
+                if (!destroyed && moduleRef) {
+                  doRunFromEditor();
+                }
+              }, runOnEditMs);
+            });
+          }
 
           pauseBtn.onclick = function () {
             moduleRef.wasmPaused = 1;
@@ -516,6 +540,10 @@
           },
           destroy: function () {
             destroyed = true;
+            if (runOnEditTimer) {
+              clearTimeout(runOnEditTimer);
+              runOnEditTimer = null;
+            }
             if (vfsRemove) {
               try {
                 vfsRemove();

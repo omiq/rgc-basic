@@ -58,6 +58,8 @@ typedef struct {
     int sx, sy, sw, sh;
 } GfxSpriteDraw;
 
+static void gfx_sprite_process_queue(void);
+
 static pthread_mutex_t g_sprite_mutex = PTHREAD_MUTEX_INITIALIZER;
 static char g_sprite_base_dir[GFX_SPRITE_PATH_MAX];
 static GfxSpriteSlot g_sprite_slots[GFX_SPRITE_MAX_SLOTS];
@@ -193,6 +195,72 @@ int gfx_sprite_slot_height(int slot)
     }
     pthread_mutex_unlock(&g_sprite_mutex);
     return h;
+}
+
+int gfx_sprite_slots_overlap_aabb(int slot_a, int slot_b)
+{
+    float ax, ay, aw, ah, bx, by, bw, bh;
+    float ax2, ay2, bx2, by2;
+    GfxSpriteSlot *a;
+    GfxSpriteSlot *b;
+
+    gfx_sprite_process_queue();
+    if (slot_a < 0 || slot_a >= GFX_SPRITE_MAX_SLOTS ||
+        slot_b < 0 || slot_b >= GFX_SPRITE_MAX_SLOTS) {
+        return 0;
+    }
+    pthread_mutex_lock(&g_sprite_mutex);
+    a = &g_sprite_slots[slot_a];
+    b = &g_sprite_slots[slot_b];
+    if (!a->loaded || !a->visible || !a->draw_active ||
+        !b->loaded || !b->visible || !b->draw_active) {
+        pthread_mutex_unlock(&g_sprite_mutex);
+        return 0;
+    }
+    {
+        float swa, sha, swb, shb;
+        int twa, tha, twb, thb;
+        twa = a->tex.width;
+        tha = a->tex.height;
+        twb = b->tex.width;
+        thb = b->tex.height;
+        if (a->draw_sw <= 0 || a->draw_sh <= 0) {
+            swa = (float)(twa - a->draw_sx);
+            sha = (float)(tha - a->draw_sy);
+        } else {
+            swa = (float)a->draw_sw;
+            sha = (float)a->draw_sh;
+        }
+        if (b->draw_sw <= 0 || b->draw_sh <= 0) {
+            swb = (float)(twb - b->draw_sx);
+            shb = (float)(thb - b->draw_sy);
+        } else {
+            swb = (float)b->draw_sw;
+            shb = (float)b->draw_sh;
+        }
+        if (swa <= 0 || sha <= 0 || swb <= 0 || shb <= 0) {
+            pthread_mutex_unlock(&g_sprite_mutex);
+            return 0;
+        }
+        ax = a->draw_x;
+        ay = a->draw_y;
+        aw = swa;
+        ah = sha;
+        bx = b->draw_x;
+        by = b->draw_y;
+        bw = swb;
+        bh = shb;
+    }
+    pthread_mutex_unlock(&g_sprite_mutex);
+
+    ax2 = ax + aw;
+    ay2 = ay + ah;
+    bx2 = bx + bw;
+    by2 = by + bh;
+    if (ax2 <= bx || bx2 <= ax || ay2 <= by || by2 <= ay) {
+        return 0;
+    }
+    return 1;
 }
 
 static int cmp_sprite_draw_z(const void *a, const void *b)

@@ -110,6 +110,8 @@ Each embed gets its own **virtual filesystem** and **Asyncify** state; they do n
 | `vfsExportPath` | string | `'/out.txt'` | Default path in the download field |
 | `editorMinHeight` | string | `'120px'` | CSS min-height for textarea |
 | `outputMinHeight` | string | `'100px'` | CSS min-height for output panel |
+| `runOnEdit` | boolean | `false` | If true, re-run the program after a short pause whenever the editor text changes (debounced) |
+| `runOnEditMs` | number | `600` | Debounce delay in milliseconds for `runOnEdit` |
 
 ## Returned API (`Promise`)
 
