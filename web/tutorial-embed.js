@@ -195,6 +195,7 @@
    * @param {boolean} [opts.showVfsTools=true] - Upload/Download virtual FS (needs vfs-helpers.js beside basic-modular.js)
    * @param {boolean} [opts.runOnEdit=false] - After edits, auto-run after a short debounce (handy for tutorials)
    * @param {number} [opts.runOnEditMs=600] - Debounce delay for runOnEdit
+   * @param {boolean} [opts.scrollToError=true] - After a run, scroll the output into view if stderr reported an error
    * @returns {Promise<{ run: function, resetOutput: function, destroy: function, getModule: function }>}
    */
   function mount(container, opts) {
@@ -213,6 +214,7 @@
     var runOnEditMs =
       typeof opts.runOnEditMs === 'number' && opts.runOnEditMs >= 0 ? opts.runOnEditMs : 600;
     var runOnEditTimer = null;
+    var scrollToError = opts.scrollToError !== false;
 
     container.classList.add('rgc-tutorial-embed');
     container.innerHTML = '';
@@ -462,12 +464,28 @@
                 pauseBtn.disabled = true;
                 resumeBtn.disabled = true;
                 stopBtn.disabled = true;
+                if (scrollToError && out.dataset.error === '1') {
+                  try {
+                    out.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                  } catch (e) {
+                    out.scrollIntoView(true);
+                  }
+                }
               });
           }
 
           runBtn.onclick = function () {
             doRunFromEditor();
           };
+
+          if (showEditor) {
+            ta.addEventListener('keydown', function (ev) {
+              if ((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter') {
+                ev.preventDefault();
+                doRunFromEditor();
+              }
+            });
+          }
 
           if (runOnEdit && showEditor) {
             ta.addEventListener('input', function () {

@@ -112,6 +112,7 @@ Each embed gets its own **virtual filesystem** and **Asyncify** state; they do n
 | `outputMinHeight` | string | `'100px'` | CSS min-height for output panel |
 | `runOnEdit` | boolean | `false` | If true, re-run the program after a short pause whenever the editor text changes (debounced). **`web/tutorial.html`** enables this only on the final “playground” embed. |
 | `runOnEditMs` | number | `600` | Debounce delay in milliseconds for `runOnEdit` |
+| `scrollToError` | boolean | `true` | After a run finishes, scroll the output panel into view if stderr contained an error |
 
 ## Returned API (`Promise`)
 
