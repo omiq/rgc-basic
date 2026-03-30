@@ -83,3 +83,9 @@ web/basic-canvas.wasm.map
 web/basic-modular.js
 web/basic-modular.wasm
 web/basic-modular.wasm.map
+
+# WordPress plugin: copy from `web/` with wordpress/rgc-basic-tutorial-block/copy-web-assets.sh
+wordpress/rgc-basic-tutorial-block/assets/wasm/*
+wordpress/rgc-basic-tutorial-block/assets/js/*
+!wordpress/rgc-basic-tutorial-block/assets/wasm/.gitkeep
+!wordpress/rgc-basic-tutorial-block/assets/js/.gitkeep

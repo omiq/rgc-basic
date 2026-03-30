@@ -25,6 +25,8 @@ The browser build `make basic-wasm-canvas` targets the same **GfxVideoState** mo
 
 ## Differences / limits
 
+- **`PEEK(56320 + n)` keyboard matrix** (`GFX_KEY_BASE` = `0xDC00`): **basic-gfx** fills `key_state[]` every Raylib frame. **Canvas** now mirrors the same indices from **`canvas.html`** on `keydown` / `keyup` via **`wasm_gfx_key_state_set`** / **`wasm_gfx_key_state_clear`** (letters A–Z, digits, arrows, Escape, Space, Enter, Tab). Programs like **`examples/gfx_jiffy_game_demo.bas`** that poll **`PEEK(KEYBASE+87)`** (W) work when the canvas is focused. Keys are cleared at each **Run**.
+
 - **Performance**: software PNG decode and per-pixel composite on the main WASM thread; large sprites or many slots cost more than GPU textures in Raylib.
 - **Window title**: `#OPTION gfx_title` does not rename a browser tab (no change from before).
 - **Threading**: Raylib processes the sprite queue on the **main** thread while BASIC runs in a **worker** thread; WASM runs single-threaded but processes the queue whenever the framebuffer is refreshed or `SPRITEW`/`SPRITEH` runs, so loads complete before dimensions are read.

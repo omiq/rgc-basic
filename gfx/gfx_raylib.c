@@ -591,17 +591,6 @@ static void keyq_push(GfxVideoState *vs, uint8_t b)
     if (next == vs->key_q_head) {
         return;  /* full: drop */
     }
-    /* Debounce: suppress key-repeat for printable chars within ~80ms */
-    if (b >= 32 && b <= 126) {
-        static uint8_t last_b = 0;
-        static uint32_t last_tick = 0;
-        uint32_t t = vs->ticks60;
-        if (last_b == b && (t - last_tick) < 5) {
-            return;  /* same char too soon, skip */
-        }
-        last_b = b;
-        last_tick = t;
-    }
     vs->key_queue[vs->key_q_tail] = b;
     vs->key_q_tail = next;
 }
@@ -681,10 +670,7 @@ int main(int argc, char **argv)
             last_charset = vs.charset_lowercase;
         }
         /* 60 Hz jiffy clock (C64-style TI), wraps every 24 hours. */
-        vs.ticks60++;
-        if (vs.ticks60 >= 5184000u) {
-            vs.ticks60 = 0;
-        }
+        gfx_video_advance_ticks60(&vs, 1u);
 
         /* Update simple keyboard state map (ASCII-like indices) so BASIC can
          * poll via PEEK(GFX_KEY_BASE + code). */

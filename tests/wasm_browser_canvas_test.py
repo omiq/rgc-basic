@@ -188,6 +188,67 @@ def main() -> int:
                 browser.close()
                 raise RuntimeError(f"nested FOR failed or error: {log2!r}")
 
+            # TAB(n) must advance the canvas cursor (GFX), not only stdout — same cell as SPC.
+            page.wait_for_function(
+                "() => !document.getElementById('run').disabled",
+                timeout=60000,
+            )
+            page.fill(
+                "#program",
+                '10 PRINT "X";TAB(20);"Y"\n20 END\n',
+            )
+            _click_run(page)
+            page.wait_for_function(
+                "() => (window.Module && Module.wasmGfxRunDone === 1)",
+                timeout=60000,
+            )
+            log_tab = page.text_content("#log") or ""
+            if log_tab.strip():
+                browser.close()
+                raise RuntimeError(f"TAB test error log: {log_tab!r}")
+            sc_tab = page.evaluate(
+                """() => {
+                  const M = window.Module;
+                  if (!M || !M._wasm_gfx_screen_screencode_at) return null;
+                  return M.ccall('wasm_gfx_screen_screencode_at', 'number', ['number','number'], [20, 0]);
+                }"""
+            )
+            page.wait_for_function(
+                "() => !document.getElementById('run').disabled",
+                timeout=60000,
+            )
+            page.fill(
+                "#program",
+                '10 PRINT "X";SPC(19);"Y"\n20 END\n',
+            )
+            _click_run(page)
+            page.wait_for_function(
+                "() => (window.Module && Module.wasmGfxRunDone === 1)",
+                timeout=60000,
+            )
+            log_spc = page.text_content("#log") or ""
+            if log_spc.strip():
+                browser.close()
+                raise RuntimeError(f"SPC compare error log: {log_spc!r}")
+            sc_spc = page.evaluate(
+                """() => {
+                  const M = window.Module;
+                  if (!M || !M._wasm_gfx_screen_screencode_at) return null;
+                  return M.ccall('wasm_gfx_screen_screencode_at', 'number', ['number','number'], [20, 0]);
+                }"""
+            )
+            if sc_tab is None or sc_spc is None:
+                browser.close()
+                raise RuntimeError("wasm_gfx_screen_screencode_at not available; rebuild canvas WASM")
+            if sc_tab != sc_spc or sc_tab < 0:
+                browser.close()
+                raise RuntimeError(
+                    f"TAB vs SPC screen mismatch at (20,0): TAB={sc_tab!r} SPC={sc_spc!r}"
+                )
+            if sc_tab == 32:
+                browser.close()
+                raise RuntimeError(f"TAB left space at (20,0) (expected Y glyph): {sc_tab!r}")
+
             # GET is non-blocking (empty if no key) like C64; empty-queue path must still
             # yield (emscripten_sleep(0)) or trek.bas-style tight GET polls freeze the tab.
             page.wait_for_function(
