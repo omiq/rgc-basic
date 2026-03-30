@@ -5392,7 +5392,7 @@ static struct value *get_var_reference(char **p, int *is_array_out, int *is_stri
 
     skip_spaces(p);
     if (!isalpha((unsigned char)**p)) {
-        runtime_error("Expected variable");
+        runtime_error_hint("Expected variable", "Assignment and LET need a variable name (e.g. X or A$).");
         return NULL;
     }
     read_identifier(p, namebuf, sizeof(namebuf));
@@ -5402,7 +5402,8 @@ static struct value *get_var_reference(char **p, int *is_array_out, int *is_stri
         name_out[VAR_NAME_MAX - 1] = '\0';
     }
     if (is_reserved_word(namebuf)) {
-        runtime_error("Reserved word cannot be used as variable");
+        runtime_error_hint("Reserved word cannot be used as variable",
+                           "Pick a different name; keywords like IF, FOR, PRINT are not variables.");
         return NULL;
     }
     if (is_string_out) {
@@ -5416,14 +5417,15 @@ static struct value *get_var_reference(char **p, int *is_array_out, int *is_stri
         (*p)++;
         for (;;) {
             if (dims >= MAX_DIMS) {
-                runtime_error("Too many subscripts");
+                runtime_error_hint("Too many subscripts",
+                                   "At most 3 indices per access (e.g. A(1,2,3)).");
                 return NULL;
             }
             idx_val = eval_expr(p);
             ensure_num(&idx_val);
             indices[dims] = (int)(idx_val.num + 0.00001);
             if (indices[dims] < 0) {
-                runtime_error("Negative array index");
+                runtime_error_hint("Negative array index", "Indices must be 0 or positive.");
                 return NULL;
             }
             dims++;
@@ -5435,7 +5437,7 @@ static struct value *get_var_reference(char **p, int *is_array_out, int *is_stri
             break;
         }
         if (**p != ')') {
-            runtime_error("Missing ')'");
+            runtime_error_hint("Missing ')'", "Close array subscripts: A(1) or M(1,2).");
             return NULL;
         }
         (*p)++;
@@ -5463,11 +5465,12 @@ static struct value *get_var_reference(char **p, int *is_array_out, int *is_stri
             }
         }
         if (dims == 0) {
-            runtime_error("Array subscript required");
+            runtime_error_hint("Array subscript required", "Use A(0) or A(I), not the bare array name.");
             return NULL;
         }
         if (dims > v->dims) {
-            runtime_error("Too many subscripts");
+            runtime_error_hint("Too many subscripts",
+                               "Fewer indices than dimensions in DIM (e.g. DIM A(9) needs one index).");
             return NULL;
         }
         /* For now we assume dimensions were fixed by DIM; no auto-resize for multi-dim. */
@@ -5476,14 +5479,16 @@ static struct value *get_var_reference(char **p, int *is_array_out, int *is_stri
         for (d = v->dims - 1; d >= 0; d--) {
             int idx = (d < dims) ? indices[d] : 0;
             if (idx < 0 || idx >= v->dim_sizes[d]) {
-                runtime_error("Subscript out of range");
+                runtime_error_hint("Subscript out of range",
+                                     "Index must be within DIM bounds (0 .. upper bound).");
                 return NULL;
             }
             flat_index += idx * stride;
             stride *= v->dim_sizes[d];
         }
         if (flat_index >= v->size) {
-            runtime_error("Subscript out of range");
+            runtime_error_hint("Subscript out of range",
+                                 "Index must be within DIM bounds (0 .. upper bound).");
             return NULL;
         }
         valp = &v->array[flat_index];
@@ -8086,7 +8091,7 @@ static void statement_for(char **p)
     }
 
     if (for_top >= MAX_FOR) {
-        runtime_error("FOR stack overflow");
+        runtime_error_hint("FOR stack overflow", "Too many nested FOR loops; reduce nesting.");
         return;
     }
     for_stack[for_top].end_value = endv.num;
@@ -8181,7 +8186,8 @@ static void statement_next(char **p)
     }
 #endif
     if (!vp) {
-        runtime_error("Loop variable missing");
+        runtime_error_hint("Loop variable missing",
+                           "FOR stack inconsistency; avoid GOTO into NEXT without a matching FOR.");
         return;
     }
     vp->num += for_stack[for_top - 1].step;
@@ -8226,14 +8232,16 @@ static void statement_dim(char **p)
         (*p)++;
         for (;;) {
             if (dims >= MAX_DIMS) {
-                runtime_error("Too many dimensions");
+                runtime_error_hint("Too many dimensions",
+                                   "At most 3 dimensions (e.g. DIM A(9,9,9)).");
                 return;
             }
             sizev = eval_expr(p);
             ensure_num(&sizev);
             dim_sizes[dims] = (int)sizev.num + 1;
             if (dim_sizes[dims] <= 0) {
-                runtime_error("Invalid array size");
+                runtime_error_hint("Invalid array size",
+                                   "Sizes are upper bounds (0-based); use a non-negative size in DIM.");
                 return;
             }
             dims++;
@@ -8245,7 +8253,7 @@ static void statement_dim(char **p)
             break;
         }
         if (**p != ')') {
-            runtime_error("Missing ')'");
+            runtime_error_hint("Missing ')'", "Close DIM subscripts: DIM A(10) or DIM M(2,3).");
             return;
         }
         (*p)++;
