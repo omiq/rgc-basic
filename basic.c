@@ -60,6 +60,8 @@
 /* Video state pointer; must precede __EMSCRIPTEN__ key helpers that reference gfx_vs. */
 static GfxVideoState *gfx_vs = NULL;
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+/* Canvas WASM: TI/TI$ from high-res clock (tight GOTO loops have no SLEEP). */
+static double wasm_gfx_ti_epoch_ms;
 /* Canvas WASM: trek.bas-style lines pack many ':' statements; yield inside long PRINT too. */
 static unsigned wasm_gfx_put_budget;
 /* Yield every few execute_statement calls — LET/GOTO/IF on one line skip gfx_put_byte. */
@@ -4637,6 +4639,17 @@ static struct value eval_function(const char *name, char **p)
             target += width;
         }
         cur = print_col;
+#ifdef GFX_VIDEO
+        /* Canvas/GFX: must move the framebuffer cursor (gfx_x), not only stdout. */
+        if (gfx_vs) {
+            if (target < cur) {
+                gfx_newline();
+                cur = 0;
+            }
+            print_spaces(target - cur);
+            return make_str("");
+        }
+#endif
         if (target < cur) {
             OUTC('\n');
             cur = 0;
@@ -5605,7 +5618,21 @@ static struct value eval_factor(char **p)
                 int is_str = (len > 0 && namebuf[len - 1] == '$');
 #ifdef GFX_VIDEO
                 if (gfx_vs) {
-                    uint32_t t = gfx_vs->ticks60;
+                    uint32_t t;
+#if defined(__EMSCRIPTEN__)
+                    /* Canvas WASM: no per-frame tick increment; use monotonic ms → 60 Hz jiffies. */
+                    {
+                        double now = emscripten_get_now();
+                        double elapsed_ms = now - wasm_gfx_ti_epoch_ms;
+                        if (elapsed_ms < 0.0) {
+                            elapsed_ms = 0.0;
+                        }
+                        t = (uint32_t)((elapsed_ms * 60.0 / 1000.0) + 0.5);
+                        t %= GFX_TICKS60_WRAP;
+                    }
+#else
+                    t = gfx_vs->ticks60;
+#endif
                     *p = q;
                     if (!is_str) {
                         return make_num((double)t);
@@ -5968,6 +5995,8 @@ static struct value eval_expr(char **p)
     return eval_bit_or(p);
 }
 
+static int eval_condition(char **p);
+
 /* Evaluate IF conditions with BASIC relational operators. */
 /* Evaluate a single relational comparison (no AND/OR). */
 static int eval_simple_condition(char **p)
@@ -5976,6 +6005,86 @@ static int eval_simple_condition(char **p)
     char op1, op2;
 
     skip_spaces(p);
+    /* Leading '(': either "(expr) relop rhs" e.g. (1+1)=2, or boolean group "(J=F OR ...)" */
+    if (**p == '(') {
+        char *after_open;
+        (*p)++;
+        after_open = *p;
+        left = eval_expr(p);
+        skip_spaces(p);
+        if (**p == ')') {
+            (*p)++;
+            skip_spaces(p);
+            op1 = **p;
+            op2 = *(*p + 1);
+            if (op1 == '<' || op1 == '>' || op1 == '=' ||
+                (op1 == '<' && op2 == '>') || (op1 == '<' && op2 == '=') || (op1 == '>' && op2 == '=')) {
+                if (op1 == '<' && op2 == '>') {
+                    *p += 2;
+                    right = eval_addsub(p);
+                    if (left.type == VAL_STR || right.type == VAL_STR) {
+                        ensure_str(&left);
+                        ensure_str(&right);
+                        return strcmp(left.str, right.str) != 0;
+                    }
+                    return left.num != right.num;
+                }
+                if (op1 == '<' && op2 == '=') {
+                    *p += 2;
+                    right = eval_addsub(p);
+                    ensure_num(&left);
+                    ensure_num(&right);
+                    return left.num <= right.num;
+                }
+                if (op1 == '>' && op2 == '=') {
+                    *p += 2;
+                    right = eval_addsub(p);
+                    ensure_num(&left);
+                    ensure_num(&right);
+                    return left.num >= right.num;
+                }
+                if (op1 == '<' || op1 == '>' || op1 == '=') {
+                    (*p)++;
+                    right = eval_addsub(p);
+                    if (left.type == VAL_STR || right.type == VAL_STR) {
+                        ensure_str(&left);
+                        ensure_str(&right);
+                        if (op1 == '<') {
+                            return strcmp(left.str, right.str) < 0;
+                        }
+                        if (op1 == '>') {
+                            return strcmp(left.str, right.str) > 0;
+                        }
+                        return strcmp(left.str, right.str) == 0;
+                    }
+                    if (op1 == '<') {
+                        return left.num < right.num;
+                    }
+                    if (op1 == '>') {
+                        return left.num > right.num;
+                    }
+                    return left.num == right.num;
+                }
+            }
+            if (left.type == VAL_STR) {
+                ensure_str(&left);
+                return strlen(left.str) > 0;
+            }
+            return left.num != 0.0;
+        }
+        /* No closing ')' yet after one expr — boolean group "(J=F OR ...)" */
+        *p = after_open;
+        {
+            int inner = eval_condition(p);
+            skip_spaces(p);
+            if (**p != ')') {
+                runtime_error("Missing ')'");
+                return 0;
+            }
+            (*p)++;
+            return inner;
+        }
+    }
     left = eval_expr(p);
     skip_spaces(p);
     /* Workaround: TRIM$, REPLACE etc. may leave ')' unconsumed; consume before relational op */
@@ -6277,20 +6386,17 @@ EMSCRIPTEN_KEEPALIVE int wasm_gfx_shadow_base(void)
 }
 #endif
 /* Read a line from gfx key queue; echo to screen; handle backspace (20).
- * Debounce: ignore same printable char within ~80ms (key-repeat suppression). */
+ * Do not debounce repeated printable bytes: OS key-repeat and fast typing
+ * (e.g. "LOOK", "book") must deliver every character. */
 static int gfx_read_line(char *buf, int size)
 {
     int len = 0;
     uint8_t b;
-    uint8_t last_printable = 0;
-    uint32_t last_tick = 0;
     buf[0] = '\0';
     if (size <= 0) return 0;
     while (len < size - 1) {
         if (gfx_keyq_pop(&b)) {
 #if defined(__EMSCRIPTEN__)
-            /* Pop path used to `continue` without emscripten_sleep (debounce, etc.),
-             * so key-repeat could spin forever and freeze the tab. */
             emscripten_sleep(0);
 #endif
             if (b == 13 || b == 10) {
@@ -6304,16 +6410,9 @@ static int gfx_read_line(char *buf, int size)
                     buf[len] = '\0';
                     gfx_put_byte((unsigned char)b);
                 }
-                last_printable = 0;
                 continue;
             }
             if (b >= 32 && b <= 126) {
-                if (gfx_vs && last_printable == b && (gfx_vs->ticks60 - last_tick) < 5) {
-                    /* Debounce: same char within ~80ms, skip (key repeat) */
-                    continue;
-                }
-                last_printable = b;
-                last_tick = gfx_vs ? gfx_vs->ticks60 : 0;
                 buf[len++] = (char)b;
                 buf[len] = '\0';
                 gfx_put_byte((unsigned char)b);
@@ -9400,8 +9499,45 @@ EMSCRIPTEN_KEEPALIVE uint32_t wasm_gfx_rgba_version_read(void)
     return wasm_gfx_rgba_version;
 }
 
+/* Test hook: screen RAM screencode at text column / row (for canvas WASM TAB, etc.). */
+EMSCRIPTEN_KEEPALIVE int wasm_gfx_screen_screencode_at(int col, int row)
+{
+    int c;
+    int idx;
+    if (!gfx_vs) {
+        return -1;
+    }
+    c = gfx_cols();
+    if (col < 0 || row < 0 || col >= c || row >= GFX_ROWS) {
+        return -1;
+    }
+    idx = row * c + col;
+    if (idx < 0 || idx >= (int)GFX_TEXT_SIZE) {
+        return -1;
+    }
+    return (int)gfx_vs->screen[idx];
+}
+
+/* Browser: mirror Raylib key_state[] so PEEK(GFX_KEY_BASE + code) works (e.g. gfx_jiffy_game_demo.bas). */
+EMSCRIPTEN_KEEPALIVE void wasm_gfx_key_state_set(unsigned int offset, unsigned int down)
+{
+    if (!gfx_vs || offset >= GFX_KEY_SIZE) {
+        return;
+    }
+    gfx_vs->key_state[offset] = down ? (uint8_t)1 : (uint8_t)0;
+}
+
+EMSCRIPTEN_KEEPALIVE void wasm_gfx_key_state_clear(void)
+{
+    if (!gfx_vs) {
+        return;
+    }
+    gfx_video_clear_keys(gfx_vs);
+}
+
 static void wasm_gfx_set_video(void)
 {
+    wasm_gfx_ti_epoch_ms = emscripten_get_now();
     gfx_sprite_shutdown();
     gfx_video_init(&wasm_gfx_state);
     wasm_gfx_state.charset_lowercase = (uint8_t)(petscii_get_lowercase() ? 1 : 0);

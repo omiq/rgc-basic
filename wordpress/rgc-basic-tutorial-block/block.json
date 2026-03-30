@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "rgc-basic/tutorial-embed",
+  "title": "RGC-BASIC embed",
+  "category": "widgets",
+  "icon": "editor-code",
+  "description": "Interactive RGC-BASIC interpreter (browser WASM). Host basic-modular.js and basic-modular.wasm on HTTPS.",
+  "keywords": ["basic", "code", "tutorial", "rgc-basic"],
+  "textdomain": "rgc-basic-tutorial-block",
+  "supports": {
+    "html": false,
+    "align": true
+  },
+  "editorScript": "rgc-basic-tutorial-block-editor",
+  "attributes": {
+    "program": {
+      "type": "string",
+      "default": "10 PRINT \"HELLO\"\n20 END\n"
+    },
+    "showEditor": {
+      "type": "boolean",
+      "default": true
+    },
+    "showPauseStop": {
+      "type": "boolean",
+      "default": true
+    },
+    "showVfsTools": {
+      "type": "boolean",
+      "default": true
+    },
+    "editorMinHeight": {
+      "type": "string",
+      "default": "120px"
+    },
+    "outputMinHeight": {
+      "type": "string",
+      "default": "100px"
+    }
+  }
+}
