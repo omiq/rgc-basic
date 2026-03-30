@@ -452,6 +452,8 @@ The `examples` folder (included in release archives) contains:
 
 This README describes the current feature set of the interpreter as implemented in `basic.c` and is subject to change without notice.
 
+**Future / tooling (not implemented):** a possible **BASIC → C** transpiler for **cc65** / **z88dk** is outlined in [`docs/basic-to-c-transpiler-plan.md`](docs/basic-to-c-transpiler-plan.md), including which language features should be **excluded** from a first version.
+
 ---
 
 ## 🛠️ Building from Source

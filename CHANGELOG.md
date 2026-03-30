@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **Documentation**: **`docs/basic-to-c-transpiler-plan.md`** — design notes for a future **BASIC → C** backend (**cc65** / **z88dk**), recommended subset, and **explicit exclusions** (host I/O, `EVAL`, graphics, etc.).
+
 - **IF conditions with parentheses**: **`IF (J=F OR A$=" ") AND SF=0 THEN`** failed with **Missing THEN** because **`eval_simple_condition`** used **`eval_expr`** inside **`(`**, which does not parse relational **`=`**. Leading **`(`** now distinguishes **`(expr) relop rhs`** (e.g. **`(1+1)=2`**) from boolean groups **`(… OR …)`** via **`eval_condition`**. Regression: **`tests/if_paren_condition_test.bas`**.
 
 - **Canvas WASM `PEEK(56320+n)` keyboard**: **`key_state[]`** was never updated in the browser (only **basic-gfx** / Raylib did). **`canvas.html`** now drives **`wasm_gfx_key_state_set`** / **`wasm_gfx_key_state_clear`** on key up/down (A–Z, 0–9, arrows, Escape, Space, Enter, Tab) so **`examples/gfx_jiffy_game_demo.bas`**-style **`PEEK(KEYBASE+…)`** works.
