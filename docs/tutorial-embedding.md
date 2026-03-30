@@ -114,6 +114,8 @@ Each embed gets its own **virtual filesystem** and **Asyncify** state; they do n
 | `runOnEditMs` | number | `600` | Debounce delay in milliseconds for `runOnEdit` |
 | `scrollToError` | boolean | `true` | After a run finishes, scroll the output panel into view if stderr contained an error |
 
+**Keyboard:** **Ctrl+Enter** / **Cmd+Enter** in the program textarea runs the program (same as **Run**). Documented on **`web/tutorial.html`** for the playground embed.
+
 ## Returned API (`Promise`)
 
 `mount` resolves to an object:
