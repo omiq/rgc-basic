@@ -6471,7 +6471,8 @@ static void statement_input(char **p)
             break;
         }
         if (!isalpha((unsigned char)**p)) {
-            runtime_error("Expected variable in INPUT");
+            runtime_error_hint("Expected variable in INPUT",
+                                 "List variables after an optional prompt: INPUT A or INPUT \"Name\"; A$");
             return;
         }
         vp = get_var_reference(p, &is_array, &is_string, NULL);
@@ -6490,7 +6491,8 @@ static void statement_input(char **p)
                 if (halted) {
                     runtime_error("Stopped");
                 } else {
-                    runtime_error("Unexpected end of input");
+                    runtime_error_hint("Unexpected end of input",
+                                         "No line received; use the INPUT field in the browser, or Run again.");
                 }
                 return;
             }
@@ -6519,7 +6521,8 @@ static void statement_input(char **p)
             printf("? ");
             fflush(stdout);
             if (!fgets(linebuf, sizeof(linebuf), stdin)) {
-                runtime_error("Unexpected end of input");
+                runtime_error_hint("Unexpected end of input",
+                                   "stdin ended (EOF); pipe a file or type a line at the prompt.");
                 return;
             }
             trim_newline(linebuf);
@@ -7716,7 +7719,7 @@ static void skip_while_to_wend(char **p)
         line++;
         pos = NULL;
     }
-    runtime_error("WEND expected");
+    runtime_error_hint("WEND expected", "WHILE … WEND blocks must close with WEND; check nesting.");
 }
 
 static void statement_if(char **p)
@@ -7878,7 +7881,7 @@ static void statement_while(char **p, char *while_pos)
         return;
     }
     if (while_top >= MAX_WHILE_DEPTH) {
-        runtime_error("WHILE nesting too deep");
+        runtime_error_hint("WHILE nesting too deep", "Reduce nested WHILE/WEND blocks.");
         return;
     }
     while_stack[while_top].line_index = current_line;
@@ -7889,7 +7892,7 @@ static void statement_while(char **p, char *while_pos)
 static void statement_wend(char **p)
 {
     if (while_top <= 0) {
-        runtime_error("WEND without WHILE");
+        runtime_error_hint("WEND without WHILE", "Every WEND needs a matching WHILE above it.");
         return;
     }
     *p += 4;
@@ -7960,14 +7963,14 @@ static void skip_do_to_after_loop(char **p)
         line++;
         pos = NULL;
     }
-    runtime_error("LOOP expected");
+    runtime_error_hint("LOOP expected", "DO … LOOP needs a matching LOOP (check nested DO/LOOP pairs).");
 }
 
 static void statement_do(char **p)
 {
     skip_spaces(p);
     if (do_top >= MAX_DO_DEPTH) {
-        runtime_error("DO nesting too deep");
+        runtime_error_hint("DO nesting too deep", "Reduce nested DO/LOOP blocks.");
         return;
     }
     do_stack[do_top].line_index = current_line;
@@ -7981,7 +7984,7 @@ static void statement_loop(char **p)
     int has_until = 0;
 
     if (do_top <= 0) {
-        runtime_error("LOOP without DO");
+        runtime_error_hint("LOOP without DO", "LOOP must follow DO on an outer block.");
         return;
     }
     skip_spaces(p);
@@ -8017,7 +8020,7 @@ static void statement_loop(char **p)
 static void statement_exit_do(char **p)
 {
     if (do_top <= 0) {
-        runtime_error("EXIT without DO");
+        runtime_error_hint("EXIT without DO", "EXIT only exits the innermost DO … LOOP.");
         return;
     }
     do_top--;
