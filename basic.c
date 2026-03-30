@@ -2247,7 +2247,7 @@ static char *dupstr_local(const char *s)
     len = strlen(s) + 1;
     p = (char *)malloc(len);
     if (!p) {
-        runtime_error("Out of memory");
+        runtime_error_hint("Out of memory", "The interpreter could not allocate memory; try a smaller program or restart.");
         return NULL;
     }
     memcpy(p, s, len);
@@ -2386,7 +2386,7 @@ static void statement_def(char **p)
 
     skip_spaces(p);
     if (!isalpha((unsigned char)**p)) {
-        runtime_error("Expected function name after DEF");
+        runtime_error_hint("Expected function name after DEF", "Use DEF FNname(x) = expression — the name must start with FN.");
         return;
     }
     /* Read function name (e.g. FNY) and uppercase it */
@@ -2397,19 +2397,19 @@ static void statement_def(char **p)
 
     /* Require that the function name begins with FN, per classic BASIC. */
     if (!(namebuf[0] == 'F' && namebuf[1] == 'N')) {
-        runtime_error("Function name must start with FN");
+        runtime_error_hint("Function name must start with FN", "Classic BASIC uses names like FNY for DEF FNY(X) = X+1.");
         return;
     }
 
     skip_spaces(p);
     if (**p != '(') {
-        runtime_error("DEF FN requires parameter list");
+        runtime_error_hint("DEF FN requires parameter list", "Add parentheses: DEF FNY(X) = X * 2");
         return;
     }
     (*p)++;
     skip_spaces(p);
     if (!isalpha((unsigned char)**p)) {
-        runtime_error("Expected parameter name");
+        runtime_error_hint("Expected parameter name", "Put one variable inside the parentheses, e.g. DEF FNY(X) = X+1 or FNA$(S$).");
         return;
     }
     read_identifier(p, param_buf, sizeof(param_buf));
@@ -2418,13 +2418,13 @@ static void statement_def(char **p)
     }
     skip_spaces(p);
     if (**p != ')') {
-        runtime_error("Missing ')' in DEF FN");
+        runtime_error_hint("Missing ')' in DEF FN", "Close the parameter list before '=' : DEF FNY(X) = …");
         return;
     }
     (*p)++;
     skip_spaces(p);
     if (**p != '=') {
-        runtime_error("DEF FN missing '='");
+        runtime_error_hint("DEF FN missing '='", "After the closing ')' use '=' then the expression: DEF FNY(X) = X+1");
         return;
     }
     (*p)++;
@@ -2433,7 +2433,7 @@ static void statement_def(char **p)
         body_start++;
     }
     if (*body_start == '\0') {
-        runtime_error("Empty function body in DEF FN");
+        runtime_error_hint("Empty function body in DEF FN", "Write an expression after '=' on the same line.");
         return;
     }
 
@@ -2441,7 +2441,7 @@ static void statement_def(char **p)
     idx = user_func_lookup(namebuf);
     if (idx < 0) {
         if (user_func_count >= MAX_USER_FUNCS) {
-            runtime_error("Function table full");
+            runtime_error_hint("Function table full", "Too many DEF FN definitions; remove unused functions or split the program.");
             return;
         }
         idx = user_func_count++;
@@ -2613,6 +2613,7 @@ static void build_label_table(void)
             for (k = 0; k < (size_t)label_count; k++) {
                 if (strcmp(label_table[k].name, tmp) == 0) {
                     fprintf(stderr, "Duplicate label '%.*s' in program\n", (int)len, p);
+                    fprintf(stderr, "  Hint: Rename one label or remove the duplicate @name: definition.\n");
                     exit(1);
                 }
             }
@@ -2803,6 +2804,7 @@ static void build_udf_table(void)
                     }
                 }
                 fprintf(stderr, "FUNCTION %s: END FUNCTION not found\n", namebuf);
+                fprintf(stderr, "  Hint: Add END FUNCTION after the function body, before the next top-level line.\n");
 next_statement:
                 { char *n = strchr(p, ':'); p = n ? n + 1 : p + strlen(p); }
                 continue;
@@ -3275,7 +3277,7 @@ static void statement_sleep(char **p)
         if (**p == ')') {
             (*p)++;
         } else {
-            runtime_error("Missing ')'");
+            runtime_error_hint("Missing ')'", "Close SLEEP(n) with a right parenthesis.");
             return;
         }
     } else {
@@ -3310,7 +3312,7 @@ static void statement_cursor(char **p)
         OUTFLUSH();
         return;
     }
-    runtime_error("CURSOR expects ON or OFF");
+    runtime_error_hint("CURSOR expects ON or OFF", "Use CURSOR ON to show the cursor or CURSOR OFF to hide it.");
 }
 
 static void statement_color(char **p)
@@ -3323,7 +3325,7 @@ static void statement_color(char **p)
     ensure_num(&v);
     idx = (int)v.num;
     if (idx < 0 || idx > 15) {
-        runtime_error("COLOR index must be 0-15");
+        runtime_error_hint("COLOR index must be 0-15", "Foreground colours use indices 0-15 (C64-style palette).");
         return;
     }
 
@@ -3412,7 +3414,8 @@ static void statement_pset(char **p, int preset)
 #ifndef GFX_VIDEO
     (void)p;
     (void)preset;
-    runtime_error("PSET/PRESET is only available in basic-gfx");
+    runtime_error_hint("PSET/PRESET is only available in basic-gfx",
+                         "Bitmap pixels need basic-gfx or canvas WASM with SCREEN 1.");
 #else
     struct value vx, vy;
     int xi, yi;
@@ -3430,7 +3433,8 @@ static void statement_pset(char **p, int preset)
     vy = eval_expr(p);
     ensure_num(&vy);
     if (!gfx_vs) {
-        runtime_error("PSET/PRESET is only available in basic-gfx");
+        runtime_error_hint("PSET/PRESET is only available in basic-gfx",
+                             "Start a graphics session (basic-gfx or canvas) before drawing pixels.");
         return;
     }
     xi = (int)vx.num;
@@ -3659,7 +3663,8 @@ static void statement_drawsprite(char **p)
                 sw = (int)v.num;
                 skip_spaces(p);
                 if (**p != ',') {
-                    runtime_error("DRAWSPRITE: sw,sh need both");
+                    runtime_error_hint("DRAWSPRITE: sw,sh need both",
+                                         "If you give sw you must also give sh (destination width and height).");
                     return;
                 }
                 (*p)++;
@@ -3720,7 +3725,8 @@ static void statement_unloadsprite(char **p)
         return;
     }
 #endif
-    runtime_error("UNLOADSPRITE requires basic-gfx");
+    runtime_error_hint("UNLOADSPRITE requires basic-gfx",
+                         "Sprite slots exist only in basic-gfx or canvas WASM.");
 }
 
 /* GET statement: GET A$ reads a single character into a string variable.
@@ -4164,14 +4170,14 @@ static struct value eval_function(const char *name, char **p)
     code = function_lookup(tmp, len);
     skip_spaces(p);
     if (**p != '(') {
-        runtime_error("Function requires '('");
+        runtime_error_hint("Function requires '('", "Intrinsic functions need parentheses: SIN(X), MID$(A$,1,1).");
         return make_num(0.0);
     }
     (*p)++;
     skip_spaces(p);
     if (code == FN_ARGC) {
         if (**p != ')') {
-            runtime_error("ARGC takes no arguments");
+            runtime_error_hint("ARGC takes no arguments", "Use ARGC() with empty parentheses.");
             return make_num(0.0);
         }
         (*p)++;
@@ -4180,7 +4186,7 @@ static struct value eval_function(const char *name, char **p)
     }
     if (code == FN_INKEY) {
         if (**p != ')') {
-            runtime_error("INKEY$ takes no arguments");
+            runtime_error_hint("INKEY$ takes no arguments", "Use INKEY$() with empty parentheses.");
             return make_str("");
         }
         (*p)++;
@@ -4228,7 +4234,8 @@ static struct value eval_function(const char *name, char **p)
         (void)va;
         skip_spaces(p);
         if (**p != ',') {
-            runtime_error("SPRITECOLLIDE expects slot_a, slot_b");
+            runtime_error_hint("SPRITECOLLIDE expects slot_a, slot_b",
+                                 "Use SPRITECOLLIDE(a, b) with two sprite slot numbers.");
             return make_num(0.0);
         }
         (*p)++;
@@ -4237,12 +4244,13 @@ static struct value eval_function(const char *name, char **p)
         (void)vb;
         skip_spaces(p);
         if (**p != ')') {
-            runtime_error("Missing ')'");
+            runtime_error_hint("Missing ')'", "Close SPRITECOLLIDE(slot_a, slot_b) with ')'.");
             return make_num(0.0);
         }
         (*p)++;
         skip_spaces(p);
-        runtime_error("SPRITECOLLIDE requires basic-gfx or canvas WASM");
+        runtime_error_hint("SPRITECOLLIDE requires basic-gfx or canvas WASM",
+                             "Sprite collision needs a graphics build with LOADSPRITE/DRAWSPRITE.");
         return make_num(0.0);
     }
 #endif
@@ -4256,7 +4264,7 @@ static struct value eval_function(const char *name, char **p)
         slot = (int)vs.num;
         skip_spaces(p);
         if (**p != ')') {
-            runtime_error("Missing ')'");
+            runtime_error_hint("Missing ')'", "SPRITEW/SPRITEH take one slot: SPRITEW(n).");
             return make_num(0.0);
         }
         (*p)++;
@@ -4275,7 +4283,8 @@ static struct value eval_function(const char *name, char **p)
         ensure_num(&va);
         skip_spaces(p);
         if (**p != ',') {
-            runtime_error("SPRITECOLLIDE expects slot_a, slot_b");
+            runtime_error_hint("SPRITECOLLIDE expects slot_a, slot_b",
+                                 "Use SPRITECOLLIDE(a, b) with two sprite slot numbers.");
             return make_num(0.0);
         }
         (*p)++;
@@ -4284,7 +4293,7 @@ static struct value eval_function(const char *name, char **p)
         ensure_num(&vb);
         skip_spaces(p);
         if (**p != ')') {
-            runtime_error("Missing ')'");
+            runtime_error_hint("Missing ')'", "Close SPRITECOLLIDE(slot_a, slot_b) with ')'.");
             return make_num(0.0);
         }
         (*p)++;
@@ -4300,7 +4309,7 @@ static struct value eval_function(const char *name, char **p)
 #endif
     if (code == FN_PLATFORM) {
         if (**p != ')') {
-            runtime_error("PLATFORM$ takes no arguments");
+            runtime_error_hint("PLATFORM$ takes no arguments", "Use PLATFORM$() with empty parentheses.");
             return make_str("");
         }
         (*p)++;
@@ -4339,7 +4348,8 @@ static struct value eval_function(const char *name, char **p)
         int i;
 
         if (!isalpha((unsigned char)**p)) {
-            runtime_error("INDEXOF/LASTINDEXOF requires array name");
+            runtime_error_hint("INDEXOF/LASTINDEXOF requires array name",
+                                 "First argument is the array: INDEXOF(A, value) or INDEXOF(A$, item$).");
             return make_num(0.0);
         }
         read_identifier(p, namebuf, sizeof(namebuf));
@@ -4351,16 +4361,19 @@ static struct value eval_function(const char *name, char **p)
             }
         }
         if (!arr_var || !arr_var->is_array || !arr_var->array || arr_var->size <= 0) {
-            runtime_error("INDEXOF/LASTINDEXOF requires 1-D array");
+            runtime_error_hint("INDEXOF/LASTINDEXOF requires 1-D array",
+                                 "DIM a one-dimensional array first, then search it.");
             return make_num(0.0);
         }
         if (arr_var->dims != 1) {
-            runtime_error("INDEXOF/LASTINDEXOF requires 1-D array");
+            runtime_error_hint("INDEXOF/LASTINDEXOF requires 1-D array",
+                                 "Multi-dimensional arrays are not supported here; use a 1-D list.");
             return make_num(0.0);
         }
         skip_spaces(p);
         if (**p != ',') {
-            runtime_error("INDEXOF/LASTINDEXOF requires 2 arguments");
+            runtime_error_hint("INDEXOF/LASTINDEXOF requires 2 arguments",
+                                 "Use INDEXOF(arr, value) — comma between array name and search value.");
             return make_num(0.0);
         }
         (*p)++;
@@ -4417,7 +4430,7 @@ static struct value eval_function(const char *name, char **p)
         if (**p == ')') {
             (*p)++;
         } else {
-            runtime_error("Missing ')'");
+            runtime_error_hint("Missing ')'", "Close the function call with ')'.");
             return make_num(0.0);
         }
         skip_spaces(p);
@@ -4702,7 +4715,8 @@ static struct value eval_function(const char *name, char **p)
         ensure_str(&src);
         skip_spaces(p);
         if (**p != ',') {
-            runtime_error("MID requires at least 2 arguments");
+            runtime_error_hint("MID requires at least 2 arguments",
+                                 "Use MID$(s$, start [, length]) — at least source and start position.");
             return make_str("");
         }
         (*p)++;
@@ -4720,7 +4734,7 @@ static struct value eval_function(const char *name, char **p)
         if (**p == ')') {
             (*p)++;
         } else {
-            runtime_error("Missing ')'");
+            runtime_error_hint("Missing ')'", "Close MID$(...) with ')'.");
         }
 
         /* BASIC is 1-based for MID$, and negative/zero starts are treated as 1. */
@@ -4769,7 +4783,7 @@ static struct value eval_function(const char *name, char **p)
         ensure_str(&src);
         skip_spaces(p);
         if (**p != ',') {
-            runtime_error("LEFT requires 2 arguments");
+            runtime_error_hint("LEFT requires 2 arguments", "Use LEFT$(s$, n) — string and character count.");
             return make_str("");
         }
         (*p)++;
@@ -4779,7 +4793,7 @@ static struct value eval_function(const char *name, char **p)
         if (**p == ')') {
             (*p)++;
         } else {
-            runtime_error("Missing ')'");
+            runtime_error_hint("Missing ')'", "Close LEFT$(...) with ')'.");
         }
 
         sub_len = (int)v_len.num;
@@ -4820,7 +4834,7 @@ static struct value eval_function(const char *name, char **p)
         ensure_str(&src);
         skip_spaces(p);
         if (**p != ',') {
-            runtime_error("RIGHT requires 2 arguments");
+            runtime_error_hint("RIGHT requires 2 arguments", "Use RIGHT$(s$, n) — string and character count.");
             return make_str("");
         }
         (*p)++;
@@ -4830,7 +4844,7 @@ static struct value eval_function(const char *name, char **p)
         if (**p == ')') {
             (*p)++;
         } else {
-            runtime_error("Missing ')'");
+            runtime_error_hint("Missing ')'", "Close RIGHT$(...) with ')'.");
         }
 
         sub_len = (int)v_len.num;
@@ -4877,7 +4891,8 @@ static struct value eval_function(const char *name, char **p)
         ensure_str(&v_source);
         skip_spaces(p);
         if (**p != ',') {
-            runtime_error("INSTR requires at least 2 arguments");
+            runtime_error_hint("INSTR requires at least 2 arguments",
+                                 "Use INSTR(haystack$, needle$) or INSTR(haystack$, needle$, start).");
             return make_num(0.0);
         }
         (*p)++;
@@ -4898,7 +4913,7 @@ static struct value eval_function(const char *name, char **p)
         if (**p == ')') {
             (*p)++;
         } else {
-            runtime_error("Missing ')'");
+            runtime_error_hint("Missing ')'", "Close INSTR(...) with ')'.");
             return make_num(0.0);
         }
 
@@ -4938,7 +4953,8 @@ static struct value eval_function(const char *name, char **p)
         ensure_str(&v_str);
         skip_spaces(p);
         if (**p != ',') {
-            runtime_error("REPLACE requires 3 arguments");
+            runtime_error_hint("REPLACE requires 3 arguments",
+                                 "Use REPLACE(s$, find$, repl$) with commas between all three strings.");
             return make_str("");
         }
         (*p)++;
@@ -4947,7 +4963,8 @@ static struct value eval_function(const char *name, char **p)
         ensure_str(&v_find);
         skip_spaces(p);
         if (**p != ',') {
-            runtime_error("REPLACE requires 3 arguments");
+            runtime_error_hint("REPLACE requires 3 arguments",
+                                 "Use REPLACE(s$, find$, repl$) with commas between all three strings.");
             return make_str("");
         }
         (*p)++;
@@ -4956,7 +4973,7 @@ static struct value eval_function(const char *name, char **p)
         ensure_str(&v_repl);
         skip_spaces(p);
         if (**p != ')') {
-            runtime_error("Missing ')'");
+            runtime_error_hint("Missing ')'", "Close REPLACE(...) with ')'.");
             return make_str("");
         }
         (*p)++;
@@ -5049,7 +5066,8 @@ static struct value eval_function(const char *name, char **p)
         ensure_num(&v_count);
         skip_spaces(p);
         if (**p != ',') {
-            runtime_error("STRING$ requires 2 arguments");
+            runtime_error_hint("STRING$ requires 2 arguments",
+                                 "Use STRING$(n, \"x\") or STRING$(n, code) — count and character.");
             return make_str("");
         }
         (*p)++;
@@ -5058,7 +5076,7 @@ static struct value eval_function(const char *name, char **p)
         if (**p == ')') {
             (*p)++;
         } else {
-            runtime_error("Missing ')'");
+            runtime_error_hint("Missing ')'", "Close STRING$(...) with ')'.");
             return make_str("");
         }
 
@@ -5161,7 +5179,8 @@ static struct value eval_function(const char *name, char **p)
         struct value result;
         ensure_str(&arg);
         if (strlen(arg.str) >= MAX_STR_LEN - 1) {
-            runtime_error("EVAL: expression too long");
+            runtime_error_hint("EVAL: expression too long",
+                                 "Shorten the string passed to EVAL(...); it must fit in one line buffer.");
             return make_num(0.0);
         }
         {
@@ -5212,7 +5231,8 @@ static struct value eval_function(const char *name, char **p)
         ensure_str(&v_json);
         skip_spaces(p);
         if (**p != ',') {
-            runtime_error("JSON$ requires 2 arguments");
+            runtime_error_hint("JSON$ requires 2 arguments",
+                                 "Use JSON$(json$, \"/path/to/key\") — JSON text and a path string.");
             return make_str("");
         }
         (*p)++;
@@ -5241,7 +5261,8 @@ static struct value eval_function(const char *name, char **p)
         ensure_str(&v_str);
         skip_spaces(p);
         if (**p != ',') {
-            runtime_error("FIELD$ requires 3 arguments");
+            runtime_error_hint("FIELD$ requires 3 arguments",
+                                 "Use FIELD$(line$, delim$, n) — string, delimiter, and 1-based field index.");
             return make_str("");
         }
         (*p)++;
@@ -5250,7 +5271,8 @@ static struct value eval_function(const char *name, char **p)
         ensure_str(&v_delim);
         skip_spaces(p);
         if (**p != ',') {
-            runtime_error("FIELD$ requires 3 arguments");
+            runtime_error_hint("FIELD$ requires 3 arguments",
+                                 "Use FIELD$(line$, delim$, n) — string, delimiter, and 1-based field index.");
             return make_str("");
         }
         (*p)++;
@@ -5333,7 +5355,8 @@ static struct var *find_or_create_var(const char *name, int is_string, int want_
                 v->size = total_size;
                 v->array = (struct value *)calloc(total_size, sizeof(struct value));
                 if (!v->array) {
-                    runtime_error("Out of memory");
+                    runtime_error_hint("Out of memory",
+                                         "Could not allocate array storage; reduce DIM sizes or free variables.");
                     return v;
                 }
             }
@@ -5341,7 +5364,8 @@ static struct var *find_or_create_var(const char *name, int is_string, int want_
         }
     }
     if (var_count >= MAX_VARS) {
-        runtime_error("Variable table full");
+        runtime_error_hint("Variable table full",
+                             "Too many distinct variables; reuse names or split into smaller programs.");
         return NULL;
     }
     idx = var_count++;
@@ -5371,7 +5395,8 @@ static struct var *find_or_create_var(const char *name, int is_string, int want_
     if (want_array) {
         v->array = (struct value *)calloc(total_size, sizeof(struct value));
         if (!v->array) {
-            runtime_error("Out of memory");
+            runtime_error_hint("Out of memory",
+                                 "Could not allocate array storage; reduce DIM sizes or free variables.");
         }
     }
     return v;
@@ -5477,7 +5502,8 @@ static struct value *get_var_reference(char **p, int *is_array_out, int *is_stri
             v->size = v->dim_sizes[0];
             v->array = (struct value *)calloc(v->size, sizeof(struct value));
             if (!v->array) {
-                runtime_error("Out of memory");
+                runtime_error_hint("Out of memory",
+                                     "Could not allocate implicit array storage; use DIM with explicit size.");
                 return NULL;
             }
         }
@@ -5559,7 +5585,8 @@ static struct value invoke_udf(int func_index, struct value *args, int nargs)
     int i;
 
     if (udf_call_depth >= MAX_UDF_DEPTH) {
-        runtime_error("FUNCTION nesting too deep");
+        runtime_error_hint("FUNCTION nesting too deep",
+                             "Too many nested FUNCTION calls; simplify recursion or split into smaller routines.");
         return make_num(0.0);
     }
     udf_call_stack[udf_call_depth].func_index = func_index;
@@ -5606,7 +5633,7 @@ static struct value eval_factor(char **p)
         if (**p == ')') {
             (*p)++;
         } else {
-            runtime_error("Missing ')'");
+            runtime_error_hint("Missing ')'", "Close the parenthesized expression with ')'.");
         }
         return v;
     }
@@ -5622,7 +5649,7 @@ static struct value eval_factor(char **p)
         if (**p == '\"') {
             (*p)++;
         } else {
-            runtime_error("Unterminated string");
+            runtime_error_hint("Unterminated string", "Add a closing double quote to end the string literal.");
         }
         return make_str(buf);
     }
@@ -5722,7 +5749,11 @@ static struct value eval_factor(char **p)
             skip_spaces(&q);
             if (*q == '(') {
                 struct value *args = (struct value *)calloc(MAX_UDF_PARAMS, sizeof(struct value));
-                if (!args) { runtime_error("Out of memory"); return make_num(0.0); }
+                if (!args) {
+                    runtime_error_hint("Out of memory",
+                                         "Could not allocate argument list for the call.");
+                    return make_num(0.0);
+                }
                 char *saved_p = *p;
                 *p = q + 1;
                 skip_spaces(p);
@@ -5731,7 +5762,8 @@ static struct value eval_factor(char **p)
                     for (;;) {
                         if (arg_count >= MAX_UDF_PARAMS) {
                             free(args);
-                            runtime_error("Too many arguments");
+                            runtime_error_hint("Too many arguments",
+                                                 "Reduce the number of arguments; split the call or use fewer parameters.");
                             return make_num(0.0);
                         }
                         args[arg_count] = eval_expr(p);
@@ -5740,7 +5772,8 @@ static struct value eval_factor(char **p)
                         if (**p == ')') break;
                         if (**p != ',') {
                             free(args);
-                            runtime_error("Expected ',' or ')'");
+                            runtime_error_hint("Expected ',' or ')'",
+                                                 "Separate arguments with commas: FOO(1, 2, 3).");
                             return make_num(0.0);
                         }
                         (*p)++;
@@ -5810,7 +5843,8 @@ static struct value eval_factor(char **p)
     if (parse_number_literal(p, &num)) {
         return make_num(num);
     }
-    runtime_error("Syntax error in expression");
+    runtime_error_hint("Syntax error in expression",
+                         "Expected a number, string, variable, or function call; check operators and parentheses.");
     return make_num(0.0);
 }
 
@@ -6103,7 +6137,7 @@ static int eval_simple_condition(char **p)
             int inner = eval_condition(p);
             skip_spaces(p);
             if (**p != ')') {
-                runtime_error("Missing ')'");
+                runtime_error_hint("Missing ')'", "Close a parenthesized IF condition with ')'.");
                 return 0;
             }
             (*p)++;
@@ -6509,7 +6543,7 @@ static void statement_input(char **p)
             if (!gfx_read_line(linebuf, (int)sizeof(linebuf))) {
                 /* Watchdog / Stop sets wasmStopRequested → halted; not stdin EOF. */
                 if (halted) {
-                    runtime_error("Stopped");
+                    runtime_error_hint("Stopped", "Execution was halted (Stop or host interrupt).");
                 } else {
                     runtime_error_hint("Unexpected end of input",
                                          "No line received; use the INPUT field in the browser, or Run again.");
@@ -7635,7 +7669,7 @@ static void statement_return(char **p)
         return;
     }
     if (gosub_top <= 0) {
-        runtime_error("RETURN without GOSUB");
+        runtime_error_hint("RETURN without GOSUB", "RETURN only works after GOSUB; remove stray RETURN or add GOSUB.");
         return;
     }
     gosub_top--;
@@ -7723,7 +7757,8 @@ static void skip_if_block_to_target(char **p, int want_else)
         line++;
         pos = NULL;
     }
-    runtime_error("END IF expected");
+    runtime_error_hint("END IF expected",
+                         "Block IF must end with END IF; check IF/ELSE/END IF pairing and nesting.");
 }
 
 /* Skip forward from current position to matching WEND. Handles nested WHILE/WEND. */
@@ -7833,7 +7868,7 @@ static void statement_if(char **p)
 static void statement_else(char **p)
 {
     if (if_depth <= 0) {
-        runtime_error("ELSE without IF");
+        runtime_error_hint("ELSE without IF", "ELSE belongs inside a block IF … THEN … ELSE … END IF.");
         return;
     }
     skip_spaces(p);
@@ -7909,13 +7944,15 @@ static void skip_function_block(char **p)
         line++;
         pos = NULL;
     }
-    runtime_error("END FUNCTION expected");
+    runtime_error_hint("END FUNCTION expected",
+                         "Every FUNCTION … must end with END FUNCTION; check nesting and spelling.");
 }
 
 static void statement_end_function(char **p)
 {
     if (udf_call_depth <= 0) {
-        runtime_error("END FUNCTION without FUNCTION");
+        runtime_error_hint("END FUNCTION without FUNCTION",
+                             "END FUNCTION only closes a FUNCTION block; remove stray END FUNCTION.");
         return;
     }
     skip_spaces(p);
@@ -8276,18 +8313,19 @@ static void statement_dim(char **p)
         struct value sizev;
         skip_spaces(p);
         if (!isalpha((unsigned char)**p)) {
-            runtime_error("Expected array name");
+            runtime_error_hint("Expected array name", "DIM needs a variable name: DIM A(10) or DIM A$(5).");
             return;
         }
         read_identifier(p, namebuf, sizeof(namebuf));
         uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
         if (is_reserved_word(namebuf)) {
-            runtime_error("Reserved word cannot be used as variable");
+            runtime_error_hint("Reserved word cannot be used as variable",
+                                 "Pick another name; keywords like PRINT or FOR cannot be variable names.");
             return;
         }
         skip_spaces(p);
         if (**p != '(') {
-            runtime_error("DIM requires size");
+            runtime_error_hint("DIM requires size", "Use parentheses for bounds: DIM A(9) for indices 0..9.");
             return;
         }
         (*p)++;
@@ -8763,7 +8801,11 @@ static void execute_statement(char **p)
             skip_spaces(&q);
             if (*q == '(') {
                 struct value *args = (struct value *)calloc(MAX_UDF_PARAMS, sizeof(struct value));
-                if (!args) { runtime_error("Out of memory"); return; }
+                if (!args) {
+                    runtime_error_hint("Out of memory",
+                                         "Could not allocate argument list for the call.");
+                    return;
+                }
                 char *saved_p = *p;
                 *p = q + 1;
                 skip_spaces(p);
@@ -8772,7 +8814,8 @@ static void execute_statement(char **p)
                     for (;;) {
                         if (arg_count >= MAX_UDF_PARAMS) {
                             free(args);
-                            runtime_error("Too many arguments");
+                            runtime_error_hint("Too many arguments",
+                                                 "Reduce the number of arguments; split the call or use fewer parameters.");
                             return;
                         }
                         args[arg_count] = eval_expr(p);
@@ -8781,7 +8824,8 @@ static void execute_statement(char **p)
                         if (**p == ')') break;
                         if (**p != ',') {
                             free(args);
-                            runtime_error("Expected ',' or ')'");
+                            runtime_error_hint("Expected ',' or ')'",
+                                                 "Separate arguments with commas: FOO(1, 2, 3).");
                             return;
                         }
                         (*p)++;
@@ -8879,12 +8923,14 @@ static void add_or_replace_line(int number, const char *text)
         }
     }
     if (line_count >= MAX_LINES) {
-        runtime_error("Program too large");
+        runtime_error_hint("Program too large",
+                             "Too many program lines for the built-in limit; split into includes or shorten.");
         return;
     }
     program_lines[line_count] = (struct line *)malloc(sizeof(struct line));
     if (!program_lines[line_count]) {
-        runtime_error("Out of memory");
+        runtime_error_hint("Out of memory",
+                             "Could not allocate program line storage; free memory or shorten the program.");
         return;
     }
     program_lines[line_count]->number = number;
@@ -8899,6 +8945,7 @@ static void add_line_from_include(int number, const char *text)
     for (i = 0; i < line_count; i++) {
         if (program_lines[i] && program_lines[i]->number == number) {
             fprintf(stderr, "Duplicate line number %d in include\n", number);
+            fprintf(stderr, "  Hint: Renumber lines in the include or main file so each line number is unique.\n");
             exit(1);
         }
     }
@@ -8980,6 +9027,7 @@ static int read_source_line(FILE *f, const char *path_for_err, char **out_line)
             free(sb.buf);
             fprintf(stderr, "Program line too long (max %d bytes) in %s\n",
                 MAX_LINE_LEN_LOAD - 1, path_for_err ? path_for_err : "?");
+            fprintf(stderr, "  Hint: Split the line or move data into shorter lines / includes.\n");
             exit(1);
         }
         sb_append_char(&sb, (char)c);
@@ -9001,17 +9049,20 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
 
     if (include_depth >= MAX_INCLUDE_DEPTH) {
         fprintf(stderr, "Include nesting too deep: %s\n", path);
+        fprintf(stderr, "  Hint: Flatten includes or reduce #INCLUDE depth (max %d).\n", MAX_INCLUDE_DEPTH);
         exit(1);
     }
     /* Circular include: check if we're already loading this path. */
     for (i = 0; i < loading_count; i++) {
         if (strcmp(loading_paths[i], path) == 0) {
             fprintf(stderr, "Circular include: %s\n", path);
+            fprintf(stderr, "  Hint: Remove a file that includes itself (directly or indirectly).\n");
             exit(1);
         }
     }
     if (loading_count >= MAX_INCLUDE_DEPTH || strlen(path) >= MAX_INCLUDE_PATH) {
         fprintf(stderr, "Include error: %s\n", path);
+        fprintf(stderr, "  Hint: Shorten the path or reduce include stack depth.\n");
         exit(1);
     }
     strncpy(loading_paths[loading_count], path, MAX_INCLUDE_PATH - 1);
@@ -9021,6 +9072,7 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
     f = fopen(path, "r");
     if (!f) {
         fprintf(stderr, "Cannot open %s\n", path);
+        fprintf(stderr, "  Hint: Check the path, current directory, and read permissions.\n");
         exit(1);
     }
 
@@ -9096,6 +9148,7 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
                 while (q > opt_val && (q[-1] == ' ' || q[-1] == '\t')) *--q = '\0';
                 if (apply_option_directive(opt_name, opt_val[0] ? opt_val : NULL) != 0) {
                     fprintf(stderr, "Unknown or invalid #OPTION: %s %s\n", opt_name, opt_val);
+                    fprintf(stderr, "  Hint: See #OPTION names in docs (e.g. columns, charset) and values.\n");
                     free(linebuf);
                     exit(1);
                 }
@@ -9108,6 +9161,7 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
                 while (*p == ' ' || *p == '\t') p++;
                 if (*p != '"' && *p != '\'') {
                     fprintf(stderr, "Expected quoted path in #INCLUDE\n");
+                    fprintf(stderr, "  Hint: Use #INCLUDE \"file.bas\" or #INCLUDE 'file.bas'.\n");
                     free(linebuf);
                     exit(1);
                 }
@@ -9120,8 +9174,16 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
                     if (*p) p++;
                 }
                 resolved = resolve_include_path(base_dir, inc_file);
-                if (!resolved) { fprintf(stderr, "Include path too long\n"); exit(1); }
-                if (strlen(resolved) >= MAX_INCLUDE_PATH) { fprintf(stderr, "Include path too long\n"); exit(1); }
+                if (!resolved) {
+                    fprintf(stderr, "Include path too long\n");
+                    fprintf(stderr, "  Hint: Shorten directory names or move files closer to the project root.\n");
+                    exit(1);
+                }
+                if (strlen(resolved) >= MAX_INCLUDE_PATH) {
+                    fprintf(stderr, "Include path too long\n");
+                    fprintf(stderr, "  Hint: Shorten directory names or move files closer to the project root.\n");
+                    exit(1);
+                }
                 /* Store resolved path so it survives the recursive call. */
                 strncpy(include_path_store[MAX_INCLUDE_DEPTH - 1], resolved, MAX_INCLUDE_PATH - 1);
                 include_path_store[MAX_INCLUDE_DEPTH - 1][MAX_INCLUDE_PATH - 1] = '\0';
@@ -9131,6 +9193,7 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
                 continue;
             }
             fprintf(stderr, "Unknown directive: #%.*s\n", 60, p);
+            fprintf(stderr, "  Hint: Supported meta lines are #OPTION and #INCLUDE (see docs).\n");
             free(linebuf);
             exit(1);
         }
@@ -9145,6 +9208,7 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
             char *transformed;
             if (!isdigit((unsigned char)*p)) {
                 fprintf(stderr, "Line missing number: %s\n", linebuf);
+                fprintf(stderr, "  Hint: Numbered programs need a line number at the start (e.g. 10 PRINT ...).\n");
                 free(linebuf);
                 exit(1);
             }
@@ -9171,6 +9235,7 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
                     while (q > opt_val && (q[-1] == ' ' || q[-1] == '\t')) *--q = '\0';
                     if (apply_option_directive(opt_name, opt_val[0] ? opt_val : NULL) != 0) {
                         fprintf(stderr, "Unknown or invalid #OPTION: %s %s\n", opt_name, opt_val);
+                        fprintf(stderr, "  Hint: See #OPTION names in docs (e.g. columns, charset) and values.\n");
                         free(linebuf);
                         exit(1);
                     }
@@ -9179,6 +9244,7 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
                 }
                 if ((toupper((unsigned char)dir[0])=='I' && toupper((unsigned char)dir[1])=='N' && toupper((unsigned char)dir[2])=='C' && toupper((unsigned char)dir[3])=='L' && toupper((unsigned char)dir[4])=='U' && toupper((unsigned char)dir[5])=='D' && toupper((unsigned char)dir[6])=='E') && (dir[7]=='\0' || dir[7]==' ' || dir[7]=='\t')) {
                     fprintf(stderr, "#INCLUDE on numbered line not supported\n");
+                    fprintf(stderr, "  Hint: Put #INCLUDE on its own unnumbered line at the top, or use numberless mode.\n");
                     free(linebuf);
                     exit(1);
                 }
@@ -9194,6 +9260,7 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
         } else {
             if (isdigit((unsigned char)*p)) {
                 fprintf(stderr, "Mixed numbered and numberless lines are not supported: %s\n", linebuf);
+                fprintf(stderr, "  Hint: Use all numbered lines or all numberless lines in one file.\n");
                 free(linebuf);
                 exit(1);
             }
