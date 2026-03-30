@@ -301,6 +301,10 @@ You can use the interpreter for shell-script style tasks:
   - `echo 42 | ./basic program.bas`
   - `./basic program.bas > out.txt`
   Errors and usage go to **stderr**; only program output goes to stdout when you redirect.
+- **Runtime errors**  
+  When execution stops, the interpreter prints the error on **stderr**, with the **BASIC line number** and source when possible, and often a second line starting with **`Hint:`** with a short fix suggestion (wrong types, missing **`THEN`**, bad **`GOTO`** targets, **`#INCLUDE`** syntax, and many builtins). In the browser/WASM build, the same text appears in the output panel.
+- **Load-time errors**  
+  Problems while reading the source file (unknown **`#OPTION`**, **`#INCLUDE`** path issues, line too long, duplicate line number in an include, mixed numbered and numberless lines, etc.) are reported on **stderr** before the program runs; many of these messages also include a **`Hint:`** line.
 - **Command-line arguments**  
 Anything after the script path is available to the program:
   - `./basic script.bas first second`
