@@ -2,7 +2,7 @@
 
 ### Unreleased
 
-- **Runtime hints**: **`goto` / `gosub` / `on` / `if … then`**, **`DIM` / `FOR` / `NEXT`**, and **array subscripts** — short **`Hint:`** lines for common mistakes (missing line/label, **`THEN`**, bounds, parentheses, reserved names). **Native** `runtime_error_hint` prints **`Hint:`** on stderr (parity with WASM). **`tutorial-embed.js`**: **Ctrl+Enter** / **Cmd+Enter** runs; **`scrollToError`** (default **on**). **`web/tutorial.html`** playground mentions keyboard run.
+- **Runtime hints**: **`goto` / `gosub` / `on` / `if … then`**, **`DIM` / `FOR` / `NEXT`**, **array subscripts**, **`INPUT`**, **`WHILE`/`WEND`**, **`DO`/`LOOP`/`EXIT`** — short **`Hint:`** lines for common mistakes. **Native** `runtime_error_hint` prints **`Hint:`** on stderr (parity with WASM). **`tutorial-embed.js`**: **Ctrl+Enter** / **Cmd+Enter** runs; **`scrollToError`** (default **on**). **`web/tutorial.html`** playground mentions keyboard run.
 
 - **Sprites**: **`SPRITECOLLIDE(a, b)`** — returns **1** if two loaded, visible sprites’ axis-aligned bounding boxes overlap (basic-gfx + canvas WASM; **0** otherwise). Terminal **`./basic`** errors if used (requires **basic-gfx** or canvas WASM). **Runtime errors**: optional **`Hint:`** line for **unknown function** (shows name) and **`ensure_num` / `ensure_str`** type mismatches. **`tutorial-embed.js`**: optional **`runOnEdit`** / **`runOnEditMs`** for debounced auto-run after editing; **`web/tutorial.html`** enables this on the final playground embed only (**550** ms).
 
