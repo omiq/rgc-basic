@@ -6301,7 +6301,7 @@ static void statement_textat(char **p)
     ensure_num(&vx);
     skip_spaces(p);
     if (**p != ',') {
-        runtime_error("TEXTAT: expected ',' after X");
+        runtime_error_hint("TEXTAT: expected ',' after X", "Use TEXTAT x, y, \"text\" (commas between x, y, and string).");
         return;
     }
     (*p)++;
@@ -6310,7 +6310,7 @@ static void statement_textat(char **p)
     ensure_num(&vy);
     skip_spaces(p);
     if (**p != ',') {
-        runtime_error("TEXTAT: expected ',' after Y");
+        runtime_error_hint("TEXTAT: expected ',' after Y", "Use TEXTAT x, y, \"text\" — comma before the string.");
         return;
     }
     (*p)++;
@@ -6355,7 +6355,10 @@ static void statement_locate(char **p)
     // Validation
     vx = eval_expr(p);  ensure_num(&vx);
     skip_spaces(p);
-    if (**p != ',') { runtime_error("LOCATE: expected ',' after X"); return; }
+    if (**p != ',') {
+        runtime_error_hint("LOCATE: expected ',' after X", "Use LOCATE x, y (column then row, 0-based in gfx).");
+        return;
+    }
     (*p)++;
     vy = eval_expr(p);  ensure_num(&vy);
     skip_spaces(p);
@@ -6958,7 +6961,7 @@ static void statement_sort(char **p)
 
     skip_spaces(p);
     if (!isalpha((unsigned char)**p)) {
-        runtime_error("SORT requires array variable");
+        runtime_error_hint("SORT requires array variable", "Use SORT A or SORT T$ with a DIMmed 1-D array name.");
         return;
     }
     read_identifier(p, namebuf, sizeof(namebuf));
@@ -6970,11 +6973,11 @@ static void statement_sort(char **p)
         }
     }
     if (!v || !v->is_array || !v->array || v->size <= 0) {
-        runtime_error("SORT requires 1-D array");
+        runtime_error_hint("SORT requires 1-D array", "DIM the array first: DIM A(10) then SORT A.");
         return;
     }
     if (v->dims != 1) {
-        runtime_error("SORT requires 1-D array");
+        runtime_error_hint("SORT requires 1-D array", "Multi-dimensional arrays cannot be SORTed; use 1-D only.");
         return;
     }
     skip_spaces(p);
@@ -7016,7 +7019,7 @@ static void statement_split(char **p)
     ensure_str(&v_str);
     skip_spaces(p);
     if (**p != ',') {
-        runtime_error("SPLIT: expected ,");
+        runtime_error_hint("SPLIT: expected ,", "Use SPLIT s$, \",\" INTO arr$ — comma after the string and delimiter.");
         return;
     }
     (*p)++;
@@ -7025,13 +7028,13 @@ static void statement_split(char **p)
     ensure_str(&v_delim);
     skip_spaces(p);
     if (!starts_with_kw(*p, "INTO")) {
-        runtime_error("SPLIT: expected INTO");
+        runtime_error_hint("SPLIT: expected INTO", "Syntax: SPLIT text$, delim$ INTO string_array.");
         return;
     }
     *p += 4;
     skip_spaces(p);
     if (!isalpha((unsigned char)**p)) {
-        runtime_error("SPLIT: expected array variable");
+        runtime_error_hint("SPLIT: expected array variable", "After INTO, give the string array name (e.g. P$).");
         return;
     }
     {
@@ -7040,7 +7043,7 @@ static void statement_split(char **p)
         read_identifier(p, namebuf, sizeof(namebuf));
         uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
         if (!is_string) {
-            runtime_error("SPLIT: expected string array");
+            runtime_error_hint("SPLIT: expected string array", "SPLIT fills a string array (name ends with $).");
             return;
         }
         for (i = 0; i < var_count; i++) {
@@ -7051,14 +7054,15 @@ static void statement_split(char **p)
         }
     }
     if (!arr_var || !arr_var->is_array || !arr_var->array || arr_var->dims != 1) {
-        runtime_error("SPLIT: requires 1-D string array (DIM first)");
+        runtime_error_hint("SPLIT: requires 1-D string array (DIM first)",
+                             "DIM P$(20) before SPLIT … INTO P$.");
         return;
     }
     s = v_str.str;
     delim = v_delim.str;
     dlen = strlen(delim);
     if (dlen == 0) {
-        runtime_error("SPLIT: empty delimiter");
+        runtime_error_hint("SPLIT: empty delimiter", "Delimiter must be non-empty (e.g. \",\" or \"|\").");
         return;
     }
     arr_size = arr_var->size;
@@ -7098,13 +7102,13 @@ static void statement_join(char **p)
 
     skip_spaces(p);
     if (!isalpha((unsigned char)**p)) {
-        runtime_error("JOIN: expected array variable");
+        runtime_error_hint("JOIN: expected array variable", "Start with the string array: JOIN P$, …");
         return;
     }
     read_identifier(p, namebuf, sizeof(namebuf));
     uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
     if (!is_string) {
-        runtime_error("JOIN: expected string array");
+        runtime_error_hint("JOIN: expected string array", "JOIN combines a string array (name ends with $).");
         return;
     }
     for (i = 0; i < var_count; i++) {
@@ -7114,12 +7118,12 @@ static void statement_join(char **p)
         }
     }
     if (!arr_var || !arr_var->is_array || !arr_var->array || arr_var->dims != 1) {
-        runtime_error("JOIN: requires 1-D string array");
+        runtime_error_hint("JOIN: requires 1-D string array", "DIM a string array first, same as for SPLIT.");
         return;
     }
     skip_spaces(p);
     if (**p != ',') {
-        runtime_error("JOIN: expected ,");
+        runtime_error_hint("JOIN: expected ,", "Use JOIN arr$, \",\" INTO result$ — comma after array name.");
         return;
     }
     (*p)++;
@@ -7128,7 +7132,7 @@ static void statement_join(char **p)
     ensure_str(&v_delim);
     skip_spaces(p);
     if (!starts_with_kw(*p, "INTO")) {
-        runtime_error("JOIN: expected INTO");
+        runtime_error_hint("JOIN: expected INTO", "Syntax: JOIN arr$, delim$ INTO out$ [, count].");
         return;
     }
     *p += 4;
@@ -7136,7 +7140,8 @@ static void statement_join(char **p)
     {
         struct value *out = get_var_reference(p, &i, &is_string, NULL);
         if (!out || !is_string) {
-            runtime_error("JOIN: expected string variable for result");
+            runtime_error_hint("JOIN: expected string variable for result",
+                                 "After INTO, use a scalar string variable (e.g. Q$) for the joined text.");
             return;
         }
         skip_spaces(p);
