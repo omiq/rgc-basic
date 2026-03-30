@@ -6637,7 +6637,8 @@ static void statement_load(char **p)
         (*p)++;
         skip_spaces(p);
         if (!isalpha((unsigned char)**p)) {
-            runtime_error("LOAD @label: expected label name");
+            runtime_error_hint("LOAD @label: expected label name",
+                                 "Use LOAD @MYLABEL INTO addr where MYLABEL: marks DATA.");
             return;
         }
         {
@@ -6659,12 +6660,13 @@ static void statement_load(char **p)
         pathbuf[i] = '\0';
         if (**p == quote) (*p)++;
     } else {
-        runtime_error("LOAD: expected \"path\" or @label");
+        runtime_error_hint("LOAD: expected \"path\" or @label",
+                             "Use LOAD \"file.bin\" INTO address or LOAD @label INTO address.");
         return;
     }
     skip_spaces(p);
     if (!starts_with_kw(*p, "INTO")) {
-        runtime_error("LOAD: expected INTO");
+        runtime_error_hint("LOAD: expected INTO", "Syntax: LOAD \"path\" INTO addr [, maxbytes].");
         return;
     }
     *p += 4;
@@ -6687,14 +6689,16 @@ static void statement_load(char **p)
     }
 #ifdef GFX_VIDEO
     if (!gfx_vs) {
-        runtime_error("LOAD INTO: no graphics context");
+        runtime_error_hint("LOAD INTO: no graphics context",
+                             "LOAD INTO needs basic-gfx or canvas WASM (virtual video memory).");
         return;
     }
     if (from_label) {
         int label_line_idx, label_line_no, next_label_line_no, di_start, di_end;
         label_line_idx = find_label_line(labelbuf);
         if (label_line_idx < 0) {
-            runtime_error("LOAD @label: label not found");
+            runtime_error_hint("LOAD @label: label not found",
+                                 "Define a line like MYLABEL: before LOAD @MYLABEL INTO …");
             return;
         }
         label_line_no = program_lines[label_line_idx] ? program_lines[label_line_idx]->number : 0;
@@ -6732,7 +6736,11 @@ static void statement_load(char **p)
         count = 0;
         f = fopen(pathbuf, "rb");
         if (!f) {
-            runtime_error("LOAD: cannot open file");
+            {
+                char h[160];
+                snprintf(h, sizeof(h), "Check path (tried \"%s\").", pathbuf);
+                runtime_error_hint("LOAD: cannot open file", h);
+            }
             return;
         }
         while ((c = fgetc(f)) != EOF && (len_limit < 0 || count < len_limit)) {
@@ -6746,7 +6754,8 @@ static void statement_load(char **p)
     (void)len_limit;
     (void)from_label;
     (void)count;
-    runtime_error("LOAD INTO requires basic-gfx (graphics build)");
+    runtime_error_hint("LOAD INTO requires basic-gfx (graphics build)",
+                         "Build basic-gfx or use canvas WASM; terminal basic has no LOAD INTO.");
 #endif
 }
 
@@ -6759,7 +6768,7 @@ static void statement_memset(char **p)
     ensure_num(&v_addr);
     skip_spaces(p);
     if (**p != ',') {
-        runtime_error("MEMSET requires 3 arguments");
+        runtime_error_hint("MEMSET requires 3 arguments", "Use MEMSET addr, length, byte_value.");
         return;
     }
     (*p)++;
@@ -6768,7 +6777,7 @@ static void statement_memset(char **p)
     ensure_num(&v_len);
     skip_spaces(p);
     if (**p != ',') {
-        runtime_error("MEMSET requires 3 arguments");
+        runtime_error_hint("MEMSET requires 3 arguments", "Use MEMSET addr, length, byte_value.");
         return;
     }
     (*p)++;
@@ -6780,7 +6789,8 @@ static void statement_memset(char **p)
         int addr, len, i;
         unsigned char b;
         if (!gfx_vs) {
-            runtime_error("MEMSET requires basic-gfx (graphics build)");
+            runtime_error_hint("MEMSET requires basic-gfx (graphics build)",
+                                 "Needs video memory; use basic-gfx or canvas WASM.");
             return;
         }
         addr = (int)v_addr.num & 0xFFFF;
@@ -6795,7 +6805,8 @@ static void statement_memset(char **p)
     (void)v_addr;
     (void)v_len;
     (void)v_val;
-    runtime_error("MEMSET requires basic-gfx (graphics build)");
+    runtime_error_hint("MEMSET requires basic-gfx (graphics build)",
+                         "Terminal build has no MEMSET; use basic-gfx or canvas WASM.");
 #endif
 }
 
@@ -6808,7 +6819,7 @@ static void statement_memcpy(char **p)
     ensure_num(&v_dest);
     skip_spaces(p);
     if (**p != ',') {
-        runtime_error("MEMCPY requires 3 arguments");
+        runtime_error_hint("MEMCPY requires 3 arguments", "Use MEMCPY dest_addr, src_addr, length.");
         return;
     }
     (*p)++;
@@ -6817,7 +6828,7 @@ static void statement_memcpy(char **p)
     ensure_num(&v_src);
     skip_spaces(p);
     if (**p != ',') {
-        runtime_error("MEMCPY requires 3 arguments");
+        runtime_error_hint("MEMCPY requires 3 arguments", "Use MEMCPY dest_addr, src_addr, length.");
         return;
     }
     (*p)++;
@@ -6829,7 +6840,8 @@ static void statement_memcpy(char **p)
         int dest, src, len, i;
         unsigned char buf[256];
         if (!gfx_vs) {
-            runtime_error("MEMCPY requires basic-gfx (graphics build)");
+            runtime_error_hint("MEMCPY requires basic-gfx (graphics build)",
+                                 "Needs video memory; use basic-gfx or canvas WASM.");
             return;
         }
         dest = (int)v_dest.num & 0xFFFF;
@@ -6854,7 +6866,8 @@ static void statement_memcpy(char **p)
     (void)v_dest;
     (void)v_src;
     (void)v_len;
-    runtime_error("MEMCPY requires basic-gfx (graphics build)");
+    runtime_error_hint("MEMCPY requires basic-gfx (graphics build)",
+                         "Terminal build has no MEMCPY; use basic-gfx or canvas WASM.");
 #endif
 }
 
@@ -6878,6 +6891,14 @@ static void statement_restore(char **p)
                 data_index = data_line_start_index[i];
                 return;
             }
+        }
+        if (data_line_count == 0) {
+            runtime_error_hint("RESTORE: no DATA in program",
+                                 "Add DATA lines, or use RESTORE with no line to reset to start.");
+        } else {
+            char h[120];
+            snprintf(h, sizeof(h), "No DATA at or after line %d; add DATA or use a lower line.", target_line);
+            runtime_error_hint("RESTORE: no DATA at or after line", h);
         }
     }
 }
@@ -7456,7 +7477,7 @@ static void statement_let(char **p)
     }
     skip_spaces(p);
     if (**p != '=') {
-        runtime_error("Expected '='");
+        runtime_error_hint("Expected '='", "Assignment needs = : LET X = 1 or X = 1 (LET is optional).");
         return;
     }
     (*p)++;
