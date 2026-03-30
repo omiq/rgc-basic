@@ -2131,6 +2131,9 @@ static void runtime_error_hint(const char *msg, const char *hint)
     } else {
         fprintf(stderr, "Error: %s\n", msg);
     }
+    if (hint && hint[0]) {
+        fprintf(stderr, "  Hint: %s\n", hint);
+    }
 
     if (line_text && *line_text) {
         /* Print the full source line for context. */
@@ -6575,7 +6578,11 @@ static void statement_on(char **p)
             if (idx == current) {
                 int line_index = find_line_index(target);
                 if (line_index < 0) {
-                    runtime_error("Target line not found");
+                    {
+                        char h[96];
+                        snprintf(h, sizeof(h), "No line %d in program. Check ON … GOTO/GOSUB list.", target);
+                        runtime_error_hint("Target line not found", h);
+                    }
                     return;
                 }
                 if (is_gosub) {
@@ -7457,7 +7464,11 @@ static void statement_goto(char **p)
         }
         current_line = find_line_index(line_number);
         if (current_line < 0) {
-            runtime_error("Target line not found");
+            {
+                char h[96];
+                snprintf(h, sizeof(h), "No line %d in program. Check the line number exists.", line_number);
+                runtime_error_hint("Target line not found", h);
+            }
             return;
         }
         statement_pos = NULL;
@@ -7472,12 +7483,17 @@ static void statement_goto(char **p)
         namebuf[len] = '\0';
         current_line = find_label_line(namebuf);
         if (current_line < 0) {
-            runtime_error("Target label not found");
+            {
+                char h[96];
+                snprintf(h, sizeof(h), "Define a line like `%s:` before GOTO.", namebuf);
+                runtime_error_hint("Target label not found", h);
+            }
             return;
         }
         statement_pos = NULL;
     } else {
-        runtime_error("Expected line number or label in GOTO");
+        runtime_error_hint("Expected line number or label in GOTO",
+                           "Use GOTO 100 or GOTO mylabel (label lines look like `mylabel:`).");
     }
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
     wasm_maybe_yield_loop();
@@ -7487,23 +7503,25 @@ static void statement_goto(char **p)
 static void statement_gosub(char **p)
 {
     int target_index = -1;
+    int target_line_num = -1;
+    char namebuf[32];
     char *return_pos;
+    int len;
 
     if (gosub_top >= MAX_GOSUB) {
         runtime_error("GOSUB stack overflow");
         return;
     }
     skip_spaces(p);
+    namebuf[0] = '\0';
     if (isdigit((unsigned char)**p)) {
-        int target_num;
-        target_num = atoi(*p);
+        target_line_num = atoi(*p);
         while (**p && isdigit((unsigned char)**p)) {
             (*p)++;
         }
-        target_index = find_line_index(target_num);
+        target_index = find_line_index(target_line_num);
     } else if (isalpha((unsigned char)**p)) {
-        char namebuf[32];
-        int len = 0;
+        len = 0;
         while ((isalpha((unsigned char)**p) || isdigit((unsigned char)**p) || **p == '_') &&
                len < (int)sizeof(namebuf) - 1) {
             namebuf[len++] = **p;
@@ -7512,12 +7530,21 @@ static void statement_gosub(char **p)
         namebuf[len] = '\0';
         target_index = find_label_line(namebuf);
     } else {
-        runtime_error("Expected line number or label in GOSUB");
+        runtime_error_hint("Expected line number or label in GOSUB",
+                           "Use GOSUB 100 or GOSUB mylabel (label lines look like `mylabel:`).");
         return;
     }
 
     if (target_index < 0) {
-        runtime_error("Target line/label not found");
+        if (target_line_num >= 0) {
+            char h[96];
+            snprintf(h, sizeof(h), "No line %d in program. GOSUB needs an existing line.", target_line_num);
+            runtime_error_hint("Target line not found", h);
+        } else {
+            char h[96];
+            snprintf(h, sizeof(h), "Define a line like `%s:` before GOSUB.", namebuf);
+            runtime_error_hint("Target line/label not found", h);
+        }
         return;
     }
 
@@ -7695,7 +7722,7 @@ static void statement_if(char **p)
     cond_true = eval_condition(p);
     skip_spaces(p);
     if (!starts_with_kw(*p, "THEN")) {
-        runtime_error("Missing THEN");
+        runtime_error_hint("Missing THEN", "Write IF condition THEN statement (THEN is required).");
         return;
     }
     *p += 4;
@@ -7726,7 +7753,11 @@ static void statement_if(char **p)
         }
         current_line = find_line_index(target);
         if (current_line < 0) {
-            runtime_error("Target line not found");
+            {
+                char h[96];
+                snprintf(h, sizeof(h), "No line %d in program. IF … THEN line must exist.", target);
+                runtime_error_hint("Target line not found", h);
+            }
             return;
         }
         statement_pos = NULL;
