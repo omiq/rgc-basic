@@ -3370,7 +3370,7 @@ static void statement_background(char **p)
     ensure_num(&v);
     idx = (int)v.num;
     if (idx < 0 || idx > 15) {
-        runtime_error("BACKGROUND index must be 0-15");
+        runtime_error_hint("BACKGROUND index must be 0-15", "Pen/paper colours use indices 0-15 like COLOR.");
         return;
     }
 
@@ -3422,7 +3422,7 @@ static void statement_pset(char **p, int preset)
     ensure_num(&vx);
     skip_spaces(p);
     if (**p != ',') {
-        runtime_error("PSET/PRESET expects x,y");
+        runtime_error_hint("PSET/PRESET expects x,y", "Use PSET x, y or PRESET x, y (comma between coordinates).");
         return;
     }
     (*p)++;
@@ -3443,7 +3443,8 @@ static void statement_line(char **p)
 {
 #ifndef GFX_VIDEO
     (void)p;
-    runtime_error("LINE is only available in basic-gfx");
+    runtime_error_hint("LINE is only available in basic-gfx",
+                         "LINE draws in bitmap mode (basic-gfx or canvas WASM).");
 #else
     struct value vx0, vy0, vx1, vy1;
     int x0, y0, x1, y1;
@@ -3453,7 +3454,7 @@ static void statement_line(char **p)
     ensure_num(&vx0);
     skip_spaces(p);
     if (**p != ',') {
-        runtime_error("LINE expects x1,y1 TO x2,y2");
+        runtime_error_hint("LINE expects x1,y1 TO x2,y2", "First endpoint needs x1, y1 with a comma.");
         return;
     }
     (*p)++;
@@ -3462,7 +3463,7 @@ static void statement_line(char **p)
     ensure_num(&vy0);
     skip_spaces(p);
     if (!starts_with_kw(*p, "TO")) {
-        runtime_error("LINE expects TO between endpoints");
+        runtime_error_hint("LINE expects TO between endpoints", "Use LINE x0,y0 TO x1,y1");
         return;
     }
     *p += 2;
@@ -3471,7 +3472,7 @@ static void statement_line(char **p)
     ensure_num(&vx1);
     skip_spaces(p);
     if (**p != ',') {
-        runtime_error("LINE expects x1,y1 TO x2,y2");
+        runtime_error_hint("LINE expects x1,y1 TO x2,y2", "Second endpoint needs x2, y2 after TO.");
         return;
     }
     (*p)++;
@@ -3479,7 +3480,8 @@ static void statement_line(char **p)
     vy1 = eval_expr(p);
     ensure_num(&vy1);
     if (!gfx_vs) {
-        runtime_error("LINE is only available in basic-gfx");
+        runtime_error_hint("LINE is only available in basic-gfx",
+                             "Bitmap LINE needs basic-gfx or canvas WASM.");
         return;
     }
     x0 = (int)vx0.num;
@@ -3494,7 +3496,8 @@ static void statement_screen(char **p)
 {
 #ifndef GFX_VIDEO
     (void)p;
-    runtime_error("SCREEN is only available in basic-gfx");
+    runtime_error_hint("SCREEN is only available in basic-gfx",
+                         "SCREEN 0/1 switches text vs bitmap in basic-gfx/canvas.");
 #else
     /* SCREEN 0: 40/80-column text. SCREEN 1: 320×200 monochrome bitmap. */
     struct value v;
@@ -3505,7 +3508,8 @@ static void statement_screen(char **p)
     ensure_num(&v);
     mode = (int)v.num;
     if (!gfx_vs) {
-        runtime_error("SCREEN is only available in basic-gfx");
+        runtime_error_hint("SCREEN is only available in basic-gfx",
+                             "Graphics builds only; terminal basic has no SCREEN.");
         return;
     }
     if (mode == 0) {
@@ -3516,7 +3520,8 @@ static void statement_screen(char **p)
         gfx_vs->screen_mode = GFX_SCREEN_BITMAP;
         return;
     }
-    runtime_error("SCREEN expects 0 (text) or 1 (bitmap)");
+    runtime_error_hint("SCREEN expects 0 (text) or 1 (bitmap)",
+                         "Use SCREEN 0 for PETSCII text or SCREEN 1 for 320×200 bitmap.");
 #endif
 }
 
@@ -3539,7 +3544,8 @@ static void statement_screencodes(char **p)
         #endif
         return;
     }
-    runtime_error("SCREENCODES expects ON or OFF");
+    runtime_error_hint("SCREENCODES expects ON or OFF",
+                         "SCREENCODES ON prints raw screen codes in gfx mode.");
 }
 
 #ifdef GFX_VIDEO
@@ -3565,7 +3571,8 @@ static void statement_loadsprite(char **p)
     ensure_num(&vslot);
     skip_spaces(p);
     if (**p != ',') {
-        runtime_error("LOADSPRITE expects slot, \"path.png\"");
+        runtime_error_hint("LOADSPRITE expects slot, \"path.png\"",
+                             "Comma after slot: LOADSPRITE 0, \"sprite.png\"");
         return;
     }
     (*p)++;
@@ -3573,11 +3580,13 @@ static void statement_loadsprite(char **p)
     vpath = eval_expr(p);
     ensure_str(&vpath);
     if (!path_ends_with_png(vpath.str)) {
-        runtime_error("LOADSPRITE: use LOAD for non-PNG; PNG path must end in .png");
+        runtime_error_hint("LOADSPRITE: use LOAD for non-PNG; PNG path must end in .png",
+                             "Sprite paths must end in .png; use LOAD for other files.");
         return;
     }
     if (!gfx_vs) {
-        runtime_error("LOADSPRITE requires basic-gfx");
+        runtime_error_hint("LOADSPRITE requires basic-gfx",
+                             "Sprites need basic-gfx or canvas WASM (not terminal basic).");
         return;
     }
     slot = (int)vslot.num;
@@ -3596,7 +3605,8 @@ static void statement_drawsprite(char **p)
     slot = (int)v.num;
     skip_spaces(p);
     if (**p != ',') {
-        runtime_error("DRAWSPRITE expects slot, x, y [, z [, sx, sy [, sw, sh ]]]");
+        runtime_error_hint("DRAWSPRITE expects slot, x, y [, z [, sx, sy [, sw, sh ]]]",
+                             "Comma after slot: DRAWSPRITE 0, x, y then optional z and crop.");
         return;
     }
     (*p)++;
@@ -3606,7 +3616,8 @@ static void statement_drawsprite(char **p)
     x = (float)v.num;
     skip_spaces(p);
     if (**p != ',') {
-        runtime_error("DRAWSPRITE expects slot, x, y [, z ...]");
+        runtime_error_hint("DRAWSPRITE expects slot, x, y [, z ...]",
+                             "Need x and y pixel positions after the slot.");
         return;
     }
     (*p)++;
@@ -3630,7 +3641,8 @@ static void statement_drawsprite(char **p)
             sx = (int)v.num;
             skip_spaces(p);
             if (**p != ',') {
-                runtime_error("DRAWSPRITE: sx,sy need both");
+                runtime_error_hint("DRAWSPRITE: sx,sy need both",
+                                     "Source crop needs both sx and sy (comma between them).");
                 return;
             }
             (*p)++;
@@ -3659,7 +3671,8 @@ static void statement_drawsprite(char **p)
         }
     }
     if (!gfx_vs) {
-        runtime_error("DRAWSPRITE requires basic-gfx");
+        runtime_error_hint("DRAWSPRITE requires basic-gfx",
+                             "Run with basic-gfx or canvas WASM; terminal has no sprite layer.");
         return;
     }
     gfx_sprite_enqueue_draw(slot, x, y, z, sx, sy, sw, sh);
@@ -3675,7 +3688,8 @@ static void statement_spritevisible(char **p)
     ensure_num(&va);
     skip_spaces(p);
     if (**p != ',') {
-        runtime_error("SPRITEVISIBLE expects slot, 0|1");
+        runtime_error_hint("SPRITEVISIBLE expects slot, 0|1",
+                             "Use SPRITEVISIBLE n, 1 to show or n, 0 to hide.");
         return;
     }
     (*p)++;
@@ -3685,7 +3699,8 @@ static void statement_spritevisible(char **p)
     slot = (int)va.num;
     on = ((int)vb.num != 0) ? 1 : 0;
     if (!gfx_vs) {
-        runtime_error("SPRITEVISIBLE requires basic-gfx");
+        runtime_error_hint("SPRITEVISIBLE requires basic-gfx",
+                             "Sprite visibility is only in basic-gfx / canvas WASM.");
         return;
     }
     gfx_sprite_enqueue_visible(slot, on);
