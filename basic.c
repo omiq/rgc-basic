@@ -1904,6 +1904,7 @@ static void do_exec(const char *cmd, char *out, size_t out_size)
 }
 
 static void runtime_error(const char *msg);
+static void runtime_error_hint(const char *msg, const char *hint);
 static void load_program(const char *path);
 static void run_program(const char *script_path_arg, int nargs, char **args);
 static int find_line_index(int number);
@@ -2022,14 +2023,16 @@ enum func_code {
     FN_JSON = 42,
     FN_EVAL = 43,
     FN_SPRITEW = 44,
-    FN_SPRITEH = 45
+    FN_SPRITEH = 45,
+    FN_SPRITECOLLIDE = 46
 };
 
 /* Report an error and halt further execution.
  * If possible, include the BASIC line number (if present) and the
  * original source text with a caret pointing near the error location.
+ * Optional hint gives a short fix suggestion (shown on its own line).
  */
-static void runtime_error(const char *msg)
+static void runtime_error_hint(const char *msg, const char *hint)
 {
     int line_no = 0;
     const char *line_text = NULL;
@@ -2049,9 +2052,17 @@ static void runtime_error(const char *msg)
         int n;
 
         if (line_no > 0) {
-            n = snprintf(buf, sizeof(buf), "Error on line %d: %s\n", line_no, msg);
+            if (hint && hint[0]) {
+                n = snprintf(buf, sizeof(buf), "Error on line %d: %s\n  Hint: %s\n", line_no, msg, hint);
+            } else {
+                n = snprintf(buf, sizeof(buf), "Error on line %d: %s\n", line_no, msg);
+            }
         } else {
-            n = snprintf(buf, sizeof(buf), "Error: %s\n", msg);
+            if (hint && hint[0]) {
+                n = snprintf(buf, sizeof(buf), "Error: %s\n  Hint: %s\n", msg, hint);
+            } else {
+                n = snprintf(buf, sizeof(buf), "Error: %s\n", msg);
+            }
         }
         if (n < 0) {
             n = 0;
@@ -2152,6 +2163,11 @@ static void runtime_error(const char *msg)
     halted = 1;
 }
 
+static void runtime_error(const char *msg)
+{
+    runtime_error_hint(msg, NULL);
+}
+
 /* Strip trailing newline from a buffer if present. */
 static void trim_newline(char *s)
 {
@@ -2241,7 +2257,7 @@ static const char *const reserved_words[] = {
     "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LINE", "LOAD", "LOADSPRITE", "LOCATE", "LOG",
     "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET", "PRINT",
     "XOR",
-    "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCREEN", "SCREENCODES", "SPRITEVISIBLE",
+    "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITEVISIBLE",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
     "DRAWSPRITE", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
@@ -2314,7 +2330,7 @@ static struct value make_str(const char *s)
 static void ensure_num(struct value *v)
 {
     if (v->type != VAL_NUM) {
-        runtime_error("Numeric value required");
+        runtime_error_hint("Numeric value required", "Use a number here, or VAL(...) to convert a string.");
     }
 }
 
@@ -2330,7 +2346,7 @@ static void ensure_str(struct value *v)
         *v = make_str(buf);
         return;
     }
-    runtime_error("String value required");
+    runtime_error_hint("String value required", "Use a string expression, or STR$(...) to convert a number.");
 }
 
 /* Emit spaces and track current print column. */
@@ -3038,6 +3054,9 @@ static int function_lookup(const char *name, int len)
             name[4] == 'T' && name[5] == 'E' && name[6] == 'W') return FN_SPRITEW;
         if (len == 7 && name[0] == 'S' && name[1] == 'P' && name[2] == 'R' && name[3] == 'I' &&
             name[4] == 'T' && name[5] == 'E' && name[6] == 'H') return FN_SPRITEH;
+        if (len == 13 && name[0] == 'S' && name[1] == 'P' && name[2] == 'R' && name[3] == 'I' &&
+            name[4] == 'T' && name[5] == 'E' && name[6] == 'C' && name[7] == 'O' && name[8] == 'L' &&
+            name[9] == 'L' && name[10] == 'I' && name[11] == 'D' && name[12] == 'E') return FN_SPRITECOLLIDE;
         return FN_NONE;
     case 'C':
         if ((len == 3 && name[0] == 'C' && name[1] == 'H' && name[2] == 'R') ||
@@ -4179,6 +4198,32 @@ static struct value eval_function(const char *name, char **p)
         return make_str("");
 #endif
     }
+#if !defined(GFX_VIDEO)
+    if (code == FN_SPRITECOLLIDE) {
+        struct value va, vb;
+        skip_spaces(p);
+        va = eval_expr(p);
+        (void)va;
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error("SPRITECOLLIDE expects slot_a, slot_b");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        vb = eval_expr(p);
+        (void)vb;
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error("Missing ')'");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        runtime_error("SPRITECOLLIDE requires basic-gfx or canvas WASM");
+        return make_num(0.0);
+    }
+#endif
 #ifdef GFX_VIDEO
     if (code == FN_SPRITEW || code == FN_SPRITEH) {
         struct value vs;
@@ -4197,6 +4242,36 @@ static struct value eval_function(const char *name, char **p)
         if (gfx_vs) {
             dim = (code == FN_SPRITEW) ? gfx_sprite_slot_width(slot) : gfx_sprite_slot_height(slot);
             return make_num((double)dim);
+        }
+        return make_num(0.0);
+    }
+    if (code == FN_SPRITECOLLIDE) {
+        struct value va, vb;
+        int sa, sb, hit;
+        skip_spaces(p);
+        va = eval_expr(p);
+        ensure_num(&va);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error("SPRITECOLLIDE expects slot_a, slot_b");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        vb = eval_expr(p);
+        ensure_num(&vb);
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error("Missing ')'");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        sa = (int)va.num;
+        sb = (int)vb.num;
+        if (gfx_vs) {
+            hit = gfx_sprite_slots_overlap_aabb(sa, sb);
+            return make_num((double)hit);
         }
         return make_num(0.0);
     }
@@ -5180,9 +5255,12 @@ static struct value eval_function(const char *name, char **p)
             start = end + dlen;
         }
     }
-    default:
-        runtime_error("Unknown function");
+    default: {
+        char ubuf[96];
+        snprintf(ubuf, sizeof(ubuf), "Unknown function: %s", tmp);
+        runtime_error_hint(ubuf, "Check spelling; intrinsic names have no spaces.");
         return make_num(0.0);
+    }
     }
 }
 
@@ -5571,7 +5649,9 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "ENV") || starts_with_kw(*p, "EVAL") || starts_with_kw(*p, "PLATFORM") || starts_with_kw(*p, "JSON") ||
             starts_with_kw(*p, "ARGC") || starts_with_kw(*p, "ARG") ||
             starts_with_kw(*p, "SYSTEM") || starts_with_kw(*p, "EXEC") ||
-            starts_with_kw(*p, "PEEK") || starts_with_kw(*p, "INKEY")) {
+            starts_with_kw(*p, "PEEK") || starts_with_kw(*p, "INKEY") ||
+            starts_with_kw(*p, "SPRITEW") || starts_with_kw(*p, "SPRITEH") ||
+            starts_with_kw(*p, "SPRITECOLLIDE")) {
             char namebuf[32];
             char *q;
             q = *p;

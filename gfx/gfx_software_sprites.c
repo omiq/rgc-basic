@@ -175,6 +175,54 @@ int gfx_sprite_slot_height(int slot)
     return g_sprite_slots[slot].h;
 }
 
+int gfx_sprite_slots_overlap_aabb(int slot_a, int slot_b)
+{
+    GfxSpriteSlot *a, *b;
+    float ax, ay, aw, ah, bx, by, bw, bh;
+    float ax2, ay2, bx2, by2;
+
+    gfx_sprite_process_queue();
+    if (slot_a < 0 || slot_a >= GFX_SPRITE_MAX_SLOTS ||
+        slot_b < 0 || slot_b >= GFX_SPRITE_MAX_SLOTS) {
+        return 0;
+    }
+    a = &g_sprite_slots[slot_a];
+    b = &g_sprite_slots[slot_b];
+    if (!a->loaded || !a->visible || !a->draw_active ||
+        !b->loaded || !b->visible || !b->draw_active) {
+        return 0;
+    }
+    if (a->draw_sw <= 0 || a->draw_sh <= 0) {
+        aw = (float)(a->w - a->draw_sx);
+        ah = (float)(a->h - a->draw_sy);
+    } else {
+        aw = (float)a->draw_sw;
+        ah = (float)a->draw_sh;
+    }
+    if (b->draw_sw <= 0 || b->draw_sh <= 0) {
+        bw = (float)(b->w - b->draw_sx);
+        bh = (float)(b->h - b->draw_sy);
+    } else {
+        bw = (float)b->draw_sw;
+        bh = (float)b->draw_sh;
+    }
+    if (aw <= 0 || ah <= 0 || bw <= 0 || bh <= 0) {
+        return 0;
+    }
+    ax = a->draw_x;
+    ay = a->draw_y;
+    bx = b->draw_x;
+    by = b->draw_y;
+    ax2 = ax + aw;
+    ay2 = ay + ah;
+    bx2 = bx + bw;
+    by2 = by + bh;
+    if (ax2 <= bx || bx2 <= ax || ay2 <= by || by2 <= ay) {
+        return 0;
+    }
+    return 1;
+}
+
 static int cmp_sprite_draw_z(const void *a, const void *b)
 {
     const GfxSpriteDraw *da = (const GfxSpriteDraw *)a;

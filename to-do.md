@@ -55,7 +55,7 @@
 
 * **Bitmap graphics & sprites** (incremental; see `docs/bitmap-graphics-plan.md`, `docs/sprite-features-plan.md`)
   1. ~**Bitmap mode**~ — `SCREEN 0`/`SCREEN 1` (320×200 hires at `GFX_BITMAP_BASE`), monochrome raylib renderer; `COLOR`/`BACKGROUND` as pen/paper. ~`PSET`/`PRESET`/`LINE`~; POKE still works.
-  2. ~**Sprites (minimal)**~ — `LOADSPRITE` / `UNLOADSPRITE` / `DRAWSPRITE` (persistent pose, z-order, optional `sx,sy,sw,sh` crop) / `SPRITEVISIBLE` / `SPRITEW`/`SPRITEH` in basic-gfx; PNG alpha over text/bitmap; paths relative to `.bas` directory. ~Worked example: `examples/gfx_game_shell.bas` (PETSCII map + PNG player/enemy/HUD), `examples/gfx_sprite_hud_demo.bas`, `examples/player.png`, `examples/enemy.png`, `examples/hud_panel.png`.~ Still open: `SPRITECOLLIDE`, tilemap `LOADSPRITE` mode.
+  2. ~**Sprites (minimal)**~ — `LOADSPRITE` / `UNLOADSPRITE` / `DRAWSPRITE` (persistent pose, z-order, optional `sx,sy,sw,sh` crop) / `SPRITEVISIBLE` / `SPRITEW`/`SPRITEH` / `SPRITECOLLIDE` in basic-gfx + canvas WASM; PNG alpha over text/bitmap; paths relative to `.bas` directory. ~Worked example: `examples/gfx_game_shell.bas` (PETSCII map + PNG player/enemy/HUD), `examples/gfx_sprite_hud_demo.bas`, `examples/player.png`, `examples/enemy.png`, `examples/hud_panel.png`.~ Still open: tilemap `LOADSPRITE` mode.
   3. **Joystick / joypad / controller input** — Poll gamepad via raylib; expose to BASIC as `JOY(port)` or similar read API for D-pad, buttons, axes. Support keyboards-as-joystick and real controllers.
   4. **Graphic layers and scrolling** — Layer stack (background, tiles, sprites, text) with independent scroll offsets; `SCROLL x, y` or per-layer scroll; camera/viewport for games.
   5. **Tilemap handling** — `LOADSPRITE slot, "path", "tilemap"`; define tile size (e.g. 16×16); render tile grid from sprite sheet. Efficient level/world rendering.
@@ -69,7 +69,7 @@
   * ~**CI**~ — GitHub Actions WASM job uses **emsdk** (`install latest`), builds both targets, runs Playwright: `tests/wasm_browser_test.py`, `tests/wasm_browser_canvas_test.py`.
   * ~**Deploy hygiene**~ — `canvas.html` pairs cache-bust query on `basic-canvas.js` and `basic-canvas.wasm`; optional `?debug=1` for console diagnostics (`wasm_canvas_build_stamp`, stack dumps).
   * ~**Tutorial embedding**~ — `make basic-wasm-modular`; `web/tutorial-embed.js` + `RgcBasicTutorialEmbed.mount()` for **multiple** terminal instances per page. Guide: **`docs/tutorial-embedding.md`**. Example: `web/tutorial-example.html`. CI: `tests/wasm_tutorial_embed_test.py`, `make wasm-tutorial-test`.
-  * **Still open — richer tutorial UX**: “Live” auto-run on edit, step-through debugging, or synchronized markdown blocks (beyond Run button + static program text).
+  * **Still open — richer tutorial UX**: step-through debugging or synchronized markdown blocks (beyond Run button + static program text). ~Optional **`runOnEdit`** in `tutorial-embed.js`~ for debounced auto-run after edits.
 
 * ~~Subroutines and Functions~~
   * **User-defined FUNCTIONS** implemented — `FUNCTION name[(params)]` … `RETURN [expr]` … `END FUNCTION`; call with `name()` or `name(a,b)`; recursion supported. See `docs/user-functions-plan.md`.

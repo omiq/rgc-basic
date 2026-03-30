@@ -2,6 +2,22 @@
 
 ### Unreleased
 
+- **Sprites**: **`SPRITECOLLIDE(a, b)`** — returns **1** if two loaded, visible sprites’ axis-aligned bounding boxes overlap (basic-gfx + canvas WASM; **0** otherwise). Terminal **`./basic`** errors if used (requires **basic-gfx** or canvas WASM). **Runtime errors**: optional **`Hint:`** line for **unknown function** (shows name) and **`ensure_num` / `ensure_str`** type mismatches. **`tutorial-embed.js`**: optional **`runOnEdit`** / **`runOnEditMs`** for debounced auto-run after editing.
+
+- **Documentation**: **`docs/basic-to-c-transpiler-plan.md`** — design notes for a future **BASIC → C** backend (**cc65** / **z88dk**), recommended subset, and **explicit exclusions** (host I/O, `EVAL`, graphics, etc.).
+
+- **IF conditions with parentheses**: **`IF (J=F OR A$=" ") AND SF=0 THEN`** failed with **Missing THEN** because **`eval_simple_condition`** used **`eval_expr`** inside **`(`**, which does not parse relational **`=`**. Leading **`(`** now distinguishes **`(expr) relop rhs`** (e.g. **`(1+1)=2`**) from boolean groups **`(… OR …)`** via **`eval_condition`**. Regression: **`tests/if_paren_condition_test.bas`**.
+
+- **Canvas WASM `PEEK(56320+n)` keyboard**: **`key_state[]`** was never updated in the browser (only **basic-gfx** / Raylib did). **`canvas.html`** now drives **`wasm_gfx_key_state_set`** / **`wasm_gfx_key_state_clear`** on key up/down (A–Z, 0–9, arrows, Escape, Space, Enter, Tab) so **`examples/gfx_jiffy_game_demo.bas`**-style **`PEEK(KEYBASE+…)`** works.
+
+- **Canvas WASM `TI` / `TI$`**: **`GfxVideoState.ticks60`** was only advanced in the **Raylib** main loop, so **canvas** **`TI`** / **`TI$`** stayed frozen (especially in tight **`GOTO`** loops). **Canvas** now derives 60 Hz jiffies from **`emscripten_get_now()`** since **`basic_load_and_run_gfx`** ( **`gfx_video_advance_ticks60`** still drives **basic-gfx** each frame). **Terminal WASM** (`basic.js`, no **`GFX_VIDEO`**) still uses **`time()`** for **`TI`** / **`TI$`** (seconds + wall-clock `HHMMSS`), not C64 jiffies.
+
+- **WordPress**: New plugin **`wordpress/rgc-basic-tutorial-block`** — Gutenberg block **RGC-BASIC embed** with automatic script/style enqueue, **`copy-web-assets.sh`** to sync **`web/tutorial-embed.js`**, **`vfs-helpers.js`**, and modular WASM into **`assets/`**; optional **Settings → RGC-BASIC Tutorial** base URL.
+
+- **Canvas WASM `TAB`**: **`FN_TAB`** used **`OUTC`** for newline/spaces, which updates **`print_col`** but not the **GFX** cursor, so **`PRINT … TAB(n) …`** misaligned on the canvas. **GFX** path now uses **`gfx_newline`** + **`print_spaces`** (same as **`SPC`**). **`wasm_gfx_screen_screencode_at`** exported for **`wasm_browser_canvas_test`** regression.
+
+- **Canvas / basic-gfx INPUT line (`gfx_read_line`)**: Removed same-character time debounce (~80 ms) that dropped consecutive identical keys, so words like **"LOOK"** work. **Raylib `keyq_push`** no longer applies the same filter (parity with canvas).
+
 - **WASM `run_program`**: Reset **`wasm_str_concat_budget`** each **`RUN`** (was missing; concat-yield counter could carry across runs).
 
 - **WASM canvas string concat (`Q$=LEFT$+…`)**: **`trek.bas`** **`GOSUB 5440`** builds **`Q$`** with **`+`** ( **`eval_addsub`** ) without a **`MID$`** per assignment — no prior yield path. **Canvas WASM** now yields every **256** string concatenations (**`wasm_str_concat_budget`**, separate from **`MID$`** counter).
@@ -56,7 +72,7 @@
 - **basic-gfx — hires bitmap (Phase 3)**
   - `SCREEN 0` / `SCREEN 1` (text vs 320×200 monochrome); `PSET` / `PRESET` / `LINE x1,y1 TO x2,y2`; bitmap RAM at `GFX_BITMAP_BASE` (0x2000).
 - **basic-gfx — PNG sprites**
-  - `LOADSPRITE`, `UNLOADSPRITE`, `DRAWSPRITE` (persistent per-slot pose, z-order, optional source rect), `SPRITEVISIBLE`, `SPRITEW()` / `SPRITEH()`; alpha blending over PETSCII/bitmap; `gfx_set_sprite_base_dir` from program path.
+  - `LOADSPRITE`, `UNLOADSPRITE`, `DRAWSPRITE` (persistent per-slot pose, z-order, optional source rect), `SPRITEVISIBLE`, `SPRITEW()` / `SPRITEH()`, `SPRITECOLLIDE(a,b)`; alpha blending over PETSCII/bitmap; `gfx_set_sprite_base_dir` from program path.
   - Examples: `examples/gfx_sprite_hud_demo.bas`, `examples/gfx_game_shell.bas` (+ `player.png`, `enemy.png`, `hud_panel.png`).
 
 ### 1.5.0 – 2026-03-20

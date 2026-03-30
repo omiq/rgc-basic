@@ -379,6 +379,7 @@ Releases include **basic-gfx** — a full graphical version of the interpreter b
 - `DRAWSPRITE slot, x, y [, z [, sx, sy [, sw, sh ]]]` sets the **persistent** pose for that slot: the same image is drawn **every frame** until you call `DRAWSPRITE` again for that slot or the program exits (textures are freed when the window closes). **`x`, `y`** are **pixel** coordinates on the 320×200 framebuffer (not character rows): row *r* starts at **`y = r × 8`**. **`z`**: larger values paint **on top** (e.g. text/bitmap at 0, HUD at 200). Omit **`sx, sy`** to use the top-left of the image; omit **`sw, sh`** (or use ≤0) to use the rest of the texture from `(sx,sy)`. **Alpha** in the PNG is respected (transparency over text or bitmap).
 - `SPRITEVISIBLE slot, 0|1` hides or shows a loaded sprite without unloading.
 - `SPRITEW(slot)` / `SPRITEH(slot)` return pixel width/height after load (0 if not loaded yet).
+- `SPRITECOLLIDE(a, b)` returns **1** if the axis-aligned bounding boxes of two visible, drawn sprites overlap, else **0** (empty slots or hidden sprites never collide).
 - Example: `./basic-gfx -petscii examples/gfx_sprite_hud_demo.bas`
 - **Game shell** (`examples/gfx_game_shell.bas`): tile map from `DATA` with `POKE` (walls/floor/goal), **8×8 PNG** player (`player.png`) and enemy (`enemy.png`) via `DRAWSPRITE`, `INKEY$()` loop, HUD strip (`hud_panel.png`). Run: `./basic-gfx examples/gfx_game_shell.bas`
 
