@@ -2474,7 +2474,8 @@ static void statement_read(char **p)
             break;
         }
         if (!isalpha((unsigned char)**p)) {
-            runtime_error("Expected variable in READ");
+            runtime_error_hint("Expected variable in READ",
+                                 "READ needs variables matching DATA order: READ A, B$ after DATA lines.");
             return;
         }
         vp = get_var_reference(p, &is_array, &is_string, NULL);
@@ -2482,7 +2483,8 @@ static void statement_read(char **p)
             return;
         }
         if (data_index >= data_count) {
-            runtime_error("Out of DATA");
+            runtime_error_hint("Out of DATA",
+                                 "Add more DATA values or RESTORE; READ ran past the last DATA item.");
             return;
         }
         {
@@ -3850,7 +3852,7 @@ static void statement_get(char **p)
         return;
     }
     if (!is_string) {
-        runtime_error("GET requires string variable");
+        runtime_error_hint("GET requires string variable", "Use GET A$ (one character into a string).");
         return;
     }
 
@@ -7174,13 +7176,14 @@ static void statement_open(char **p)
 
     skip_spaces(p);
     if (!isdigit((unsigned char)**p)) {
-        runtime_error("OPEN: expected logical file number");
+        runtime_error_hint("OPEN: expected logical file number",
+                             "Use OPEN 1,8,0,\"file.txt\" — first number is the channel (1-255).");
         return;
     }
     lfn = atoi(*p);
     while (isdigit((unsigned char)**p)) (*p)++;
     if (lfn < 1 || lfn > 255) {
-        runtime_error("OPEN: file number must be 1-255");
+        runtime_error_hint("OPEN: file number must be 1-255", "Choose a channel 1-255 for OPEN/CLOSE/PRINT#.");
         return;
     }
     skip_spaces(p);
@@ -7222,7 +7225,8 @@ static void statement_open(char **p)
         open_files[lfn] = NULL;
     }
     if (fname[0] == '\0') {
-        runtime_error("OPEN: filename required");
+        runtime_error_hint("OPEN: filename required",
+                             "Pass a path in quotes: OPEN 1,8,0,\"data.txt\" (device 8 = disk).");
         return;
     }
     if (device == 1 || device == 0) {
@@ -7232,14 +7236,19 @@ static void statement_open(char **p)
         fp = fopen(fname, mode);
         if (!fp) {
             set_io_status(1);
-            runtime_error("OPEN: cannot open file");
+            {
+                char h[160];
+                snprintf(h, sizeof(h), "Check path and permissions (tried \"%s\").", fname);
+                runtime_error_hint("OPEN: cannot open file", h);
+            }
             return;
         }
         open_files[lfn] = fp;
         set_io_status(0);
     } else {
         set_io_status(1);
-        runtime_error("OPEN: unsupported device");
+        runtime_error_hint("OPEN: unsupported device",
+                             "Use device 0 or 1 for host files; other devices are not implemented.");
     }
 }
 
@@ -7282,13 +7291,13 @@ static void statement_print_hash(char **p)
 
     skip_spaces(p);
     if (!isdigit((unsigned char)**p)) {
-        runtime_error("PRINT#: expected file number");
+        runtime_error_hint("PRINT#: expected file number", "Use PRINT# 1, A after OPEN 1, …");
         return;
     }
     lfn = atoi(*p);
     while (isdigit((unsigned char)**p)) (*p)++;
     if (lfn < 1 || lfn > 255 || !open_files[lfn]) {
-        runtime_error("PRINT#: file not open");
+        runtime_error_hint("PRINT#: file not open", "OPEN the channel first, then PRINT# to it.");
         return;
     }
     skip_spaces(p);
@@ -7346,14 +7355,14 @@ static void statement_input_hash(char **p)
 
     skip_spaces(p);
     if (!isdigit((unsigned char)**p)) {
-        runtime_error("INPUT#: expected file number");
+        runtime_error_hint("INPUT#: expected file number", "Use INPUT# 1, A$ after OPEN 1, …");
         return;
     }
     lfn = atoi(*p);
     while (isdigit((unsigned char)**p)) (*p)++;
     if (lfn < 1 || lfn > 255 || !open_files[lfn]) {
         set_io_status(1);
-        runtime_error("INPUT#: file not open");
+        runtime_error_hint("INPUT#: file not open", "OPEN the file first with the same channel number.");
         return;
     }
     skip_spaces(p);
@@ -7366,7 +7375,8 @@ static void statement_input_hash(char **p)
         vp = get_var_reference(p, &is_array, &is_string, NULL);
         if (!vp) return;
         if (is_array) {
-            runtime_error("INPUT#: array not allowed");
+            runtime_error_hint("INPUT#: array not allowed",
+                                 "Read into scalars only; use INPUT# 1, A, B$ not array elements.");
             return;
         }
         if (!read_file_token(open_files[lfn], tokbuf, sizeof(tokbuf))) {
@@ -7396,26 +7406,26 @@ static void statement_get_hash(char **p)
 
     skip_spaces(p);
     if (!isdigit((unsigned char)**p)) {
-        runtime_error("GET#: expected file number");
+        runtime_error_hint("GET#: expected file number", "Use GET# 1, A$ after OPEN 1, …");
         return;
     }
     lfn = atoi(*p);
     while (isdigit((unsigned char)**p)) (*p)++;
     if (lfn < 1 || lfn > 255 || !open_files[lfn]) {
         set_io_status(1);
-        runtime_error("GET#: file not open");
+        runtime_error_hint("GET#: file not open", "OPEN the file first with the same channel number.");
         return;
     }
     skip_spaces(p);
     if (**p == ',') (*p)++;
     skip_spaces(p);
     if (!isalpha((unsigned char)**p)) {
-        runtime_error("GET#: expected string variable");
+        runtime_error_hint("GET#: expected string variable", "GET# reads one byte into a string variable.");
         return;
     }
     vp = get_var_reference(p, &is_array, &is_string, NULL);
     if (!vp || !is_string || is_array) {
-        runtime_error("GET#: requires string variable");
+        runtime_error_hint("GET#: requires string variable", "Use a plain string variable like A$, not a number.");
         return;
     }
     c = fgetc(open_files[lfn]);
