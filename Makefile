@@ -63,7 +63,7 @@ basic-wasm:
 	@mkdir -p web
 	$(EMCC) -w -O2 -s WASM=1 \
 		-s EXPORTED_FUNCTIONS='["_basic_load","_basic_run","_basic_halted","_basic_load_and_run","_basic_apply_arg_string","_wasm_push_key"]' \
-		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","HEAPU8","wasmMemory","getValue"]' \
+		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","HEAPU8","HEAP16","wasmMemory","getValue"]' \
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
 		-s INITIAL_MEMORY=33554432 \
 		-s STACK_SIZE=524288 \
@@ -77,7 +77,7 @@ basic-wasm-modular:
 	@mkdir -p web
 	$(EMCC) -w -O2 -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME=createBasicModular \
 		-s EXPORTED_FUNCTIONS='["_basic_load","_basic_run","_basic_halted","_basic_load_and_run","_basic_apply_arg_string","_wasm_push_key"]' \
-		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","HEAPU8","wasmMemory","getValue"]' \
+		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","HEAPU8","HEAP16","wasmMemory","getValue"]' \
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
 		-s INITIAL_MEMORY=33554432 \
 		-s STACK_SIZE=524288 \
@@ -89,8 +89,8 @@ basic-wasm-modular:
 basic-wasm-canvas:
 	@mkdir -p web
 	$(EMCC) -w -O2 -s WASM=1 -DGFX_VIDEO -Igfx \
-		-s EXPORTED_FUNCTIONS='["_basic_apply_arg_string","_basic_load_and_run_gfx","_wasm_push_key","_wasm_gfx_rgba_ptr","_wasm_gfx_rgba_version_read","_wasm_gfx_screen_screencode_at","_wasm_gfx_key_state_set","_wasm_gfx_key_state_clear","_wasm_canvas_build_stamp","_wasm_canvas_set_debug","_wasm_canvas_set_debug_trace_for","_wasm_debug_log_stacks"]' \
-		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","HEAPU8","wasmMemory","getValue"]' \
+		-s EXPORTED_FUNCTIONS='["_basic_apply_arg_string","_basic_load_and_run_gfx","_wasm_push_key","_wasm_gfx_rgba_ptr","_wasm_gfx_rgba_version_read","_wasm_gfx_screen_screencode_at","_wasm_gfx_key_state_set","_wasm_gfx_key_state_clear","_wasm_gamepad_buttons_ptr","_wasm_gamepad_axes_ptr","_wasm_canvas_build_stamp","_wasm_canvas_set_debug","_wasm_canvas_set_debug_trace_for","_wasm_debug_log_stacks"]' \
+		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","HEAPU8","HEAP16","wasmMemory","getValue"]' \
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
 		-s INITIAL_MEMORY=67108864 \
 		-s STACK_SIZE=524288 \
