@@ -52,6 +52,7 @@
 
 #ifdef GFX_VIDEO
 #include "gfx_video.h"
+#include "gfx_gamepad.h"
 #include "basic_api.h"
 #if defined(__EMSCRIPTEN__)
 #include "gfx_canvas.h"
@@ -2168,7 +2169,10 @@ enum func_code {
     FN_EVAL = 43,
     FN_SPRITEW = 44,
     FN_SPRITEH = 45,
-    FN_SPRITECOLLIDE = 46
+    FN_SPRITECOLLIDE = 46,
+    FN_JOY = 47,
+    FN_JOYAXIS = 48,
+    FN_SPRITETILES = 49
 };
 
 /* Report an error and halt further execution.
@@ -2404,10 +2408,10 @@ static const char *const reserved_words[] = {
     "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LINE", "LOAD", "LOADSPRITE", "LOCATE", "LOG",
     "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET", "PRINT",
     "XOR",
-    "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITEVISIBLE",
+    "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITETILES", "SPRITEVISIBLE",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
-    "DRAWSPRITE", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
+    "DRAWSPRITE", "DRAWSPRITETILE", "JOY", "JOYAXIS", "JOYSTICK", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
     "DO", "LOOP", "UNTIL", "EXIT",
     NULL
 };
@@ -3208,6 +3212,9 @@ static int function_lookup(const char *name, int len)
         if (len == 13 && name[0] == 'S' && name[1] == 'P' && name[2] == 'R' && name[3] == 'I' &&
             name[4] == 'T' && name[5] == 'E' && name[6] == 'C' && name[7] == 'O' && name[8] == 'L' &&
             name[9] == 'L' && name[10] == 'I' && name[11] == 'D' && name[12] == 'E') return FN_SPRITECOLLIDE;
+        if (len == 11 && name[0] == 'S' && name[1] == 'P' && name[2] == 'R' && name[3] == 'I' &&
+            name[4] == 'T' && name[5] == 'E' && name[6] == 'T' && name[7] == 'I' && name[8] == 'L' &&
+            name[9] == 'E' && name[10] == 'S') return FN_SPRITETILES;
         return FN_NONE;
     case 'C':
         if ((len == 3 && name[0] == 'C' && name[1] == 'H' && name[2] == 'R') ||
@@ -3232,6 +3239,11 @@ static int function_lookup(const char *name, int len)
         if ((len == 4 && name[0] == 'J' && name[1] == 'S' && name[2] == 'O' && name[3] == 'N') ||
             (len == 5 && name[0] == 'J' && name[1] == 'S' && name[2] == 'O' && name[3] == 'N' && name[4] == '$'))
             return FN_JSON;
+        if (len == 3 && name[0] == 'J' && name[1] == 'O' && name[2] == 'Y') return FN_JOY;
+        if (len == 8 && name[0] == 'J' && name[1] == 'O' && name[2] == 'Y' && name[3] == 'S' &&
+            name[4] == 'T' && name[5] == 'I' && name[6] == 'C' && name[7] == 'K') return FN_JOY;
+        if (len == 7 && name[0] == 'J' && name[1] == 'O' && name[2] == 'Y' && name[3] == 'A' &&
+            name[4] == 'X' && name[5] == 'I' && name[6] == 'S') return FN_JOYAXIS;
         return FN_NONE;
     case 'I':
         if (len == 3 && name[0] == 'I' && name[1] == 'N' && name[2] == 'T') return FN_INT;
@@ -3707,11 +3719,11 @@ static int path_ends_with_png(const char *path)
             (path[len - 1] == 'g' || path[len - 1] == 'G'));
 }
 
-/* LOADSPRITE slot, "file.png" — queue PNG load (main thread); paths relative to .bas folder. */
+/* LOADSPRITE slot, "file.png" [, tile_w, tile_h] — optional tile sheet cell size. */
 static void statement_loadsprite(char **p)
 {
-    struct value vslot, vpath;
-    int slot;
+    struct value vslot, vpath, vw, vh;
+    int slot, tw = 0, th = 0;
     skip_spaces(p);
     vslot = eval_expr(p);
     ensure_num(&vslot);
@@ -3730,13 +3742,103 @@ static void statement_loadsprite(char **p)
                              "Sprite paths must end in .png; use LOAD for other files.");
         return;
     }
+    skip_spaces(p);
+    if (**p == ',') {
+        (*p)++;
+        skip_spaces(p);
+        vw = eval_expr(p);
+        ensure_num(&vw);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("LOADSPRITE tilemap needs tile width and height",
+                                 "Use LOADSPRITE slot, \"tiles.png\", 16, 16 for 16×16 cells.");
+            return;
+        }
+        (*p)++;
+        skip_spaces(p);
+        vh = eval_expr(p);
+        ensure_num(&vh);
+        tw = (int)vw.num;
+        th = (int)vh.num;
+        if (tw < 1 || th < 1) {
+            runtime_error_hint("LOADSPRITE tile size invalid",
+                                 "Tile width and height must be positive integers.");
+            return;
+        }
+    }
     if (!gfx_vs) {
         runtime_error_hint("LOADSPRITE requires basic-gfx",
                              "Sprites need basic-gfx or canvas WASM (not terminal basic).");
         return;
     }
     slot = (int)vslot.num;
-    gfx_sprite_enqueue_load(slot, vpath.str);
+    if (tw > 0 && th > 0) {
+        gfx_sprite_enqueue_load_ex(slot, vpath.str, tw, th);
+    } else {
+        gfx_sprite_enqueue_load(slot, vpath.str);
+    }
+}
+
+/* DRAWSPRITETILE slot, x, y, tile_index [, z] — tile_index is 1-based into tilemap sheet. */
+static void statement_drawspritetile(char **p)
+{
+    struct value v;
+    int slot, z = 0, ti, sx, sy, sw, sh;
+    float x, y;
+    skip_spaces(p);
+    v = eval_expr(p);
+    ensure_num(&v);
+    slot = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("DRAWSPRITETILE expects slot, x, y, tile_index [, z]",
+                             "Example: DRAWSPRITETILE 0, 10, 20, 3");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    v = eval_expr(p);
+    ensure_num(&v);
+    x = (float)v.num;
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("DRAWSPRITETILE expects slot, x, y, tile_index [, z]", NULL);
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    v = eval_expr(p);
+    ensure_num(&v);
+    y = (float)v.num;
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("DRAWSPRITETILE expects slot, x, y, tile_index [, z]", NULL);
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    v = eval_expr(p);
+    ensure_num(&v);
+    ti = (int)v.num;
+    skip_spaces(p);
+    if (**p == ',') {
+        (*p)++;
+        skip_spaces(p);
+        v = eval_expr(p);
+        ensure_num(&v);
+        z = (int)v.num;
+    }
+    if (!gfx_vs) {
+        runtime_error_hint("DRAWSPRITETILE requires basic-gfx",
+                             "Use basic-gfx or canvas WASM.");
+        return;
+    }
+    if (gfx_sprite_tile_source_rect(slot, ti, &sx, &sy, &sw, &sh) != 0) {
+        runtime_error_hint("DRAWSPRITETILE: invalid slot or tile index",
+                             "LOADSPRITE with two tile dimensions first; index 1..SPRITETILES(slot).");
+        return;
+    }
+    gfx_sprite_enqueue_draw(slot, x, y, z, sx, sy, sw, sh);
 }
 
 /* DRAWSPRITE slot, x, y [, z [, sx, sy [, sw, sh ]]] — z higher = on top; alpha from PNG. */
@@ -4395,6 +4497,45 @@ static struct value eval_function(const char *name, char **p)
                              "Sprite collision needs a graphics build with LOADSPRITE/DRAWSPRITE.");
         return make_num(0.0);
     }
+    if (code == FN_SPRITETILES) {
+        struct value v1;
+        skip_spaces(p);
+        v1 = eval_expr(p);
+        (void)v1;
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("Missing ')'", "SPRITETILES(slot) takes one argument.");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        runtime_error_hint("SPRITETILES requires basic-gfx or canvas WASM", NULL);
+        return make_num(0.0);
+    }
+    if (code == FN_JOY || code == FN_JOYAXIS) {
+        struct value v1, v2;
+        skip_spaces(p);
+        v1 = eval_expr(p);
+        (void)v1;
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("Missing ','", "JOY(port, button) or JOYAXIS(port, axis).");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        v2 = eval_expr(p);
+        (void)v2;
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("Missing ')'", NULL);
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        runtime_error_hint("JOY/JOYAXIS require basic-gfx (native)", "Terminal basic has no gamepad.");
+        return make_num(0.0);
+    }
 #endif
 #ifdef GFX_VIDEO
     if (code == FN_SPRITEW || code == FN_SPRITEH) {
@@ -4447,6 +4588,64 @@ static struct value eval_function(const char *name, char **p)
             return make_num((double)hit);
         }
         return make_num(0.0);
+    }
+    if (code == FN_SPRITETILES) {
+        struct value vs;
+        int slot, n;
+        skip_spaces(p);
+        vs = eval_expr(p);
+        ensure_num(&vs);
+        slot = (int)vs.num;
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("Missing ')'", "SPRITETILES(slot) — one slot number.");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        if (gfx_vs) {
+            n = gfx_sprite_slot_tile_count(slot);
+            return make_num((double)n);
+        }
+        return make_num(0.0);
+    }
+    if (code == FN_JOY || code == FN_JOYAXIS) {
+        struct value vp, vb;
+        int port, btn, ax;
+        skip_spaces(p);
+        vp = eval_expr(p);
+        ensure_num(&vp);
+        port = (int)vp.num;
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint(code == FN_JOY ? "JOY expects port, button" : "JOYAXIS expects port, axis",
+                                 "Raylib codes: buttons 1–15 (DPAD/face), axes 0–5 (sticks/triggers).");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        vb = eval_expr(p);
+        ensure_num(&vb);
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("Missing ')'", "Close JOY(port, btn) or JOYAXIS(port, axis) with ')'.");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+#if defined(__EMSCRIPTEN__)
+        (void)port;
+        (void)btn;
+        (void)ax;
+        return make_num(0.0);
+#else
+        if (code == FN_JOY) {
+            btn = (int)vb.num;
+            return make_num((double)gfx_gamepad_button_down(port, btn));
+        }
+        ax = (int)vb.num;
+        return make_num((double)gfx_gamepad_axis_scaled(port, ax));
+#endif
     }
 #endif
     if (code == FN_PLATFORM) {
@@ -5872,7 +6071,8 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "SYSTEM") || starts_with_kw(*p, "EXEC") ||
             starts_with_kw(*p, "PEEK") || starts_with_kw(*p, "INKEY") ||
             starts_with_kw(*p, "SPRITEW") || starts_with_kw(*p, "SPRITEH") ||
-            starts_with_kw(*p, "SPRITECOLLIDE")) {
+            starts_with_kw(*p, "SPRITECOLLIDE") || starts_with_kw(*p, "SPRITETILES") ||
+            starts_with_kw(*p, "JOY") || starts_with_kw(*p, "JOYSTICK") || starts_with_kw(*p, "JOYAXIS")) {
             char namebuf[32];
             char *q;
             q = *p;
@@ -8785,6 +8985,11 @@ static void execute_statement(char **p)
     }
     if (c == 'D') {
 #ifdef GFX_VIDEO
+        if (starts_with_kw(*p, "DRAWSPRITETILE")) {
+            *p += 14;
+            statement_drawspritetile(p);
+            return;
+        }
         if (starts_with_kw(*p, "DRAWSPRITE")) {
             *p += 10;
             statement_drawsprite(p);

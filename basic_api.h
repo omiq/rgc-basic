@@ -52,6 +52,15 @@ int basic_get_gfx_border_color(void);
 /* Directory for relative PNG paths in LOADSPRITE (program file’s folder). */
 void gfx_set_sprite_base_dir(const char *dir);
 
+/* tile_w/tile_h > 0: sheet is a grid of that tile size (LOADSPRITE …, tw, th). */
+void gfx_sprite_enqueue_load_ex(int slot, const char *path, int tile_w, int tile_h);
+
+/* Number of tiles in a loaded sheet (0 if not tilemap or unloaded). */
+int gfx_sprite_slot_tile_count(int slot);
+
+/* 1-based tile index into a tilemap sheet; sets source rect for DRAWSPRITE crop. Returns 0 on success. */
+int gfx_sprite_tile_source_rect(int slot, int tile_index_1based, int *sx, int *sy, int *sw, int *sh);
+
 /* Sprite queue (thread-safe): worker enqueues, main thread loads textures & draws. */
 void gfx_sprite_enqueue_load(int slot, const char *path);
 void gfx_sprite_enqueue_unload(int slot);  /* BASIC: UNLOADSPRITE slot */
