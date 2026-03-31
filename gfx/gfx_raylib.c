@@ -609,7 +609,7 @@ int main(int argc, char **argv)
     prog_idx = basic_parse_args(argc, argv);
     if (prog_idx < 0) {
         fprintf(stderr,
-                "Usage: %s [-petscii] [-palette ansi|c64] [-columns 80] [-gfx-title \"title\"] [-gfx-border N] <program.bas> [args...]\n",
+                "Usage: %s [-petscii] [-palette ansi|c64] [-columns 80] [-memory c64|pet|default] [-gfx-title \"title\"] [-gfx-border N] <program.bas> [args...]\n",
                 argv[0]);
         return 1;
     }

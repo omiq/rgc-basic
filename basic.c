@@ -59,6 +59,114 @@
 #endif
 /* Video state pointer; must precede __EMSCRIPTEN__ key helpers that reference gfx_vs. */
 static GfxVideoState *gfx_vs = NULL;
+
+/* Virtual POKE/PEEK bases for gfx builds (defaults: C64-style). #OPTION memory / screen / … */
+static uint16_t gfx_mem_base_text = GFX_TEXT_BASE;
+static uint16_t gfx_mem_base_color = GFX_COLOR_BASE;
+static uint16_t gfx_mem_base_char = GFX_CHAR_BASE;
+static uint16_t gfx_mem_base_key = GFX_KEY_BASE;
+static uint16_t gfx_mem_base_bitmap = GFX_BITMAP_BASE;
+/* Baseline after CLI parsing; restored at each load so #OPTION starts from CLI layout. */
+static uint16_t gfx_mem_init_text = GFX_TEXT_BASE;
+static uint16_t gfx_mem_init_color = GFX_COLOR_BASE;
+static uint16_t gfx_mem_init_char = GFX_CHAR_BASE;
+static uint16_t gfx_mem_init_key = GFX_KEY_BASE;
+static uint16_t gfx_mem_init_bitmap = GFX_BITMAP_BASE;
+
+static void gfx_mem_bases_restore_from_init(void)
+{
+    gfx_mem_base_text = gfx_mem_init_text;
+    gfx_mem_base_color = gfx_mem_init_color;
+    gfx_mem_base_char = gfx_mem_init_char;
+    gfx_mem_base_key = gfx_mem_init_key;
+    gfx_mem_base_bitmap = gfx_mem_init_bitmap;
+}
+
+static int gfx_mem_bases_apply_to_video(void)
+{
+    if (!gfx_vs) {
+        return 0;
+    }
+    return gfx_video_set_memory_bases(gfx_vs,
+        gfx_mem_base_text, gfx_mem_base_color, gfx_mem_base_char,
+        gfx_mem_base_key, gfx_mem_base_bitmap);
+}
+
+static void gfx_mem_bases_copy_to_state(GfxVideoState *s)
+{
+    s->mem_text = gfx_mem_base_text;
+    s->mem_color = gfx_mem_base_color;
+    s->mem_char = gfx_mem_base_char;
+    s->mem_key = gfx_mem_base_key;
+    s->mem_bitmap = gfx_mem_base_bitmap;
+}
+
+/* Parse 1024, $400, or 0x400 into 16-bit address. */
+static int parse_gfx_addr_u16(const char *value, uint16_t *out)
+{
+    char *end;
+    unsigned long v;
+    const char *p;
+    if (!value || !value[0] || !out) return -1;
+    p = value;
+    if (p[0] == '$') {
+        p++;
+        v = strtoul(p, &end, 16);
+    } else {
+        v = strtoul(p, &end, 0);
+    }
+    if (end == p || *end != '\0' || v > 0xFFFFul) return -1;
+    *out = (uint16_t)v;
+    return 0;
+}
+
+static int gfx_mem_try_preset(const char *value)
+{
+    GfxVideoState tmp;
+    gfx_video_init(&tmp);
+    gfx_mem_bases_copy_to_state(&tmp);
+    if (gfx_video_apply_memory_preset(&tmp, value) != 0) {
+        return -1;
+    }
+    gfx_mem_base_text = tmp.mem_text;
+    gfx_mem_base_color = tmp.mem_color;
+    gfx_mem_base_char = tmp.mem_char;
+    gfx_mem_base_key = tmp.mem_key;
+    gfx_mem_base_bitmap = tmp.mem_bitmap;
+    if (gfx_vs) {
+        return gfx_mem_bases_apply_to_video();
+    }
+    return 0;
+}
+
+static int gfx_mem_try_set_region(GfxMemRegion region, uint32_t base)
+{
+    GfxVideoState tmp;
+    gfx_video_init(&tmp);
+    gfx_mem_bases_copy_to_state(&tmp);
+    if (gfx_video_set_memory_base(&tmp, region, base) != 0) {
+        return -1;
+    }
+    gfx_mem_base_text = tmp.mem_text;
+    gfx_mem_base_color = tmp.mem_color;
+    gfx_mem_base_char = tmp.mem_char;
+    gfx_mem_base_key = tmp.mem_key;
+    gfx_mem_base_bitmap = tmp.mem_bitmap;
+    if (gfx_vs) {
+        return gfx_mem_bases_apply_to_video();
+    }
+    return 0;
+}
+
+static void gfx_mem_snapshot_init(void)
+{
+    gfx_mem_init_text = gfx_mem_base_text;
+    gfx_mem_init_color = gfx_mem_base_color;
+    gfx_mem_init_char = gfx_mem_base_char;
+    gfx_mem_init_key = gfx_mem_base_key;
+    gfx_mem_init_bitmap = gfx_mem_base_bitmap;
+}
+
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
 /* Canvas WASM: TI/TI$ from high-res clock (tight GOTO loops have no SLEEP). */
 static double wasm_gfx_ti_epoch_ms;
@@ -1852,6 +1960,40 @@ static int apply_option_directive(const char *name, const char *value)
             basic_set_gfx_border_color(-1);
         }
         return 0;
+    }
+    if (str_eq_ci(name, "memory")) {
+        if (!value || !value[0]) return -1;
+        return gfx_mem_try_preset(value);
+    }
+    if (str_eq_ci(name, "screen")) {
+        uint16_t a;
+        if (!value || !value[0]) return -1;
+        if (parse_gfx_addr_u16(value, &a) != 0) return -1;
+        return gfx_mem_try_set_region(GFX_MEM_TEXT, a);
+    }
+    if (str_eq_ci(name, "colorram") || str_eq_ci(name, "colourram")) {
+        uint16_t a;
+        if (!value || !value[0]) return -1;
+        if (parse_gfx_addr_u16(value, &a) != 0) return -1;
+        return gfx_mem_try_set_region(GFX_MEM_COLOR, a);
+    }
+    if (str_eq_ci(name, "charmem") || str_eq_ci(name, "charrom") || str_eq_ci(name, "charsetmem")) {
+        uint16_t a;
+        if (!value || !value[0]) return -1;
+        if (parse_gfx_addr_u16(value, &a) != 0) return -1;
+        return gfx_mem_try_set_region(GFX_MEM_CHAR, a);
+    }
+    if (str_eq_ci(name, "keymatrix") || str_eq_ci(name, "keyboard") || str_eq_ci(name, "keybase")) {
+        uint16_t a;
+        if (!value || !value[0]) return -1;
+        if (parse_gfx_addr_u16(value, &a) != 0) return -1;
+        return gfx_mem_try_set_region(GFX_MEM_KEY, a);
+    }
+    if (str_eq_ci(name, "bitmap") || str_eq_ci(name, "hires")) {
+        uint16_t a;
+        if (!value || !value[0]) return -1;
+        if (parse_gfx_addr_u16(value, &a) != 0) return -1;
+        return gfx_mem_try_set_region(GFX_MEM_BITMAP, a);
     }
 #endif
     return -1;
@@ -9287,6 +9429,12 @@ static void load_program(const char *path)
     int first_line_seen = 0;
     const char *base_dir = get_base_dir(path);
 
+#ifdef GFX_VIDEO
+    /* Each load starts from CLI memory map; #OPTION in file overrides. */
+    gfx_mem_bases_restore_from_init();
+    gfx_mem_bases_apply_to_video();
+#endif
+
     load_file_into_program(path, base_dir, 0,
         &use_explicit_numbers, &auto_line_no, &first_line_seen);
 
@@ -9529,17 +9677,37 @@ int basic_parse_arg_flags(int argc, char **argv, int start, int expect_program_p
                     return -1;
                 }
             }
+        } else if (strcmp(argv[i], "-memory") == 0 || strcmp(argv[i], "--memory") == 0) {
+            const char *preset;
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Missing value for -memory\n");
+                fprintf(stderr, "  Hint: Use c64, pet, or default.\n");
+                return -1;
+            }
+            preset = argv[++i];
+            if (gfx_mem_try_preset(preset) != 0) {
+                fprintf(stderr, "Unknown -memory preset '%s' (expected c64, pet, or default)\n", preset);
+                return -1;
+            }
 #endif
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             return -1;
         } else if (expect_program_path) {
+#ifdef GFX_VIDEO
+            gfx_mem_snapshot_init();
+#endif
             return i;   /* index of the .bas path */
         } else {
             fprintf(stderr, "Unexpected argument: %s\n", argv[i]);
             return -1;
         }
     }
+#ifdef GFX_VIDEO
+    if (!expect_program_path) {
+        gfx_mem_snapshot_init();
+    }
+#endif
     return expect_program_path ? -1 : 0;
 }
 
@@ -9563,6 +9731,9 @@ void basic_set_video(GfxVideoState *vs) {
     if (vs) {
         vs->cols = (print_width >= 80) ? 80 : 40;
         vs->bitmap_fg = gfx_fg;
+        (void)gfx_video_set_memory_bases(vs,
+            gfx_mem_base_text, gfx_mem_base_color, gfx_mem_base_char,
+            gfx_mem_base_key, gfx_mem_base_bitmap);
 #if defined(__EMSCRIPTEN__)
         /* #OPTION charset runs during load before wasm_gfx_set_video(); sync ROM when
          * video attaches so PETSCII space (sc 32) matches the selected charset. */

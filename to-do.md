@@ -30,10 +30,9 @@
 
 * ~Cursor On/Off~
 
-* **#OPTION memory addresses** (basic-gfx)
-  * Configurable base addresses for screen, colour, charset so POKE/PEEK match different machines.
-  * E.g. `#OPTION screen 32768` (PET: $8000) vs default 1024 (C64: $0400). PET programs can be pasted and run with screen address changed.
-  * Presets: `#OPTION memory c64` (default) / `#OPTION memory pet`.
+* ~**#OPTION memory addresses** (basic-gfx / canvas WASM)~ — Implemented:
+  * `#OPTION memory c64` / `pet` / `default`; per-region `#OPTION screen` / `colorram` / `charmem` / `keymatrix` / `bitmap` with decimal or `$hex` / `0xhex`.
+  * CLI: `-memory c64|pet|default` (basic-gfx). Overlapping 16-bit addresses use fixed priority: text → colour → charset → keyboard → bitmap.
 
 * ~**MEMSET, MEMCPY**~ (basic-gfx; see `docs/memory-commands-plan.md`) — **done** (overlap-safe MEMCPY).
 
@@ -134,7 +133,7 @@
 | ~**10**~ | ~Browser/WASM (terminal + canvas demos, CI, pause/stop)~ | **Done** (see bullet list above). |
 | **11** | Bitmap/sprites (remaining) | `SPRITECOLLIDE`, tilemap `LOADSPRITE`; joystick, layers, animation — see sprite plan. |
 | **Later** | Optional debug logging (load + exec) | `-debug load`, `-debug exec`; verbose but useful for diagnostics. |
-| **Later** | Program preprocessor, #OPTION memory | Polish; niche. |
+| **Later** | Program preprocessor | Polish; niche. |
 | **Later** | WASM tutorial UX extras | Auto-run, stepping, deep IDE integration (embed API exists). |
 
 ---

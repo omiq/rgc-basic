@@ -82,6 +82,22 @@ int main(void)
     gfx_poke(&s, 0x0001u, 0x7F);
     assert(gfx_peek(&s, 0x0001u) == 0);
 
+    /* PET preset: screen at $8000, etc. */
+    assert(gfx_video_apply_memory_preset(&s, "pet") == 0);
+    gfx_poke(&s, 0x8000u, 77);
+    assert(s.screen[0] == 77);
+    assert(gfx_peek(&s, 0x8000u) == 77);
+    assert(gfx_video_apply_memory_preset(&s, "c64") == 0);
+    gfx_poke(&s, GFX_TEXT_BASE, 88);
+    assert(s.screen[0] == 88);
+
+    /* Layout that does not fit in 64K is rejected. */
+    {
+        GfxVideoState t;
+        gfx_video_init(&t);
+        assert(gfx_video_set_memory_bases(&t, 64000u, GFX_COLOR_BASE, GFX_CHAR_BASE, GFX_KEY_BASE, GFX_BITMAP_BASE) == -1);
+    }
+
     printf("gfx_video_test OK\n");
     return 0;
 }
