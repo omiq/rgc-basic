@@ -61,6 +61,12 @@ Each option behaves **exactly as if** the user had passed that argument on the c
 | `#OPTION palette c64` | C64-style 8-bit palette | `-palette c64` |
 | `#OPTION gfx_title "title"` | Window title (basic-gfx) | `-gfx-title "title"` |
 | `#OPTION border N [colour]` | Border padding in pixels, optional colour (basic-gfx) | `-gfx-border "N"` or `-gfx-border "N colour"` |
+| `#OPTION memory c64` / `pet` / `default` | Virtual bases for `POKE`/`PEEK` (basic-gfx + canvas WASM) | `-memory c64` (basic-gfx) |
+| `#OPTION screen ADDR` | Screen RAM base (decimal, `$hex`, or `0xhex`) | — |
+| `#OPTION colorram ADDR` | Colour RAM base | — |
+| `#OPTION charmem ADDR` | Character / UDG RAM base | — |
+| `#OPTION keymatrix ADDR` | Keyboard matrix base (`PEEK` key state) | — |
+| `#OPTION bitmap ADDR` | Hi-res bitmap base | — |
 
 **Syntax**: `#OPTION name [value]`
 

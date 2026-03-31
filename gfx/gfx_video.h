@@ -38,6 +38,13 @@
 #define GFX_SCREEN_BITMAP 1u
 
 typedef struct GfxVideoState {
+    /* Virtual POKE/PEEK bases (defaults match C64-style layout). Each region must lie
+     * in 16-bit space without overlapping another region. */
+    uint16_t mem_text;
+    uint16_t mem_color;
+    uint16_t mem_char;
+    uint16_t mem_key;
+    uint16_t mem_bitmap;
     uint8_t screen[GFX_TEXT_SIZE];          /* Screen codes (40x25 or 80x25) */
     uint8_t color[GFX_COLOR_SIZE];          /* Colour indices (0-15 per cell) */
     uint8_t chars[GFX_CHAR_SIZE];           /* Character ROM / UDGs */
@@ -61,6 +68,24 @@ void gfx_video_advance_ticks60(GfxVideoState *s, uint32_t delta_ticks);
 /* Initialise state to a clean default (all zeros). */
 void gfx_video_init(GfxVideoState *s);
 
+/* Apply a named layout: "c64" (default) or "pet" (screen at $8000, etc.). Returns 0 on success. */
+int gfx_video_apply_memory_preset(GfxVideoState *s, const char *preset);
+
+/* Set all bases at once (e.g. after validation). Returns 0 on success, -1 if ranges overlap or overflow 64K. */
+int gfx_video_set_memory_bases(GfxVideoState *s,
+    uint16_t text, uint16_t color, uint16_t chr, uint16_t key, uint16_t bitmap);
+
+typedef enum {
+    GFX_MEM_TEXT = 0,
+    GFX_MEM_COLOR,
+    GFX_MEM_CHAR,
+    GFX_MEM_KEY,
+    GFX_MEM_BITMAP
+} GfxMemRegion;
+
+/* Change one region’s base address (hex-friendly programs often use one custom screen address). */
+int gfx_video_set_memory_base(GfxVideoState *s, GfxMemRegion region, uint32_t base);
+
 /* Clear all video RAM (screen, colour, chars, bitmap) but leave input state. */
 void gfx_video_clear(GfxVideoState *s);
 
@@ -68,6 +93,9 @@ void gfx_video_clear(GfxVideoState *s);
 void gfx_video_clear_keys(GfxVideoState *s);
 
 /* Virtualised PEEK/POKE for video-related address ranges.
+ *
+ * Regions may overlap in 16-bit space (e.g. C64 colour vs keyboard); resolution
+ * order is: text screen, colour RAM, charset, keyboard, bitmap.
  *
  * Addresses outside the defined ranges currently read as 0 and ignore writes.
  * This is intentional: the graphics build only defines semantics for its

@@ -71,6 +71,7 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
 - **Meta directives** (load-time, `#` prefix) — see `docs/meta-directives-plan.md`:
   - Shebang: `#!/usr/bin/env basic` on first line (ignored).
   - `#OPTION petscii` / `#OPTION charset lower` / `#OPTION palette c64` / `#OPTION maxstr 255` / `#OPTION columns 80` / `#OPTION nowrap` — mirror command-line options; file overrides CLI.
+  - **basic-gfx / canvas WASM only — virtual memory bases for `POKE`/`PEEK`:** `#OPTION memory c64` (default layout), `#OPTION memory pet` (screen RAM at `$8000`, colour at `$9000`, charset at `$A000`, keyboard matrix still `$DC00`, bitmap at `$2000`), or `#OPTION memory default` (same as `c64`). Override individual regions with decimal or hex: `#OPTION screen $8000`, `#OPTION colorram 55296`, `#OPTION charmem 0xA000`, `#OPTION keymatrix 56320`, `#OPTION bitmap 8192`. Regions must each fit in 64K; overlapping addresses use fixed priority (text → colour → charset → keyboard → bitmap). Command-line: `-memory c64|pet|default` (basic-gfx only).
   - `#INCLUDE "path"` — splice another file at that point. Recommend numberless mode when using includes; duplicate line numbers and labels error.
 - **Programs with or without line numbers**
   - Classic **line-numbered programs** loaded from a text file (`10 ...`, `20 ...`, etc.).
