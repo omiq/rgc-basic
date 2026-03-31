@@ -61,6 +61,12 @@ int gfx_sprite_slot_tile_count(int slot);
 /* 1-based tile index into a tilemap sheet; sets source rect for DRAWSPRITE crop. Returns 0 on success. */
 int gfx_sprite_tile_source_rect(int slot, int tile_index_1based, int *sx, int *sy, int *sw, int *sh);
 
+/* Animation frame for tilemap sheets (1-based tile index for DRAWSPRITE when crop omitted). 0 = same as 1. */
+void gfx_sprite_set_draw_frame(int slot, int frame_1based);
+int gfx_sprite_get_draw_frame(int slot);
+/* Full source rect for a slot (single image or current SPRITEFRAME tile). Returns 0 on success. */
+int gfx_sprite_effective_source_rect(int slot, int *sx, int *sy, int *sw, int *sh);
+
 /* Sprite queue (thread-safe): worker enqueues, main thread loads textures & draws. */
 void gfx_sprite_enqueue_load(int slot, const char *path);
 void gfx_sprite_enqueue_unload(int slot);  /* BASIC: UNLOADSPRITE slot */
