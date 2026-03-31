@@ -29,12 +29,16 @@ typedef struct {
     float x, y;
     int z;
     int sx, sy, sw, sh;
+    int tile_w, tile_h;
 } GfxSpriteCmd;
 
 typedef struct {
     int loaded;
     int visible;
     int w, h;
+    int tile_w, tile_h;
+    int tiles_x, tiles_y;
+    int tile_count;
     unsigned char *rgba; /* malloc'd w*h*4, straight alpha */
     /* Persistent draw state (last DRAWSPRITE for this slot until UNLOAD). */
     int draw_active;
@@ -93,7 +97,7 @@ static void sprite_build_path(char *out, size_t outsz, const char *rel)
     }
 }
 
-void gfx_sprite_enqueue_load(int slot, const char *path)
+void gfx_sprite_enqueue_load_ex(int slot, const char *path, int tile_w, int tile_h)
 {
     GfxSpriteCmd c;
     if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS || !path) {
@@ -102,9 +106,16 @@ void gfx_sprite_enqueue_load(int slot, const char *path)
     memset(&c, 0, sizeof(c));
     c.kind = GFX_SQ_LOAD;
     c.slot = slot;
+    c.tile_w = tile_w;
+    c.tile_h = tile_h;
     strncpy(c.path, path, sizeof(c.path) - 1);
     c.path[sizeof(c.path) - 1] = '\0';
     (void)sprite_q_push(&c);
+}
+
+void gfx_sprite_enqueue_load(int slot, const char *path)
+{
+    gfx_sprite_enqueue_load_ex(slot, path, 0, 0);
 }
 
 void gfx_sprite_enqueue_unload(int slot)
@@ -160,6 +171,9 @@ int gfx_sprite_slot_width(int slot)
     if (!g_sprite_slots[slot].loaded) {
         return 0;
     }
+    if (g_sprite_slots[slot].tile_w > 0 && g_sprite_slots[slot].tile_h > 0) {
+        return g_sprite_slots[slot].tile_w;
+    }
     return g_sprite_slots[slot].w;
 }
 
@@ -172,7 +186,47 @@ int gfx_sprite_slot_height(int slot)
     if (!g_sprite_slots[slot].loaded) {
         return 0;
     }
+    if (g_sprite_slots[slot].tile_w > 0 && g_sprite_slots[slot].tile_h > 0) {
+        return g_sprite_slots[slot].tile_h;
+    }
     return g_sprite_slots[slot].h;
+}
+
+int gfx_sprite_slot_tile_count(int slot)
+{
+    gfx_sprite_process_queue();
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) {
+        return 0;
+    }
+    if (!g_sprite_slots[slot].loaded) {
+        return 0;
+    }
+    return g_sprite_slots[slot].tile_count;
+}
+
+int gfx_sprite_tile_source_rect(int slot, int tile_index_1based, int *sx, int *sy, int *sw, int *sh)
+{
+    GfxSpriteSlot *sl;
+    int idx0, tx, ty;
+    gfx_sprite_process_queue();
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS || !sx || !sy || !sw || !sh) {
+        return -1;
+    }
+    sl = &g_sprite_slots[slot];
+    if (!sl->loaded || sl->tile_w <= 0 || sl->tile_h <= 0 || sl->tiles_x <= 0 || sl->tile_count <= 0) {
+        return -1;
+    }
+    if (tile_index_1based < 1 || tile_index_1based > sl->tile_count) {
+        return -1;
+    }
+    idx0 = tile_index_1based - 1;
+    tx = idx0 % sl->tiles_x;
+    ty = idx0 / sl->tiles_x;
+    *sx = tx * sl->tile_w;
+    *sy = ty * sl->tile_h;
+    *sw = sl->tile_w;
+    *sh = sl->tile_h;
+    return 0;
 }
 
 int gfx_sprite_slots_overlap_aabb(int slot_a, int slot_b)
@@ -193,15 +247,25 @@ int gfx_sprite_slots_overlap_aabb(int slot_a, int slot_b)
         return 0;
     }
     if (a->draw_sw <= 0 || a->draw_sh <= 0) {
-        aw = (float)(a->w - a->draw_sx);
-        ah = (float)(a->h - a->draw_sy);
+        if (a->tile_w > 0 && a->tile_h > 0) {
+            aw = (float)a->tile_w;
+            ah = (float)a->tile_h;
+        } else {
+            aw = (float)(a->w - a->draw_sx);
+            ah = (float)(a->h - a->draw_sy);
+        }
     } else {
         aw = (float)a->draw_sw;
         ah = (float)a->draw_sh;
     }
     if (b->draw_sw <= 0 || b->draw_sh <= 0) {
-        bw = (float)(b->w - b->draw_sx);
-        bh = (float)(b->h - b->draw_sy);
+        if (b->tile_w > 0 && b->tile_h > 0) {
+            bw = (float)b->tile_w;
+            bh = (float)b->tile_h;
+        } else {
+            bw = (float)(b->w - b->draw_sx);
+            bh = (float)(b->h - b->draw_sy);
+        }
     } else {
         bw = (float)b->draw_sw;
         bh = (float)b->draw_sh;
@@ -260,6 +324,8 @@ void gfx_sprite_process_queue(void)
             int w = 0, h = 0, comp = 0;
             unsigned char *pix;
             GfxSpriteSlot *sl = &g_sprite_slots[c->slot];
+            int tw = c->tile_w;
+            int th = c->tile_h;
 
             sprite_build_path(full, sizeof(full), c->path);
             if (sl->loaded && sl->rgba) {
@@ -270,6 +336,8 @@ void gfx_sprite_process_queue(void)
             sl->w = sl->h = 0;
             sl->visible = 0;
             sl->draw_active = 0;
+            sl->tile_w = sl->tile_h = 0;
+            sl->tiles_x = sl->tiles_y = sl->tile_count = 0;
 
             stbi_set_flip_vertically_on_load(0);
             pix = stbi_load(full, &w, &h, &comp, 4);
@@ -280,6 +348,16 @@ void gfx_sprite_process_queue(void)
                 sl->loaded = 1;
                 sl->visible = 1;
                 sl->draw_active = 0;
+                sl->tile_w = tw;
+                sl->tile_h = th;
+                if (tw > 0 && th > 0 && w >= tw && h >= th) {
+                    sl->tiles_x = w / tw;
+                    sl->tiles_y = h / th;
+                    sl->tile_count = sl->tiles_x * sl->tiles_y;
+                } else {
+                    sl->tile_w = sl->tile_h = 0;
+                    sl->tile_count = 1;
+                }
             } else {
                 if (pix) {
                     stbi_image_free(pix);
@@ -302,6 +380,8 @@ void gfx_sprite_process_queue(void)
             sl->visible = 0;
             sl->draw_active = 0;
             sl->w = sl->h = 0;
+            sl->tile_w = sl->tile_h = 0;
+            sl->tiles_x = sl->tiles_y = sl->tile_count = 0;
             break;
         }
         case GFX_SQ_DRAW: {

@@ -55,9 +55,9 @@
 * **Bitmap graphics & sprites** (incremental; see `docs/bitmap-graphics-plan.md`, `docs/sprite-features-plan.md`)
   1. ~**Bitmap mode**~ — `SCREEN 0`/`SCREEN 1` (320×200 hires at `GFX_BITMAP_BASE`), monochrome raylib renderer; `COLOR`/`BACKGROUND` as pen/paper. ~`PSET`/`PRESET`/`LINE`~; POKE still works.
   2. ~**Sprites (minimal)**~ — `LOADSPRITE` / `UNLOADSPRITE` / `DRAWSPRITE` (persistent pose, z-order, optional `sx,sy,sw,sh` crop) / `SPRITEVISIBLE` / `SPRITEW`/`SPRITEH` / `SPRITECOLLIDE` in basic-gfx + canvas WASM; PNG alpha over text/bitmap; paths relative to `.bas` directory. ~Worked example: `examples/gfx_game_shell.bas` (PETSCII map + PNG player/enemy/HUD), `examples/gfx_sprite_hud_demo.bas`, `examples/player.png`, `examples/enemy.png`, `examples/hud_panel.png`.~ Still open: tilemap `LOADSPRITE` mode.
-  3. **Joystick / joypad / controller input** — Poll gamepad via raylib; expose to BASIC as `JOY(port)` or similar read API for D-pad, buttons, axes. Support keyboards-as-joystick and real controllers.
+  3. ~**Joystick / joypad / controller input**~ — **`JOY(port, button)`** / **`JOYSTICK`** / **`JOYAXIS(port, axis)`** (Raylib; **basic-gfx** native only; WASM returns 0). See `examples/gfx_joy_demo.bas`.
   4. **Graphic layers and scrolling** — Layer stack (background, tiles, sprites, text) with independent scroll offsets; `SCROLL x, y` or per-layer scroll; camera/viewport for games.
-  5. **Tilemap handling** — `LOADSPRITE slot, "path", "tilemap"`; define tile size (e.g. 16×16); render tile grid from sprite sheet. Efficient level/world rendering.
+  5. ~**Tilemap handling (sheet)**~ — **`LOADSPRITE slot, "path.png", tw, th`** + **`DRAWSPRITETILE slot, x, y, tile_index [, z]`** + **`SPRITETILES(slot)`**. Full world tile *grid* storage in BASIC still manual.
   6. **Sprite animation** — Multiple frames per slot; `SPRITEFRAME slot, n` or frame parameter in `DRAWSPRITE`; optional frame rate / timing.
 
 * **Browser / WASM** (see `docs/browser-wasm-plan.md`, `web/README.md`, `README.md`)
@@ -131,7 +131,7 @@
 | ~**8**~ | ~ENV$, PLATFORM$, JSON$, EVAL~ | Done. |
 | ~**9**~ | ~80-column option (terminal + basic-gfx + WASM canvas)~ | Done. |
 | ~**10**~ | ~Browser/WASM (terminal + canvas demos, CI, pause/stop)~ | **Done** (see bullet list above). |
-| **11** | Bitmap/sprites (remaining) | `SPRITECOLLIDE`, tilemap `LOADSPRITE`; joystick, layers, animation — see sprite plan. |
+| **11** | Bitmap/sprites (remaining) | Layers, scrolling, sprite animation — see sprite plan. (`SPRITECOLLIDE`, tile sheet `LOADSPRITE`, `JOY`/`JOYAXIS` done.) |
 | **Later** | Optional debug logging (load + exec) | `-debug load`, `-debug exec`; verbose but useful for diagnostics. |
 | **Later** | Program preprocessor | Polish; niche. |
 | **Later** | WASM tutorial UX extras | Auto-run, stepping, deep IDE integration (embed API exists). |

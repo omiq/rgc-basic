@@ -38,12 +38,16 @@ typedef struct {
     float x, y;
     int z;
     int sx, sy, sw, sh;
+    int tile_w, tile_h; /* LOADSPRITE tilemap: >0 = grid cell size */
 } GfxSpriteCmd;
 
 typedef struct {
     Texture2D tex;
     int loaded;
     int visible;
+    int tile_w, tile_h;   /* 0 = single image */
+    int tiles_x, tiles_y; /* grid dimensions */
+    int tile_count;       /* tiles_x * tiles_y, or 1 for single */
     /* Persistent draw state (last DRAWSPRITE for this slot until UNLOAD). */
     int draw_active;
     float draw_x, draw_y;
@@ -111,7 +115,7 @@ static void sprite_build_path(char *out, size_t outsz, const char *rel)
     pthread_mutex_unlock(&g_sprite_mutex);
 }
 
-void gfx_sprite_enqueue_load(int slot, const char *path)
+void gfx_sprite_enqueue_load_ex(int slot, const char *path, int tile_w, int tile_h)
 {
     GfxSpriteCmd c;
     if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS || !path) {
@@ -120,9 +124,16 @@ void gfx_sprite_enqueue_load(int slot, const char *path)
     memset(&c, 0, sizeof(c));
     c.kind = GFX_SQ_LOAD;
     c.slot = slot;
+    c.tile_w = tile_w;
+    c.tile_h = tile_h;
     strncpy(c.path, path, sizeof(c.path) - 1);
     c.path[sizeof(c.path) - 1] = '\0';
     (void)sprite_q_push(&c);
+}
+
+void gfx_sprite_enqueue_load(int slot, const char *path)
+{
+    gfx_sprite_enqueue_load_ex(slot, path, 0, 0);
 }
 
 void gfx_sprite_enqueue_unload(int slot)
@@ -177,7 +188,11 @@ int gfx_sprite_slot_width(int slot)
     }
     pthread_mutex_lock(&g_sprite_mutex);
     if (g_sprite_slots[slot].loaded) {
-        w = g_sprite_slots[slot].tex.width;
+        if (g_sprite_slots[slot].tile_w > 0 && g_sprite_slots[slot].tile_h > 0) {
+            w = g_sprite_slots[slot].tile_w;
+        } else {
+            w = g_sprite_slots[slot].tex.width;
+        }
     }
     pthread_mutex_unlock(&g_sprite_mutex);
     return w;
@@ -191,10 +206,57 @@ int gfx_sprite_slot_height(int slot)
     }
     pthread_mutex_lock(&g_sprite_mutex);
     if (g_sprite_slots[slot].loaded) {
-        h = g_sprite_slots[slot].tex.height;
+        if (g_sprite_slots[slot].tile_w > 0 && g_sprite_slots[slot].tile_h > 0) {
+            h = g_sprite_slots[slot].tile_h;
+        } else {
+            h = g_sprite_slots[slot].tex.height;
+        }
     }
     pthread_mutex_unlock(&g_sprite_mutex);
     return h;
+}
+
+int gfx_sprite_slot_tile_count(int slot)
+{
+    int n = 0;
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) {
+        return 0;
+    }
+    pthread_mutex_lock(&g_sprite_mutex);
+    if (g_sprite_slots[slot].loaded) {
+        n = g_sprite_slots[slot].tile_count;
+    }
+    pthread_mutex_unlock(&g_sprite_mutex);
+    return n;
+}
+
+int gfx_sprite_tile_source_rect(int slot, int tile_index_1based, int *sx, int *sy, int *sw, int *sh)
+{
+    GfxSpriteSlot *sl;
+    int idx0, tx, ty;
+    gfx_sprite_process_queue();
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS || !sx || !sy || !sw || !sh) {
+        return -1;
+    }
+    pthread_mutex_lock(&g_sprite_mutex);
+    sl = &g_sprite_slots[slot];
+    if (!sl->loaded || sl->tile_w <= 0 || sl->tile_h <= 0 || sl->tiles_x <= 0 || sl->tile_count <= 0) {
+        pthread_mutex_unlock(&g_sprite_mutex);
+        return -1;
+    }
+    if (tile_index_1based < 1 || tile_index_1based > sl->tile_count) {
+        pthread_mutex_unlock(&g_sprite_mutex);
+        return -1;
+    }
+    idx0 = tile_index_1based - 1;
+    tx = idx0 % sl->tiles_x;
+    ty = idx0 / sl->tiles_x;
+    *sx = tx * sl->tile_w;
+    *sy = ty * sl->tile_h;
+    *sw = sl->tile_w;
+    *sh = sl->tile_h;
+    pthread_mutex_unlock(&g_sprite_mutex);
+    return 0;
 }
 
 int gfx_sprite_slots_overlap_aabb(int slot_a, int slot_b)
@@ -225,15 +287,25 @@ int gfx_sprite_slots_overlap_aabb(int slot_a, int slot_b)
         twb = b->tex.width;
         thb = b->tex.height;
         if (a->draw_sw <= 0 || a->draw_sh <= 0) {
-            swa = (float)(twa - a->draw_sx);
-            sha = (float)(tha - a->draw_sy);
+            if (a->tile_w > 0 && a->tile_h > 0) {
+                swa = (float)a->tile_w;
+                sha = (float)a->tile_h;
+            } else {
+                swa = (float)(twa - a->draw_sx);
+                sha = (float)(tha - a->draw_sy);
+            }
         } else {
             swa = (float)a->draw_sw;
             sha = (float)a->draw_sh;
         }
         if (b->draw_sw <= 0 || b->draw_sh <= 0) {
-            swb = (float)(twb - b->draw_sx);
-            shb = (float)(thb - b->draw_sy);
+            if (b->tile_w > 0 && b->tile_h > 0) {
+                swb = (float)b->tile_w;
+                shb = (float)b->tile_h;
+            } else {
+                swb = (float)(twb - b->draw_sx);
+                shb = (float)(thb - b->draw_sy);
+            }
         } else {
             swb = (float)b->draw_sw;
             shb = (float)b->draw_sh;
@@ -302,6 +374,8 @@ static void gfx_sprite_process_queue(void)
         case GFX_SQ_LOAD: {
             char full[1024];
             Texture2D t;
+            int tw = c->tile_w;
+            int th = c->tile_h;
             sprite_build_path(full, sizeof(full), c->path);
             pthread_mutex_lock(&g_sprite_mutex);
             if (g_sprite_slots[c->slot].loaded) {
@@ -317,6 +391,20 @@ static void gfx_sprite_process_queue(void)
                 g_sprite_slots[c->slot].loaded = 1;
                 g_sprite_slots[c->slot].visible = 1;
                 g_sprite_slots[c->slot].draw_active = 0;
+                g_sprite_slots[c->slot].tile_w = tw;
+                g_sprite_slots[c->slot].tile_h = th;
+                g_sprite_slots[c->slot].tiles_x = 0;
+                g_sprite_slots[c->slot].tiles_y = 0;
+                g_sprite_slots[c->slot].tile_count = 1;
+                if (tw > 0 && th > 0 && t.width >= tw && t.height >= th) {
+                    g_sprite_slots[c->slot].tiles_x = t.width / tw;
+                    g_sprite_slots[c->slot].tiles_y = t.height / th;
+                    g_sprite_slots[c->slot].tile_count =
+                        g_sprite_slots[c->slot].tiles_x * g_sprite_slots[c->slot].tiles_y;
+                } else {
+                    g_sprite_slots[c->slot].tile_w = 0;
+                    g_sprite_slots[c->slot].tile_h = 0;
+                }
             }
             pthread_mutex_unlock(&g_sprite_mutex);
             break;
@@ -335,6 +423,9 @@ static void gfx_sprite_process_queue(void)
                 g_sprite_slots[c->slot].loaded = 0;
                 g_sprite_slots[c->slot].visible = 0;
                 g_sprite_slots[c->slot].draw_active = 0;
+                g_sprite_slots[c->slot].tile_w = g_sprite_slots[c->slot].tile_h = 0;
+                g_sprite_slots[c->slot].tiles_x = g_sprite_slots[c->slot].tiles_y = 0;
+                g_sprite_slots[c->slot].tile_count = 0;
             }
             pthread_mutex_unlock(&g_sprite_mutex);
             break;

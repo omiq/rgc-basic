@@ -1,6 +1,6 @@
 # Sprite Features – Planning & Specification
 
-**Status**: **Partially implemented** in `basic-gfx`: `LOADSPRITE`, `UNLOADSPRITE`, `DRAWSPRITE` (persistent pose per slot, `z` and optional source rectangle), `SPRITEVISIBLE`, `SPRITEW`/`SPRITEH`. **Worked example**: `examples/gfx_game_shell.bas` (PETSCII tile map via `POKE` + PNG player/enemy/HUD); **minimal HUD demo**: `examples/gfx_sprite_hud_demo.bas`. Collision and tilemap `LOADSPRITE` modes are still planning-only.
+**Status**: **Partially implemented** in `basic-gfx` + canvas WASM: `LOADSPRITE`, optional **tile sheet** `LOADSPRITE slot, "sheet.png", tw, th`, `DRAWSPRITETILE`, `SPRITETILES`, `UNLOADSPRITE`, `DRAWSPRITE` (persistent pose per slot, `z` and optional source rectangle), `SPRITEVISIBLE`, `SPRITEW`/`SPRITEH`, `SPRITECOLLIDE`. **Worked example**: `examples/gfx_game_shell.bas` (PETSCII tile map via `POKE` + PNG player/enemy/HUD); **minimal HUD demo**: `examples/gfx_sprite_hud_demo.bas`. **Gamepad**: `JOY`/`JOYAXIS` in native `basic-gfx` only (`examples/gfx_joy_demo.bas`). Full **world tilemap engine** (scroll, layers) still planning.
 
 This document outlines a sprite subsystem for `basic-gfx`, designed for modern hardware with no C64-style limits. The goal is to let BASIC programs load PNG images as sprites, draw them at arbitrary positions with depth ordering, and perform collision detection.
 
@@ -29,12 +29,9 @@ This document outlines a sprite subsystem for `basic-gfx`, designed for modern h
 - On failure (file not found, invalid PNG): set `ST` or raise error; slot is unchanged.
 - **1:1 semantics**: Image dimensions are preserved. A 32×32 PNG becomes a 32×32 sprite.
 
-**`LOADSPRITE slot, "path", mode`**
+**`LOADSPRITE slot, "path.png", tw, th`** (implemented)
 
-- Optional `mode` for advanced loading:
-  - `1` or `"sprite"`: single sprite, 1:1 (default).
-  - `2` or `"tilemap"`: interpret image as a tile/sprite sheet; each tile is a fixed-size cell (e.g. 16×16 or 32×32). Creates multiple logical sprites or a tile grid from one file.
-- Tilemap mode is deferred to a later phase; phase 1 is single-sprite 1:1 only.
+- Optional **tw**, **th**: pixel width and height of each cell in a uniform grid (sprite sheet). **`DRAWSPRITETILE slot, x, y, n [, z]`** draws tile **n** (1-based, row-major). **`SPRITETILES(slot)`** returns **tiles_x × tiles_y**.
 
 ### 2.2 Drawing sprites
 
