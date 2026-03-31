@@ -316,6 +316,46 @@
         }
       };
 
+      /* Gamepad: fill WASM buffers for JOY() / JOYAXIS() (Standard Gamepad mapping). */
+      function wasmPollGamepads() {
+        var M = Module;
+        if (!M || !M._wasm_gamepad_buttons_ptr || !M._wasm_gamepad_axes_ptr || !M.HEAPU8 || !M.HEAP16) {
+          return;
+        }
+        var gpl = (navigator.getGamepads && navigator.getGamepads()) || [];
+        var maxP = 4, maxB = 32, maxA = 8;
+        for (var p = 0; p < maxP; p++) {
+          var g = gpl[p];
+          var bptr = numPtr(M._wasm_gamepad_buttons_ptr(p));
+          var aptr = numPtr(M._wasm_gamepad_axes_ptr(p));
+          if (!bptr || !aptr) continue;
+          var abase = aptr >> 1;
+          var bi, ai;
+          for (bi = 0; bi < maxB; bi++) M.HEAPU8[bptr + bi] = 0;
+          for (ai = 0; ai < maxA; ai++) M.HEAP16[abase + ai] = 0;
+          if (!g || !g.connected) continue;
+          for (bi = 0; bi < maxB && bi < g.buttons.length; bi++) {
+            var btn = g.buttons[bi];
+            var v = 0;
+            if (btn) {
+              if (btn.pressed) v = 255;
+              else if (typeof btn.value === 'number' && btn.value > 0) {
+                v = btn.value >= 0.5 ? 255 : Math.min(255, Math.round(btn.value * 255));
+              }
+            }
+            M.HEAPU8[bptr + bi] = v;
+          }
+          for (ai = 0; ai < maxA && ai < g.axes.length; ai++) {
+            var ax = g.axes[ai];
+            if (typeof ax !== 'number' || isNaN(ax)) ax = 0;
+            if (ax > 1) ax = 1;
+            if (ax < -1) ax = -1;
+            M.HEAP16[abase + ai] = (ax * 32767) | 0;
+          }
+        }
+      }
+      Module.wasmPollGamepads = wasmPollGamepads;
+
       if (typeof RgcVfsHelpers !== 'undefined' && vfsHost) {
         RgcVfsHelpers.vfsMountUI(vfsHost, Module, {
           pathDefault: '/out.txt',

@@ -2172,7 +2172,8 @@ enum func_code {
     FN_SPRITECOLLIDE = 46,
     FN_JOY = 47,
     FN_JOYAXIS = 48,
-    FN_SPRITETILES = 49
+    FN_SPRITETILES = 49,
+    FN_SPRITEFRAME = 50
 };
 
 /* Report an error and halt further execution.
@@ -2408,7 +2409,7 @@ static const char *const reserved_words[] = {
     "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LINE", "LOAD", "LOADSPRITE", "LOCATE", "LOG",
     "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET", "PRINT",
     "XOR",
-    "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITETILES", "SPRITEVISIBLE",
+    "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITEFRAME", "SPRITETILES", "SPRITEVISIBLE",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
     "DRAWSPRITE", "DRAWSPRITETILE", "JOY", "JOYAXIS", "JOYSTICK", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
@@ -3215,6 +3216,9 @@ static int function_lookup(const char *name, int len)
         if (len == 11 && name[0] == 'S' && name[1] == 'P' && name[2] == 'R' && name[3] == 'I' &&
             name[4] == 'T' && name[5] == 'E' && name[6] == 'T' && name[7] == 'I' && name[8] == 'L' &&
             name[9] == 'E' && name[10] == 'S') return FN_SPRITETILES;
+        if (len == 11 && name[0] == 'S' && name[1] == 'P' && name[2] == 'R' && name[3] == 'I' &&
+            name[4] == 'T' && name[5] == 'E' && name[6] == 'F' && name[7] == 'R' && name[8] == 'A' &&
+            name[9] == 'M' && name[10] == 'E') return FN_SPRITEFRAME;
         return FN_NONE;
     case 'C':
         if ((len == 3 && name[0] == 'C' && name[1] == 'H' && name[2] == 'R') ||
@@ -3924,7 +3928,41 @@ static void statement_drawsprite(char **p)
                              "Run with basic-gfx or canvas WASM; terminal has no sprite layer.");
         return;
     }
+    if ((sw <= 0 || sh <= 0) && gfx_sprite_slot_tile_count(slot) > 0) {
+        if (gfx_sprite_effective_source_rect(slot, &sx, &sy, &sw, &sh) != 0) {
+            runtime_error_hint("DRAWSPRITE: could not resolve tile crop",
+                                 "Use LOADSPRITE with tile width/height for tile sheets.");
+            return;
+        }
+    }
     gfx_sprite_enqueue_draw(slot, x, y, z, sx, sy, sw, sh);
+}
+
+/* SPRITEFRAME slot, frame — 1-based tile index for next DRAWSPRITE without crop (tile sheets only). */
+static void statement_spriteframe(char **p)
+{
+    struct value va, vb;
+    int slot, fr;
+    skip_spaces(p);
+    va = eval_expr(p);
+    ensure_num(&va);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("SPRITEFRAME expects slot, frame",
+                             "Example: SPRITEFRAME 0, 2  (second tile in sheet)");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    vb = eval_expr(p);
+    ensure_num(&vb);
+    slot = (int)va.num;
+    fr = (int)vb.num;
+    if (!gfx_vs) {
+        runtime_error_hint("SPRITEFRAME requires basic-gfx or canvas WASM", NULL);
+        return;
+    }
+    gfx_sprite_set_draw_frame(slot, fr);
 }
 
 /* SPRITEVISIBLE slot, on — 1 show, 0 hide (texture kept). */
@@ -4497,19 +4535,19 @@ static struct value eval_function(const char *name, char **p)
                              "Sprite collision needs a graphics build with LOADSPRITE/DRAWSPRITE.");
         return make_num(0.0);
     }
-    if (code == FN_SPRITETILES) {
+    if (code == FN_SPRITETILES || code == FN_SPRITEFRAME) {
         struct value v1;
         skip_spaces(p);
         v1 = eval_expr(p);
         (void)v1;
         skip_spaces(p);
         if (**p != ')') {
-            runtime_error_hint("Missing ')'", "SPRITETILES(slot) takes one argument.");
+            runtime_error_hint("Missing ')'", "SPRITETILES(slot) / SPRITEFRAME(slot) take one argument.");
             return make_num(0.0);
         }
         (*p)++;
         skip_spaces(p);
-        runtime_error_hint("SPRITETILES requires basic-gfx or canvas WASM", NULL);
+        runtime_error_hint("SPRITETILES/SPRITEFRAME require basic-gfx or canvas WASM", NULL);
         return make_num(0.0);
     }
     if (code == FN_JOY || code == FN_JOYAXIS) {
@@ -4609,6 +4647,26 @@ static struct value eval_function(const char *name, char **p)
         }
         return make_num(0.0);
     }
+    if (code == FN_SPRITEFRAME) {
+        struct value vs;
+        int slot, fr;
+        skip_spaces(p);
+        vs = eval_expr(p);
+        ensure_num(&vs);
+        slot = (int)vs.num;
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("Missing ')'", "SPRITEFRAME(slot) — current animation frame (1-based).");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        if (gfx_vs) {
+            fr = gfx_sprite_get_draw_frame(slot);
+            return make_num((double)fr);
+        }
+        return make_num(0.0);
+    }
     if (code == FN_JOY || code == FN_JOYAXIS) {
         struct value vp, vb;
         int port, btn, ax;
@@ -4633,7 +4691,8 @@ static struct value eval_function(const char *name, char **p)
         }
         (*p)++;
         skip_spaces(p);
-#if defined(__EMSCRIPTEN__)
+#if defined(__EMSCRIPTEN__) && !defined(GFX_VIDEO)
+        /* Terminal WASM build: no gamepad layer. */
         (void)port;
         (void)btn;
         (void)ax;
@@ -6071,7 +6130,7 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "SYSTEM") || starts_with_kw(*p, "EXEC") ||
             starts_with_kw(*p, "PEEK") || starts_with_kw(*p, "INKEY") ||
             starts_with_kw(*p, "SPRITEW") || starts_with_kw(*p, "SPRITEH") ||
-            starts_with_kw(*p, "SPRITECOLLIDE") || starts_with_kw(*p, "SPRITETILES") ||
+            starts_with_kw(*p, "SPRITECOLLIDE") || starts_with_kw(*p, "SPRITETILES") || starts_with_kw(*p, "SPRITEFRAME") ||
             starts_with_kw(*p, "JOY") || starts_with_kw(*p, "JOYSTICK") || starts_with_kw(*p, "JOYAXIS")) {
             char namebuf[32];
             char *q;
@@ -8990,6 +9049,11 @@ static void execute_statement(char **p)
             statement_drawspritetile(p);
             return;
         }
+        if (starts_with_kw(*p, "SPRITEFRAME")) {
+            *p += 11;
+            statement_spriteframe(p);
+            return;
+        }
         if (starts_with_kw(*p, "DRAWSPRITE")) {
             *p += 10;
             statement_drawsprite(p);
@@ -10001,6 +10065,11 @@ static void wasm_gfx_refresh_js(void)
     if (!gfx_vs) {
         return;
     }
+    EM_ASM({
+        if (typeof Module !== 'undefined' && typeof Module['wasmPollGamepads'] === 'function') {
+            Module['wasmPollGamepads']();
+        }
+    });
     gfx_canvas_render_full_frame(gfx_vs, wasm_gfx_rgba, sizeof(wasm_gfx_rgba));
     wasm_gfx_rgba_version++;
     EM_ASM({

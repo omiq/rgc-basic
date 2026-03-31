@@ -48,6 +48,7 @@ typedef struct {
     int tile_w, tile_h;   /* 0 = single image */
     int tiles_x, tiles_y; /* grid dimensions */
     int tile_count;       /* tiles_x * tiles_y, or 1 for single */
+    int draw_frame;       /* 1-based tile index for DRAWSPRITE default crop */
     /* Persistent draw state (last DRAWSPRITE for this slot until UNLOAD). */
     int draw_active;
     float draw_x, draw_y;
@@ -259,6 +260,98 @@ int gfx_sprite_tile_source_rect(int slot, int tile_index_1based, int *sx, int *s
     return 0;
 }
 
+void gfx_sprite_set_draw_frame(int slot, int frame_1based)
+{
+    GfxSpriteSlot *sl;
+    gfx_sprite_process_queue();
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) {
+        return;
+    }
+    pthread_mutex_lock(&g_sprite_mutex);
+    sl = &g_sprite_slots[slot];
+    if (!sl->loaded || sl->tile_w <= 0 || sl->tile_h <= 0 || sl->tile_count <= 0) {
+        pthread_mutex_unlock(&g_sprite_mutex);
+        return;
+    }
+    if (frame_1based < 1) {
+        frame_1based = 1;
+    }
+    if (frame_1based > sl->tile_count) {
+        frame_1based = sl->tile_count;
+    }
+    sl->draw_frame = frame_1based;
+    pthread_mutex_unlock(&g_sprite_mutex);
+}
+
+int gfx_sprite_get_draw_frame(int slot)
+{
+    int f = 1;
+    gfx_sprite_process_queue();
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) {
+        return 0;
+    }
+    pthread_mutex_lock(&g_sprite_mutex);
+    if (g_sprite_slots[slot].loaded) {
+        f = g_sprite_slots[slot].draw_frame;
+        if (f < 1) {
+            f = 1;
+        }
+    }
+    pthread_mutex_unlock(&g_sprite_mutex);
+    return f;
+}
+
+int gfx_sprite_effective_source_rect(int slot, int *sx, int *sy, int *sw, int *sh)
+{
+    GfxSpriteSlot *sl;
+    int tw, th;
+    gfx_sprite_process_queue();
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS || !sx || !sy || !sw || !sh) {
+        return -1;
+    }
+    pthread_mutex_lock(&g_sprite_mutex);
+    sl = &g_sprite_slots[slot];
+    if (!sl->loaded) {
+        pthread_mutex_unlock(&g_sprite_mutex);
+        return -1;
+    }
+    if (sl->draw_sw > 0 && sl->draw_sh > 0) {
+        *sx = sl->draw_sx;
+        *sy = sl->draw_sy;
+        *sw = sl->draw_sw;
+        *sh = sl->draw_sh;
+        pthread_mutex_unlock(&g_sprite_mutex);
+        return 0;
+    }
+    if (sl->tile_w > 0 && sl->tile_h > 0 && sl->tile_count > 0) {
+        int f = sl->draw_frame;
+        int idx0, tx, ty;
+        if (f < 1) {
+            f = 1;
+        }
+        if (f > sl->tile_count) {
+            f = sl->tile_count;
+        }
+        idx0 = f - 1;
+        tx = idx0 % sl->tiles_x;
+        ty = idx0 / sl->tiles_x;
+        *sx = tx * sl->tile_w;
+        *sy = ty * sl->tile_h;
+        *sw = sl->tile_w;
+        *sh = sl->tile_h;
+        pthread_mutex_unlock(&g_sprite_mutex);
+        return 0;
+    }
+    tw = sl->tex.width;
+    th = sl->tex.height;
+    *sx = sl->draw_sx;
+    *sy = sl->draw_sy;
+    *sw = tw - sl->draw_sx;
+    *sh = th - sl->draw_sy;
+    pthread_mutex_unlock(&g_sprite_mutex);
+    return 0;
+}
+
 int gfx_sprite_slots_overlap_aabb(int slot_a, int slot_b)
 {
     float ax, ay, aw, ah, bx, by, bw, bh;
@@ -401,9 +494,11 @@ static void gfx_sprite_process_queue(void)
                     g_sprite_slots[c->slot].tiles_y = t.height / th;
                     g_sprite_slots[c->slot].tile_count =
                         g_sprite_slots[c->slot].tiles_x * g_sprite_slots[c->slot].tiles_y;
+                    g_sprite_slots[c->slot].draw_frame = 1;
                 } else {
                     g_sprite_slots[c->slot].tile_w = 0;
                     g_sprite_slots[c->slot].tile_h = 0;
+                    g_sprite_slots[c->slot].draw_frame = 1;
                 }
             }
             pthread_mutex_unlock(&g_sprite_mutex);
@@ -426,6 +521,7 @@ static void gfx_sprite_process_queue(void)
                 g_sprite_slots[c->slot].tile_w = g_sprite_slots[c->slot].tile_h = 0;
                 g_sprite_slots[c->slot].tiles_x = g_sprite_slots[c->slot].tiles_y = 0;
                 g_sprite_slots[c->slot].tile_count = 0;
+                g_sprite_slots[c->slot].draw_frame = 0;
             }
             pthread_mutex_unlock(&g_sprite_mutex);
             break;

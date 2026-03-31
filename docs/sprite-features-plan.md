@@ -1,6 +1,6 @@
 # Sprite Features – Planning & Specification
 
-**Status**: **Partially implemented** in `basic-gfx` + canvas WASM: `LOADSPRITE`, optional **tile sheet** `LOADSPRITE slot, "sheet.png", tw, th`, `DRAWSPRITETILE`, `SPRITETILES`, `UNLOADSPRITE`, `DRAWSPRITE` (persistent pose per slot, `z` and optional source rectangle), `SPRITEVISIBLE`, `SPRITEW`/`SPRITEH`, `SPRITECOLLIDE`. **Worked example**: `examples/gfx_game_shell.bas` (PETSCII tile map via `POKE` + PNG player/enemy/HUD); **minimal HUD demo**: `examples/gfx_sprite_hud_demo.bas`. **Gamepad**: `JOY`/`JOYAXIS` in native `basic-gfx` only (`examples/gfx_joy_demo.bas`). Full **world tilemap engine** (scroll, layers) still planning.
+**Status**: **Partially implemented** in `basic-gfx` + canvas WASM: `LOADSPRITE`, optional **tile sheet** `LOADSPRITE slot, "sheet.png", tw, th`, `DRAWSPRITETILE`, `SPRITETILES`, **`SPRITEFRAME`** (default tile for `DRAWSPRITE` without crop), `UNLOADSPRITE`, `DRAWSPRITE` (persistent pose per slot, `z` and optional source rectangle), `SPRITEVISIBLE`, `SPRITEW`/`SPRITEH`, `SPRITECOLLIDE`. **Worked example**: `examples/gfx_game_shell.bas` (PETSCII tile map via `POKE` + PNG player/enemy/HUD); **minimal HUD demo**: `examples/gfx_sprite_hud_demo.bas`. **Gamepad**: `JOY`/`JOYAXIS` in **basic-gfx** and **canvas WASM** (`examples/gfx_joy_demo.bas`). Full **world tilemap engine** (scroll, layers) still planning.
 
 This document outlines a sprite subsystem for `basic-gfx`, designed for modern hardware with no C64-style limits. The goal is to let BASIC programs load PNG images as sprites, draw them at arbitrary positions with depth ordering, and perform collision detection.
 
@@ -32,6 +32,7 @@ This document outlines a sprite subsystem for `basic-gfx`, designed for modern h
 **`LOADSPRITE slot, "path.png", tw, th`** (implemented)
 
 - Optional **tw**, **th**: pixel width and height of each cell in a uniform grid (sprite sheet). **`DRAWSPRITETILE slot, x, y, n [, z]`** draws tile **n** (1-based, row-major). **`SPRITETILES(slot)`** returns **tiles_x × tiles_y**.
+- **`SPRITEFRAME slot, frame`** sets the default **1-based** tile for **`DRAWSPRITE`** when **`sx, sy, sw, sh`** are omitted (same source rect as **`DRAWSPRITETILE`** for that index). **`SPRITEFRAME(slot)`** returns the current frame.
 
 ### 2.2 Drawing sprites
 
