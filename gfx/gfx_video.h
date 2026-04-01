@@ -59,6 +59,9 @@ typedef struct GfxVideoState {
     uint8_t charset_lowercase;              /* 0=upper/graphics, 1=lower/upper */
     uint8_t cols;                           /* 40 or 80; columns per row */
     uint8_t screen_mode;                    /* GFX_SCREEN_TEXT or GFX_SCREEN_BITMAP */
+    /* Viewport scroll (pixels): content is shifted left/up by these amounts when compositing. */
+    int16_t scroll_x;
+    int16_t scroll_y;
 } GfxVideoState;
 
 /* Advance 60 Hz jiffy counter (TI / TI$); wraps every 24h like C64. */

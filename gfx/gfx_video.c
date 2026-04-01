@@ -112,6 +112,8 @@ void gfx_video_init(GfxVideoState *s)
     s->key_q_tail = 0;
     s->ticks60 = 0;
     s->screen_mode = GFX_SCREEN_TEXT;
+    s->scroll_x = 0;
+    s->scroll_y = 0;
 }
 
 void gfx_video_clear(GfxVideoState *s)
