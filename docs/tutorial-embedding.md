@@ -20,6 +20,7 @@ This produces:
 | `web/vfs-helpers.js` | Shared **upload/download** helpers for `Module.FS` (loaded automatically by tutorial embeds) |
 | `web/tutorial-example.html` | Minimal page with **two** embeds (smoke test reference) |
 | `web/tutorial.html` | **Getting started** walkthrough with **thirteen** lesson embeds (serve `web/` over HTTP) |
+| `web/tutorial-gfx-features.html` | **Static** cheat sheet for **basic-gfx** / **canvas WASM** features (scroll, memory, sprites, gamepad); links to `examples/tutorial_gfx_*.bas` |
 
 Serve the `web/` directory over **HTTP** (WASM is blocked on many browsers for `file://`).
 
