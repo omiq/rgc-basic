@@ -35,6 +35,8 @@ static void render_text_layer(const GfxVideoState *s, uint8_t *rgba, int fb_w, i
 {
     int row, col, y, x;
     int cols;
+    int sx = (int)s->scroll_x;
+    int sy = (int)s->scroll_y;
     (void)fb_h;
 
     cols = (s->cols == 40 || s->cols == 80) ? (int)s->cols : 40;
@@ -54,8 +56,8 @@ static void render_text_layer(const GfxVideoState *s, uint8_t *rgba, int fb_w, i
             for (y = 0; y < CELL_H; y++) {
                 uint8_t bits = glyph[y];
                 for (x = 0; x < CELL_W; x++) {
-                    int px = col * CELL_W + x;
-                    int py = row * CELL_H + y;
+                    int px = col * CELL_W + x - sx;
+                    int py = row * CELL_H + y - sy;
                     size_t off;
                     int on = (bits & (uint8_t)(0x80 >> x)) ? 1 : 0;
                     const uint8_t *c_fg = (on ^ reversed) ? fg_rgb : bg_rgb;
@@ -78,6 +80,8 @@ static void render_bitmap_layer(const GfxVideoState *s, uint8_t *rgba, int fb_w,
     const uint8_t *fg_rgb = gfx_c64_palette_rgb[s->bitmap_fg & 0x0Fu];
     const uint8_t *bg_rgb = gfx_c64_palette_rgb[s->bg_color & 0x0Fu];
     int off_x = (fb_w - (int)GFX_BITMAP_WIDTH) / 2;
+    int sx = (int)s->scroll_x;
+    int sy = (int)s->scroll_y;
     int y, x;
 
     if (off_x < 0) {
@@ -86,14 +90,15 @@ static void render_bitmap_layer(const GfxVideoState *s, uint8_t *rgba, int fb_w,
 
     for (y = 0; y < (int)GFX_BITMAP_HEIGHT && y < fb_h; y++) {
         for (x = 0; x < (int)GFX_BITMAP_WIDTH; x++) {
-            int dx = off_x + x;
+            int dx = off_x + x - sx;
+            int dy = y - sy;
             int on;
             size_t off;
-            if (dx < 0 || dx >= fb_w) {
+            if (dx < 0 || dx >= fb_w || dy < 0 || dy >= fb_h) {
                 continue;
             }
             on = gfx_bitmap_get_pixel(s, (unsigned)x, (unsigned)y);
-            off = ((size_t)y * (size_t)fb_w + (size_t)dx) * 4u;
+            off = ((size_t)dy * (size_t)fb_w + (size_t)dx) * 4u;
             if (on) {
                 rgba[off + 0] = fg_rgb[0];
                 rgba[off + 1] = fg_rgb[1];

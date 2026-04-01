@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **Viewport scroll (basic-gfx + canvas WASM):** **`SCROLL dx, dy`** sets pixel pan for the text/bitmap layer and sprites; **`SCROLLX()`** / **`SCROLLY()`** read offsets. `GfxVideoState.scroll_x` / `scroll_y`; Raylib and canvas compositors apply the same shift. Examples: **`examples/tutorial_gfx_scroll.bas`**, overview **`web/tutorial-gfx-features.html`**.
+
 - **Gamepad (basic-gfx + canvas WASM):** **`JOY(port, button)`**, alias **`JOYSTICK`**, and **`JOYAXIS(port, axis)`** (`gfx_gamepad.c`). **Native:** Raylib **1–15** button codes; axes **0–5** scaled **-1000..1000**. **Canvas WASM:** `canvas.html` polls **`navigator.getGamepads()`** each frame into exported buffers; Raylib codes map to **Standard Gamepad** indices. **Terminal WASM** (no `GFX_VIDEO`) still returns **0**. **`HEAP16`** + **`_wasm_gamepad_buttons_ptr`** / **`_wasm_gamepad_axes_ptr`** exports. Example **`examples/gfx_joy_demo.bas`**.
 
 - **Tilemap sprite sheets:** **`LOADSPRITE slot, "path.png", tw, th`** defines a **tw×th** tile grid; **`SPRITETILES(slot)`**, **`DRAWSPRITETILE slot, x, y, tile_index [, z]`** (1-based tile index), **`SPRITEFRAME slot, frame`** / **`SPRITEFRAME(slot)`** (default tile for **`DRAWSPRITE`** when crop omitted), **`gfx_sprite_effective_source_rect`**, **`SPRITEW`/`SPRITEH`** return one tile size when tilemap is active. **`SPRITECOLLIDE`** uses tile size when no explicit crop.

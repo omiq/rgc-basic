@@ -2173,7 +2173,9 @@ enum func_code {
     FN_JOY = 47,
     FN_JOYAXIS = 48,
     FN_SPRITETILES = 49,
-    FN_SPRITEFRAME = 50
+    FN_SPRITEFRAME = 50,
+    FN_SCROLLX = 51,
+    FN_SCROLLY = 52
 };
 
 /* Report an error and halt further execution.
@@ -2409,10 +2411,10 @@ static const char *const reserved_words[] = {
     "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LINE", "LOAD", "LOADSPRITE", "LOCATE", "LOG",
     "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET", "PRINT",
     "XOR",
-    "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITEFRAME", "SPRITETILES", "SPRITEVISIBLE",
+    "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITEFRAME", "SPRITETILES", "SPRITEVISIBLE",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
-    "DRAWSPRITE", "DRAWSPRITETILE", "JOY", "JOYAXIS", "JOYSTICK", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
+    "DRAWSPRITE", "DRAWSPRITETILE", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
     "DO", "LOOP", "UNTIL", "EXIT",
     NULL
 };
@@ -3219,6 +3221,10 @@ static int function_lookup(const char *name, int len)
         if (len == 11 && name[0] == 'S' && name[1] == 'P' && name[2] == 'R' && name[3] == 'I' &&
             name[4] == 'T' && name[5] == 'E' && name[6] == 'F' && name[7] == 'R' && name[8] == 'A' &&
             name[9] == 'M' && name[10] == 'E') return FN_SPRITEFRAME;
+        if (len == 7 && name[0] == 'S' && name[1] == 'C' && name[2] == 'R' && name[3] == 'O' &&
+            name[4] == 'L' && name[5] == 'L' && name[6] == 'X') return FN_SCROLLX;
+        if (len == 7 && name[0] == 'S' && name[1] == 'C' && name[2] == 'R' && name[3] == 'O' &&
+            name[4] == 'L' && name[5] == 'L' && name[6] == 'Y') return FN_SCROLLY;
         return FN_NONE;
     case 'C':
         if ((len == 3 && name[0] == 'C' && name[1] == 'H' && name[2] == 'R') ||
@@ -3651,6 +3657,52 @@ static void statement_line(char **p)
     x1 = (int)vx1.num;
     y1 = (int)vy1.num;
     gfx_bitmap_line(gfx_vs, x0, y0, x1, y1, 1);
+#endif
+}
+
+/* SCROLL x, y — viewport offset in pixels (text/bitmap layer + sprites; basic-gfx / canvas WASM). */
+static void statement_scroll(char **p)
+{
+#ifndef GFX_VIDEO
+    (void)p;
+    runtime_error_hint("SCROLL is only available in basic-gfx or canvas WASM",
+                         "SCROLL dx, dy shifts the visible framebuffer (camera-style).");
+#else
+    struct value vx, vy;
+    int dx, dy;
+    skip_spaces(p);
+    vx = eval_expr(p);
+    ensure_num(&vx);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("SCROLL expects dx, dy",
+                             "Example: SCROLL 8, 0  (pan one character width right).");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    vy = eval_expr(p);
+    ensure_num(&vy);
+    if (!gfx_vs) {
+        runtime_error_hint("SCROLL requires basic-gfx or canvas WASM", NULL);
+        return;
+    }
+    dx = (int)vx.num;
+    dy = (int)vy.num;
+    if (dx < -32768) {
+        dx = -32768;
+    }
+    if (dx > 32767) {
+        dx = 32767;
+    }
+    if (dy < -32768) {
+        dy = -32768;
+    }
+    if (dy > 32767) {
+        dy = 32767;
+    }
+    gfx_vs->scroll_x = (int16_t)dx;
+    gfx_vs->scroll_y = (int16_t)dy;
 #endif
 }
 
@@ -4574,6 +4626,17 @@ static struct value eval_function(const char *name, char **p)
         runtime_error_hint("JOY/JOYAXIS require basic-gfx (native)", "Terminal basic has no gamepad.");
         return make_num(0.0);
     }
+    if (code == FN_SCROLLX || code == FN_SCROLLY) {
+        if (**p != ')') {
+            runtime_error_hint("Missing ')'", "SCROLLX() and SCROLLY() take no arguments.");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        runtime_error_hint("SCROLLX/SCROLLY require basic-gfx or canvas WASM",
+                             "Viewport scroll applies to the PETSCII/bitmap layer in graphics builds.");
+        return make_num(0.0);
+    }
 #endif
 #ifdef GFX_VIDEO
     if (code == FN_SPRITEW || code == FN_SPRITEH) {
@@ -4664,6 +4727,18 @@ static struct value eval_function(const char *name, char **p)
         if (gfx_vs) {
             fr = gfx_sprite_get_draw_frame(slot);
             return make_num((double)fr);
+        }
+        return make_num(0.0);
+    }
+    if (code == FN_SCROLLX || code == FN_SCROLLY) {
+        if (**p != ')') {
+            runtime_error_hint("Missing ')'", "SCROLLX() and SCROLLY() take no arguments.");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        if (gfx_vs) {
+            return make_num((double)(code == FN_SCROLLX ? gfx_vs->scroll_x : gfx_vs->scroll_y));
         }
         return make_num(0.0);
     }
@@ -6131,6 +6206,7 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "PEEK") || starts_with_kw(*p, "INKEY") ||
             starts_with_kw(*p, "SPRITEW") || starts_with_kw(*p, "SPRITEH") ||
             starts_with_kw(*p, "SPRITECOLLIDE") || starts_with_kw(*p, "SPRITETILES") || starts_with_kw(*p, "SPRITEFRAME") ||
+            starts_with_kw(*p, "SCROLLX") || starts_with_kw(*p, "SCROLLY") ||
             starts_with_kw(*p, "JOY") || starts_with_kw(*p, "JOYSTICK") || starts_with_kw(*p, "JOYAXIS")) {
             char namebuf[32];
             char *q;
@@ -9194,6 +9270,11 @@ static void execute_statement(char **p)
     if (c == 'S' && starts_with_kw(*p, "SCREEN")) {
         *p += 6;
         statement_screen(p);
+        return;
+    }
+    if (c == 'S' && starts_with_kw(*p, "SCROLL")) {
+        *p += 6;
+        statement_scroll(p);
         return;
     }
     if (c == 'S' && starts_with_kw(*p, "SCREENCODES")) {

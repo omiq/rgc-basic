@@ -77,6 +77,10 @@ int main(void)
     assert(gfx_bitmap_get_pixel(&s, 5, 9) == 0);
 
     assert(s.screen_mode == GFX_SCREEN_TEXT);
+    assert(s.scroll_x == 0 && s.scroll_y == 0);
+    s.scroll_x = 16;
+    s.scroll_y = -8;
+    assert(s.scroll_x == 16 && s.scroll_y == -8);
 
     /* Out-of-range addresses are inert/zero. */
     gfx_poke(&s, 0x0001u, 0x7F);

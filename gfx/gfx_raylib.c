@@ -561,11 +561,17 @@ static void gfx_sprite_shutdown(void)
     pthread_mutex_unlock(&g_sprite_mutex);
 }
 
-static void gfx_sprite_composite(RenderTexture2D target, int nat_w, int nat_h)
+static void gfx_sprite_composite(const GfxVideoState *vs, RenderTexture2D target, int nat_w, int nat_h)
 {
     GfxSpriteDraw draws[GFX_SPRITE_MAX_SLOTS];
     int nd = 0;
     int i;
+    float scx = 0.0f, scy = 0.0f;
+
+    if (vs) {
+        scx = (float)vs->scroll_x;
+        scy = (float)vs->scroll_y;
+    }
 
     gfx_sprite_process_queue();
 
@@ -632,7 +638,7 @@ static void gfx_sprite_composite(RenderTexture2D target, int nat_w, int nat_h)
             continue;
         }
         src = (Rectangle){ sx, sy, sw, sh };
-        dest = (Rectangle){ d->x, d->y, sw, sh };
+        dest = (Rectangle){ d->x - scx, d->y - scy, sw, sh };
         DrawTexturePro(
             t,
             src,
@@ -693,6 +699,9 @@ static void render_text_screen(const GfxVideoState *s,
 {
     int row, col, y, x;
     int cols = (s->cols == 40 || s->cols == 80) ? (int)s->cols : 40;
+    int fb_w = cols * CELL_W;
+    int sx = (int)s->scroll_x;
+    int sy = (int)s->scroll_y;
 
     BeginTextureMode(target);
     ClearBackground(c64_palette[s->bg_color & 0x0F]);
@@ -715,10 +724,13 @@ static void render_text_screen(const GfxVideoState *s,
             for (y = 0; y < CELL_H; y++) {
                 uint8_t bits = glyph[y];
                 for (x = 0; x < CELL_W; x++) {
-                    int px = col * CELL_W + x;
-                    int py = row * CELL_H + y;
+                    int px = col * CELL_W + x - sx;
+                    int py = row * CELL_H + y - sy;
                     int on = (bits & (0x80 >> x)) ? 1 : 0;
                     Color c = (on ^ reversed) ? fg : bg;
+                    if (px < 0 || py < 0 || px >= fb_w || py >= SCREEN_ROWS * CELL_H) {
+                        continue;
+                    }
                     DrawPixel(px, py, c);
                 }
             }
@@ -731,7 +743,9 @@ static void render_text_screen(const GfxVideoState *s,
 static void render_bitmap_screen(const GfxVideoState *s, RenderTexture2D target,
                                  int native_w)
 {
-    int y, x, off_x;
+    int y, x, off_x, px, py;
+    int sx = (int)s->scroll_x;
+    int sy = (int)s->scroll_y;
     Color fg = c64_palette[s->bitmap_fg & 0x0F];
     Color bg = c64_palette[s->bg_color & 0x0F];
 
@@ -745,7 +759,12 @@ static void render_bitmap_screen(const GfxVideoState *s, RenderTexture2D target,
     for (y = 0; y < (int)GFX_BITMAP_HEIGHT; y++) {
         for (x = 0; x < (int)GFX_BITMAP_WIDTH; x++) {
             int on = gfx_bitmap_get_pixel(s, (unsigned)x, (unsigned)y);
-            DrawPixel(off_x + x, y, on ? fg : bg);
+            px = off_x + x - sx;
+            py = y - sy;
+            if (px < 0 || py < 0 || px >= native_w || py >= NATIVE_H) {
+                continue;
+            }
+            DrawPixel(px, py, on ? fg : bg);
         }
     }
     EndTextureMode();
@@ -977,7 +996,7 @@ int main(int argc, char **argv)
         } else {
             render_text_screen(&vs, target);
         }
-        gfx_sprite_composite(target, nat_w, nat_h);
+        gfx_sprite_composite(&vs, target, nat_w, nat_h);
 
         BeginDrawing();
         {

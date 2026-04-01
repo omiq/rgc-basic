@@ -377,6 +377,10 @@ Releases include **basic-gfx** — a full graphical version of the interpreter b
 - Use `SCREENCODES OFF` to restore the default (ASCII strings like `PRINT "HELLO"` map naturally).
 - The window closes automatically when the program reaches `END`.
 
+**Viewport scroll (basic-gfx + canvas WASM)**:
+
+- **`SCROLL dx, dy`** sets a **pixel** offset for the **text/bitmap layer and sprites** (positive **dx** pans the world to the left; positive **dy** pans up). Use **`SCROLL 0, 0`** to reset. **`SCROLLX()`** / **`SCROLLY()`** return the current offset (roughly **-32768..32767**). Tutorial: `examples/tutorial_gfx_scroll.bas`.
+
 **PNG sprites / HUD overlay (basic-gfx)**:
 
 - `LOADSPRITE slot, "file.png"` queues loading a PNG from disk. Paths are relative to the **`.bas` file’s directory** (or absolute). Only `.png` is supported here; use `LOAD "bin" INTO …` for raw bytes.
@@ -405,6 +409,7 @@ Releases include **basic-gfx** — a full graphical version of the interpreter b
 
 The `examples` folder (included in release archives) contains:
 
+- **Graphics / WASM feature tours** (run with **`./basic-gfx`** or load into **`web/canvas.html`**): `tutorial_gfx_index.bas` lists short demos — **`tutorial_gfx_scroll.bas`** (**`SCROLL`**), **`tutorial_gfx_memory.bas`** (**`POKE`/`PEEK`** bases), **`tutorial_gfx_tilemap.bas`** (**tile** **`LOADSPRITE`** + **`tutorial_tile_sheet_demo.png`**), **`tutorial_gfx_gamepad.bas`** (**`JOY`**/**`JOYAXIS`**). See also **`web/tutorial-gfx-features.html`** for a static overview (serve the `web/` directory over HTTP).
 - `dartmouth.bas`: classic Dartmouth BASIC tutorial; exercises `PRINT`, `INPUT`, `IF`, `FOR/NEXT`, `DEF FN`, `READ`/`DATA`, and more.
 - `trek.bas`: Star Trek–style game; exercises `GET`, `ON GOTO`/`GOSUB`, multi-dimensional arrays, and PETSCII-style output.
 - `chr.bas`: PETSCII/ANSI color and control-code test (run with `-petscii`).
