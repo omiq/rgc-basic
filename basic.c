@@ -10147,6 +10147,15 @@ EMSCRIPTEN_KEEPALIVE void wasm_gfx_key_state_clear(void)
     gfx_video_clear_keys(gfx_vs);
 }
 
+/* JS may set key_state[] via HEAPU8 at this address (avoids ccall while Asyncify sleeps in SLEEP). */
+EMSCRIPTEN_KEEPALIVE uint8_t *wasm_gfx_key_state_ptr(void)
+{
+    if (!gfx_vs) {
+        return NULL;
+    }
+    return gfx_vs->key_state;
+}
+
 static void wasm_gfx_set_video(void)
 {
     wasm_gfx_ti_epoch_ms = emscripten_get_now();
