@@ -52,6 +52,7 @@
 
 #ifdef GFX_VIDEO
 #include "gfx_video.h"
+#include "gfx_charrom.h"
 #include "gfx_gamepad.h"
 #include "basic_api.h"
 #if defined(__EMSCRIPTEN__)
@@ -1584,11 +1585,18 @@ static int gfx_apply_control_code(unsigned char code)
     /* Return non-zero if the code was handled as control/state. */
     switch (code) {
     case 14:  /* switch to lowercase/uppercase charset */
-        if (gfx_vs) gfx_vs->charset_lowercase = 1;
+        if (gfx_vs) {
+            gfx_vs->charset_lowercase = 1;
+            /* Reload 8x8 glyph bitmaps (canvas WASM has no render loop; Raylib also refreshes each frame). */
+            gfx_load_default_charrom(gfx_vs);
+        }
         petscii_set_lowercase(1);
         return 1;
     case 142: /* switch to uppercase/graphics charset */
-        if (gfx_vs) gfx_vs->charset_lowercase = 0;
+        if (gfx_vs) {
+            gfx_vs->charset_lowercase = 0;
+            gfx_load_default_charrom(gfx_vs);
+        }
         petscii_set_lowercase(0);
         return 1;
     case 13: /* CR */
