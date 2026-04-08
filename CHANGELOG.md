@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **Examples**: **`gfx_inkey_demo.bas`** uses **`UCASE$(K$)`** before **`ASC`** so lowercase **w** matches **W** (87). **`gfx_key_demo.bas`** REMs clarify **`PEEK(56320+n)`** uses **uppercase ASCII** **`n`** (same as **`ASC("W")`**). **`README.md`** documents polling vs **`INKEY$`** case.
+
 - **Viewport scroll (basic-gfx + canvas WASM):** **`SCROLL dx, dy`** sets pixel pan for the text/bitmap layer and sprites; **`SCROLLX()`** / **`SCROLLY()`** read offsets. `GfxVideoState.scroll_x` / `scroll_y`; Raylib and canvas compositors apply the same shift. Examples: **`examples/tutorial_gfx_scroll.bas`**, overview **`web/tutorial-gfx-features.html`**.
 
 - **Canvas WASM keyboard polling during `SLEEP`:** `canvas.html` used `ccall('wasm_gfx_key_state_set')` from `keydown`/`keyup`. With **Asyncify**, that can fail while the interpreter is inside **`emscripten_sleep`** (e.g. **`gfx_key_demo.bas`**, **`gfx_jiffy_game_demo.bas`** loops), so **`PEEK(56320+n)`** never saw keys. **`wasm_gfx_key_state_ptr`** exports the **`key_state[]`** address; JS updates **`Module.HEAPU8`** directly (no re-entrant WASM). Run clears keys the same way.
