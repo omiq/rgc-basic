@@ -8,7 +8,9 @@
 
 - **Canvas WASM `CHR$(14)` / `CHR$(142)` charset switch**: **`gfx_apply_control_code`** set **`charset_lowercase`** but did not reload **`gfx_load_default_charrom`** (unlike **basic-gfx**, which refreshes ROM each Raylib frame). **`PRINT CHR$(14)`** now reloads glyph bitmaps so **colaburger** and mixed-case text match the CLI.
 
-- **`gfx_jiffy_game_demo.bas`**: Removed **duplicate line numbers** (370, 380 appeared twice; the loader keeps the last line only, so the enemy **EX** update was dropped and **`GOTO 370`** jumped to the wrong block). Renumbered enemy clamp and player sections; **`GOTO 368`** skips enemy math when not time yet.
+- **`gfx_jiffy_game_demo.bas`**: **Wait loop** uses **`IF T <= LT`** (not **`T = LT`**) so canvas WASM (**`TI`** from wall ms → 60 Hz buckets) always advances; **`LT = TI - 1`** at start so the first frame isn’t stuck. **`PMOVE`/`ELT`** use **`TI`** at init.
+
+- **`gfx_jiffy_game_demo.bas`** (earlier): Removed **duplicate line numbers** (370, 380 appeared twice; the loader keeps the last line only, so the enemy **EX** update was dropped and **`GOTO 370`** jumped to the wrong block). Renumbered enemy clamp and player sections; **`GOTO 368`** skips enemy math when not time yet.
 
 - **Examples**: **`gfx_inkey_demo.bas`** uses **`UCASE$(K$)`** before **`ASC`** so lowercase **w** matches **W** (87). **`gfx_key_demo.bas`** REMs clarify **`PEEK(56320+n)`** uses **uppercase ASCII** **`n`** (same as **`ASC("W")`**). **`README.md`** documents polling vs **`INKEY$`** case.
 
