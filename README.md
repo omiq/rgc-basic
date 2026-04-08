@@ -574,6 +574,6 @@ In a MinGW‑w64 shell:
 
 ## Credits
 
-The original idea was based on a BASIC project by David Plummer. His video is worth watching:
+The original idea was based on a DEC PDP BASIC project by David Plummer. His video is worth watching:
 
 [https://www.youtube.com/watch?v=PyUuLYJLhUA](https://www.youtube.com/watch?v=PyUuLYJLhUA)
