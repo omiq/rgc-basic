@@ -48,4 +48,4 @@ make basic-wasm-modular
 make basic-wasm-canvas
 # Optional: make wasm-test && make wasm-canvas-test && make wasm-tutorial-test  (needs Playwright)
 cp -r web/*.* ../8bitworkshop/rgc-basic
-
+cp -r examples/*.* ../8bitworkshop/presets/rgc-basic/
