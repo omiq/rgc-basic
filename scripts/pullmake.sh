@@ -4,6 +4,7 @@
 # Uses a normal merge pull (not --ff-only) so local commits on top of origin still work.
 #
 # WASM steps need emcc: set EMSDK to your emsdk dir, or put ./emsdk in the repo.
+echo EMSDK=~/emsdk scripts/pullmake.sh
 git remote set-url origin https://github.com/omiq/rgc-basic.git
 set -e
 # emsdk_env.sh needs cwd=emsdk/ in sh/dash; use wrapper (do not use a subshell or PATH is lost).
@@ -46,3 +47,5 @@ make basic-wasm
 make basic-wasm-modular
 make basic-wasm-canvas
 # Optional: make wasm-test && make wasm-canvas-test && make wasm-tutorial-test  (needs Playwright)
+cp -r web/*.* ../8bitworkshop/rgc-basic
+
