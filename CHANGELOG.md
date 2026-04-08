@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **basic-gfx (macOS) tilemap / `DRAWSPRITETILE` crash**: `gfx_sprite_process_queue()` called `LoadTexture` from the **interpreter thread** when `gfx_sprite_tile_source_rect` ran before the main loop processed the queue — **OpenGL must run on the main thread** on macOS (crash in `glBindTexture`). **LOADSPRITE** / **UNLOADSPRITE** now **wait** until the render loop finishes the GPU work; `gfx_sprite_tile_source_rect` and related helpers no longer call `gfx_sprite_process_queue()` from the worker. One extra `gfx_sprite_process_queue()` after the render loop exits so pending loads are not left waiting.
+
 - **Canvas WASM `CHR$(14)` / `CHR$(142)` charset switch**: **`gfx_apply_control_code`** set **`charset_lowercase`** but did not reload **`gfx_load_default_charrom`** (unlike **basic-gfx**, which refreshes ROM each Raylib frame). **`PRINT CHR$(14)`** now reloads glyph bitmaps so **colaburger** and mixed-case text match the CLI.
 
 - **`gfx_jiffy_game_demo.bas`**: Removed **duplicate line numbers** (370, 380 appeared twice; the loader keeps the last line only, so the enemy **EX** update was dropped and **`GOTO 370`** jumped to the wrong block). Renumbered enemy clamp and player sections; **`GOTO 368`** skips enemy math when not time yet.
