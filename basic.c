@@ -9133,11 +9133,6 @@ static void execute_statement(char **p)
             statement_drawspritetile(p);
             return;
         }
-        if (starts_with_kw(*p, "SPRITEFRAME")) {
-            *p += 11;
-            statement_spriteframe(p);
-            return;
-        }
         if (starts_with_kw(*p, "DRAWSPRITE")) {
             *p += 10;
             statement_drawsprite(p);
@@ -9179,6 +9174,11 @@ static void execute_statement(char **p)
         if (starts_with_kw(*p, "SPRITEVISIBLE")) {
             *p += 13;
             statement_spritevisible(p);
+            return;
+        }
+        if (starts_with_kw(*p, "SPRITEFRAME")) {
+            *p += 11;
+            statement_spriteframe(p);
             return;
         }
 #endif
