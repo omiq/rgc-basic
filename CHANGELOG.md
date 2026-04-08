@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **`gfx_jiffy_game_demo.bas`**: Removed **duplicate line numbers** (370, 380 appeared twice; the loader keeps the last line only, so the enemy **EX** update was dropped and **`GOTO 370`** jumped to the wrong block). Renumbered enemy clamp and player sections; **`GOTO 368`** skips enemy math when not time yet.
+
 - **Examples**: **`gfx_inkey_demo.bas`** uses **`UCASE$(K$)`** before **`ASC`** so lowercase **w** matches **W** (87). **`gfx_key_demo.bas`** REMs clarify **`PEEK(56320+n)`** uses **uppercase ASCII** **`n`** (same as **`ASC("W")`**). **`README.md`** documents polling vs **`INKEY$`** case.
 
 - **Viewport scroll (basic-gfx + canvas WASM):** **`SCROLL dx, dy`** sets pixel pan for the text/bitmap layer and sprites; **`SCROLLX()`** / **`SCROLLY()`** read offsets. `GfxVideoState.scroll_x` / `scroll_y`; Raylib and canvas compositors apply the same shift. Examples: **`examples/tutorial_gfx_scroll.bas`**, overview **`web/tutorial-gfx-features.html`**.

@@ -3,6 +3,7 @@
 3 REM Controls: hold W/A/S/D to move, ESC to quit
 4 REM
 5 REM Uses TI (60Hz) to update at a steady rate regardless of input bursts.
+6 REM Each line number must be unique — duplicate numbers replace earlier lines.
 10 SCR = 1024
 20 COL = 55296
 30 WIDTH = 40
@@ -46,18 +47,18 @@
 310 IF T = LT THEN SLEEP 1 : GOTO 290
 
 320 REM --- Enemy updates at a steady rate (about 10 fps) ---
-325 IF T < ELT + ESTEP THEN GOTO 370
+325 IF T < ELT + ESTEP THEN GOTO 368
 327 ELT = T
 330 REM Use seconds-ish phase: (T/PERIOD)*2*pi
 340 Q = INT(T / PERIOD)
 350 PH = T - Q * PERIOD
 360 EX = EX0 + INT(AMP * SIN(6.28318 * (PH / PERIOD)))
-370 IF EX < 0 THEN EX = 0
-380 IF EX > 39 THEN EX = 39
+362 IF EX < 0 THEN EX = 0
+364 IF EX > 39 THEN EX = 39
 
-370 REM --- Player updates at fixed speed while key held ---
-380 NX = PX : NY = PY
-390 IF T < PMOVE + PSTEP THEN GOTO 470
+366 REM --- Player updates at fixed speed while key held ---
+368 NX = PX : NY = PY
+370 IF T < PMOVE + PSTEP THEN GOTO 470
 400 IF PEEK(KEYBASE+87) <> 0 THEN NY = PY - 1
 410 IF PEEK(KEYBASE+83) <> 0 THEN NY = PY + 1
 420 IF PEEK(KEYBASE+65) <> 0 THEN NX = PX - 1
@@ -89,4 +90,3 @@
 640 LXE = EX
 650 LT = T
 660 GOTO 290
-
