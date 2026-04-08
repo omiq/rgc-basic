@@ -389,7 +389,10 @@
           return;
         }
         Module.FS.writeFile('/program.bas', programEl.value);
-        if (Module._wasm_gfx_key_state_clear) {
+        if (Module._wasm_gfx_key_state_ptr && Module.HEAPU8) {
+          var kp = Module._wasm_gfx_key_state_ptr();
+          if (kp) Module.HEAPU8.fill(0, kp, kp + 256);
+        } else if (Module._wasm_gfx_key_state_clear) {
           Module.ccall('wasm_gfx_key_state_clear', null, [], []);
         }
         canvas.focus();
@@ -448,10 +451,16 @@
         return -1;
       }
       function wasmGfxKeyStateSync(ev, down) {
-        if (!Module || !Module._wasm_gfx_key_state_set) return;
+        if (!Module) return;
         if (inputLineRow.classList.contains('active')) return;
         var idx = wasmGfxKeyIndex(ev);
-        if (idx >= 0 && idx < 256) {
+        if (idx < 0 || idx >= 256) return;
+        /* Write key_state[] via HEAPU8: ccall into WASM can fail while Asyncify is inside SLEEP
+         * (e.g. PEEK keyboard loops), so avoid re-entering the interpreter from key handlers. */
+        var base = (typeof Module._wasm_gfx_key_state_ptr === 'function') ? Module._wasm_gfx_key_state_ptr() : 0;
+        if (base && Module.HEAPU8) {
+          Module.HEAPU8[base + idx] = down ? 1 : 0;
+        } else if (Module._wasm_gfx_key_state_set) {
           Module.ccall('wasm_gfx_key_state_set', null, ['number', 'number'], [idx, down ? 1 : 0]);
         }
       }
