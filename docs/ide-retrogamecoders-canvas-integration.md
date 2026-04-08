@@ -196,12 +196,70 @@ Reuse the logic in **`web/canvas.html`** functions **`copyRgbaFromWasm`** and th
 
 ---
 
-## 7. Keyboard: `GET` / `INKEY$` and `INPUT`
+## 7. Keyboard: `GET` / `INKEY$`, `INPUT`, and **`PEEK(56320+n)`**
 
-- **`GET` / `INKEY$`**: Focus your canvas; on `keydown`, call  
-  **`Module.ccall('wasm_push_key', null, ['number'], [byte])`**.  
+### 7.1 `GET` / `INKEY$` (key queue)
+
+- Focus your canvas; on `keydown`, call **`Module.ccall('wasm_push_key', null, ['number'], [byte])`**.  
   Reference uses keyCode 13 → byte 13, printable ASCII → low 8 bits. While waiting, **`Module.wasmWaitingKey === 1`** (optional UI hint).
-- **`INPUT`**: Implement **`Module.onWasmNeedInputLine`**. When called, show a line field; on Enter set **`Module.wasmInputLineText`** to the string, **`Module.wasmInputLineReady = 1`**, and return focus to the canvas if desired. The C runtime reads these properties.
+
+### 7.2 `INPUT` (line editor)
+
+- Implement **`Module.onWasmNeedInputLine`**. When called, show a line field; on Enter set **`Module.wasmInputLineText`** to the string, **`Module.wasmInputLineReady = 1`**, and return focus to the canvas if desired. The C runtime reads these properties.
+
+### 7.3 **`PEEK(GFX_KEY_BASE + code)`** (keyboard matrix) — **not** the same as `wasm_push_key`
+
+Programs such as **`examples/gfx_key_demo.bas`** and **`examples/gfx_jiffy_game_demo.bas`** use **`PEEK(56320 + n)`** (or **`#OPTION`**-relocated **`mem_key`**) to read **`gfx_vs->key_state[]`** in linear memory. **`wasm_push_key`** only feeds the **`GET` / `INKEY$`** queue; it does **not** set **`key_state`**, so **`PEEK`** will always read **0** unless you mirror keys separately.
+
+**Embedders must** wire **`keydown` / `keyup`** the same way as **`web/canvas.html`**:
+
+1. Export **`_wasm_gfx_key_state_ptr`** is already in the **`basic-wasm-canvas`** build.
+2. On each run, clear the buffer: **`Module.HEAPU8.fill(0, ptr, ptr + 256)`** where **`ptr = Module._wasm_gfx_key_state_ptr()`** (or **`ccall('wasm_gfx_key_state_clear')`** if **`HEAPU8`** is unavailable).
+3. On **`keydown` / `keyup`**, write **`0`** or **`1`** at **`ptr + keyIndex`**. Use **`HEAPU8` directly** — do **not** rely on **`ccall('wasm_gfx_key_state_set')`** alone during **`SLEEP`**, because **Asyncify** can block re-entrant WASM calls while the interpreter is inside **`emscripten_sleep`**; direct memory writes still work.
+
+Minimal mapping (same indices as **basic-gfx** / Raylib): **Escape** 27, **Enter** 13, **Space** 32, arrows **145 / 17 / 157 / 29**, **Tab** 9, **A–Z** and **0–9** as ASCII. Lowercase letters should map to the same slot as uppercase.
+
+```javascript
+function wasmGfxKeyIndex(ev) {
+  var k = ev.key;
+  if (k === 'Escape') return 27;
+  if (k === 'Enter') return 13;
+  if (k === ' ' || k === 'Spacebar') return 32;
+  if (k === 'ArrowUp') return 145;
+  if (k === 'ArrowDown') return 17;
+  if (k === 'ArrowLeft') return 157;
+  if (k === 'ArrowRight') return 29;
+  if (k === 'Tab') return 9;
+  if (k.length === 1) {
+    var c = k.charCodeAt(0);
+    if (c >= 97 && c <= 122) c -= 32;
+    if ((c >= 65 && c <= 90) || (c >= 48 && c <= 57)) return c;
+  }
+  return -1;
+}
+function wasmGfxKeyStateSync(Module, ev, down) {
+  var idx = wasmGfxKeyIndex(ev);
+  if (idx < 0 || idx >= 256) return;
+  var base = (typeof Module._wasm_gfx_key_state_ptr === 'function')
+    ? Module._wasm_gfx_key_state_ptr() : 0;
+  if (base && Module.HEAPU8) {
+    Module.HEAPU8[base + idx] = down ? 1 : 0;
+  } else if (Module._wasm_gfx_key_state_set) {
+    Module.ccall('wasm_gfx_key_state_set', null, ['number', 'number'], [idx, down ? 1 : 0]);
+  }
+}
+// After Module is ready, on the focused canvas:
+canvas.addEventListener('keydown', function (ev) {
+  ev.preventDefault();
+  wasmGfxKeyStateSync(Module, ev, true);
+  /* optional: still call wasm_push_key for GET/INKEY$ */
+}, true);
+canvas.addEventListener('keyup', function (ev) {
+  wasmGfxKeyStateSync(Module, ev, false);
+}, true);
+```
+
+If **`PEEK`** never sees keys but **`INKEY$`** works, the host is almost certainly missing §7.3. If **both** input and enemy motion look frozen, confirm the canvas is **focused** (click it), **`basic-canvas.wasm`** includes **`_wasm_gfx_key_state_ptr`**, and **`TI` / `TI$`** on the HUD advance (if they do not, the run may not be executing or the display loop may be stalled).
 
 ---
 
@@ -246,6 +304,6 @@ Upstream CI runs **`make wasm-canvas-test`** (`tests/wasm_browser_canvas_test.py
 | 4 | On Run: **`basic_apply_arg_string`**, **`FS.writeFile('/program.bas', …)`**, assets to MEMFS paths |
 | 5 | **`ccall('basic_load_and_run_gfx', …, { async: true })`** |
 | 6 | Pause **`Module.wasmPaused = 1`**, Stop **`Module.wasmStopRequested = 1`** |
-| 7 | Implement **`onWasmNeedInputLine`** + **`wasm_push_key`** for I/O |
+| 7 | **`onWasmNeedInputLine`** + **`wasm_push_key`** for **`INPUT`** / **`GET`/`INKEY$`**; **`HEAPU8`** at **`wasm_gfx_key_state_ptr()`** for **`PEEK(56320+…)`** (§7.3) |
 
 This matches how **`web/canvas.html`** integrates the canvas build and is suitable for a retro IDE frame with editor-driven source and asset injection.
