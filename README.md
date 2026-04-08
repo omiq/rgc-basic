@@ -351,7 +351,8 @@ Releases include **basic-gfx** — a full graphical version of the interpreter b
 
 **Keyboard polling (basic-gfx)**:
 
-- BASIC can poll a simple key-down map via `PEEK(56320 + code)` where 56320 is 0xDC00.
+- BASIC can poll a simple key-down map via `PEEK(56320 + code)` where 56320 is 0xDC00 (`GFX_KEY_BASE`).
+- For letters, **code is ASCII of the uppercase key** (e.g. W = 87, same as `ASC("W")`), not the PETSCII screen code. Lowercase **w** is not a separate slot.
 - Supported codes include ASCII `A`–`Z`, `0`–`9`, Space (32), Enter (13), Esc (27), and C64 cursor codes Up (145), Down (17), Left (157), Right (29).
 
 **INPUT (basic-gfx)**:
@@ -361,6 +362,7 @@ Releases include **basic-gfx** — a full graphical version of the interpreter b
 **INKEY$() (basic-gfx)**:
 
 - `INKEY$()` is **non-blocking**: it returns a 1-character string for the next queued keypress, or `""` if none.
+- The character may be **upper or lower case**; use **`UCASE$(INKEY$())`** (or compare to both) if you test with numeric **`ASC`**.
 - This is driven by the raylib host; it is currently available in `basic-gfx` (gfx build) and returns `""` in the terminal build.
 - Example: `./basic-gfx -petscii examples/gfx_inkey_demo.bas`
 
