@@ -84,9 +84,9 @@
 590 POKE COL + EY*WIDTH + EX, ECOL
 600 IF EX <> LXE THEN POKE SCR + EY*WIDTH + LXE, 32
 
-610 REM HUD (top right): show TI$ and TI
-620 TEXTAT 22,0,"TI$=" + TI$ + "  "
-630 TEXTAT 22,1,"TI=" + STR$(TI) + "    "
+610 REM HUD: rows 0-1 are the PRINT banner — use row 2-3 or text is hidden
+620 TEXTAT 0,2,"TI$=" + TI$ + "  "
+630 TEXTAT 0,3,"TI=" + STR$(TI) + "    "
 
 640 REM Save last positions/time and loop
 650 LXE = EX
