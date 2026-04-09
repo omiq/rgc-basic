@@ -97,8 +97,16 @@ void gfx_video_clear_keys(GfxVideoState *s);
 
 /* Virtualised PEEK/POKE for video-related address ranges.
  *
- * Regions may overlap in 16-bit space (e.g. C64 colour vs keyboard); resolution
- * order is: text screen, colour RAM, charset, keyboard, bitmap.
+ * Regions may overlap in 16-bit space (e.g. C64 colour vs keyboard).
+ *
+ * RESOLUTION ORDER (fixed — do not reorder in gfx_video.c):
+ *   1. text screen
+ *   2. KEYBOARD  ← before colour RAM; GFX_KEY_BASE (0xDC00) is inside
+ *                  the colour window [0xD800, 0xDFD0) so keyboard must
+ *                  win the tie-break or PEEK(56320+n) returns colour data.
+ *   3. colour RAM
+ *   4. charset
+ *   5. bitmap
  *
  * Addresses outside the defined ranges currently read as 0 and ignore writes.
  * This is intentional: the graphics build only defines semantics for its
