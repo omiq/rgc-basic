@@ -1,10 +1,45 @@
+/* gfx_video.c — RGC-BASIC virtual video/input state.
+ *
+ * ============================================================
+ * CRITICAL: gfx_peek() RESOLUTION ORDER — DO NOT CHANGE
+ * ============================================================
+ * The virtual address map reuses C64-style layout where the
+ * keyboard matrix (GFX_KEY_BASE = 0xDC00) sits INSIDE the
+ * colour-RAM window (GFX_COLOR_BASE = 0xD800, 2000 bytes).
+ *
+ *   Colour RAM : [0xD800, 0xD800 + 2000) = [0xD800, 0xDFD0)
+ *   Keyboard   : [0xDC00, 0xDC00 + 256)  = [0xDC00, 0xDD00)
+ *
+ * The keyboard range is entirely contained within colour RAM.
+ * Therefore gfx_peek() MUST check keyboard BEFORE colour RAM.
+ * If the order is ever swapped, PEEK(56320+n) will return the
+ * colour value at that cell (typically 14 after a PRINT"{CLR}")
+ * instead of key_state[n], breaking ALL keyboard input in BASIC.
+ *
+ * BUG HISTORY: In April 2026, a Cursor AI agent rebuilt the
+ * WASM from a version of this file that had colour before
+ * keyboard in gfx_peek(). Result: PEEK(56320+27) always
+ * returned 14 (the foreground colour) so every game loop
+ * exited immediately thinking ESC was pressed. The fix is the
+ * keyboard check in gfx_peek() below — DO NOT MOVE IT.
+ *
+ * Resolution order in gfx_peek() must remain:
+ *   1. text screen  (0x0400)
+ *   2. KEYBOARD     (0xDC00) ← BEFORE colour RAM, always
+ *   3. colour RAM   (0xD800)
+ *   4. charset      (0x3000)
+ *   5. bitmap       (0x2000)
+ * ============================================================
+ */
+
 #include "gfx_video.h"
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 
 /* Regions may overlap in 16-bit address space (like real machines); gfx_peek/poke use a
- * fixed priority: text, color, char, key, bitmap. Only require each window to fit in 64K. */
+ * fixed priority: text, KEYBOARD (before colour!), color, char, bitmap.
+ * Only require each window to fit in 64K. */
 static int memory_layout_valid(const GfxVideoState *s)
 {
     uint32_t t0 = s->mem_text;
@@ -176,22 +211,46 @@ static uint8_t peek_keys(const GfxVideoState *s, uint16_t addr)
     return 0;
 }
 
+/* gfx_peek — virtualised PEEK for the gfx address space.
+ *
+ * !! WARNING: RESOLUTION ORDER IS INTENTIONAL — SEE FILE HEADER !!
+ *
+ * The keyboard region (0xDC00–0xDCFF) overlaps colour RAM (0xD800–0xDFCF).
+ * Keyboard MUST be checked first so PEEK(56320+n) returns key_state[n],
+ * not whatever colour is stored at that cell.
+ *
+ * If you ever see PEEK(56320+n) returning 14 instead of 0/1, the most
+ * likely cause is that this check order was changed. Fix: ensure the
+ * mem_key block is tested BEFORE the mem_color block, as it is below.
+ */
 uint8_t gfx_peek(const GfxVideoState *s, uint16_t addr)
 {
     if (!s) return 0;
+
+    /* 1. Text screen RAM (highest priority — not overlapped by anything). */
     if (addr >= s->mem_text && addr < s->mem_text + GFX_TEXT_SIZE)
         return peek_text(s, addr);
-    /* Key check BEFORE color: GFX_KEY_BASE (0xDC00) falls inside the 2000-byte
-     * colour region [0xD800, 0xD800+2000) in the default 40-col layout, so we
-     * must resolve keyboard reads first to avoid aliasing. */
+
+    /* 2. KEYBOARD — must come before colour RAM (see file-level comment).
+     *    GFX_KEY_BASE (0xDC00) is inside the colour window [0xD800, 0xDFD0).
+     *    Checking keyboard first ensures PEEK(56320+n) always returns the
+     *    live key state rather than the colour byte at the aliased address.
+     *    DO NOT swap this check with the colour check below. */
     if (addr >= s->mem_key && addr < s->mem_key + GFX_KEY_SIZE)
         return peek_keys(s, addr);
+
+    /* 3. Colour RAM — checked after keyboard to avoid the address alias. */
     if (addr >= s->mem_color && addr < s->mem_color + GFX_COLOR_SIZE)
         return peek_color(s, addr);
+
+    /* 4. Character ROM / UDGs. */
     if (addr >= s->mem_char && addr < s->mem_char + GFX_CHAR_SIZE)
         return peek_chars(s, addr);
+
+    /* 5. Hi-res bitmap. */
     if (addr >= s->mem_bitmap && addr < s->mem_bitmap + GFX_BITMAP_BYTES)
         return peek_bitmap(s, addr);
+
     /* Everything else currently undefined: read as 0. */
     return 0;
 }
