@@ -6337,6 +6337,12 @@ static struct value eval_factor(char **p)
             read_identifier(&q, namebuf, sizeof(namebuf));
             return eval_function(namebuf, p);
         } else {
+            /* HTTP(...) without $ — same intrinsic as HTTP$(...); "HTTP" alone must not match UDF HTTP. */
+            if (toupper((unsigned char)(*p)[0]) == 'H' && toupper((unsigned char)(*p)[1]) == 'T' &&
+                toupper((unsigned char)(*p)[2]) == 'T' && toupper((unsigned char)(*p)[3]) == 'P' &&
+                (*p)[4] == '(') {
+                return eval_function("HTTP$", p);
+            }
             /* Check for user-defined FUNCTION or DEF FN, else variable */
             char namebuf[VAR_NAME_MAX];
             char *q;
@@ -9414,6 +9420,15 @@ static void execute_statement(char **p)
             read_identifier(&q, namebuf, sizeof(namebuf));
             for (i = 0; namebuf[i]; i++) namebuf[i] = (char)toupper((unsigned char)namebuf[i]);
             skip_spaces(&q);
+            /* HTTP(url) statement — intrinsic, not UDF "HTTP" */
+            if (strcmp(namebuf, "HTTP") == 0 && *q == '(') {
+                struct value discard;
+                char *ep = *p;
+                discard = eval_function("HTTP$", &ep);
+                (void)discard;
+                *p = ep;
+                return;
+            }
             if (*q == '(') {
                 struct value *args = (struct value *)calloc(MAX_UDF_PARAMS, sizeof(struct value));
                 if (!args) {

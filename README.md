@@ -151,7 +151,7 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
     - `ARG$(n)` — returns the *n*th argument as a string. `ARG$(0)` is the script path; `ARG$(1)` … `ARG$(ARGC())` are the arguments. Out-of-range returns `""`.
     - `SYSTEM(cmd$)`** — runs a shell command (e.g. `SYSTEM("ls -l")`), waits for it to finish, and returns its exit status (0 = success).
     - `EXEC$(cmd$)` — runs a shell command and returns its standard output as a string (up to 255 characters; trailing newline trimmed). Use for scripting (e.g. `U$ = EXEC$("whoami")`).
-    - **Browser WASM only**: `HTTP$(url$ [, method$ [, body$]])` — `fetch` the URL; returns response body as a string. `HTTPSTATUS()` — last HTTP status from `HTTP$` (0 if the request failed). Outside the Emscripten build, `HTTP$` returns `""` (use `EXEC$` with `curl` on native). APIs must allow **CORS** from your page origin. See `examples/http_time_london.bas`.
+    - **Browser WASM only**: `HTTP$(url$ [, method$ [, body$]])` — `fetch` the URL; returns response body as a string. `HTTP(url$)` without `$` is the same call. `HTTPSTATUS()` — last HTTP status from `HTTP$` (0 if the request failed). Outside the Emscripten build, `HTTP$` returns `""` (use `EXEC$` with `curl` on native). APIs must allow **CORS** from your page origin. See `examples/http_time_london.bas`.
 
 ### Additional/Non-Standard BASIC Commands
 

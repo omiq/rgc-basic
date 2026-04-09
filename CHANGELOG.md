@@ -2,7 +2,7 @@
 
 ### Unreleased
 
-- **Browser WASM HTTP (`HTTP$` / `HTTPSTATUS`)**: **`R$ = HTTP$(url$ [, method$ [, body$]])`** performs **`fetch`** (Asyncify + **`EM_ASYNC_JS`**). **`HTTPSTATUS()`** returns the last HTTP status (**0** on failure). Response body is truncated to the current max string length. **Native / non-Emscripten**: **`HTTP$`** returns **`""`** (use **`EXEC$("curl …")`**). **`Makefile`**: **`ASYNCIFY_IMPORTS`** includes **`__asyncjs__wasm_js_http_fetch_async`**. **`starts_with_kw`**: longer identifiers no longer match shorter keywords (**`HTTP`** vs **`HTTPSTATUS`**). Example: **`examples/http_time_london.bas`**.
+- **Browser WASM HTTP (`HTTP$` / `HTTPSTATUS`)**: **`R$ = HTTP$(url$ [, method$ [, body$]])`** performs **`fetch`** (Asyncify + **`EM_ASYNC_JS`**). **`HTTPSTATUS()`** returns the last HTTP status (**0** on failure). Response body is truncated to the current max string length. **Native / non-Emscripten**: **`HTTP$`** returns **`""`** (use **`EXEC$("curl …")`**). **`Makefile`**: **`ASYNCIFY_IMPORTS`** includes **`__asyncjs__wasm_js_http_fetch_async`**. **`starts_with_kw`**: longer identifiers no longer match shorter keywords (**`HTTP`** vs **`HTTPSTATUS`**). **`HTTP(url$)`** without **`$`** is accepted as an alias for **`HTTP$`** (avoids collision with user **`FUNCTION HTTP`**). Example: **`examples/http_time_london.bas`**.
 
 - **`SPRITEFRAME` statement**: Dispatch lived under **`c == 'D'`** but the keyword starts with **S**, so **`SPRITEFRAME 0, 1`** fell through to **`LET`** and failed with “reserved word cannot be used as variable”. Moved handling to the **`S`** branch with **`SPRITEVISIBLE`**.
 
