@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **Browser WASM HTTP (`HTTP$` / `HTTPSTATUS`)**: **`R$ = HTTP$(url$ [, method$ [, body$]])`** performs **`fetch`** (Asyncify + **`EM_ASYNC_JS`**). **`HTTPSTATUS()`** returns the last HTTP status (**0** on failure). Response body is truncated to the current max string length. **Native / non-Emscripten**: **`HTTP$`** returns **`""`** (use **`EXEC$("curl …")`**). **`Makefile`**: **`ASYNCIFY_IMPORTS`** includes **`__asyncjs__wasm_js_http_fetch_async`**. **`starts_with_kw`**: longer identifiers no longer match shorter keywords (**`HTTP`** vs **`HTTPSTATUS`**). Example: **`examples/http_time_london.bas`**.
+
 - **`SPRITEFRAME` statement**: Dispatch lived under **`c == 'D'`** but the keyword starts with **S**, so **`SPRITEFRAME 0, 1`** fell through to **`LET`** and failed with “reserved word cannot be used as variable”. Moved handling to the **`S`** branch with **`SPRITEVISIBLE`**.
 
 - **basic-gfx (macOS) tilemap / `DRAWSPRITETILE` crash**: `gfx_sprite_process_queue()` called `LoadTexture` from the **interpreter thread** when `gfx_sprite_tile_source_rect` ran before the main loop processed the queue — **OpenGL must run on the main thread** on macOS (crash in `glBindTexture`). **LOADSPRITE** / **UNLOADSPRITE** now **wait** until the render loop finishes the GPU work; `gfx_sprite_tile_source_rect` and related helpers no longer call `gfx_sprite_process_queue()` from the worker. One extra `gfx_sprite_process_queue()` after the render loop exits so pending loads are not left waiting.

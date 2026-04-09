@@ -144,6 +144,23 @@ def main() -> int:
                 timeout=120000,
             )
 
+            # HTTP$ / HTTPSTATUS: async fetch (Asyncify + wasm_js_http_fetch_async)
+            page.fill(
+                "#program",
+                '10 U$ = "https://httpbin.org/get"\n'
+                "20 R$ = HTTP$(U$)\n"
+                "30 S = HTTPSTATUS()\n"
+                '40 IF S <> 200 THEN PRINT "BADSTATUS"; S : END\n'
+                '50 IF INSTR(R$, "httpbin") < 1 THEN PRINT "NOBODY" : END\n'
+                '60 PRINT "HTTP_OK"\n'
+                "70 END\n",
+            )
+            _click_run(page)
+            page.wait_for_function(
+                "() => (document.getElementById('output').textContent || '').includes('HTTP_OK')",
+                timeout=120000,
+            )
+
             browser.close()
     finally:
         httpd.shutdown()
