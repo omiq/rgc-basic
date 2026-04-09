@@ -82,6 +82,19 @@ int main(void)
     s.scroll_y = -8;
     assert(s.scroll_x == 16 && s.scroll_y == -8);
 
+    /* Default layout: GFX_KEY_BASE (0xDC00) lies inside colour RAM window (0xD800..).
+     * gfx_peek must resolve keyboard before colour or PEEK(56320+n) reads colour bytes. */
+    {
+        uint16_t ka = GFX_KEY_BASE + 87;
+        uint16_t co = (uint16_t)(ka - GFX_COLOR_BASE);
+        assert(co < GFX_COLOR_SIZE);
+        s.color[co] = 0x0E;
+        s.key_state[87] = 1;
+        assert(gfx_peek(&s, ka) == 1);
+        s.key_state[87] = 0;
+        assert(gfx_peek(&s, ka) == 0x0E);
+    }
+
     /* Out-of-range addresses are inert/zero. */
     gfx_poke(&s, 0x0001u, 0x7F);
     assert(gfx_peek(&s, 0x0001u) == 0);
