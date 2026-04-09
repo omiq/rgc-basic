@@ -312,6 +312,87 @@ def main() -> int:
                 browser.close()
                 raise RuntimeError(f"long PRINT yield test error log: {log_longp!r}")
 
+            # PEEK(56320+code) / key_state[] must update during SLEEP (Asyncify): IDE embeds that
+            # only use wasm_push_key would fail this; canvas.html writes HEAPU8 at wasm_gfx_key_state_ptr.
+            page.wait_for_function(
+                "() => !document.getElementById('run').disabled",
+                timeout=60000,
+            )
+            page.fill(
+                "#program",
+                "10 FOR I=1 TO 400\n"
+                "20 IF PEEK(56320+87)<>0 THEN POKE 1024,33\n"
+                "25 IF PEEK(56320+87)=0 THEN POKE 1024,32\n"
+                "30 SLEEP 1\n"
+                "40 NEXT I\n"
+                "50 END\n",
+            )
+            _click_run(page)
+            page.wait_for_function(
+                """() => {
+                  const p = document.getElementById('pause');
+                  return p && !p.disabled;
+                }""",
+                timeout=60000,
+            )
+            page.click("#screen")
+            time.sleep(0.15)
+            page.keyboard.down("w")
+            time.sleep(0.55)
+            key87 = page.evaluate(
+                """() => {
+              const M = window.Module;
+              if (!M || !M._wasm_gfx_key_state_ptr || !M.HEAPU8) return -1;
+              const b = M._wasm_gfx_key_state_ptr();
+              if (!b) return -2;
+              return M.HEAPU8[b + 87] | 0;
+            }"""
+            )
+            page.keyboard.up("w")
+            if key87 != 1:
+                browser.close()
+                raise RuntimeError(
+                    f"PEEK key matrix: expected HEAPU8[key_state+87]==1 while W held during SLEEP, got {key87!r}"
+                )
+            page.evaluate("Module.wasmStopRequested = 1")
+            page.wait_for_function(
+                "() => (window.Module && Module.wasmGfxRunDone === 1)",
+                timeout=120000,
+            )
+            log_peek = page.text_content("#log") or ""
+            if log_peek.strip():
+                browser.close()
+                raise RuntimeError(f"PEEK key matrix test error log: {log_peek!r}")
+
+            # TI must advance across SLEEP frames in canvas WASM (wall-clock jiffies).
+            page.wait_for_function(
+                "() => !document.getElementById('run').disabled",
+                timeout=60000,
+            )
+            page.fill(
+                "#program",
+                "10 T0=TI\n"
+                "20 FOR I=1 TO 120\n"
+                "30 SLEEP 1\n"
+                "40 IF TI<>T0 THEN 60\n"
+                "50 NEXT I\n"
+                "55 PRINT \"TI_STUCK\"\n"
+                "56 END\n"
+                "60 END\n",
+            )
+            _click_run(page)
+            page.wait_for_function(
+                "() => (window.Module && Module.wasmGfxRunDone === 1)",
+                timeout=120000,
+            )
+            log_ti = page.text_content("#log") or ""
+            if "TI_STUCK" in (log_ti or ""):
+                browser.close()
+                raise RuntimeError("TI did not advance across SLEEP (canvas WASM jiffy clock)")
+            if log_ti.strip():
+                browser.close()
+                raise RuntimeError(f"TI/SLEEP test unexpected log: {log_ti!r}")
+
             # trek-like: string concat in a loop (GOSUB 5440 pattern) must yield (eval_addsub).
             page.wait_for_function(
                 "() => !document.getElementById('run').disabled",
