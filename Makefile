@@ -105,6 +105,10 @@ wasm-test: basic-wasm
 wasm-canvas-test: basic-wasm-canvas
 	python3 tests/wasm_browser_canvas_test.py
 
+# Same as wasm-canvas-test; use after pull/build to confirm PEEK keyboard + TI + canvas parity.
+verify-canvas-wasm: basic-wasm-canvas
+	python3 tests/wasm_browser_canvas_test.py
+
 wasm-canvas-charset-test: basic-wasm-canvas
 	python3 tests/wasm_canvas_charset_test.py
 
@@ -117,6 +121,6 @@ clean:
 	$(RM) web/basic-canvas.js web/basic-canvas.wasm web/basic-canvas.wasm.map 2>/dev/null || true
 	$(RM) web/basic-modular.js web/basic-modular.wasm web/basic-modular.wasm.map 2>/dev/null || true
 
-.PHONY: all clean gfx_video_test gfx-demo basic-gfx basic-wasm basic-wasm-modular basic-wasm-canvas wasm-test wasm-canvas-test wasm-canvas-charset-test wasm-tutorial-test
+.PHONY: all clean gfx_video_test gfx-demo basic-gfx basic-wasm basic-wasm-modular basic-wasm-canvas wasm-test wasm-canvas-test verify-canvas-wasm wasm-canvas-charset-test wasm-tutorial-test
 
 # End of Makefile

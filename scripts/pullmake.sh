@@ -45,4 +45,5 @@ fi
 make basic-wasm
 make basic-wasm-modular
 make basic-wasm-canvas
-# Optional: make wasm-test && make wasm-canvas-test && make wasm-tutorial-test  (needs Playwright)
+# Optional (needs Playwright): make wasm-test && make wasm-canvas-test && make wasm-tutorial-test
+# Or canvas-only gate: sh scripts/verify-canvas-wasm.sh
