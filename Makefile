@@ -67,7 +67,7 @@ basic-wasm:
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
 		-s INITIAL_MEMORY=33554432 \
 		-s STACK_SIZE=524288 \
-		-s ASYNCIFY=1 -s ASYNCIFY_IMPORTS='["emscripten_sleep"]' \
+		-s ASYNCIFY=1 -s ASYNCIFY_IMPORTS='["emscripten_sleep","__asyncjs__wasm_js_http_fetch_async"]' \
 		-o web/basic.js basic.c petscii.c -lm
 	@echo "Built web/basic.js and web/basic.wasm"
 
@@ -81,7 +81,7 @@ basic-wasm-modular:
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
 		-s INITIAL_MEMORY=33554432 \
 		-s STACK_SIZE=524288 \
-		-s ASYNCIFY=1 -s ASYNCIFY_IMPORTS='["emscripten_sleep"]' \
+		-s ASYNCIFY=1 -s ASYNCIFY_IMPORTS='["emscripten_sleep","__asyncjs__wasm_js_http_fetch_async"]' \
 		-o web/basic-modular.js basic.c petscii.c -lm
 	@echo "Built web/basic-modular.js and web/basic-modular.wasm"
 
@@ -94,7 +94,7 @@ basic-wasm-canvas:
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
 		-s INITIAL_MEMORY=67108864 \
 		-s STACK_SIZE=524288 \
-		-s ASYNCIFY=1 -s ASYNCIFY_IMPORTS='["emscripten_sleep"]' \
+		-s ASYNCIFY=1 -s ASYNCIFY_IMPORTS='["emscripten_sleep","__asyncjs__wasm_js_http_fetch_async"]' \
 		-o web/basic-canvas.js basic.c petscii.c gfx/gfx_video.c gfx/gfx_charrom.c gfx/gfx_gamepad.c gfx/gfx_canvas.c gfx/gfx_software_sprites.c -lm
 	@echo "Built web/basic-canvas.js and web/basic-canvas.wasm"
 

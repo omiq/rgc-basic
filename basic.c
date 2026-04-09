@@ -48,6 +48,52 @@
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
+#include <emscripten/em_js.h>
+#endif
+
+/* Last HTTP response status from HTTP$ (set on Emscripten; 0 otherwise). */
+static int http_last_status;
+
+#ifdef __EMSCRIPTEN__
+/*
+ * Async fetch for HTTP$ (EM_ASYNC_JS → Asyncify.handleAsync; no manual ASYNCIFY_IMPORTS).
+ * Writes response body into out; sets *status_out to HTTP status (0 on network error).
+ */
+EM_ASYNC_JS(int, wasm_js_http_fetch_async, (const char *url, const char *method, const char *body, int body_len, char *out, int out_cap, int *status_out), {
+  var urlJs = UTF8ToString(url);
+  var methodJs = method ? UTF8ToString(method) : "GET";
+  var init = { method: methodJs };
+  if (body && body_len > 0) {
+    init.body = HEAPU8.subarray(body, body + body_len >>> 0);
+  }
+  try {
+    const resp = await fetch(urlJs, init);
+    HEAP32[status_out >> 2] = resp.status;
+    const text = await resp.text();
+    stringToUTF8(text, out, out_cap);
+  } catch (e) {
+    HEAP32[status_out >> 2] = 0;
+    if (out_cap > 0) HEAPU8[out] = 0;
+  }
+  return 0;
+});
+
+static void wasm_http_fetch_emscripten(const char *url, const char *method, const char *body, int body_len,
+    char *out, size_t out_size, int *status_out)
+{
+    const char *m = (method && method[0]) ? method : "GET";
+    if (out_size == 0) {
+        return;
+    }
+    out[0] = '\0';
+    if (status_out) {
+        *status_out = 0;
+    }
+    if (!url || !url[0] || !status_out) {
+        return;
+    }
+    wasm_js_http_fetch_async(url, m, body, body_len, out, (int)out_size, status_out);
+}
 #endif
 
 #ifdef GFX_VIDEO
@@ -2183,7 +2229,9 @@ enum func_code {
     FN_SPRITETILES = 49,
     FN_SPRITEFRAME = 50,
     FN_SCROLLX = 51,
-    FN_SCROLLY = 52
+    FN_SCROLLY = 52,
+    FN_HTTP = 53,
+    FN_HTTPSTATUS = 54
 };
 
 /* Report an error and halt further execution.
@@ -2422,7 +2470,7 @@ static const char *const reserved_words[] = {
     "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITEFRAME", "SPRITETILES", "SPRITEVISIBLE",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
-    "DRAWSPRITE", "DRAWSPRITETILE", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
+    "DRAWSPRITE", "DRAWSPRITETILE", "HTTP", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
     "DO", "LOOP", "UNTIL", "EXIT",
     NULL
 };
@@ -2457,7 +2505,11 @@ static int starts_with_kw(char *p, const char *kw)
     if (p[i] == '\0' || p[i] == ' ' || p[i] == '\t' || p[i] == ':' || p[i] == '(' || p[i] == '$' || p[i] == '\"' || p[i] == '#') {
         return 1;
     }
-    return 0;
+    /* Do not treat a longer identifier as this keyword (e.g. HTTP vs HTTPSTATUS). */
+    if (isalnum((unsigned char)p[i]) || p[i] == '_') {
+        return 0;
+    }
+    return 1;
 }
 
 /* Construct a numeric value wrapper. */
@@ -3318,6 +3370,13 @@ static int function_lookup(const char *name, int len)
         if (len == 3 && name[0] == 'D' && name[1] == 'E' && name[2] == 'C') return FN_DEC;
         return FN_NONE;
     case 'H':
+        if ((len == 4 && name[0] == 'H' && name[1] == 'T' && name[2] == 'T' && name[3] == 'P') ||
+            (len == 5 && name[0] == 'H' && name[1] == 'T' && name[2] == 'T' && name[3] == 'P' && name[4] == '$'))
+            return FN_HTTP;
+        if (len == 10 && name[0] == 'H' && name[1] == 'T' && name[2] == 'T' && name[3] == 'P' &&
+            name[4] == 'S' && name[5] == 'T' && name[6] == 'A' && name[7] == 'T' && name[8] == 'U' &&
+            name[9] == 'S')
+            return FN_HTTPSTATUS;
         if ((len == 3 && name[0] == 'H' && name[1] == 'E' && name[2] == 'X') ||
             (len == 4 && name[0] == 'H' && name[1] == 'E' && name[2] == 'X' && name[3] == '$'))
             return FN_HEX;
@@ -4565,6 +4624,61 @@ static struct value eval_function(const char *name, char **p)
         }
 #else
         /* Terminal build: no non-blocking key queue. */
+        return make_str("");
+#endif
+    }
+    if (code == FN_HTTPSTATUS) {
+        if (**p != ')') {
+            runtime_error_hint("HTTPSTATUS() takes no arguments", "Use HTTPSTATUS() after HTTP$ to read the last status code.");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        return make_num((double)http_last_status);
+    }
+    if (code == FN_HTTP) {
+        struct value v_url, v_method, v_body;
+        const char *meth = NULL;
+        const char *bod = NULL;
+        int blen = 0;
+        int st = 0;
+
+        v_url = eval_expr(p);
+        ensure_str(&v_url);
+        skip_spaces(p);
+        if (**p == ',') {
+            (*p)++;
+            skip_spaces(p);
+            v_method = eval_expr(p);
+            ensure_str(&v_method);
+            meth = v_method.str;
+            skip_spaces(p);
+            if (**p == ',') {
+                (*p)++;
+                skip_spaces(p);
+                v_body = eval_expr(p);
+                ensure_str(&v_body);
+                bod = v_body.str;
+                blen = (int)strlen(bod);
+            }
+        }
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("HTTP$ expects url$ [, method$ [, body$]]",
+                "Example: R$ = HTTP$(\"https://example.com/api\") or HTTP$(U$, \"POST\", J$).");
+            return make_str("");
+        }
+        (*p)++;
+        skip_spaces(p);
+#if defined(__EMSCRIPTEN__)
+        wasm_http_fetch_emscripten(v_url.str, meth, bod, blen, outbuf, sizeof(outbuf), &st);
+        http_last_status = st;
+        return make_str(outbuf);
+#else
+        (void)meth;
+        (void)bod;
+        (void)blen;
+        http_last_status = 0;
         return make_str("");
 #endif
     }
@@ -6209,6 +6323,7 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "REPLACE") || starts_with_kw(*p, "TRIM") || starts_with_kw(*p, "LTRIM") || starts_with_kw(*p, "RTRIM") ||
             starts_with_kw(*p, "FIELD") || starts_with_kw(*p, "INDEXOF") || starts_with_kw(*p, "LASTINDEXOF") ||
             starts_with_kw(*p, "ENV") || starts_with_kw(*p, "EVAL") || starts_with_kw(*p, "PLATFORM") || starts_with_kw(*p, "JSON") ||
+            starts_with_kw(*p, "HTTPSTATUS") || starts_with_kw(*p, "HTTP$") ||
             starts_with_kw(*p, "ARGC") || starts_with_kw(*p, "ARG") ||
             starts_with_kw(*p, "SYSTEM") || starts_with_kw(*p, "EXEC") ||
             starts_with_kw(*p, "PEEK") || starts_with_kw(*p, "INKEY") ||
