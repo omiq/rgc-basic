@@ -181,12 +181,15 @@ uint8_t gfx_peek(const GfxVideoState *s, uint16_t addr)
     if (!s) return 0;
     if (addr >= s->mem_text && addr < s->mem_text + GFX_TEXT_SIZE)
         return peek_text(s, addr);
+    /* Key check BEFORE color: GFX_KEY_BASE (0xDC00) falls inside the 2000-byte
+     * colour region [0xD800, 0xD800+2000) in the default 40-col layout, so we
+     * must resolve keyboard reads first to avoid aliasing. */
+    if (addr >= s->mem_key && addr < s->mem_key + GFX_KEY_SIZE)
+        return peek_keys(s, addr);
     if (addr >= s->mem_color && addr < s->mem_color + GFX_COLOR_SIZE)
         return peek_color(s, addr);
     if (addr >= s->mem_char && addr < s->mem_char + GFX_CHAR_SIZE)
         return peek_chars(s, addr);
-    if (addr >= s->mem_key && addr < s->mem_key + GFX_KEY_SIZE)
-        return peek_keys(s, addr);
     if (addr >= s->mem_bitmap && addr < s->mem_bitmap + GFX_BITMAP_BYTES)
         return peek_bitmap(s, addr);
     /* Everything else currently undefined: read as 0. */
