@@ -38,8 +38,9 @@
 #define GFX_SCREEN_BITMAP 1u
 
 typedef struct GfxVideoState {
-    /* Virtual POKE/PEEK bases (defaults match C64-style layout). Each region must lie
-     * in 16-bit space without overlapping another region. */
+    /* Virtual POKE/PEEK bases (defaults match C64-style layout). Regions may overlap in
+     * 16-bit space; gfx_peek() uses fixed priority (keyboard before colour when ranges
+     * overlap — see gfx_peek in gfx_video.c). */
     uint16_t mem_text;
     uint16_t mem_color;
     uint16_t mem_char;
