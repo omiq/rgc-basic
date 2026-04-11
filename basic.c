@@ -8102,15 +8102,19 @@ static void skip_if_block_to_target(char **p, int want_else)
             char *q = pos;
             skip_spaces(&q);
             if (!*q) break;
-            /* Nested IF: any IF ... THEN (block or inline) increments nesting. */
+            /* Nested block IF only: inline IF ... THEN PRINT ... has no END IF and must
+             * not increment nesting (otherwise we never reach nesting==0 at the real END IF). */
             if (starts_with_kw(q, "IF")) {
                 char *r = q + 2;
                 while (*r) {
                     skip_spaces(&r);
                     if (!*r) break;
                     if (starts_with_kw(r, "THEN")) {
-                        nesting++;
                         r += 4;
+                        skip_spaces(&r);
+                        if (!*r || (*r == ':' && !r[1])) {
+                            nesting++;
+                        }
                         break;
                     }
                     if (*r == '\"') { r++; while (*r && *r != '\"') r++; if (*r) r++; continue; }
