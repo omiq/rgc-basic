@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **Nested block `IF` / `ELSE` / `END IF`:** Skipping to `ELSE` or `END IF` scanned for nested `IF` by incrementing nesting on every `IF … THEN`. **Inline** `IF cond THEN stmt` (no `END IF`) was counted as a block, so nesting never returned to **0** and the run ended with **"END IF expected"** (common in games with `IF … THEN PRINT` inside a block `IF`). Only **block** `IF` (nothing after `THEN`, or `THEN:` only) increments nesting now — same rule as `statement_if`.
+
 - **Canvas WASM keyboard polling during `SLEEP`:** `canvas.html` used `ccall('wasm_gfx_key_state_set')` from `keydown`/`keyup`. With **Asyncify**, that can fail while the interpreter is inside **`emscripten_sleep`** (e.g. **`gfx_key_demo.bas`**, **`gfx_jiffy_game_demo.bas`** loops), so **`PEEK(56320+n)`** never saw keys. **`wasm_gfx_key_state_ptr`** exports the **`key_state[]`** address; JS updates **`Module.HEAPU8`** directly (no re-entrant WASM). Run clears keys the same way.
 
 - **Gamepad (basic-gfx + canvas WASM):** **`JOY(port, button)`**, alias **`JOYSTICK`**, and **`JOYAXIS(port, axis)`** (`gfx_gamepad.c`). **Native:** Raylib **1–15** button codes; axes **0–5** scaled **-1000..1000**. **Canvas WASM:** `canvas.html` polls **`navigator.getGamepads()`** each frame into exported buffers; Raylib codes map to **Standard Gamepad** indices. **Terminal WASM** (no `GFX_VIDEO`) still returns **0**. **`HEAP16`** + **`_wasm_gamepad_buttons_ptr`** / **`_wasm_gamepad_axes_ptr`** exports. Example **`examples/gfx_joy_demo.bas`**.
