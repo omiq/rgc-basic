@@ -26,6 +26,21 @@ jobs:
           ./emsdk install latest
           ./emsdk activate latest
 
+      - name: Build native interpreter + gfx_video_test
+        run: |
+          set -e
+          make
+          make gfx_video_test
+
+      - name: Run native regression tests (.bas + gfx_peek)
+        run: |
+          set -e
+          ./gfx_video_test
+          for t in tests/if_inside_ident_normalize.bas tests/if_skip_inline_nested.bas; do
+            echo "Running $t"
+            ./basic -petscii "$t" >/dev/null
+          done
+
       - name: Build WASM targets
         run: |
           source "$GITHUB_WORKSPACE/emsdk/emsdk_env.sh"

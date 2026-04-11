@@ -78,6 +78,20 @@ int main(void)
 
     assert(s.screen_mode == GFX_SCREEN_TEXT);
 
+    /* Default layout: GFX_KEY_BASE (0xDC00) lies inside colour RAM window (0xD800..).
+     * gfx_peek must resolve keyboard before colour or PEEK(56320+n) reads colour bytes. */
+    {
+        uint16_t ka = GFX_KEY_BASE + 87;
+        uint16_t co = (uint16_t)(ka - GFX_COLOR_BASE);
+        assert(co < GFX_COLOR_SIZE);
+        s.color[co] = 0x0E;
+        s.key_state[87] = 1;
+        assert(gfx_peek(&s, ka) == 1); /* not 0x0E from colour RAM */
+        s.key_state[87] = 0;
+        /* Keyboard range still wins: 0 from key_state, not colour 0x0E (bug was colour first). */
+        assert(gfx_peek(&s, ka) == 0);
+    }
+
     /* Out-of-range addresses are inert/zero. */
     gfx_poke(&s, 0x0001u, 0x7F);
     assert(gfx_peek(&s, 0x0001u) == 0);
