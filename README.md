@@ -237,9 +237,9 @@ Printable and graphics PETSCII codes are mapped to Unicode (e.g. £ ↑ ←, box
 output nothing (invisible, like on a real C64), and only printable/graphics bytes produce
 visible characters. Use this when you need strict one-character-per-column alignment (e.g.
 viewing .seq files or pasting output into a fixed-width editor).
-- `-charset …`: choose the PETSCII **character set** used for rendering letters in `-petscii` mode, and (in **basic-gfx** / **canvas WASM**) which **hardware ROM** fills the virtual charset RAM:
-  - **C64 (default):** `upper` / `uc` / `c64-upper` — uppercase/graphics; `lower` / `lc` / `c64-lower` — lowercase/uppercase (useful for `.seq` art).
-  - **Commodore PET 2K chargen** (ROM image **901447-10**, two 128-glyph banks): `pet-upper` / `pet-graphics` — graphics/upper bank; `pet-lower` / `pet-text` — text/lowercase bank. Same `#OPTION charset …` names.
+- `-charset …`: choose the PETSCII **character set** used for rendering letters in `-petscii` mode, and (in **basic-gfx** / **canvas WASM**) which **8×8 glyph table** fills the virtual charset RAM (**same screen-code layout as the C64** in all cases; only the bitmap bytes differ for `pet-*`):
+  - **C64 (default):** `upper` / `uc` / `c64-upper` — uppercase/graphics; `lower` / `lc` / `c64-lower` — lowercase/uppercase (matches **VICE** / stock C64 ROM — use this to match the IDE’s **C64** platform).
+  - **PET-style alternate font** (from **`pet_uppercase.64c`** / **`pet_lowercase.64c`** in the repo — the “custom charset” / PET-like look on **C64**, not the physical **PET 2001** hardware ROM): `pet-upper` / `pet-graphics`; `pet-lower` / `pet-text`. Same `#OPTION charset …` names.
 - `-palette ansi|c64`: choose how PETSCII colors are mapped (only in `-petscii` mode):
   - `ansi` (default): map colors to standard 16-color ANSI SGR codes.
   - `c64` or `c64-8bit`: use 8‑bit (`38;5;N`) color indices chosen to approximate

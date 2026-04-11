@@ -38,7 +38,7 @@ int basic_halted(void);
  * can reach the graphics memory.  Must be called before basic_run(). */
 void basic_set_video(GfxVideoState *vs);
 
-/* Character ROM: 0 = C64 PETSCII (default), 1 = Commodore PET 2K chargen. */
+/* Character ROM: 0 = C64 PETSCII (default), 1 = PET-style alt font (pet_*.64c). */
 int basic_get_charrom_family(void);
 
 /* Window title for basic-gfx. NULL = use default "RGC-BASIC GFX". */
