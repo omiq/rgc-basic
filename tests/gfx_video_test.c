@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "gfx_video.h"
+#include "gfx_charrom.h"
 
 int main(void)
 {
@@ -81,6 +82,20 @@ int main(void)
     s.scroll_x = 16;
     s.scroll_y = -8;
     assert(s.scroll_x == 16 && s.scroll_y == -8);
+
+    /* C64 vs PET chargen: same screen-code layout, different glyph bytes at ROM. */
+    {
+        GfxVideoState c64, pet;
+        gfx_video_init(&c64);
+        c64.charrom_family = 0;
+        c64.charset_lowercase = 0;
+        gfx_load_default_charrom(&c64);
+        gfx_video_init(&pet);
+        pet.charrom_family = 1;
+        pet.charset_lowercase = 0;
+        gfx_load_default_charrom(&pet);
+        assert(c64.chars[0] != pet.chars[0]);
+    }
 
     /* Default layout: GFX_KEY_BASE (0xDC00) lies inside colour RAM window (0xD800..).
      * gfx_peek must resolve keyboard before colour or PEEK(56320+n) reads colour bytes. */

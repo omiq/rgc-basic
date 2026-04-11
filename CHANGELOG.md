@@ -2,6 +2,10 @@
 
 ### Unreleased
 
+- **PET vs C64 character ROM (basic-gfx + canvas WASM):** **`GfxVideoState.charrom_family`** selects the **C64 PETSCII** tables (default) or a **Commodore PET 2K chargen** (**901447-10**, from Steve Gray’s archive). CLI / **`#OPTION`**: **`pet-upper`** / **`pet-graphics`** and **`pet-lower`** / **`pet-text`** (aliases **`c64-upper`**, **`c64-lower`** for the classic ROM). Each **`load_program`** restores charset options from the CLI baseline so **`#OPTION charset`** in one file does not stick to the next. **`tests/gfx_video_test`**: C64 and PET glyph **0** differ.
+
+- **`SPRITEMODULATE` + deferred `LOADSPRITE` (canvas WASM):** On WASM, **`LOADSPRITE`** is applied when **`gfx_sprite_process_queue`** runs (often **after** the next statements). Finishing the load reset modulation to defaults, wiping **`SPRITEMODULATE`** if it ran before the decode. Slots now track **`mod_explicit`**; modulation set via **`SPRITEMODULATE`** is restored when the queued load completes (same fix in **Raylib** for consistency).
+
 - **`SPRITEMODULATE` (basic-gfx + canvas WASM):** Per-slot draw tint and scale until **`LOADSPRITE`** / **`UNLOADSPRITE`**. Syntax: **`SPRITEMODULATE slot, alpha [, r, g, b [, scale_x [, scale_y]]]`** — **`alpha`** and **`r`/`g`/`b`** are **0–255** (**`alpha`** multiplies PNG alpha); **`scale_x`/`scale_y`** stretch the drawn quad (default **1**; one scale sets both). Implemented with Raylib **`Color`** + destination size; canvas uses bilinear-ish sampling + tint. **`gfx_sprite_set_modulate`** in **`basic_api.h`**.
 
 - **Load normalization / identifiers containing `IF`:** **`normalize_keywords_line`** treated **`IF`** inside identifiers as **`IF …`** (e.g. **`JIFFIES_PER_FRAME`** → **`J IF FIES_PER_FRAME`**, breaking assignments). The same **`prev_ident`** guard used for **`FOR`** (avoid splitting **`PLATFORM`**) now applies to the **`IF`** insertion rule. Regression: **`tests/if_inside_ident_normalize.bas`**.
