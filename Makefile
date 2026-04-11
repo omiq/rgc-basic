@@ -8,15 +8,15 @@ TARGET = basic
 SRCS   = basic.c petscii.c
 
 # Optional gfx/test modules (feature/raylib-gfx branch)
-GFX_SRCS = gfx/gfx_video.c tests/gfx_video_test.c
+GFX_SRCS = gfx/gfx_video.c gfx/gfx_charrom.c gfx/pet_chargen_data.c tests/gfx_video_test.c
 
 # Raylib-based graphics demo (Phase 1 skeleton, no interpreter)
-GFX_DEMO_SRCS = gfx/gfx_video.c gfx/gfx_charrom.c gfx/gfx_raylib.c
+GFX_DEMO_SRCS = gfx/gfx_video.c gfx/gfx_charrom.c gfx/pet_chargen_data.c gfx/gfx_raylib.c
 RAYLIB_CFLAGS  = $(shell pkg-config --cflags raylib 2>/dev/null)
 RAYLIB_LDFLAGS = $(shell pkg-config --libs raylib 2>/dev/null) -lpthread
 
 # Integrated graphics build: BASIC interpreter + raylib window
-GFX_BIN_SRCS = basic.c petscii.c gfx/gfx_video.c gfx/gfx_charrom.c gfx/gfx_gamepad.c gfx/gfx_raylib.c
+GFX_BIN_SRCS = basic.c petscii.c gfx/gfx_video.c gfx/gfx_charrom.c gfx/pet_chargen_data.c gfx/gfx_gamepad.c gfx/gfx_raylib.c
 
 # Reasonable defaults for modern systems; can be overridden on the command line.
 CC      ?= cc
@@ -95,7 +95,7 @@ basic-wasm-canvas:
 		-s INITIAL_MEMORY=67108864 \
 		-s STACK_SIZE=524288 \
 		-s ASYNCIFY=1 -s ASYNCIFY_IMPORTS='["emscripten_sleep","__asyncjs__wasm_js_http_fetch_async"]' \
-		-o web/basic-canvas.js basic.c petscii.c gfx/gfx_video.c gfx/gfx_charrom.c gfx/gfx_gamepad.c gfx/gfx_canvas.c gfx/gfx_software_sprites.c -lm
+		-o web/basic-canvas.js basic.c petscii.c gfx/gfx_video.c gfx/gfx_charrom.c gfx/pet_chargen_data.c gfx/gfx_gamepad.c gfx/gfx_canvas.c gfx/gfx_software_sprites.c -lm
 	@echo "Built web/basic-canvas.js and web/basic-canvas.wasm"
 
 # Headless browser smoke test (needs: pip install -r tests/requirements-wasm.txt && playwright install chromium)

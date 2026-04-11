@@ -58,6 +58,7 @@ typedef struct GfxVideoState {
     uint8_t bg_color;                       /* Background colour index (0-15) */
     uint8_t bitmap_fg;                      /* Hi-res bitmap “pen” (0-15), COLOR in gfx build */
     uint8_t charset_lowercase;              /* 0=upper/graphics, 1=lower/upper */
+    uint8_t charrom_family;                 /* 0=C64 PETSCII ROM, 1=Commodore PET 2K chargen */
     uint8_t cols;                           /* 40 or 80; columns per row */
     uint8_t screen_mode;                    /* GFX_SCREEN_TEXT or GFX_SCREEN_BITMAP */
     /* Viewport scroll (pixels): content is shifted left/up by these amounts when compositing. */
