@@ -59,6 +59,7 @@
   4. **Graphic layers and scrolling** — ~**Viewport `SCROLL dx, dy`** + **`SCROLLX()`/`SCROLLY()`** (single shared offset for text/bitmap + sprites) — done.~ Full **per-layer** stack (background vs tiles vs HUD) still open.
   5. ~**Tilemap handling (sheet)**~ — **`LOADSPRITE slot, "path.png", tw, th`** + **`DRAWSPRITETILE slot, x, y, tile_index [, z]`** + **`SPRITETILES(slot)`**. Full world tile *grid* storage in BASIC still manual.
   6. **Sprite animation** — ~Per-slot frame via **`SPRITEFRAME`** + tile-aware **`DRAWSPRITE`** — done.~ Optional frame rate / timing helpers still open.
+  7. **Blitter-style ops, off-screen buffers, grab-to-sprite, export** — Not started. Draft design (phased: `IMAGE COPY` / off-screen 1bpp surfaces → `TOSPRITE` → PNG/raw export; CLI + WASM parity). Same doc: **periodic timers (“IRQ-light”)** as an AMAL alternative (VB `Timer`-style / `GOSUB` on schedule). **`docs/rgc-blitter-surface-spec.md`**. Goal: STOS/AMOS-like map/sprite **utilities written in BASIC**; README link deferred while the design is discussed.
 
 * **Browser / WASM** (see `docs/browser-wasm-plan.md`, `web/README.md`, `README.md`)
   * ~**Emscripten builds**~ — `make basic-wasm` → `web/basic.js` + `basic.wasm`; `make basic-wasm-canvas` → `basic-canvas.js` + `basic-canvas.wasm` (GFX_VIDEO: PETSCII + `SCREEN 1` bitmap + PNG sprites via `gfx_software_sprites.c` / stb_image, parity with basic-gfx). Asyncify for `SLEEP`, `INPUT`, `GET` / `INKEY$`.
