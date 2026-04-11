@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RGC-BASIC — Graphics &amp; browser features (cheat sheet)</title>
+  <style>
+    :root { --text: #1a1a1a; --muted: #555; --border: #ccc; --bg: #fafafa; --accent: #2472c8; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.55; color: var(--text); max-width: 52rem; margin: 0 auto; padding: 1.25rem 1rem 3rem; background: var(--bg); }
+    h1 { font-size: 1.65rem; margin-top: 0; }
+    h2 { font-size: 1.15rem; margin-top: 1.75rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    h2:first-of-type { border-top: none; margin-top: 1rem; }
+    p, li { color: var(--text); }
+    .lead { font-size: 1.05rem; color: var(--muted); }
+    code, kbd { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.92em; background: #eee; padding: 0.12em 0.35em; border-radius: 4px; }
+    pre { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; overflow-x: auto; font-size: 0.88rem; line-height: 1.45; }
+    nav.toc { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; margin: 1.25rem 0; }
+    nav.toc ul { margin: 0.35rem 0 0; padding-left: 1.25rem; }
+    nav.toc a { color: var(--accent); }
+    footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); font-size: 0.9rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <h1>Graphics &amp; browser features — quick reference</h1>
+  <p class="lead">
+    RGC-BASIC’s <strong>basic-gfx</strong> (native) and <strong>canvas WASM</strong> (<code>web/canvas.html</code>) share the same PETSCII screen, bitmap mode, sprites, and input model.
+    Below is a compact map of newer commands; full programs live under <code>examples/tutorial_gfx_*.bas</code>.
+  </p>
+
+  <nav class="toc" aria-label="Topics">
+    <strong>On this page</strong>
+    <ul>
+      <li><a href="#scroll">Viewport scroll</a></li>
+      <li><a href="#memory">Virtual memory (<code>POKE</code> / <code>PEEK</code>)</a></li>
+      <li><a href="#sprites">Sprites &amp; tile sheets</a></li>
+      <li><a href="#gamepad">Gamepad</a></li>
+      <li><a href="#run">How to run the examples</a></li>
+    </ul>
+  </nav>
+
+  <h2 id="scroll">Viewport scroll</h2>
+  <p>
+    Pan the visible framebuffer (text/bitmap + sprites) without moving your data in screen RAM.
+    <code>SCROLL dx, dy</code> uses <strong>pixel</strong> offsets; <code>SCROLLX()</code> and <code>SCROLLY()</code> read the current values.
+  </p>
+  <pre>SCROLL 16, 0     REM pan one character column (8 px) to the right
+SCROLL 0, 0      REM reset
+PRINT SCROLLX(); SCROLLY()</pre>
+  <p>Runnable: <code>examples/tutorial_gfx_scroll.bas</code></p>
+
+  <h2 id="memory">Virtual memory (<code>POKE</code> / <code>PEEK</code>)</h2>
+  <p>
+    Default bases match a C64-style map (screen <code>$0400</code>, colour <code>$D800</code>, etc.).
+    Override with <code>#OPTION memory …</code> or the <code>basic-gfx</code> CLI <code>-memory</code>.
+  </p>
+  <pre>#OPTION memory c64
+REM or per region: #OPTION screen 1024</pre>
+  <p>Runnable: <code>examples/tutorial_gfx_memory.bas</code> — see also <code>README.md</code> (Meta directives).</p>
+
+  <h2 id="sprites">Sprites &amp; tile sheets</h2>
+  <p>
+    <code>LOADSPRITE slot, "file.png"</code> loads a full image; add <code>tw, th</code> for a uniform tile grid.
+    <code>DRAWSPRITETILE</code> draws one 1-based tile; <code>SPRITEFRAME</code> sets the default tile for <code>DRAWSPRITE</code> when you omit a crop.
+  </p>
+  <pre>LOADSPRITE 0, "tiles.png", 8, 8
+DRAWSPRITETILE 0, 100, 50, 2, 40   REM tile 2, z=40
+SPRITEFRAME 0, 1
+DRAWSPRITE 0, 180, 50, 40</pre>
+  <p>Runnable: <code>examples/tutorial_gfx_tilemap.bas</code> + <code>examples/tutorial_tile_sheet_demo.png</code></p>
+
+  <h2 id="gamepad">Gamepad</h2>
+  <p>
+    <code>JOY(port, button)</code> and <code>JOYAXIS(port, axis)</code> — native Raylib codes; in the browser, <code>canvas.html</code> maps them to the Standard Gamepad layout.
+  </p>
+  <pre>PRINT JOY(0, 7); JOYAXIS(0, 0)</pre>
+  <p>Short sample: <code>examples/tutorial_gfx_gamepad.bas</code> — continuous polling: <code>examples/gfx_joy_demo.bas</code></p>
+
+  <h2 id="run">How to run the examples</h2>
+  <ul>
+    <li><strong>Native:</strong> <code>make basic-gfx</code> then <code>./basic-gfx examples/tutorial_gfx_scroll.bas</code></li>
+    <li><strong>Browser:</strong> <code>make basic-wasm-canvas</code>, serve <code>web/</code>, open <code>canvas.html</code>, use <strong>Upload to VFS</strong> for a <code>.bas</code> file (and PNG assets in the same folder)</li>
+    <li><strong>Index of demos:</strong> open <code>examples/tutorial_gfx_index.bas</code> in an editor — REM lines list every tutorial file</li>
+  </ul>
+
+  <footer>
+    Core language lessons: <a href="tutorial.html">tutorial.html</a> · Embedding: <code>docs/tutorial-embedding.md</code>
+  </footer>
+</body>
+</html>

@@ -1,4 +1,5 @@
 10 DIM A(2,3)
+15 FOR P=0 TO 2:A(P,0)=0:A(P,1)=1:A(P,2)=2:A(P,3)=3: NEXT P
 20 FOR I=0 TO 1
 30 FOR J=0 TO 2
 40 A(I,J)=I*10+J
@@ -9,6 +10,5 @@
 90 PRINT I;",";J;"=";A(I,J)
 100 NEXT J
 110 NEXT I
-120 END
 
 
