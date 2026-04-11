@@ -21,6 +21,9 @@ REM Load the ball sprite sheet
 REM 12 frames, each 64x64 pixels
 LOADSPRITE 1, "boing_sheet.png", 64, 64
 SPRITEVISIBLE 1, 1
+REM Frame count from loaded sheet (0 if PNG missing or not a tile grid — use 12 as documented)
+NT = SPRITETILES(1)
+IF NT < 1 THEN NT = 12
 
 REM Draw the grid background
 GOSUB DrawGrid
@@ -34,9 +37,11 @@ JIFFIES_PER_FRAME = 6
 LAST = TI
 
 REM === Main Loop ===
+REM Use SPRITEFRAME + DRAWSPRITE (tile crop is applied inside DRAWSPRITE for sheets).
+REM DRAWSPRITETILE would error if the PNG failed to load or tile grid could not be built.
 DO
-  REM Draw ball at current rotation frame
-  DRAWSPRITETILE 1, BX, BY, BF
+  SPRITEFRAME 1, BF
+  DRAWSPRITE 1, BX, BY
 
   SLEEP 1
 
@@ -48,7 +53,7 @@ DO
   IF TI - LAST >= JIFFIES_PER_FRAME THEN
     LAST = TI
     BF = BF + 1
-    IF BF > 12 THEN BF = 1
+    IF BF > NT THEN BF = 1
   END IF
 
   REM Bounce off edges
