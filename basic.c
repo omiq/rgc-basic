@@ -640,9 +640,11 @@ static char *normalize_keywords_line(const char *input)
             char c4 = (char)toupper((unsigned char)input[i + 3]);
 
             /* IF followed immediately by identifier/digit without space */
+            /* Do not split JIFFIES_*, DIFF*, etc. — same prev_ident guard as FOR (PLATFORM). */
             if (c1 == 'I' && c2 == 'F') {
                 char next = input[i + 2];
-                if (next != '\0' && !isspace((unsigned char)next) && next != ':' ) {
+                int prev_ident = (i > 0 && (isalnum((unsigned char)input[i - 1]) || input[i - 1] == '$' || input[i - 1] == '_'));
+                if (!prev_ident && next != '\0' && !isspace((unsigned char)next) && next != ':' ) {
                     /* Insert space before IF if needed */
                     if (out.len > 0) {
                         char prev = out.buf[out.len - 1];
