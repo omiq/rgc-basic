@@ -44,6 +44,7 @@ typedef struct {
     unsigned char *rgba; /* malloc'd w*h*4, straight alpha */
     int mod_a, mod_r, mod_g, mod_b;
     float mod_sx, mod_sy;
+    int mod_explicit;
     /* Persistent draw state (last DRAWSPRITE for this slot until UNLOAD). */
     int draw_active;
     float draw_x, draw_y;
@@ -211,6 +212,7 @@ void gfx_sprite_set_modulate(int slot, int alpha, int r, int g, int b, float sca
     sl->mod_b = b;
     sl->mod_sx = scale_x;
     sl->mod_sy = scale_y;
+    sl->mod_explicit = 1;
 }
 
 int gfx_sprite_slot_width(int slot)
@@ -460,6 +462,17 @@ void gfx_sprite_process_queue(void)
             GfxSpriteSlot *sl = &g_sprite_slots[c->slot];
             int tw = c->tile_w;
             int th = c->tile_h;
+            int preserve_mod;
+            int pma, pmr, pmg, pmb;
+            float pmsx, pmsy;
+
+            preserve_mod = sl->mod_explicit;
+            pma = sl->mod_a;
+            pmr = sl->mod_r;
+            pmg = sl->mod_g;
+            pmb = sl->mod_b;
+            pmsx = sl->mod_sx;
+            pmsy = sl->mod_sy;
 
             sprite_build_path(full, sizeof(full), c->path);
             if (sl->loaded && sl->rgba) {
@@ -495,12 +508,23 @@ void gfx_sprite_process_queue(void)
                     sl->tile_count = 1;
                     sl->draw_frame = 1;
                 }
-                sl->mod_a = 255;
-                sl->mod_r = 255;
-                sl->mod_g = 255;
-                sl->mod_b = 255;
-                sl->mod_sx = 1.0f;
-                sl->mod_sy = 1.0f;
+                if (preserve_mod) {
+                    sl->mod_a = pma;
+                    sl->mod_r = pmr;
+                    sl->mod_g = pmg;
+                    sl->mod_b = pmb;
+                    sl->mod_sx = pmsx;
+                    sl->mod_sy = pmsy;
+                    sl->mod_explicit = 1;
+                } else {
+                    sl->mod_a = 255;
+                    sl->mod_r = 255;
+                    sl->mod_g = 255;
+                    sl->mod_b = 255;
+                    sl->mod_sx = 1.0f;
+                    sl->mod_sy = 1.0f;
+                    sl->mod_explicit = 0;
+                }
             } else {
                 if (pix) {
                     stbi_image_free(pix);
@@ -532,6 +556,7 @@ void gfx_sprite_process_queue(void)
             sl->mod_b = 255;
             sl->mod_sx = 1.0f;
             sl->mod_sy = 1.0f;
+            sl->mod_explicit = 0;
             break;
         }
         case GFX_SQ_DRAW: {
