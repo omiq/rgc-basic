@@ -142,6 +142,7 @@ void gfx_video_init(GfxVideoState *s)
     s->bg_color = 6; /* default C64 blue background */
     s->bitmap_fg = 14; /* default light blue pen (matches text COLOR default) */
     s->charset_lowercase = 0;
+    s->charrom_family = 0;
     s->cols = 40;    /* 40 or 80; set by basic_set_video from -columns */
     s->key_q_head = 0;
     s->key_q_tail = 0;

@@ -935,7 +935,7 @@ int main(int argc, char **argv)
     prog_idx = basic_parse_args(argc, argv);
     if (prog_idx < 0) {
         fprintf(stderr,
-                "Usage: %s [-petscii] [-palette ansi|c64] [-columns 80] [-memory c64|pet|default] [-gfx-title \"title\"] [-gfx-border N] <program.bas> [args...]\n",
+                "Usage: %s [-petscii] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-columns 80] [-memory c64|pet|default] [-gfx-title \"title\"] [-gfx-border N] <program.bas> [args...]\n",
                 argv[0]);
         return 1;
     }
@@ -943,6 +943,7 @@ int main(int argc, char **argv)
 
     gfx_video_init(&vs);
     vs.charset_lowercase = (uint8_t)(petscii_get_lowercase() ? 1 : 0);
+    vs.charrom_family = (uint8_t)(basic_get_charrom_family() ? 1 : 0);
     gfx_load_default_charrom(&vs);
     memset(vs.screen, 32, GFX_TEXT_SIZE);
     memset(vs.color, 14, GFX_COLOR_SIZE);
@@ -991,9 +992,12 @@ int main(int argc, char **argv)
             }
         }
         static uint8_t last_charset = 0xFF;
-        if (last_charset != vs.charset_lowercase) {
+        static uint8_t last_charrom_family = 0xFF;
+        vs.charrom_family = (uint8_t)(basic_get_charrom_family() ? 1 : 0);
+        if (last_charset != vs.charset_lowercase || last_charrom_family != vs.charrom_family) {
             gfx_load_default_charrom(&vs);
             last_charset = vs.charset_lowercase;
+            last_charrom_family = vs.charrom_family;
         }
         /* 60 Hz jiffy clock (C64-style TI), wraps every 24 hours. */
         gfx_video_advance_ticks60(&vs, 1u);

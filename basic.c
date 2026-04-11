@@ -1873,6 +1873,10 @@ enum {
 static int palette_mode = PALETTE_ANSI;
 static int cursor_hidden = 0;
 static int petscii_lowercase_opt = 0;
+static int petscii_lowercase_cli = 0; /* Restored at each load_program so #OPTION can override per file. */
+/* 0 = C64 PETSCII ROM (default), 1 = Commodore PET 2K chargen (-charset pet-* / #OPTION charset). */
+static int charrom_family_opt = 0;
+static int charrom_family_cli = 0;
 /* Max string length (1..MAX_STR_LEN); default 4096; #OPTION maxstr 255 for C64 compatibility. */
 static int max_str_limit = 4096;
 
@@ -1905,19 +1909,71 @@ static int apply_option_directive(const char *name, const char *value)
     }
     if (str_eq_ci(name, "charset")) {
         if (!value || !value[0]) return -1;
-        if (str_eq_ci(value, "upper") || str_eq_ci(value, "uc")) {
+        if (str_eq_ci(value, "upper") || str_eq_ci(value, "uc")
+            || str_eq_ci(value, "c64-upper") || str_eq_ci(value, "c64-uppercase")) {
+            charrom_family_opt = 0;
             petscii_lowercase_opt = 0;
             petscii_set_lowercase(0);
-#if defined(GFX_VIDEO) && defined(__EMSCRIPTEN__)
+#ifdef GFX_VIDEO
+            if (gfx_vs) {
+                gfx_vs->charrom_family = 0;
+                gfx_vs->charset_lowercase = 0;
+                gfx_load_default_charrom(gfx_vs);
+            }
+#if defined(__EMSCRIPTEN__)
             wasm_canvas_sync_charset_from_options();
+#endif
 #endif
             return 0;
         }
-        if (str_eq_ci(value, "lower") || str_eq_ci(value, "lc")) {
+        if (str_eq_ci(value, "lower") || str_eq_ci(value, "lc")
+            || str_eq_ci(value, "c64-lower") || str_eq_ci(value, "c64-lowercase")) {
+            charrom_family_opt = 0;
             petscii_lowercase_opt = 1;
             petscii_set_lowercase(1);
-#if defined(GFX_VIDEO) && defined(__EMSCRIPTEN__)
+#ifdef GFX_VIDEO
+            if (gfx_vs) {
+                gfx_vs->charrom_family = 0;
+                gfx_vs->charset_lowercase = 1;
+                gfx_load_default_charrom(gfx_vs);
+            }
+#if defined(__EMSCRIPTEN__)
             wasm_canvas_sync_charset_from_options();
+#endif
+#endif
+            return 0;
+        }
+        if (str_eq_ci(value, "pet-upper") || str_eq_ci(value, "pet-uppercase")
+            || str_eq_ci(value, "pet-graphics")) {
+            charrom_family_opt = 1;
+            petscii_lowercase_opt = 0;
+            petscii_set_lowercase(0);
+#ifdef GFX_VIDEO
+            if (gfx_vs) {
+                gfx_vs->charrom_family = 1;
+                gfx_vs->charset_lowercase = 0;
+                gfx_load_default_charrom(gfx_vs);
+            }
+#if defined(__EMSCRIPTEN__)
+            wasm_canvas_sync_charset_from_options();
+#endif
+#endif
+            return 0;
+        }
+        if (str_eq_ci(value, "pet-lower") || str_eq_ci(value, "pet-lowercase")
+            || str_eq_ci(value, "pet-text")) {
+            charrom_family_opt = 1;
+            petscii_lowercase_opt = 1;
+            petscii_set_lowercase(1);
+#ifdef GFX_VIDEO
+            if (gfx_vs) {
+                gfx_vs->charrom_family = 1;
+                gfx_vs->charset_lowercase = 1;
+                gfx_load_default_charrom(gfx_vs);
+            }
+#if defined(__EMSCRIPTEN__)
+            wasm_canvas_sync_charset_from_options();
+#endif
 #endif
             return 0;
         }
@@ -10012,6 +10068,20 @@ static void load_program(const char *path)
     gfx_mem_bases_restore_from_init();
     gfx_mem_bases_apply_to_video();
 #endif
+    /* Restore charset from CLI baseline; #OPTION in file overrides during parse. */
+    petscii_lowercase_opt = petscii_lowercase_cli;
+    charrom_family_opt = charrom_family_cli;
+    petscii_set_lowercase(petscii_lowercase_opt);
+#ifdef GFX_VIDEO
+    if (gfx_vs) {
+        gfx_vs->charset_lowercase = (uint8_t)(petscii_lowercase_opt ? 1 : 0);
+        gfx_vs->charrom_family = (uint8_t)(charrom_family_opt ? 1 : 0);
+        gfx_load_default_charrom(gfx_vs);
+    }
+#if defined(__EMSCRIPTEN__)
+    wasm_canvas_sync_charset_from_options();
+#endif
+#endif
 
     load_file_into_program(path, base_dir, 0,
         &use_explicit_numbers, &auto_line_no, &first_line_seen);
@@ -10183,14 +10253,38 @@ int basic_parse_arg_flags(int argc, char **argv, int start, int expect_program_p
                 return -1;
             }
             name = argv[++i];
-            if (strcmp(name, "upper") == 0 || strcmp(name, "uc") == 0 || strcmp(name, "upper-graphics") == 0) {
+            if (strcmp(name, "upper") == 0 || strcmp(name, "uc") == 0 || strcmp(name, "upper-graphics") == 0
+                || strcmp(name, "c64-upper") == 0 || strcmp(name, "c64-uppercase") == 0) {
+                charrom_family_opt = 0;
+                charrom_family_cli = 0;
                 petscii_lowercase_opt = 0;
+                petscii_lowercase_cli = 0;
                 petscii_set_lowercase(0);
-            } else if (strcmp(name, "lower") == 0 || strcmp(name, "lc") == 0 || strcmp(name, "lowercase") == 0) {
+            } else if (strcmp(name, "lower") == 0 || strcmp(name, "lc") == 0 || strcmp(name, "lowercase") == 0
+                || strcmp(name, "c64-lower") == 0 || strcmp(name, "c64-lowercase") == 0) {
+                charrom_family_opt = 0;
+                charrom_family_cli = 0;
                 petscii_lowercase_opt = 1;
+                petscii_lowercase_cli = 1;
+                petscii_set_lowercase(1);
+            } else if (strcmp(name, "pet-upper") == 0 || strcmp(name, "pet-uppercase") == 0
+                || strcmp(name, "pet-graphics") == 0) {
+                charrom_family_opt = 1;
+                charrom_family_cli = 1;
+                petscii_lowercase_opt = 0;
+                petscii_lowercase_cli = 0;
+                petscii_set_lowercase(0);
+            } else if (strcmp(name, "pet-lower") == 0 || strcmp(name, "pet-lowercase") == 0
+                || strcmp(name, "pet-text") == 0) {
+                charrom_family_opt = 1;
+                charrom_family_cli = 1;
+                petscii_lowercase_opt = 1;
+                petscii_lowercase_cli = 1;
                 petscii_set_lowercase(1);
             } else {
-                fprintf(stderr, "Unknown charset '%s' (expected upper or lower)\n", name);
+                fprintf(stderr,
+                    "Unknown charset '%s' (expected upper|lower, c64-upper|c64-lower, pet-upper|pet-lower, …)\n",
+                    name);
                 return -1;
             }
         } else if (strcmp(argv[i], "-palette") == 0) {
@@ -10309,6 +10403,7 @@ void basic_set_video(GfxVideoState *vs) {
     if (vs) {
         vs->cols = (print_width >= 80) ? 80 : 40;
         vs->bitmap_fg = gfx_fg;
+        vs->charrom_family = (uint8_t)(charrom_family_opt ? 1 : 0);
         (void)gfx_video_set_memory_bases(vs,
             gfx_mem_base_text, gfx_mem_base_color, gfx_mem_base_char,
             gfx_mem_base_key, gfx_mem_base_bitmap);
@@ -10318,6 +10413,11 @@ void basic_set_video(GfxVideoState *vs) {
         wasm_canvas_sync_charset_from_options();
 #endif
     }
+}
+
+int basic_get_charrom_family(void)
+{
+    return charrom_family_opt ? 1 : 0;
 }
 
 static char gfx_window_title[128];
@@ -10405,7 +10505,9 @@ static void wasm_canvas_sync_charset_from_options(void)
         return;
     }
     wasm_gfx_state.charset_lowercase = (uint8_t)(petscii_get_lowercase() ? 1 : 0);
+    wasm_gfx_state.charrom_family = (uint8_t)(charrom_family_opt ? 1 : 0);
     gfx_vs->charset_lowercase = wasm_gfx_state.charset_lowercase;
+    gfx_vs->charrom_family = wasm_gfx_state.charrom_family;
     gfx_canvas_load_default_charrom(gfx_vs);
     wasm_gfx_refresh_js();
 }
@@ -10471,6 +10573,7 @@ static void wasm_gfx_set_video(void)
     gfx_sprite_shutdown();
     gfx_video_init(&wasm_gfx_state);
     wasm_gfx_state.charset_lowercase = (uint8_t)(petscii_get_lowercase() ? 1 : 0);
+    wasm_gfx_state.charrom_family = (uint8_t)(charrom_family_opt ? 1 : 0);
     gfx_canvas_load_default_charrom(&wasm_gfx_state);
     memset(wasm_gfx_state.screen, 32, GFX_TEXT_SIZE);
     memset(wasm_gfx_state.color, 14, GFX_COLOR_SIZE);
@@ -10502,7 +10605,7 @@ int main(int argc, char **argv)
     init_console_ansi();
 
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] <program.bas>\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] <program.bas>\n", argv[0]);
         return 1;
     }
 
@@ -10525,14 +10628,38 @@ int main(int argc, char **argv)
                 return 1;
             }
             name = argv[++i];
-            if (strcmp(name, "upper") == 0 || strcmp(name, "uc") == 0 || strcmp(name, "upper-graphics") == 0) {
+            if (strcmp(name, "upper") == 0 || strcmp(name, "uc") == 0 || strcmp(name, "upper-graphics") == 0
+                || strcmp(name, "c64-upper") == 0 || strcmp(name, "c64-uppercase") == 0) {
+                charrom_family_opt = 0;
+                charrom_family_cli = 0;
                 petscii_lowercase_opt = 0;
+                petscii_lowercase_cli = 0;
                 petscii_set_lowercase(0);
-            } else if (strcmp(name, "lower") == 0 || strcmp(name, "lc") == 0 || strcmp(name, "lowercase") == 0) {
+            } else if (strcmp(name, "lower") == 0 || strcmp(name, "lc") == 0 || strcmp(name, "lowercase") == 0
+                || strcmp(name, "c64-lower") == 0 || strcmp(name, "c64-lowercase") == 0) {
+                charrom_family_opt = 0;
+                charrom_family_cli = 0;
                 petscii_lowercase_opt = 1;
+                petscii_lowercase_cli = 1;
+                petscii_set_lowercase(1);
+            } else if (strcmp(name, "pet-upper") == 0 || strcmp(name, "pet-uppercase") == 0
+                || strcmp(name, "pet-graphics") == 0) {
+                charrom_family_opt = 1;
+                charrom_family_cli = 1;
+                petscii_lowercase_opt = 0;
+                petscii_lowercase_cli = 0;
+                petscii_set_lowercase(0);
+            } else if (strcmp(name, "pet-lower") == 0 || strcmp(name, "pet-lowercase") == 0
+                || strcmp(name, "pet-text") == 0) {
+                charrom_family_opt = 1;
+                charrom_family_cli = 1;
+                petscii_lowercase_opt = 1;
+                petscii_lowercase_cli = 1;
                 petscii_set_lowercase(1);
             } else {
-                fprintf(stderr, "Unknown charset '%s' (expected upper or lower)\n", name);
+                fprintf(stderr,
+                    "Unknown charset '%s' (expected upper|lower, c64-upper|c64-lower, pet-upper|pet-lower, …)\n",
+                    name);
                 return 1;
             }
         } else if (strcmp(argv[i], "-palette") == 0) {
@@ -10580,7 +10707,7 @@ int main(int argc, char **argv)
             terminal_no_wrap = 1;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] <program.bas>\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] <program.bas>\n", argv[0]);
             return 1;
         } else {
             prog_path = argv[i];
@@ -10589,7 +10716,7 @@ int main(int argc, char **argv)
     }
 
     if (!prog_path) {
-        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] <program.bas>\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] <program.bas>\n", argv[0]);
         return 1;
     }
 

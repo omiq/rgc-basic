@@ -522,9 +522,9 @@ const uint8_t petscii_font_lower[256][8] = {
     /* 255 */  { 15,  15,  15,  15, 240, 240, 240, 240},
 };
 
-void gfx_load_default_charrom(GfxVideoState *s)
+static void gfx_load_c64_charrom(GfxVideoState *s)
 {
-    if (s && s->charset_lowercase) {
+    if (s->charset_lowercase) {
         memcpy(s->chars, petscii_font_lower, sizeof(petscii_font_lower));
         /* Use petscii_font for 65-90 (A-Z) and 96-255: font_lower has wrong
          * glyphs for P and W at 80 and 87; uppercase has correct A-Z at 1-26.
@@ -536,5 +536,31 @@ void gfx_load_default_charrom(GfxVideoState *s)
         memcpy(&s->chars[96 * 8], &petscii_font[96][0], 160 * 8);
     } else {
         memcpy(s->chars, petscii_font, sizeof(petscii_font));
+    }
+}
+
+/* PET 2K ROM: first 1K = graphics/uppercase bank, second 1K = text/lowercase bank.
+ * Map linearly for text mode; swap halves for graphics mode (CHR$(142) path). */
+static void gfx_load_pet_charrom(GfxVideoState *s)
+{
+    const uint8_t *rom = pet_chargen_901447_10m;
+    if (s->charset_lowercase) {
+        memcpy(s->chars, rom, 1024u);
+        memcpy(s->chars + 1024u, rom + 1024u, 1024u);
+    } else {
+        memcpy(s->chars, rom + 1024u, 1024u);
+        memcpy(s->chars + 1024u, rom, 1024u);
+    }
+}
+
+void gfx_load_default_charrom(GfxVideoState *s)
+{
+    if (!s) {
+        return;
+    }
+    if (s->charrom_family) {
+        gfx_load_pet_charrom(s);
+    } else {
+        gfx_load_c64_charrom(s);
     }
 }
