@@ -508,10 +508,14 @@ void gfx_canvas_sprite_composite_rgba(const GfxVideoState *s, uint8_t *rgba, int
     GfxSpriteDraw draws[GFX_SPRITE_MAX_SLOTS];
     int nd = 0;
     int i, dx, dy;
+    int scx = 0;
+    int scy = 0;
 
     if (!s || !rgba || fb_w <= 0 || fb_h <= 0) {
         return;
     }
+    scx = (int)s->scroll_x;
+    scy = (int)s->scroll_y;
 
     gfx_sprite_process_queue();
 
@@ -578,8 +582,8 @@ void gfx_canvas_sprite_composite_rgba(const GfxVideoState *s, uint8_t *rgba, int
         iw = (int)sw;
         ih = (int)sh;
 
-        x0 = (int)d->x;
-        y0 = (int)d->y;
+        x0 = (int)d->x - scx;
+        y0 = (int)d->y - scy;
         x1 = x0 + iw - 1;
         y1 = y0 + ih - 1;
 

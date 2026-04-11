@@ -38,8 +38,9 @@
 #define GFX_SCREEN_BITMAP 1u
 
 typedef struct GfxVideoState {
-    /* Virtual POKE/PEEK bases (defaults match C64-style layout). Each region must lie
-     * in 16-bit space without overlapping another region. */
+    /* Virtual POKE/PEEK bases (defaults match C64-style layout). Regions may overlap in
+     * 16-bit space; gfx_peek() uses fixed priority (keyboard before colour when ranges
+     * overlap — see gfx_peek in gfx_video.c). */
     uint16_t mem_text;
     uint16_t mem_color;
     uint16_t mem_char;
@@ -59,6 +60,9 @@ typedef struct GfxVideoState {
     uint8_t charset_lowercase;              /* 0=upper/graphics, 1=lower/upper */
     uint8_t cols;                           /* 40 or 80; columns per row */
     uint8_t screen_mode;                    /* GFX_SCREEN_TEXT or GFX_SCREEN_BITMAP */
+    /* Viewport scroll (pixels): content is shifted left/up by these amounts when compositing. */
+    int16_t scroll_x;
+    int16_t scroll_y;
 } GfxVideoState;
 
 /* Advance 60 Hz jiffy counter (TI / TI$); wraps every 24h like C64. */
@@ -94,8 +98,16 @@ void gfx_video_clear_keys(GfxVideoState *s);
 
 /* Virtualised PEEK/POKE for video-related address ranges.
  *
- * Regions may overlap in 16-bit space (e.g. C64 colour vs keyboard); resolution
- * order is: text screen, colour RAM, charset, keyboard, bitmap.
+ * Regions may overlap in 16-bit space (e.g. C64 colour vs keyboard).
+ *
+ * RESOLUTION ORDER (fixed — do not reorder in gfx_video.c):
+ *   1. text screen
+ *   2. KEYBOARD  ← before colour RAM; GFX_KEY_BASE (0xDC00) is inside
+ *                  the colour window [0xD800, 0xDFD0) so keyboard must
+ *                  win the tie-break or PEEK(56320+n) returns colour data.
+ *   3. colour RAM
+ *   4. charset
+ *   5. bitmap
  *
  * Addresses outside the defined ranges currently read as 0 and ignore writes.
  * This is intentional: the graphics build only defines semantics for its

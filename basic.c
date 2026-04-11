@@ -48,10 +48,57 @@
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
+#include <emscripten/em_js.h>
+#endif
+
+/* Last HTTP response status from HTTP$ (set on Emscripten; 0 otherwise). */
+static int http_last_status;
+
+#ifdef __EMSCRIPTEN__
+/*
+ * Async fetch for HTTP$ (EM_ASYNC_JS → Asyncify.handleAsync; no manual ASYNCIFY_IMPORTS).
+ * Writes response body into out; sets *status_out to HTTP status (0 on network error).
+ */
+EM_ASYNC_JS(int, wasm_js_http_fetch_async, (const char *url, const char *method, const char *body, int body_len, char *out, int out_cap, int *status_out), {
+  var urlJs = UTF8ToString(url);
+  var methodJs = method ? UTF8ToString(method) : "GET";
+  var init = { method: methodJs };
+  if (body && body_len > 0) {
+    init.body = HEAPU8.subarray(body, body + body_len >>> 0);
+  }
+  try {
+    const resp = await fetch(urlJs, init);
+    HEAP32[status_out >> 2] = resp.status;
+    const text = await resp.text();
+    stringToUTF8(text, out, out_cap);
+  } catch (e) {
+    HEAP32[status_out >> 2] = 0;
+    if (out_cap > 0) HEAPU8[out] = 0;
+  }
+  return 0;
+});
+
+static void wasm_http_fetch_emscripten(const char *url, const char *method, const char *body, int body_len,
+    char *out, size_t out_size, int *status_out)
+{
+    const char *m = (method && method[0]) ? method : "GET";
+    if (out_size == 0) {
+        return;
+    }
+    out[0] = '\0';
+    if (status_out) {
+        *status_out = 0;
+    }
+    if (!url || !url[0] || !status_out) {
+        return;
+    }
+    wasm_js_http_fetch_async(url, m, body, body_len, out, (int)out_size, status_out);
+}
 #endif
 
 #ifdef GFX_VIDEO
 #include "gfx_video.h"
+#include "gfx_charrom.h"
 #include "gfx_gamepad.h"
 #include "basic_api.h"
 #if defined(__EMSCRIPTEN__)
@@ -593,9 +640,11 @@ static char *normalize_keywords_line(const char *input)
             char c4 = (char)toupper((unsigned char)input[i + 3]);
 
             /* IF followed immediately by identifier/digit without space */
+            /* Do not split JIFFIES_*, DIFF*, etc. — same prev_ident guard as FOR (PLATFORM). */
             if (c1 == 'I' && c2 == 'F') {
                 char next = input[i + 2];
-                if (next != '\0' && !isspace((unsigned char)next) && next != ':' ) {
+                int prev_ident = (i > 0 && (isalnum((unsigned char)input[i - 1]) || input[i - 1] == '$' || input[i - 1] == '_'));
+                if (!prev_ident && next != '\0' && !isspace((unsigned char)next) && next != ':' ) {
                     /* Insert space before IF if needed */
                     if (out.len > 0) {
                         char prev = out.buf[out.len - 1];
@@ -1584,11 +1633,18 @@ static int gfx_apply_control_code(unsigned char code)
     /* Return non-zero if the code was handled as control/state. */
     switch (code) {
     case 14:  /* switch to lowercase/uppercase charset */
-        if (gfx_vs) gfx_vs->charset_lowercase = 1;
+        if (gfx_vs) {
+            gfx_vs->charset_lowercase = 1;
+            /* Reload 8x8 glyph bitmaps (canvas WASM has no render loop; Raylib also refreshes each frame). */
+            gfx_load_default_charrom(gfx_vs);
+        }
         petscii_set_lowercase(1);
         return 1;
     case 142: /* switch to uppercase/graphics charset */
-        if (gfx_vs) gfx_vs->charset_lowercase = 0;
+        if (gfx_vs) {
+            gfx_vs->charset_lowercase = 0;
+            gfx_load_default_charrom(gfx_vs);
+        }
         petscii_set_lowercase(0);
         return 1;
     case 13: /* CR */
@@ -2173,7 +2229,11 @@ enum func_code {
     FN_JOY = 47,
     FN_JOYAXIS = 48,
     FN_SPRITETILES = 49,
-    FN_SPRITEFRAME = 50
+    FN_SPRITEFRAME = 50,
+    FN_SCROLLX = 51,
+    FN_SCROLLY = 52,
+    FN_HTTP = 53,
+    FN_HTTPSTATUS = 54
 };
 
 /* Report an error and halt further execution.
@@ -2409,10 +2469,10 @@ static const char *const reserved_words[] = {
     "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LINE", "LOAD", "LOADSPRITE", "LOCATE", "LOG",
     "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET", "PRINT",
     "XOR",
-    "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITEFRAME", "SPRITETILES", "SPRITEVISIBLE",
+    "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITEFRAME", "SPRITETILES", "SPRITEVISIBLE",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
-    "DRAWSPRITE", "DRAWSPRITETILE", "JOY", "JOYAXIS", "JOYSTICK", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
+    "DRAWSPRITE", "DRAWSPRITETILE", "HTTP", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
     "DO", "LOOP", "UNTIL", "EXIT",
     NULL
 };
@@ -2447,7 +2507,11 @@ static int starts_with_kw(char *p, const char *kw)
     if (p[i] == '\0' || p[i] == ' ' || p[i] == '\t' || p[i] == ':' || p[i] == '(' || p[i] == '$' || p[i] == '\"' || p[i] == '#') {
         return 1;
     }
-    return 0;
+    /* Do not treat a longer identifier as this keyword (e.g. HTTP vs HTTPSTATUS). */
+    if (isalnum((unsigned char)p[i]) || p[i] == '_') {
+        return 0;
+    }
+    return 1;
 }
 
 /* Construct a numeric value wrapper. */
@@ -3219,6 +3283,10 @@ static int function_lookup(const char *name, int len)
         if (len == 11 && name[0] == 'S' && name[1] == 'P' && name[2] == 'R' && name[3] == 'I' &&
             name[4] == 'T' && name[5] == 'E' && name[6] == 'F' && name[7] == 'R' && name[8] == 'A' &&
             name[9] == 'M' && name[10] == 'E') return FN_SPRITEFRAME;
+        if (len == 7 && name[0] == 'S' && name[1] == 'C' && name[2] == 'R' && name[3] == 'O' &&
+            name[4] == 'L' && name[5] == 'L' && name[6] == 'X') return FN_SCROLLX;
+        if (len == 7 && name[0] == 'S' && name[1] == 'C' && name[2] == 'R' && name[3] == 'O' &&
+            name[4] == 'L' && name[5] == 'L' && name[6] == 'Y') return FN_SCROLLY;
         return FN_NONE;
     case 'C':
         if ((len == 3 && name[0] == 'C' && name[1] == 'H' && name[2] == 'R') ||
@@ -3304,6 +3372,13 @@ static int function_lookup(const char *name, int len)
         if (len == 3 && name[0] == 'D' && name[1] == 'E' && name[2] == 'C') return FN_DEC;
         return FN_NONE;
     case 'H':
+        if ((len == 4 && name[0] == 'H' && name[1] == 'T' && name[2] == 'T' && name[3] == 'P') ||
+            (len == 5 && name[0] == 'H' && name[1] == 'T' && name[2] == 'T' && name[3] == 'P' && name[4] == '$'))
+            return FN_HTTP;
+        if (len == 10 && name[0] == 'H' && name[1] == 'T' && name[2] == 'T' && name[3] == 'P' &&
+            name[4] == 'S' && name[5] == 'T' && name[6] == 'A' && name[7] == 'T' && name[8] == 'U' &&
+            name[9] == 'S')
+            return FN_HTTPSTATUS;
         if ((len == 3 && name[0] == 'H' && name[1] == 'E' && name[2] == 'X') ||
             (len == 4 && name[0] == 'H' && name[1] == 'E' && name[2] == 'X' && name[3] == '$'))
             return FN_HEX;
@@ -3651,6 +3726,52 @@ static void statement_line(char **p)
     x1 = (int)vx1.num;
     y1 = (int)vy1.num;
     gfx_bitmap_line(gfx_vs, x0, y0, x1, y1, 1);
+#endif
+}
+
+/* SCROLL x, y — viewport offset in pixels (text/bitmap layer + sprites; basic-gfx / canvas WASM). */
+static void statement_scroll(char **p)
+{
+#ifndef GFX_VIDEO
+    (void)p;
+    runtime_error_hint("SCROLL is only available in basic-gfx or canvas WASM",
+                         "SCROLL dx, dy shifts the visible framebuffer (camera-style).");
+#else
+    struct value vx, vy;
+    int dx, dy;
+    skip_spaces(p);
+    vx = eval_expr(p);
+    ensure_num(&vx);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("SCROLL expects dx, dy",
+                             "Example: SCROLL 8, 0  (pan one character width right).");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    vy = eval_expr(p);
+    ensure_num(&vy);
+    if (!gfx_vs) {
+        runtime_error_hint("SCROLL requires basic-gfx or canvas WASM", NULL);
+        return;
+    }
+    dx = (int)vx.num;
+    dy = (int)vy.num;
+    if (dx < -32768) {
+        dx = -32768;
+    }
+    if (dx > 32767) {
+        dx = 32767;
+    }
+    if (dy < -32768) {
+        dy = -32768;
+    }
+    if (dy > 32767) {
+        dy = 32767;
+    }
+    gfx_vs->scroll_x = (int16_t)dx;
+    gfx_vs->scroll_y = (int16_t)dy;
 #endif
 }
 
@@ -4508,6 +4629,61 @@ static struct value eval_function(const char *name, char **p)
         return make_str("");
 #endif
     }
+    if (code == FN_HTTPSTATUS) {
+        if (**p != ')') {
+            runtime_error_hint("HTTPSTATUS() takes no arguments", "Use HTTPSTATUS() after HTTP$ to read the last status code.");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        return make_num((double)http_last_status);
+    }
+    if (code == FN_HTTP) {
+        struct value v_url, v_method, v_body;
+        const char *meth = NULL;
+        const char *bod = NULL;
+        int blen = 0;
+        int st = 0;
+
+        v_url = eval_expr(p);
+        ensure_str(&v_url);
+        skip_spaces(p);
+        if (**p == ',') {
+            (*p)++;
+            skip_spaces(p);
+            v_method = eval_expr(p);
+            ensure_str(&v_method);
+            meth = v_method.str;
+            skip_spaces(p);
+            if (**p == ',') {
+                (*p)++;
+                skip_spaces(p);
+                v_body = eval_expr(p);
+                ensure_str(&v_body);
+                bod = v_body.str;
+                blen = (int)strlen(bod);
+            }
+        }
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("HTTP$ expects url$ [, method$ [, body$]]",
+                "Example: R$ = HTTP$(\"https://example.com/api\") or HTTP$(U$, \"POST\", J$).");
+            return make_str("");
+        }
+        (*p)++;
+        skip_spaces(p);
+#if defined(__EMSCRIPTEN__)
+        wasm_http_fetch_emscripten(v_url.str, meth, bod, blen, outbuf, sizeof(outbuf), &st);
+        http_last_status = st;
+        return make_str(outbuf);
+#else
+        (void)meth;
+        (void)bod;
+        (void)blen;
+        http_last_status = 0;
+        return make_str("");
+#endif
+    }
 #if !defined(GFX_VIDEO)
     if (code == FN_SPRITECOLLIDE) {
         struct value va, vb;
@@ -4572,6 +4748,17 @@ static struct value eval_function(const char *name, char **p)
         (*p)++;
         skip_spaces(p);
         runtime_error_hint("JOY/JOYAXIS require basic-gfx (native)", "Terminal basic has no gamepad.");
+        return make_num(0.0);
+    }
+    if (code == FN_SCROLLX || code == FN_SCROLLY) {
+        if (**p != ')') {
+            runtime_error_hint("Missing ')'", "SCROLLX() and SCROLLY() take no arguments.");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        runtime_error_hint("SCROLLX/SCROLLY require basic-gfx or canvas WASM",
+                             "Viewport scroll applies to the PETSCII/bitmap layer in graphics builds.");
         return make_num(0.0);
     }
 #endif
@@ -4664,6 +4851,18 @@ static struct value eval_function(const char *name, char **p)
         if (gfx_vs) {
             fr = gfx_sprite_get_draw_frame(slot);
             return make_num((double)fr);
+        }
+        return make_num(0.0);
+    }
+    if (code == FN_SCROLLX || code == FN_SCROLLY) {
+        if (**p != ')') {
+            runtime_error_hint("Missing ')'", "SCROLLX() and SCROLLY() take no arguments.");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        if (gfx_vs) {
+            return make_num((double)(code == FN_SCROLLX ? gfx_vs->scroll_x : gfx_vs->scroll_y));
         }
         return make_num(0.0);
     }
@@ -6126,11 +6325,13 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "REPLACE") || starts_with_kw(*p, "TRIM") || starts_with_kw(*p, "LTRIM") || starts_with_kw(*p, "RTRIM") ||
             starts_with_kw(*p, "FIELD") || starts_with_kw(*p, "INDEXOF") || starts_with_kw(*p, "LASTINDEXOF") ||
             starts_with_kw(*p, "ENV") || starts_with_kw(*p, "EVAL") || starts_with_kw(*p, "PLATFORM") || starts_with_kw(*p, "JSON") ||
+            starts_with_kw(*p, "HTTPSTATUS") || starts_with_kw(*p, "HTTP$") ||
             starts_with_kw(*p, "ARGC") || starts_with_kw(*p, "ARG") ||
             starts_with_kw(*p, "SYSTEM") || starts_with_kw(*p, "EXEC") ||
             starts_with_kw(*p, "PEEK") || starts_with_kw(*p, "INKEY") ||
             starts_with_kw(*p, "SPRITEW") || starts_with_kw(*p, "SPRITEH") ||
             starts_with_kw(*p, "SPRITECOLLIDE") || starts_with_kw(*p, "SPRITETILES") || starts_with_kw(*p, "SPRITEFRAME") ||
+            starts_with_kw(*p, "SCROLLX") || starts_with_kw(*p, "SCROLLY") ||
             starts_with_kw(*p, "JOY") || starts_with_kw(*p, "JOYSTICK") || starts_with_kw(*p, "JOYAXIS")) {
             char namebuf[32];
             char *q;
@@ -6138,6 +6339,12 @@ static struct value eval_factor(char **p)
             read_identifier(&q, namebuf, sizeof(namebuf));
             return eval_function(namebuf, p);
         } else {
+            /* HTTP(...) without $ — same intrinsic as HTTP$(...); "HTTP" alone must not match UDF HTTP. */
+            if (toupper((unsigned char)(*p)[0]) == 'H' && toupper((unsigned char)(*p)[1]) == 'T' &&
+                toupper((unsigned char)(*p)[2]) == 'T' && toupper((unsigned char)(*p)[3]) == 'P' &&
+                (*p)[4] == '(') {
+                return eval_function("HTTP$", p);
+            }
             /* Check for user-defined FUNCTION or DEF FN, else variable */
             char namebuf[VAR_NAME_MAX];
             char *q;
@@ -9053,11 +9260,6 @@ static void execute_statement(char **p)
             statement_drawspritetile(p);
             return;
         }
-        if (starts_with_kw(*p, "SPRITEFRAME")) {
-            *p += 11;
-            statement_spriteframe(p);
-            return;
-        }
         if (starts_with_kw(*p, "DRAWSPRITE")) {
             *p += 10;
             statement_drawsprite(p);
@@ -9099,6 +9301,11 @@ static void execute_statement(char **p)
         if (starts_with_kw(*p, "SPRITEVISIBLE")) {
             *p += 13;
             statement_spritevisible(p);
+            return;
+        }
+        if (starts_with_kw(*p, "SPRITEFRAME")) {
+            *p += 11;
+            statement_spriteframe(p);
             return;
         }
 #endif
@@ -9200,6 +9407,11 @@ static void execute_statement(char **p)
         statement_screen(p);
         return;
     }
+    if (c == 'S' && starts_with_kw(*p, "SCROLL")) {
+        *p += 6;
+        statement_scroll(p);
+        return;
+    }
     if (c == 'S' && starts_with_kw(*p, "SCREENCODES")) {
         *p += 11;
         statement_screencodes(p);
@@ -9214,6 +9426,15 @@ static void execute_statement(char **p)
             read_identifier(&q, namebuf, sizeof(namebuf));
             for (i = 0; namebuf[i]; i++) namebuf[i] = (char)toupper((unsigned char)namebuf[i]);
             skip_spaces(&q);
+            /* HTTP(url) statement — intrinsic, not UDF "HTTP" */
+            if (strcmp(namebuf, "HTTP") == 0 && *q == '(') {
+                struct value discard;
+                char *ep = *p;
+                discard = eval_function("HTTP$", &ep);
+                (void)discard;
+                *p = ep;
+                return;
+            }
             if (*q == '(') {
                 struct value *args = (struct value *)calloc(MAX_UDF_PARAMS, sizeof(struct value));
                 if (!args) {

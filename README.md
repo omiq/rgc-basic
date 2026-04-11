@@ -151,6 +151,7 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
     - `ARG$(n)` — returns the *n*th argument as a string. `ARG$(0)` is the script path; `ARG$(1)` … `ARG$(ARGC())` are the arguments. Out-of-range returns `""`.
     - `SYSTEM(cmd$)`** — runs a shell command (e.g. `SYSTEM("ls -l")`), waits for it to finish, and returns its exit status (0 = success).
     - `EXEC$(cmd$)` — runs a shell command and returns its standard output as a string (up to 255 characters; trailing newline trimmed). Use for scripting (e.g. `U$ = EXEC$("whoami")`).
+    - **Browser WASM only**: `HTTP$(url$ [, method$ [, body$]])` — `fetch` the URL; returns response body as a string. `HTTP(url$)` without `$` is the same call. `HTTPSTATUS()` — last HTTP status from `HTTP$` (0 if the request failed). Outside the Emscripten build, `HTTP$` returns `""` (use `EXEC$` with `curl` on native). APIs must allow **CORS** from your page origin. See `examples/http_time_london.bas`.
 
 ### Additional/Non-Standard BASIC Commands
 
@@ -311,7 +312,7 @@ Anything after the script path is available to the program:
   - `./basic script.bas first second`
   - In the script: `ARG$(0)` = script path, `ARG$(1)` = `"first"`, `ARG$(2)` = `"second"`, `ARGC()` = 2.
 - **Running shell commands**  
-`SYSTEM("command")` runs the command and returns its exit code. `EXEC$("command")` runs the command and returns its stdout as a string (e.g. `PRINT EXEC$("date")`).  
+`SYSTEM("command")` runs the command and returns its exit code. `EXEC$("command")` runs the command and returns its stdout as a string (e.g. `PRINT EXEC$("date")`). In **browser WASM**, use `HTTP$` / `HTTPSTATUS` for HTTPS without a shell (CORS applies).  
 Example: `examples/scripting.bas` demonstrates `ARGC()`, `ARG$()`, `SYSTEM()`, and `EXEC$()`.
 - **Interactive expression testing**  
 `EVAL(expr$)` evaluates a string as a BASIC expression. Use it to try functions and operators without writing a full program: e.g. `PRINT EVAL("2+3")`, or build expressions in variables (`E$ = "SIN(3.14)" : PRINT EVAL(E$)`) and pass them to `EVAL`. Use `CHR$(34)` for quotes inside EVAL strings.
@@ -351,7 +352,8 @@ Releases include **basic-gfx** — a full graphical version of the interpreter b
 
 **Keyboard polling (basic-gfx)**:
 
-- BASIC can poll a simple key-down map via `PEEK(56320 + code)` where 56320 is 0xDC00.
+- BASIC can poll a simple key-down map via `PEEK(56320 + code)` where 56320 is 0xDC00 (`GFX_KEY_BASE`).
+- For letters, **code is ASCII of the uppercase key** (e.g. W = 87, same as `ASC("W")`), not the PETSCII screen code. Lowercase **w** is not a separate slot.
 - Supported codes include ASCII `A`–`Z`, `0`–`9`, Space (32), Enter (13), Esc (27), and C64 cursor codes Up (145), Down (17), Left (157), Right (29).
 
 **INPUT (basic-gfx)**:
@@ -361,6 +363,7 @@ Releases include **basic-gfx** — a full graphical version of the interpreter b
 **INKEY$() (basic-gfx)**:
 
 - `INKEY$()` is **non-blocking**: it returns a 1-character string for the next queued keypress, or `""` if none.
+- The character may be **upper or lower case**; use **`UCASE$(INKEY$())`** (or compare to both) if you test with numeric **`ASC`**.
 - This is driven by the raylib host; it is currently available in `basic-gfx` (gfx build) and returns `""` in the terminal build.
 - Example: `./basic-gfx -petscii examples/gfx_inkey_demo.bas`
 
@@ -376,6 +379,10 @@ Releases include **basic-gfx** — a full graphical version of the interpreter b
 - This is required for `.seq` art viewers such as `examples/gfx_colaburger_viewer.bas`.
 - Use `SCREENCODES OFF` to restore the default (ASCII strings like `PRINT "HELLO"` map naturally).
 - The window closes automatically when the program reaches `END`.
+
+**Viewport scroll (basic-gfx + canvas WASM)**:
+
+- **`SCROLL dx, dy`** sets a **pixel** offset for the **text/bitmap layer and sprites** (positive **dx** pans the world to the left; positive **dy** pans up). Use **`SCROLL 0, 0`** to reset. **`SCROLLX()`** / **`SCROLLY()`** return the current offset (roughly **-32768..32767**). Tutorial: `examples/tutorial_gfx_scroll.bas`.
 
 **PNG sprites / HUD overlay (basic-gfx)**:
 
@@ -405,6 +412,7 @@ Releases include **basic-gfx** — a full graphical version of the interpreter b
 
 The `examples` folder (included in release archives) contains:
 
+- **Graphics / WASM feature tours** (run with **`./basic-gfx`** or load into **`web/canvas.html`**): `tutorial_gfx_index.bas` lists short demos — **`tutorial_gfx_scroll.bas`** (**`SCROLL`**), **`tutorial_gfx_memory.bas`** (**`POKE`/`PEEK`** bases), **`tutorial_gfx_tilemap.bas`** (**tile** **`LOADSPRITE`** + **`tutorial_tile_sheet_demo.png`**), **`tutorial_gfx_gamepad.bas`** (**`JOY`**/**`JOYAXIS`**). See also **`web/tutorial-gfx-features.html`** for a static overview (serve the `web/` directory over HTTP).
 - `dartmouth.bas`: classic Dartmouth BASIC tutorial; exercises `PRINT`, `INPUT`, `IF`, `FOR/NEXT`, `DEF FN`, `READ`/`DATA`, and more.
 - `trek.bas`: Star Trek–style game; exercises `GET`, `ON GOTO`/`GOSUB`, multi-dimensional arrays, and PETSCII-style output.
 - `chr.bas`: PETSCII/ANSI color and control-code test (run with `-petscii`).
@@ -569,6 +577,6 @@ In a MinGW‑w64 shell:
 
 ## Credits
 
-The original idea was based on a BASIC project by David Plummer. His video is worth watching:
+The original idea was based on a DEC PDP BASIC project by David Plummer. His video is worth watching:
 
 [https://www.youtube.com/watch?v=PyUuLYJLhUA](https://www.youtube.com/watch?v=PyUuLYJLhUA)

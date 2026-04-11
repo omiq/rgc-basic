@@ -33,6 +33,7 @@ def main() -> int:
         "tutorial-embed.js",
         "tutorial-example.html",
         "tutorial.html",
+        "tutorial-gfx-features.html",
     ):
         if not (WEB / name).is_file():
             print(f"error: web/{name} not found; run: make basic-wasm-modular", file=sys.stderr)
