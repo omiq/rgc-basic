@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **Load normalization / identifiers containing `IF`:** **`normalize_keywords_line`** treated **`IF`** inside identifiers as **`IF …`** (e.g. **`JIFFIES_PER_FRAME`** → **`J IF FIES_PER_FRAME`**, breaking assignments). The same **`prev_ident`** guard used for **`FOR`** (avoid splitting **`PLATFORM`**) now applies to the **`IF`** insertion rule. Regression: **`tests/if_inside_ident_normalize.bas`**.
+
 - **`gfx_peek()` keyboard vs colour RAM**: With default bases, **`GFX_KEY_BASE` (0xDC00)** lies inside the colour RAM window **(0xD800 + 2000 bytes)**. **`gfx_peek()`** must resolve **keyboard before colour** or **`PEEK(56320+n)`** reads colour bytes (e.g. **14** for light blue). **`gfx_video.c`** documents the required order (**text → keyboard → colour → charset → bitmap**). **`gfx_video_test`** asserts key wins over colour at the aliased address.
 
 - **Browser WASM HTTP (`HTTP$` / `HTTPSTATUS`)**: **`R$ = HTTP$(url$ [, method$ [, body$]])`** performs **`fetch`** (Asyncify + **`EM_ASYNC_JS`**). **`HTTPSTATUS()`** returns the last HTTP status (**0** on failure). Response body is truncated to the current max string length. **Native / non-Emscripten**: **`HTTP$`** returns **`""`** (use **`EXEC$("curl …")`**). **`Makefile`**: **`ASYNCIFY_IMPORTS`** includes **`__asyncjs__wasm_js_http_fetch_async`**. **`starts_with_kw`**: longer identifiers no longer match shorter keywords (**`HTTP`** vs **`HTTPSTATUS`**). **`HTTP(url$)`** without **`$`** is accepted as an alias for **`HTTP$`** (avoids collision with user **`FUNCTION HTTP`**). Example: **`examples/http_time_london.bas`**.
