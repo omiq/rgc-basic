@@ -49,6 +49,9 @@ typedef struct {
     int tiles_x, tiles_y; /* grid dimensions */
     int tile_count;       /* tiles_x * tiles_y, or 1 for single */
     int draw_frame;       /* 1-based tile index for DRAWSPRITE default crop */
+    /* Per-slot modulation (SPRITEMODULATE); default opaque white, scale 1,1. */
+    int mod_a, mod_r, mod_g, mod_b;
+    float mod_sx, mod_sy;
     /* Persistent draw state (last DRAWSPRITE for this slot until UNLOAD). */
     int draw_active;
     float draw_x, draw_y;
@@ -61,6 +64,8 @@ typedef struct {
     float x, y;
     int z;
     int sx, sy, sw, sh;
+    int mod_a, mod_r, mod_g, mod_b;
+    float mod_sx, mod_sy;
 } GfxSpriteDraw;
 
 static void gfx_sprite_process_queue(void);
@@ -221,6 +226,51 @@ void gfx_sprite_enqueue_draw(int slot, float x, float y, int z, int sx, int sy, 
     c.sw = sw;
     c.sh = sh;
     (void)sprite_q_push(&c);
+}
+
+void gfx_sprite_set_modulate(int slot, int alpha, int r, int g, int b, float scale_x, float scale_y)
+{
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) {
+        return;
+    }
+    if (alpha < 0) {
+        alpha = 0;
+    }
+    if (alpha > 255) {
+        alpha = 255;
+    }
+    if (r < 0) {
+        r = 0;
+    }
+    if (r > 255) {
+        r = 255;
+    }
+    if (g < 0) {
+        g = 0;
+    }
+    if (g > 255) {
+        g = 255;
+    }
+    if (b < 0) {
+        b = 0;
+    }
+    if (b > 255) {
+        b = 255;
+    }
+    if (scale_x <= 0.0f) {
+        scale_x = 1.0f;
+    }
+    if (scale_y <= 0.0f) {
+        scale_y = 1.0f;
+    }
+    pthread_mutex_lock(&g_sprite_mutex);
+    g_sprite_slots[slot].mod_a = alpha;
+    g_sprite_slots[slot].mod_r = r;
+    g_sprite_slots[slot].mod_g = g;
+    g_sprite_slots[slot].mod_b = b;
+    g_sprite_slots[slot].mod_sx = scale_x;
+    g_sprite_slots[slot].mod_sy = scale_y;
+    pthread_mutex_unlock(&g_sprite_mutex);
 }
 
 int gfx_sprite_slot_width(int slot)
@@ -446,12 +496,12 @@ int gfx_sprite_slots_overlap_aabb(int slot_a, int slot_b)
         }
         ax = a->draw_x;
         ay = a->draw_y;
-        aw = swa;
-        ah = sha;
+        aw = swa * a->mod_sx;
+        ah = sha * a->mod_sy;
         bx = b->draw_x;
         by = b->draw_y;
-        bw = swb;
-        bh = shb;
+        bw = swb * b->mod_sx;
+        bh = shb * b->mod_sy;
     }
     pthread_mutex_unlock(&g_sprite_mutex);
 
@@ -537,6 +587,12 @@ static void gfx_sprite_process_queue(void)
                     g_sprite_slots[c->slot].tile_h = 0;
                     g_sprite_slots[c->slot].draw_frame = 1;
                 }
+                g_sprite_slots[c->slot].mod_a = 255;
+                g_sprite_slots[c->slot].mod_r = 255;
+                g_sprite_slots[c->slot].mod_g = 255;
+                g_sprite_slots[c->slot].mod_b = 255;
+                g_sprite_slots[c->slot].mod_sx = 1.0f;
+                g_sprite_slots[c->slot].mod_sy = 1.0f;
             }
             pthread_mutex_unlock(&g_sprite_mutex);
             break;
@@ -559,6 +615,12 @@ static void gfx_sprite_process_queue(void)
                 g_sprite_slots[c->slot].tiles_x = g_sprite_slots[c->slot].tiles_y = 0;
                 g_sprite_slots[c->slot].tile_count = 0;
                 g_sprite_slots[c->slot].draw_frame = 0;
+                g_sprite_slots[c->slot].mod_a = 255;
+                g_sprite_slots[c->slot].mod_r = 255;
+                g_sprite_slots[c->slot].mod_g = 255;
+                g_sprite_slots[c->slot].mod_b = 255;
+                g_sprite_slots[c->slot].mod_sx = 1.0f;
+                g_sprite_slots[c->slot].mod_sy = 1.0f;
             }
             pthread_mutex_unlock(&g_sprite_mutex);
             break;
@@ -634,6 +696,12 @@ static void gfx_sprite_composite(const GfxVideoState *vs, RenderTexture2D target
         draws[nd].sy = g_sprite_slots[i].draw_sy;
         draws[nd].sw = g_sprite_slots[i].draw_sw;
         draws[nd].sh = g_sprite_slots[i].draw_sh;
+        draws[nd].mod_a = g_sprite_slots[i].mod_a;
+        draws[nd].mod_r = g_sprite_slots[i].mod_r;
+        draws[nd].mod_g = g_sprite_slots[i].mod_g;
+        draws[nd].mod_b = g_sprite_slots[i].mod_b;
+        draws[nd].mod_sx = g_sprite_slots[i].mod_sx;
+        draws[nd].mod_sy = g_sprite_slots[i].mod_sy;
         nd++;
     }
     pthread_mutex_unlock(&g_sprite_mutex);
@@ -680,14 +748,24 @@ static void gfx_sprite_composite(const GfxVideoState *vs, RenderTexture2D target
             continue;
         }
         src = (Rectangle){ sx, sy, sw, sh };
-        dest = (Rectangle){ d->x - scx, d->y - scy, sw, sh };
+        dest = (Rectangle){
+            d->x - scx,
+            d->y - scy,
+            sw * d->mod_sx,
+            sh * d->mod_sy
+        };
         DrawTexturePro(
             t,
             src,
             dest,
             (Vector2){ 0, 0 },
             0.0f,
-            WHITE);
+            (Color){
+                (unsigned char)d->mod_r,
+                (unsigned char)d->mod_g,
+                (unsigned char)d->mod_b,
+                (unsigned char)d->mod_a
+            });
     }
     EndBlendMode();
     EndTextureMode();

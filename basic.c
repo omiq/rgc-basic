@@ -2162,6 +2162,7 @@ static void statement_line(char **p);
 static void statement_loadsprite(char **p);
 static void statement_drawsprite(char **p);
 static void statement_spritevisible(char **p);
+static void statement_spritemodulate(char **p);
 #endif
 static void statement_unloadsprite(char **p);  /* basic-gfx only; terminal errors */
 static void statement_else(char **p);
@@ -2469,7 +2470,7 @@ static const char *const reserved_words[] = {
     "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LINE", "LOAD", "LOADSPRITE", "LOCATE", "LOG",
     "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET", "PRINT",
     "XOR",
-    "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITEFRAME", "SPRITETILES", "SPRITEVISIBLE",
+    "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITEFRAME", "SPRITEMODULATE", "SPRITETILES", "SPRITEVISIBLE",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
     "DRAWSPRITE", "DRAWSPRITETILE", "HTTP", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
@@ -4112,6 +4113,84 @@ static void statement_spritevisible(char **p)
         return;
     }
     gfx_sprite_enqueue_visible(slot, on);
+}
+
+/* SPRITEMODULATE slot, alpha [, r, g, b [, scale_x [, scale_y]]] — alpha/r/g/b 0..255; scales default 1. */
+static void statement_spritemodulate(char **p)
+{
+    struct value v;
+    int slot;
+    int alpha;
+    int r = 255, g = 255, b = 255;
+    double sx = 1.0, sy = 1.0;
+    skip_spaces(p);
+    v = eval_expr(p);
+    ensure_num(&v);
+    slot = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("SPRITEMODULATE expects slot, alpha [, r, g, b [, scale_x [, scale_y]]]",
+                             "Example: SPRITEMODULATE 1, 128  or  SPRITEMODULATE 1, 255, 200, 200, 255, 1.2, 0.6");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    v = eval_expr(p);
+    ensure_num(&v);
+    alpha = (int)v.num;
+    skip_spaces(p);
+    if (**p == ',') {
+        (*p)++;
+        skip_spaces(p);
+        v = eval_expr(p);
+        ensure_num(&v);
+        r = (int)v.num;
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("SPRITEMODULATE: r, g, b need three values",
+                                 "After alpha: give all three tint channels 0..255.");
+            return;
+        }
+        (*p)++;
+        skip_spaces(p);
+        v = eval_expr(p);
+        ensure_num(&v);
+        g = (int)v.num;
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("SPRITEMODULATE: need b after r, g",
+                                 NULL);
+            return;
+        }
+        (*p)++;
+        skip_spaces(p);
+        v = eval_expr(p);
+        ensure_num(&v);
+        b = (int)v.num;
+        skip_spaces(p);
+        if (**p == ',') {
+            (*p)++;
+            skip_spaces(p);
+            v = eval_expr(p);
+            ensure_num(&v);
+            sx = v.num;
+            skip_spaces(p);
+            if (**p == ',') {
+                (*p)++;
+                skip_spaces(p);
+                v = eval_expr(p);
+                ensure_num(&v);
+                sy = v.num;
+            } else {
+                sy = sx;
+            }
+        }
+    }
+    if (!gfx_vs) {
+        runtime_error_hint("SPRITEMODULATE requires basic-gfx or canvas WASM", NULL);
+        return;
+    }
+    gfx_sprite_set_modulate(slot, alpha, r, g, b, (float)sx, (float)sy);
 }
 #endif /* GFX_VIDEO */
 
@@ -9301,6 +9380,11 @@ static void execute_statement(char **p)
         if (starts_with_kw(*p, "SPRITEVISIBLE")) {
             *p += 13;
             statement_spritevisible(p);
+            return;
+        }
+        if (starts_with_kw(*p, "SPRITEMODULATE")) {
+            *p += 15;
+            statement_spritemodulate(p);
             return;
         }
         if (starts_with_kw(*p, "SPRITEFRAME")) {
