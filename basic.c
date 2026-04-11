@@ -1874,7 +1874,7 @@ static int palette_mode = PALETTE_ANSI;
 static int cursor_hidden = 0;
 static int petscii_lowercase_opt = 0;
 static int petscii_lowercase_cli = 0; /* Restored at each load_program so #OPTION can override per file. */
-/* 0 = C64 PETSCII ROM (default), 1 = Commodore PET 2K chargen (-charset pet-* / #OPTION charset). */
+/* 0 = C64 PETSCII ROM (default), 1 = PET-style alt glyphs from pet_*.64c (-charset pet-*). */
 static int charrom_family_opt = 0;
 static int charrom_family_cli = 0;
 /* Max string length (1..MAX_STR_LEN); default 4096; #OPTION maxstr 255 for C64 compatibility. */
