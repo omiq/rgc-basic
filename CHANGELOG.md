@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **`SPRITEMODULATE` (basic-gfx + canvas WASM):** Per-slot draw tint and scale until **`LOADSPRITE`** / **`UNLOADSPRITE`**. Syntax: **`SPRITEMODULATE slot, alpha [, r, g, b [, scale_x [, scale_y]]]`** — **`alpha`** and **`r`/`g`/`b`** are **0–255** (**`alpha`** multiplies PNG alpha); **`scale_x`/`scale_y`** stretch the drawn quad (default **1**; one scale sets both). Implemented with Raylib **`Color`** + destination size; canvas uses bilinear-ish sampling + tint. **`gfx_sprite_set_modulate`** in **`basic_api.h`**.
+
 - **Load normalization / identifiers containing `IF`:** **`normalize_keywords_line`** treated **`IF`** inside identifiers as **`IF …`** (e.g. **`JIFFIES_PER_FRAME`** → **`J IF FIES_PER_FRAME`**, breaking assignments). The same **`prev_ident`** guard used for **`FOR`** (avoid splitting **`PLATFORM`**) now applies to the **`IF`** insertion rule. Regression: **`tests/if_inside_ident_normalize.bas`**.
 
 - **`gfx_peek()` keyboard vs colour RAM**: With default bases, **`GFX_KEY_BASE` (0xDC00)** lies inside the colour RAM window **(0xD800 + 2000 bytes)**. **`gfx_peek()`** must resolve **keyboard before colour** or **`PEEK(56320+n)`** reads colour bytes (e.g. **14** for light blue). **`gfx_video.c`** documents the required order (**text → keyboard → colour → charset → bitmap**). **`gfx_video_test`** asserts key wins over colour at the aliased address.

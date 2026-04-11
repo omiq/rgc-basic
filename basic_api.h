@@ -73,6 +73,9 @@ void gfx_sprite_enqueue_unload(int slot);  /* BASIC: UNLOADSPRITE slot */
 void gfx_sprite_enqueue_visible(int slot, int on);
 /* sw/sh <= 0 means use full sub-texture from (sx,sy) to bottom-right. */
 void gfx_sprite_enqueue_draw(int slot, float x, float y, int z, int sx, int sy, int sw, int sh);
+/* Per-slot draw tint/scale until next LOADSPRITE/UNLOADSPRITE (basic-gfx / canvas WASM).
+ * alpha 0–255 (255 = opaque), r/g/b 0–255, scale 1.0 = natural pixel size of crop. */
+void gfx_sprite_set_modulate(int slot, int alpha, int r, int g, int b, float scale_x, float scale_y);
 int gfx_sprite_slot_width(int slot);
 int gfx_sprite_slot_height(int slot);
 /* Axis-aligned bounding box overlap of last DRAWSPRITE rects (basic-gfx / canvas). */
