@@ -66,19 +66,43 @@ typedef struct {
 static void gfx_sprite_process_queue(void);
 
 static pthread_mutex_t g_sprite_mutex = PTHREAD_MUTEX_INITIALIZER;
+/* macOS / OpenGL: LoadTexture/UnloadTexture must run on the main thread. Worker waits
+ * until the render loop has processed LOAD/UNLOAD (see gfx_sprite_process_queue tail). */
+static pthread_cond_t g_sprite_gpu_cv = PTHREAD_COND_INITIALIZER;
+static uint64_t g_sprite_gpu_issue_seq = 0;
+static uint64_t g_sprite_gpu_done_seq = 0;
+
 static char g_sprite_base_dir[GFX_SPRITE_PATH_MAX];
 static GfxSpriteSlot g_sprite_slots[GFX_SPRITE_MAX_SLOTS];
 static GfxSpriteCmd g_sprite_q[GFX_SPRITE_Q_CAP];
 static int g_sprite_q_count;
 
-static int sprite_q_push(const GfxSpriteCmd *c)
+static void gfx_sprite_wait_gpu_op(uint64_t seq)
 {
-    int ok = 0;
+    if (seq == 0) {
+        return;
+    }
     pthread_mutex_lock(&g_sprite_mutex);
+    while (g_sprite_gpu_done_seq < seq) {
+        pthread_cond_wait(&g_sprite_gpu_cv, &g_sprite_mutex);
+    }
+    pthread_mutex_unlock(&g_sprite_mutex);
+}
+
+static int sprite_q_push_locked(const GfxSpriteCmd *c)
+{
     if (g_sprite_q_count < GFX_SPRITE_Q_CAP) {
         g_sprite_q[g_sprite_q_count++] = *c;
-        ok = 1;
+        return 1;
     }
+    return 0;
+}
+
+static int sprite_q_push(const GfxSpriteCmd *c)
+{
+    int ok;
+    pthread_mutex_lock(&g_sprite_mutex);
+    ok = sprite_q_push_locked(c);
     pthread_mutex_unlock(&g_sprite_mutex);
     return ok;
 }
@@ -119,6 +143,7 @@ static void sprite_build_path(char *out, size_t outsz, const char *rel)
 void gfx_sprite_enqueue_load_ex(int slot, const char *path, int tile_w, int tile_h)
 {
     GfxSpriteCmd c;
+    uint64_t seq;
     if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS || !path) {
         return;
     }
@@ -129,7 +154,15 @@ void gfx_sprite_enqueue_load_ex(int slot, const char *path, int tile_w, int tile
     c.tile_h = tile_h;
     strncpy(c.path, path, sizeof(c.path) - 1);
     c.path[sizeof(c.path) - 1] = '\0';
-    (void)sprite_q_push(&c);
+    pthread_mutex_lock(&g_sprite_mutex);
+    if (!sprite_q_push_locked(&c)) {
+        pthread_mutex_unlock(&g_sprite_mutex);
+        return;
+    }
+    g_sprite_gpu_issue_seq++;
+    seq = g_sprite_gpu_issue_seq;
+    pthread_mutex_unlock(&g_sprite_mutex);
+    gfx_sprite_wait_gpu_op(seq);
 }
 
 void gfx_sprite_enqueue_load(int slot, const char *path)
@@ -140,13 +173,22 @@ void gfx_sprite_enqueue_load(int slot, const char *path)
 void gfx_sprite_enqueue_unload(int slot)
 {
     GfxSpriteCmd c;
+    uint64_t seq;
     if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) {
         return;
     }
     memset(&c, 0, sizeof(c));
     c.kind = GFX_SQ_UNLOAD;
     c.slot = slot;
-    (void)sprite_q_push(&c);
+    pthread_mutex_lock(&g_sprite_mutex);
+    if (!sprite_q_push_locked(&c)) {
+        pthread_mutex_unlock(&g_sprite_mutex);
+        return;
+    }
+    g_sprite_gpu_issue_seq++;
+    seq = g_sprite_gpu_issue_seq;
+    pthread_mutex_unlock(&g_sprite_mutex);
+    gfx_sprite_wait_gpu_op(seq);
 }
 
 void gfx_sprite_enqueue_visible(int slot, int on)
@@ -235,7 +277,6 @@ int gfx_sprite_tile_source_rect(int slot, int tile_index_1based, int *sx, int *s
 {
     GfxSpriteSlot *sl;
     int idx0, tx, ty;
-    gfx_sprite_process_queue();
     if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS || !sx || !sy || !sw || !sh) {
         return -1;
     }
@@ -263,7 +304,6 @@ int gfx_sprite_tile_source_rect(int slot, int tile_index_1based, int *sx, int *s
 void gfx_sprite_set_draw_frame(int slot, int frame_1based)
 {
     GfxSpriteSlot *sl;
-    gfx_sprite_process_queue();
     if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) {
         return;
     }
@@ -286,7 +326,6 @@ void gfx_sprite_set_draw_frame(int slot, int frame_1based)
 int gfx_sprite_get_draw_frame(int slot)
 {
     int f = 1;
-    gfx_sprite_process_queue();
     if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) {
         return 0;
     }
@@ -305,7 +344,6 @@ int gfx_sprite_effective_source_rect(int slot, int *sx, int *sy, int *sw, int *s
 {
     GfxSpriteSlot *sl;
     int tw, th;
-    gfx_sprite_process_queue();
     if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS || !sx || !sy || !sw || !sh) {
         return -1;
     }
@@ -359,7 +397,6 @@ int gfx_sprite_slots_overlap_aabb(int slot_a, int slot_b)
     GfxSpriteSlot *a;
     GfxSpriteSlot *b;
 
-    gfx_sprite_process_queue();
     if (slot_a < 0 || slot_a >= GFX_SPRITE_MAX_SLOTS ||
         slot_b < 0 || slot_b >= GFX_SPRITE_MAX_SLOTS) {
         return 0;
@@ -543,6 +580,11 @@ static void gfx_sprite_process_queue(void)
             break;
         }
     }
+
+    pthread_mutex_lock(&g_sprite_mutex);
+    g_sprite_gpu_done_seq = g_sprite_gpu_issue_seq;
+    pthread_cond_broadcast(&g_sprite_gpu_cv);
+    pthread_mutex_unlock(&g_sprite_mutex);
 }
 
 static void gfx_sprite_shutdown(void)
@@ -561,11 +603,17 @@ static void gfx_sprite_shutdown(void)
     pthread_mutex_unlock(&g_sprite_mutex);
 }
 
-static void gfx_sprite_composite(RenderTexture2D target, int nat_w, int nat_h)
+static void gfx_sprite_composite(const GfxVideoState *vs, RenderTexture2D target, int nat_w, int nat_h)
 {
     GfxSpriteDraw draws[GFX_SPRITE_MAX_SLOTS];
     int nd = 0;
     int i;
+    float scx = 0.0f, scy = 0.0f;
+
+    if (vs) {
+        scx = (float)vs->scroll_x;
+        scy = (float)vs->scroll_y;
+    }
 
     gfx_sprite_process_queue();
 
@@ -632,7 +680,7 @@ static void gfx_sprite_composite(RenderTexture2D target, int nat_w, int nat_h)
             continue;
         }
         src = (Rectangle){ sx, sy, sw, sh };
-        dest = (Rectangle){ d->x, d->y, sw, sh };
+        dest = (Rectangle){ d->x - scx, d->y - scy, sw, sh };
         DrawTexturePro(
             t,
             src,
@@ -693,6 +741,9 @@ static void render_text_screen(const GfxVideoState *s,
 {
     int row, col, y, x;
     int cols = (s->cols == 40 || s->cols == 80) ? (int)s->cols : 40;
+    int fb_w = cols * CELL_W;
+    int sx = (int)s->scroll_x;
+    int sy = (int)s->scroll_y;
 
     BeginTextureMode(target);
     ClearBackground(c64_palette[s->bg_color & 0x0F]);
@@ -715,10 +766,13 @@ static void render_text_screen(const GfxVideoState *s,
             for (y = 0; y < CELL_H; y++) {
                 uint8_t bits = glyph[y];
                 for (x = 0; x < CELL_W; x++) {
-                    int px = col * CELL_W + x;
-                    int py = row * CELL_H + y;
+                    int px = col * CELL_W + x - sx;
+                    int py = row * CELL_H + y - sy;
                     int on = (bits & (0x80 >> x)) ? 1 : 0;
                     Color c = (on ^ reversed) ? fg : bg;
+                    if (px < 0 || py < 0 || px >= fb_w || py >= SCREEN_ROWS * CELL_H) {
+                        continue;
+                    }
                     DrawPixel(px, py, c);
                 }
             }
@@ -731,7 +785,9 @@ static void render_text_screen(const GfxVideoState *s,
 static void render_bitmap_screen(const GfxVideoState *s, RenderTexture2D target,
                                  int native_w)
 {
-    int y, x, off_x;
+    int y, x, off_x, px, py;
+    int sx = (int)s->scroll_x;
+    int sy = (int)s->scroll_y;
     Color fg = c64_palette[s->bitmap_fg & 0x0F];
     Color bg = c64_palette[s->bg_color & 0x0F];
 
@@ -745,7 +801,12 @@ static void render_bitmap_screen(const GfxVideoState *s, RenderTexture2D target,
     for (y = 0; y < (int)GFX_BITMAP_HEIGHT; y++) {
         for (x = 0; x < (int)GFX_BITMAP_WIDTH; x++) {
             int on = gfx_bitmap_get_pixel(s, (unsigned)x, (unsigned)y);
-            DrawPixel(off_x + x, y, on ? fg : bg);
+            px = off_x + x - sx;
+            py = y - sy;
+            if (px < 0 || py < 0 || px >= native_w || py >= NATIVE_H) {
+                continue;
+            }
+            DrawPixel(px, py, on ? fg : bg);
         }
     }
     EndTextureMode();
@@ -977,7 +1038,7 @@ int main(int argc, char **argv)
         } else {
             render_text_screen(&vs, target);
         }
-        gfx_sprite_composite(target, nat_w, nat_h);
+        gfx_sprite_composite(&vs, target, nat_w, nat_h);
 
         BeginDrawing();
         {
@@ -1003,6 +1064,10 @@ int main(int argc, char **argv)
         }
         EndDrawing();
     }
+
+    /* Flush any pending LOAD/UNLOAD so worker threads never block on cond wait after halt,
+     * and OpenGL texture ops stay on this (main) thread. */
+    gfx_sprite_process_queue();
 
     closed_by_user = WindowShouldClose() && !basic_halted();
 

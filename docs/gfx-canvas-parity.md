@@ -25,6 +25,8 @@ The browser build `make basic-wasm-canvas` targets the same **GfxVideoState** mo
 
 ## Differences / limits
 
+- **`CHR$(14)` / `CHR$(142)`** (lowercase vs uppercase/graphics charset): **`GfxVideoState.charset_lowercase`** + **`gfx_load_default_charrom`** must run together. **basic-gfx** reloads ROM when the flag changes each frame; **canvas** now calls **`gfx_load_default_charrom`** from **`gfx_apply_control_code`** when these codes are printed so **`examples/gfx_colaburger_viewer.bas`** matches CLI.
+
 - **`PEEK(56320 + n)` keyboard matrix** (`GFX_KEY_BASE` = `0xDC00`): **basic-gfx** fills `key_state[]` every Raylib frame. **Canvas** mirrors the same indices from **`canvas.html`** on `keydown` / `keyup`. To avoid **Asyncify** re-entrancy while **`SLEEP`** is active, JS writes **`Module.HEAPU8`** at **`wasm_gfx_key_state_ptr()`** instead of **`ccall(wasm_gfx_key_state_set)`** (letters A–Z, digits, arrows, Escape, Space, Enter, Tab). Programs like **`examples/gfx_key_demo.bas`** / **`gfx_jiffy_game_demo.bas`** work when the canvas is focused. Keys are cleared at each **Run**.
 
 - **Performance**: software PNG decode and per-pixel composite on the main WASM thread; large sprites or many slots cost more than GPU textures in Raylib.
