@@ -237,9 +237,9 @@ Printable and graphics PETSCII codes are mapped to Unicode (e.g. £ ↑ ←, box
 output nothing (invisible, like on a real C64), and only printable/graphics bytes produce
 visible characters. Use this when you need strict one-character-per-column alignment (e.g.
 viewing .seq files or pasting output into a fixed-width editor).
-- `-charset upper|lower`: choose the PETSCII **character set** used for rendering letters in `-petscii` mode:
-  - `upper` (default): C64 **uppercase/graphics** character set.
-  - `lower`: C64 **lowercase/uppercase** character set (useful for `.seq` art that uses lowercase letters).
+- `-charset …`: choose the PETSCII **character set** used for rendering letters in `-petscii` mode, and (in **basic-gfx** / **canvas WASM**) which **hardware ROM** fills the virtual charset RAM:
+  - **C64 (default):** `upper` / `uc` / `c64-upper` — uppercase/graphics; `lower` / `lc` / `c64-lower` — lowercase/uppercase (useful for `.seq` art).
+  - **Commodore PET 2K chargen** (ROM image **901447-10**, two 128-glyph banks): `pet-upper` / `pet-graphics` — graphics/upper bank; `pet-lower` / `pet-text` — text/lowercase bank. Same `#OPTION charset …` names.
 - `-palette ansi|c64`: choose how PETSCII colors are mapped (only in `-petscii` mode):
   - `ansi` (default): map colors to standard 16-color ANSI SGR codes.
   - `c64` or `c64-8bit`: use 8‑bit (`38;5;N`) color indices chosen to approximate
@@ -291,7 +291,7 @@ In `-petscii` mode, `CHR$` behaves in a C64-like way: control and color codes ar
 If you do not pass a file name, the interpreter will print usage information:
 
 ```text
-Usage: basic [-petscii] [-petscii-plain] [-charset upper|lower] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] <program.bas>
+Usage: basic [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] <program.bas>
 ```
 
 ### Shell scripting: standard I/O and arguments
