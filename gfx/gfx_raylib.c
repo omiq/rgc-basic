@@ -52,6 +52,7 @@ typedef struct {
     /* Per-slot modulation (SPRITEMODULATE); default opaque white, scale 1,1. */
     int mod_a, mod_r, mod_g, mod_b;
     float mod_sx, mod_sy;
+    int mod_explicit; /* 1 if SPRITEMODULATE ran; preserve when LOAD finishes async */
     /* Persistent draw state (last DRAWSPRITE for this slot until UNLOAD). */
     int draw_active;
     float draw_x, draw_y;
@@ -270,6 +271,7 @@ void gfx_sprite_set_modulate(int slot, int alpha, int r, int g, int b, float sca
     g_sprite_slots[slot].mod_b = b;
     g_sprite_slots[slot].mod_sx = scale_x;
     g_sprite_slots[slot].mod_sy = scale_y;
+    g_sprite_slots[slot].mod_explicit = 1;
     pthread_mutex_unlock(&g_sprite_mutex);
 }
 
@@ -556,6 +558,18 @@ static void gfx_sprite_process_queue(void)
             Texture2D t;
             int tw = c->tile_w;
             int th = c->tile_h;
+            int preserve_mod;
+            int pma, pmr, pmg, pmb;
+            float pmsx, pmsy;
+            pthread_mutex_lock(&g_sprite_mutex);
+            preserve_mod = g_sprite_slots[c->slot].mod_explicit;
+            pma = g_sprite_slots[c->slot].mod_a;
+            pmr = g_sprite_slots[c->slot].mod_r;
+            pmg = g_sprite_slots[c->slot].mod_g;
+            pmb = g_sprite_slots[c->slot].mod_b;
+            pmsx = g_sprite_slots[c->slot].mod_sx;
+            pmsy = g_sprite_slots[c->slot].mod_sy;
+            pthread_mutex_unlock(&g_sprite_mutex);
             sprite_build_path(full, sizeof(full), c->path);
             pthread_mutex_lock(&g_sprite_mutex);
             if (g_sprite_slots[c->slot].loaded) {
@@ -587,12 +601,23 @@ static void gfx_sprite_process_queue(void)
                     g_sprite_slots[c->slot].tile_h = 0;
                     g_sprite_slots[c->slot].draw_frame = 1;
                 }
-                g_sprite_slots[c->slot].mod_a = 255;
-                g_sprite_slots[c->slot].mod_r = 255;
-                g_sprite_slots[c->slot].mod_g = 255;
-                g_sprite_slots[c->slot].mod_b = 255;
-                g_sprite_slots[c->slot].mod_sx = 1.0f;
-                g_sprite_slots[c->slot].mod_sy = 1.0f;
+                if (preserve_mod) {
+                    g_sprite_slots[c->slot].mod_a = pma;
+                    g_sprite_slots[c->slot].mod_r = pmr;
+                    g_sprite_slots[c->slot].mod_g = pmg;
+                    g_sprite_slots[c->slot].mod_b = pmb;
+                    g_sprite_slots[c->slot].mod_sx = pmsx;
+                    g_sprite_slots[c->slot].mod_sy = pmsy;
+                    g_sprite_slots[c->slot].mod_explicit = 1;
+                } else {
+                    g_sprite_slots[c->slot].mod_a = 255;
+                    g_sprite_slots[c->slot].mod_r = 255;
+                    g_sprite_slots[c->slot].mod_g = 255;
+                    g_sprite_slots[c->slot].mod_b = 255;
+                    g_sprite_slots[c->slot].mod_sx = 1.0f;
+                    g_sprite_slots[c->slot].mod_sy = 1.0f;
+                    g_sprite_slots[c->slot].mod_explicit = 0;
+                }
             }
             pthread_mutex_unlock(&g_sprite_mutex);
             break;
@@ -621,6 +646,7 @@ static void gfx_sprite_process_queue(void)
                 g_sprite_slots[c->slot].mod_b = 255;
                 g_sprite_slots[c->slot].mod_sx = 1.0f;
                 g_sprite_slots[c->slot].mod_sy = 1.0f;
+                g_sprite_slots[c->slot].mod_explicit = 0;
             }
             pthread_mutex_unlock(&g_sprite_mutex);
             break;
