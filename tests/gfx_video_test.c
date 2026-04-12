@@ -83,7 +83,7 @@ int main(void)
     s.scroll_y = -8;
     assert(s.scroll_x == 16 && s.scroll_y == -8);
 
-    /* C64 vs PET chargen: same screen-code layout, different glyph bytes at ROM. */
+    /* C64 vs PET-style .64c font: same screen-code layout, different glyph bytes. */
     {
         GfxVideoState c64, pet;
         gfx_video_init(&c64);
