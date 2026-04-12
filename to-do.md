@@ -47,6 +47,13 @@
   * ~**basic-gfx**~: 80×25; 640×200 window. Done.
   * ~**basic-wasm-canvas**~: `#OPTION columns 80` selects 640×200 RGBA framebuffer in browser. Done.
 
+* **Configurable text row count (`#OPTION rows N` / `OPTION ROWS N`)** — *idea; not started.*  
+  Today **basic-gfx** and **canvas WASM** use a fixed **25** text rows (`GFX_ROWS` / `SCREEN_ROWS`); screen/colour buffers are **2000** bytes (`GFX_TEXT_SIZE`), i.e. **40×25** or **80×25** layout.
+  - **Easier subset:** **40 columns × 50 rows = 2000** cells — same total size as **80×25**, so the existing buffer could suffice **if** wide mode is constrained (e.g. cap rows when `columns=80`, or only allow 50 rows in 40-column mode until buffers grow).
+  - **Harder:** **80×50** needs **4000** bytes (or dynamic allocation) and touches `GfxVideoState`, `gfx_peek`/`gfx_poke`, and anything assuming **2000** bytes.
+  - **Front-ends:** window / framebuffer height becomes **rows×8** (50 rows → **400** px tall vs today’s **200**); WASM RGBA size and any hard-coded **200** in `canvas.html` / JS must track **rows**.
+  - **Difficulty:** **moderate** — dozens of touch points across the interpreter and both renderers, but **bounded**; implementing **40×50** first is **materially simpler** than fully general **rows × columns** with a larger RAM model.
+
 * PETSCII symbols & graphics
   * ~Unicode stand-ins~
   * ~Bitmap rendering of 40×25 characters (raylib)~ — **basic-gfx** merged to main.
