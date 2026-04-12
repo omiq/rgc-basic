@@ -94,7 +94,142 @@ static void wasm_http_fetch_emscripten(const char *url, const char *method, cons
     }
     wasm_js_http_fetch_async(url, m, body, body_len, out, (int)out_size, status_out);
 }
+
+/*
+ * Fetch response body to a MEMFS path (binary-safe). Sets *status_out to HTTP status (0 on failure).
+ * Uses arrayBuffer + FS.writeFile; creates parent directories as needed.
+ */
+EM_ASYNC_JS(int, wasm_js_http_fetch_to_file_async, (const char *url, const char *method, const char *body, int body_len, const char *path_utf8, int *status_out), {
+  var urlJs = UTF8ToString(url);
+  var pathJs = UTF8ToString(path_utf8);
+  var methodJs = method ? UTF8ToString(method) : "GET";
+  var init = { method: methodJs };
+  if (body && body_len > 0) {
+    init.body = HEAPU8.subarray(body, body + body_len >>> 0);
+  }
+  try {
+    const resp = await fetch(urlJs, init);
+    HEAP32[status_out >> 2] = resp.status;
+    const buf = await resp.arrayBuffer();
+    var u8 = new Uint8Array(buf);
+    var FS = Module["FS"];
+    if (!FS) {
+      HEAP32[status_out >> 2] = 0;
+      return -1;
+    }
+    var parts = pathJs.split("/").filter(function (s) { return s.length > 0; });
+    if (parts.length === 0) {
+      HEAP32[status_out >> 2] = 0;
+      return -1;
+    }
+    var acc = "";
+    for (var i = 0; i < parts.length - 1; i++) {
+      acc += "/" + parts[i];
+      try { FS.mkdir(acc); } catch (e) {}
+    }
+    FS.writeFile(pathJs, u8);
+  } catch (e) {
+    HEAP32[status_out >> 2] = 0;
+  }
+  return 0;
+});
 #endif
+
+#if (defined(__unix__) || defined(__linux__) || defined(__APPLE__) || defined(__MACH__)) && !defined(__EMSCRIPTEN__)
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+/* Native: curl -o path -w "%{http_code}" writes body to file and status digits to stdout. */
+static int native_http_fetch_to_file(const char *url, const char *path, const char *method, const char *body, int body_len, int *status_out)
+{
+    pid_t pid;
+    int pipefd[2];
+    int st;
+    ssize_t nread;
+    char codebuf[32];
+    size_t cpos = 0;
+    int http_code = 0;
+
+    (void)method;
+    (void)body;
+    (void)body_len;
+    if (!url || !url[0] || !path || !path[0] || !status_out) {
+        if (status_out) {
+            *status_out = 0;
+        }
+        return -1;
+    }
+    *status_out = 0;
+    if (pipe(pipefd) != 0) {
+        return -1;
+    }
+    pid = fork();
+    if (pid < 0) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return -1;
+    }
+    if (pid == 0) {
+        /* Child: stdout = HTTP status code only; file = body */
+        dup2(pipefd[1], STDOUT_FILENO);
+        close(pipefd[0]);
+        close(pipefd[1]);
+        /* POST body not supported without temp file; GET-only for native MVP */
+        execlp("curl", "curl", "-sS", "-L", "-o", path, "-w", "%{http_code}", url, (char *)NULL);
+        _exit(127);
+    }
+    close(pipefd[1]);
+    while (cpos < sizeof(codebuf) - 1) {
+        nread = read(pipefd[0], codebuf + cpos, sizeof(codebuf) - 1 - cpos);
+        if (nread <= 0) {
+            break;
+        }
+        cpos += (size_t)nread;
+    }
+    close(pipefd[0]);
+    codebuf[cpos] = '\0';
+    waitpid(pid, &st, 0);
+    if (WIFEXITED(st) && WEXITSTATUS(st) == 0 && cpos > 0) {
+        http_code = (int)atoi(codebuf);
+        if (http_code < 0 || http_code > 999) {
+            http_code = 0;
+        }
+    } else {
+        http_code = 0;
+    }
+    *status_out = http_code;
+    return (http_code > 0) ? 0 : -1;
+}
+#endif /* unix native */
+
+/* Fetch URL to local path; sets *status_out to HTTP status (0 on failure). Returns 0 if OK, -1 on error. */
+static int http_fetch_to_file_impl(const char *url, const char *path, const char *method, const char *body, int body_len, int *status_out)
+{
+#if defined(__EMSCRIPTEN__)
+    const char *m = (method && method[0]) ? method : "GET";
+    if (!url || !url[0] || !path || !path[0] || !status_out) {
+        if (status_out) {
+            *status_out = 0;
+        }
+        return -1;
+    }
+    *status_out = 0;
+    wasm_js_http_fetch_to_file_async(url, m, body, body_len, path, status_out);
+    return 0;
+#elif (defined(__unix__) || defined(__linux__) || defined(__APPLE__) || defined(__MACH__))
+    return native_http_fetch_to_file(url, path, method, body, body_len, status_out);
+#else
+    (void)url;
+    (void)path;
+    (void)method;
+    (void)body;
+    (void)body_len;
+    if (status_out) {
+        *status_out = 0;
+    }
+    return -1;
+#endif
+}
 
 #ifdef GFX_VIDEO
 #include "gfx_video.h"
@@ -2290,7 +2425,8 @@ enum func_code {
     FN_SCROLLX = 51,
     FN_SCROLLY = 52,
     FN_HTTP = 53,
-    FN_HTTPSTATUS = 54
+    FN_HTTPSTATUS = 54,
+    FN_HTTPFETCH = 55
 };
 
 /* Report an error and halt further execution.
@@ -2524,13 +2660,14 @@ static const char *const reserved_words[] = {
     "COLOUR", "COS", "CURSOR", "DATA", "DEC", "DEF", "DIM", "DOWN", "END", "FUNCTION",
     "ELSE", "ENV", "EVAL", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
     "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LINE", "LOAD", "LOADSPRITE", "LOCATE", "LOG",
-    "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET", "PRINT",
+    "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET",     "PRINT", "PUTBYTE",
     "XOR",
     "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITEFRAME", "SPRITEMODULATE", "SPRITETILES", "SPRITEVISIBLE",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
-    "DRAWSPRITE", "DRAWSPRITETILE", "HTTP", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
+    "DRAWSPRITE", "DRAWSPRITETILE", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
     "DO", "LOOP", "UNTIL", "EXIT",
+    "GETBYTE",
     NULL
 };
 
@@ -3432,6 +3569,9 @@ static int function_lookup(const char *name, int len)
         if ((len == 4 && name[0] == 'H' && name[1] == 'T' && name[2] == 'T' && name[3] == 'P') ||
             (len == 5 && name[0] == 'H' && name[1] == 'T' && name[2] == 'T' && name[3] == 'P' && name[4] == '$'))
             return FN_HTTP;
+        if (len == 9 && name[0] == 'H' && name[1] == 'T' && name[2] == 'T' && name[3] == 'P' &&
+            name[4] == 'F' && name[5] == 'E' && name[6] == 'T' && name[7] == 'C' && name[8] == 'H')
+            return FN_HTTPFETCH;
         if (len == 10 && name[0] == 'H' && name[1] == 'T' && name[2] == 'T' && name[3] == 'P' &&
             name[4] == 'S' && name[5] == 'T' && name[6] == 'A' && name[7] == 'T' && name[8] == 'U' &&
             name[9] == 'S')
@@ -4818,6 +4958,63 @@ static struct value eval_function(const char *name, char **p)
         http_last_status = 0;
         return make_str("");
 #endif
+    }
+    if (code == FN_HTTPFETCH) {
+        struct value v_url, v_path, v_method, v_body;
+        const char *meth = NULL;
+        const char *bod = NULL;
+        int blen = 0;
+        int st = 0;
+        int rc;
+
+        v_url = eval_expr(p);
+        ensure_str(&v_url);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("HTTPFETCH expects url$, path$ [, method$ [, body$]]",
+                "Example: OK = HTTPFETCH(\"https://a/b.png\", \"/tmp/b.png\").");
+            http_last_status = 0;
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        v_path = eval_expr(p);
+        ensure_str(&v_path);
+        skip_spaces(p);
+        meth = NULL;
+        bod = NULL;
+        blen = 0;
+        if (**p == ',') {
+            (*p)++;
+            skip_spaces(p);
+            v_method = eval_expr(p);
+            ensure_str(&v_method);
+            meth = v_method.str;
+            skip_spaces(p);
+            if (**p == ',') {
+                (*p)++;
+                skip_spaces(p);
+                v_body = eval_expr(p);
+                ensure_str(&v_body);
+                bod = v_body.str;
+                blen = (int)strlen(bod);
+            }
+        }
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("HTTPFETCH expects url$, path$ [, method$ [, body$]]",
+                "Check closing ')' and commas between arguments.");
+            http_last_status = 0;
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        rc = http_fetch_to_file_impl(v_url.str, v_path.str, meth, bod, blen, &st);
+        http_last_status = st;
+        if (rc != 0) {
+            return make_num(0.0);
+        }
+        return make_num((double)st);
     }
 #if !defined(GFX_VIDEO)
     if (code == FN_SPRITECOLLIDE) {
@@ -6460,7 +6657,7 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "REPLACE") || starts_with_kw(*p, "TRIM") || starts_with_kw(*p, "LTRIM") || starts_with_kw(*p, "RTRIM") ||
             starts_with_kw(*p, "FIELD") || starts_with_kw(*p, "INDEXOF") || starts_with_kw(*p, "LASTINDEXOF") ||
             starts_with_kw(*p, "ENV") || starts_with_kw(*p, "EVAL") || starts_with_kw(*p, "PLATFORM") || starts_with_kw(*p, "JSON") ||
-            starts_with_kw(*p, "HTTPSTATUS") || starts_with_kw(*p, "HTTP$") ||
+            starts_with_kw(*p, "HTTPSTATUS") || starts_with_kw(*p, "HTTPFETCH") || starts_with_kw(*p, "HTTP$") ||
             starts_with_kw(*p, "ARGC") || starts_with_kw(*p, "ARG") ||
             starts_with_kw(*p, "SYSTEM") || starts_with_kw(*p, "EXEC") ||
             starts_with_kw(*p, "PEEK") || starts_with_kw(*p, "INKEY") ||
@@ -7987,6 +8184,41 @@ static void set_io_status(int st)
     }
 }
 
+/* Optional "rb:path", "wb:path", "ab:path" prefix for binary fopen modes. */
+static int open_parse_mode_prefix(char *fname, const char **mode_out)
+{
+    char a, b;
+    size_t len;
+    if (!fname || !mode_out) {
+        return 0;
+    }
+    len = strlen(fname);
+    if (len < 4) {
+        return 0;
+    }
+    a = (char)tolower((unsigned char)fname[0]);
+    b = (char)tolower((unsigned char)fname[1]);
+    if (fname[2] != ':') {
+        return 0;
+    }
+    if (a == 'r' && b == 'b') {
+        *mode_out = "rb";
+        memmove(fname, fname + 3, strlen(fname + 3) + 1);
+        return 1;
+    }
+    if (a == 'w' && b == 'b') {
+        *mode_out = "wb";
+        memmove(fname, fname + 3, strlen(fname + 3) + 1);
+        return 1;
+    }
+    if (a == 'a' && b == 'b') {
+        *mode_out = "ab";
+        memmove(fname, fname + 3, strlen(fname + 3) + 1);
+        return 1;
+    }
+    return 0;
+}
+
 /* OPEN lfn [, device [, secondary [, "filename" ]]] */
 static void statement_open(char **p)
 {
@@ -8051,9 +8283,15 @@ static void statement_open(char **p)
         return;
     }
     if (device == 1 || device == 0) {
-        if (secondary == 0) mode = "r";
-        else if (secondary == 1) mode = "w";
-        else mode = "a";
+        if (!open_parse_mode_prefix(fname, &mode)) {
+            if (secondary == 0) {
+                mode = "r";
+            } else if (secondary == 1) {
+                mode = "w";
+            } else {
+                mode = "a";
+            }
+        }
         fp = fopen(fname, mode);
         if (!fp) {
             set_io_status(1);
@@ -8261,6 +8499,101 @@ static void statement_get_hash(char **p)
             buf[1] = '\0';
             *vp = make_str(buf);
         }
+    }
+}
+
+/* PUTBYTE #lfn, byte — write one byte (0-255) to binary file. */
+static void statement_putbyte(char **p)
+{
+    int lfn;
+    struct value vb;
+
+    skip_spaces(p);
+    if (**p != '#') {
+        runtime_error_hint("PUTBYTE: expected #", "Use PUTBYTE #1, B after OPEN 1, …");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    if (!isdigit((unsigned char)**p)) {
+        runtime_error_hint("PUTBYTE: expected file number", "Use PUTBYTE #1, B after OPEN 1, …");
+        return;
+    }
+    lfn = atoi(*p);
+    while (isdigit((unsigned char)**p)) (*p)++;
+    if (lfn < 1 || lfn > 255 || !open_files[lfn]) {
+        set_io_status(1);
+        runtime_error_hint("PUTBYTE: file not open", "OPEN the channel first.");
+        return;
+    }
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("PUTBYTE: expected comma", "Use PUTBYTE #n, byte_expr.");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    vb = eval_expr(p);
+    ensure_num(&vb);
+    {
+        int b = (int)vb.num & 255;
+        if (fputc(b, open_files[lfn]) == EOF) {
+            set_io_status(1);
+        } else {
+            set_io_status(0);
+        }
+    }
+}
+
+/* GETBYTE #lfn, var — read one byte into numeric variable (0-255, or -1 at EOF). */
+static void statement_getbyte(char **p)
+{
+    int lfn;
+    int c;
+    struct value *vp;
+    int is_array, is_string;
+
+    skip_spaces(p);
+    if (**p != '#') {
+        runtime_error_hint("GETBYTE: expected #", "Use GETBYTE #1, B after OPEN 1, …");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    if (!isdigit((unsigned char)**p)) {
+        runtime_error_hint("GETBYTE: expected file number", "Use GETBYTE #1, B after OPEN 1, …");
+        return;
+    }
+    lfn = atoi(*p);
+    while (isdigit((unsigned char)**p)) (*p)++;
+    if (lfn < 1 || lfn > 255 || !open_files[lfn]) {
+        set_io_status(1);
+        runtime_error_hint("GETBYTE: file not open", "OPEN the channel first.");
+        return;
+    }
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("GETBYTE: expected comma", "Use GETBYTE #n, num_var.");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    if (!isalpha((unsigned char)**p)) {
+        runtime_error_hint("GETBYTE: expected numeric variable", "Use GETBYTE #1, B (not B$).");
+        return;
+    }
+    vp = get_var_reference(p, &is_array, &is_string, NULL);
+    if (!vp || is_array || is_string) {
+        runtime_error_hint("GETBYTE: requires numeric scalar variable", "Use GETBYTE #1, B not B$.");
+        return;
+    }
+    c = fgetc(open_files[lfn]);
+    if (c == EOF) {
+        set_io_status(64);
+        *vp = make_num(-1.0);
+    } else {
+        set_io_status(0);
+        *vp = make_num((double)(c & 255));
     }
 }
 
@@ -9174,6 +9507,16 @@ static void execute_statement(char **p)
     }
     c = toupper((unsigned char)**p);
     if (c == '\0') {
+        return;
+    }
+    if (starts_with_kw(*p, "PUTBYTE")) {
+        *p += 7;
+        statement_putbyte(p);
+        return;
+    }
+    if (starts_with_kw(*p, "GETBYTE")) {
+        *p += 7;
+        statement_getbyte(p);
         return;
     }
     if (c == '\'') {
