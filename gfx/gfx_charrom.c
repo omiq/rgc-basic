@@ -539,18 +539,12 @@ static void gfx_load_c64_charrom(GfxVideoState *s)
     }
 }
 
-/* PET 2K ROM: first 1K = graphics/uppercase bank, second 1K = text/lowercase bank.
- * Map linearly for text mode; swap halves for graphics mode (CHR$(142) path). */
-static void gfx_load_pet_charrom(GfxVideoState *s)
+/* PET-style alternate font: same C64 screen-code order as petscii_font; only the
+ * 8×8 bitmaps differ (matches pet_uppercase.64c / pet_lowercase.64c, IDE “PET” feel). */
+static void gfx_load_pet_style_charrom(GfxVideoState *s)
 {
-    const uint8_t *rom = pet_chargen_901447_10m;
-    if (s->charset_lowercase) {
-        memcpy(s->chars, rom, 1024u);
-        memcpy(s->chars + 1024u, rom + 1024u, 1024u);
-    } else {
-        memcpy(s->chars, rom + 1024u, 1024u);
-        memcpy(s->chars + 1024u, rom, 1024u);
-    }
+    const uint8_t *rom = s->charset_lowercase ? pet_style_lower_rom : pet_style_upper_rom;
+    memcpy(s->chars, rom, 2048u);
 }
 
 void gfx_load_default_charrom(GfxVideoState *s)
@@ -559,7 +553,7 @@ void gfx_load_default_charrom(GfxVideoState *s)
         return;
     }
     if (s->charrom_family) {
-        gfx_load_pet_charrom(s);
+        gfx_load_pet_style_charrom(s);
     } else {
         gfx_load_c64_charrom(s);
     }

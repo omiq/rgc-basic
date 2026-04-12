@@ -2,23 +2,26 @@
 BACKGROUND 0
 PRINT CHR$(147)
 FUNCTION BIT_PRINT(BYTE)
+    BL$=""
     FOR I = 7 TO 0 STEP -1
         IF BYTE AND (1 << I) THEN
-            PRINT "{WHITE}{RVSON}{111}{RVSOFF}{GREEN}";
+            BL$=BL$+"{WHITE}{RVSON}{111}{RVSOFF}{GREEN}";
         ELSE
-            PRINT "{GREEN}{RVSON}{111}{RVSOFF}{GREEN}";
+            BL$=BL$+ "{GREEN}{RVSON}{111}{RVSOFF}{GREEN}";
         END IF
     NEXT I
-    PRINT
+    BL$=BL$+CHR$(13)
+    RETURN BL$
 END FUNCTION
 
 FOR C = 0 TO 255
 PRINT C
+    B$=""
     FOR B = 1 TO 8
     READ BYTE
-    BIT_PRINT(BYTE)
+    B$=B$+BIT_PRINT(BYTE)
     NEXT B
-    PRINT
+    PRINT B$
 NEXT C
 
 PRINT "{DEFAULT}"
