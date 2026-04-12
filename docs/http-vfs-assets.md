@@ -1,6 +1,6 @@
 # HTTP fetch and VFS assets (design notes)
 
-**Status:** recommendations for future work — not implemented as a single feature bundle.
+**Status:** **`HTTPFETCH`**, **`OPEN`** binary prefixes (`rb:`/`wb:`/`ab:`), **`PUTBYTE`**, and **`GETBYTE`** are implemented (see **`CHANGELOG.md`**). The sections below record the original rationale; **Priority 1** (fetch-to-file) and **Priority 2** (binary I/O) are covered by those features. Further work is optional (streaming, extra native backends, etc.).
 
 ## Context
 
@@ -9,10 +9,11 @@ IDE **tools** and **utilities** (see **`docs/ide-wasm-tools.md`**) often need to
 Today:
 
 - **`HTTP$`** returns the response **body as a string** (WASM: `fetch` + Asyncify). Fine for **small text**; **large binary** hits **`MAXSTR`** and string overhead.
-- **`OPEN` / `PRINT#` / `INPUT#` / `GET#`** are oriented toward **text**; **`PRINT#`** is not a general **binary blob** writer (C strings, formatting).
-- The **host IDE** can always **`fetch`** in JavaScript and **`Module.FS.writeFile(path, bytes)`** — no interpreter change required.
+- **`HTTPFETCH`** writes the **raw body** to a path (WASM + optional **`curl`** on Unix) — use for PNGs and large blobs.
+- **`OPEN` / `PRINT#` / `INPUT#` / `GET#`** — text-oriented; **`PRINT#`** is not a general binary writer. Use **`"rb:"`/`"wb:"`/`"ab:"`** prefixes and **`PUTBYTE`/`GETBYTE`** for bytes.
+- The **host IDE** can still **`fetch`** in JavaScript and **`Module.FS.writeFile(path, bytes)`** — no interpreter change required.
 
-This document records **whether** and **how** to extend the language for **portable**, **BASIC-only** asset pipelines (same story on **native** with **`EXEC$("curl …")`** vs **WASM** with **`HTTP$`**).
+This document records **whether** and **how** the language supports **portable**, **BASIC-only** asset pipelines (same story on **native** with **`EXEC$("curl …")`** vs **WASM** with **`HTTP$`** / **`HTTPFETCH`**).
 
 ---
 
@@ -30,25 +31,15 @@ This document records **whether** and **how** to extend the language for **porta
 
 ## Priority 1: Fetch directly to a file (WASM + native)
 
-Add a way to write the **raw response body** to a **host path** without holding it all in a **`STRING$`**:
+**Implemented:** **`HTTPFETCH url$, path$`** → status in **`HTTPSTATUS()`** and as the numeric return value. See **`CHANGELOG.md`**.
 
-- **Option A:** New intrinsic, e.g. **`HTTPFETCH url$, path$`** → status in **`HTTPSTATUS()`** (or return code).
-- **Option B:** Extend **`HTTP$`** with an optional “write to path” overload (document carefully to avoid ambiguity with **`HTTP`** vs **`HTTPSTATUS`** parsing).
-
-**Benefits:** avoids **`MAXSTR`**, avoids double memory for large files, matches how **`LOADSPRITE`** already expects a **path**.
-
-**Native:** implement with **`curl`**, **`wget`**, or portable **socket** code — or document **`EXEC$("curl -o …")`** as the host workaround until implemented.
+**Native:** Unix builds may use **`curl`** when available; otherwise use **`EXEC$("curl -o …")`** or extend the runtime.
 
 ---
 
 ## Priority 2: Binary-safe file I/O
 
-Support **explicit binary mode** and **byte-oriented** I/O where needed:
-
-- **`OPEN`**: **`"rb"`** / **`"wb"`** / **`"ab"`** (or CBM-style secondary codes mapping to binary).
-- **`PUTBYTE #lfn, expr`** / **`GETBYTE #lfn, var`** — or a small **`BSAVE`/`BLOAD`**-style block copy from **DATA** / memory (if a memory model exists).
-
-This lets tools **stream** or **chunk** data without **`PRINT#`** of binary strings.
+**Implemented:** **`OPEN`** with **`"rb:"`**, **`"wb:"`**, **`"ab:"`** filename prefixes; **`PUTBYTE #lfn, expr`** / **`GETBYTE #lfn, var`**.
 
 ---
 
@@ -61,12 +52,12 @@ This lets tools **stream** or **chunk** data without **`PRINT#`** of binary stri
 
 ## Relationship to **`docs/ide-wasm-tools.md`**
 
-- **IDE** may **prefetch** to MEMFS and pass **`ARG$(1)`** to a tool — **no** new BASIC features required.
-- **Bolstering** **`HTTP$`** / I/O makes **BASIC-only** tools **ergonomic** and **portable**; use it when the cost of implementation is justified by fewer one-off JS shims.
+- **IDE** may **prefetch** to MEMFS and pass **`ARG$(1)`** via **`basic_load_and_run_gfx_argline`** — or use **`HTTPFETCH`** inside the tool.
+- **`HTTPFETCH`** / binary I/O makes **BASIC-only** tools **ergonomic** without one-off JS shims for every asset type.
 
 ---
 
 ## Related
 
-- **`docs/ide-wasm-tools.md`** — **`basic_load_and_run_gfx_argline`**, **`ARG$`**, MEMFS.
-- **`web/README.md`** — **`HTTP$`**, Asyncify, CORS.
+- **`docs/ide-wasm-tools.md`** — **`basic_load_and_run_gfx`**, **`basic_load_and_run_gfx_argline`**, **`ARG$`**, MEMFS.
+- **`web/README.md`** — **`HTTP$`**, **`HTTPFETCH`**, Asyncify, CORS.
