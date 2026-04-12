@@ -47,6 +47,21 @@
   * ~**basic-gfx**~: 80×25; 640×200 window. Done.
   * ~**basic-wasm-canvas**~: `#OPTION columns 80` selects 640×200 RGBA framebuffer in browser. Done.
 
+* **Configurable text row count (`#OPTION rows N` / `OPTION ROWS N`)** — *idea; not started.*  
+  Today **basic-gfx** and **canvas WASM** use a fixed **25** text rows (`GFX_ROWS` / `SCREEN_ROWS`); screen/colour buffers are **2000** bytes (`GFX_TEXT_SIZE`), i.e. **40×25** or **80×25** layout.
+  - **Easier subset:** **40 columns × 50 rows = 2000** cells — same total size as **80×25**, so the existing buffer could suffice **if** wide mode is constrained (e.g. cap rows when `columns=80`, or only allow 50 rows in 40-column mode until buffers grow).
+  - **Harder:** **80×50** needs **4000** bytes (or dynamic allocation) and touches `GfxVideoState`, `gfx_peek`/`gfx_poke`, and anything assuming **2000** bytes.
+  - **Front-ends:** window / framebuffer height becomes **rows×8** (50 rows → **400** px tall vs today’s **200**); WASM RGBA size and any hard-coded **200** in `canvas.html` / JS must track **rows**.
+  - **Difficulty:** **moderate** — dozens of touch points across the interpreter and both renderers, but **bounded**; implementing **40×50** first is **materially simpler** than fully general **rows × columns** with a larger RAM model.
+
+* **VGA-style 640×480 addressable pixels** — *idea; not started.* Goal: a **screen** / mode where the composited output is a **true 640×480** pixel surface (late-80s / early-90s **IBM PC VGA** feel), not merely **upscaling** the current **640×200** (80×25×8) framebuffer in the window.
+  - **Distinct from:** “640×480 window” that **stretches or letterboxes** existing **640×200** content — that would be **low–moderate** effort (presentation only).
+  - **This idea:** **every pixel** in **640×480** is a first-class drawing target — implies rethinking **text grid** (e.g. **80×60** at **8×8** cells, or non-8×8 metrics), **hires bitmap** (today **`GFX_BITMAP_*`** is **320×200** 1bpp), **sprites** (positioning, clipping, z-order), **`SCROLL`**, borders, and **WASM RGBA** buffer size (**640×480×4 ≈ 1.2 MiB** per full frame vs today’s **640×200×4**).
+  - **Overlaps:** configurable **`rows`** / larger **`GFX_TEXT_SIZE`**, possible **separate “VGA mode”** vs **C64-compat** mode so existing programs stay predictable.
+  - **Difficulty:** **high** — cross-cutting; comparable to a **new display preset** plus buffer growth and renderer work in **basic-gfx**, **canvas WASM**, and any **POKE/PEEK** semantics if video memory is exposed.
+
+* **Sample sound playback (basic-gfx + canvas WASM only)** — *idea; not started.* Design: **`docs/rgc-sound-sample-spec.md`**. MVP: **single voice** (new **`PLAYSOUND`** stops previous), **`LOADSOUND` / `UNLOADSOUND` / `PLAYSOUND` / `STOPSOUND` / `PAUSESOUND` / `RESUMESOUND` / `SOUNDVOL`**, **`SOUNDPLAYING()`**; **non-blocking** gameplay; **WAV (PCM)** first; native **Raylib** with **command queue** from interpreter thread to main loop; **Web Audio** on WASM + **VFS** paths. **Difficulty:** **moderate** (native) to **moderate–high** (+ WASM); terminal build out of scope.
+
 * PETSCII symbols & graphics
   * ~Unicode stand-ins~
   * ~Bitmap rendering of 40×25 characters (raylib)~ — **basic-gfx** merged to main.
@@ -59,6 +74,7 @@
   4. **Graphic layers and scrolling** — ~**Viewport `SCROLL dx, dy`** + **`SCROLLX()`/`SCROLLY()`** (single shared offset for text/bitmap + sprites) — done.~ Full **per-layer** stack (background vs tiles vs HUD) still open.
   5. ~**Tilemap handling (sheet)**~ — **`LOADSPRITE slot, "path.png", tw, th`** + **`DRAWSPRITETILE slot, x, y, tile_index [, z]`** + **`SPRITETILES(slot)`**. Full world tile *grid* storage in BASIC still manual.
   6. **Sprite animation** — ~Per-slot frame via **`SPRITEFRAME`** + tile-aware **`DRAWSPRITE`** — done.~ Optional frame rate / timing helpers still open.
+  7. **Blitter-style ops, off-screen buffers, grab-to-sprite, export** — Not started. Draft design (phased: `IMAGE COPY` / off-screen 1bpp surfaces → `TOSPRITE` → PNG/raw export; CLI + WASM parity). Same doc: **periodic timers (“IRQ-light”)** as an AMAL alternative (VB `Timer`-style / `GOSUB` on schedule). **`docs/rgc-blitter-surface-spec.md`**. Goal: STOS/AMOS-like map/sprite **utilities written in BASIC**; README link deferred while the design is discussed.
 
 * **Browser / WASM** (see `docs/browser-wasm-plan.md`, `web/README.md`, `README.md`)
   * ~**Emscripten builds**~ — `make basic-wasm` → `web/basic.js` + `basic.wasm`; `make basic-wasm-canvas` → `basic-canvas.js` + `basic-canvas.wasm` (GFX_VIDEO: PETSCII + `SCREEN 1` bitmap + PNG sprites via `gfx_software_sprites.c` / stb_image, parity with basic-gfx). Asyncify for `SLEEP`, `INPUT`, `GET` / `INKEY$`.
@@ -68,6 +84,7 @@
   * ~**CI**~ — GitHub Actions WASM job uses **emsdk** (`install latest`), builds both targets, runs Playwright: `tests/wasm_browser_test.py`, `tests/wasm_browser_canvas_test.py`.
   * ~**Deploy hygiene**~ — `canvas.html` pairs cache-bust query on `basic-canvas.js` and `basic-canvas.wasm`; optional `?debug=1` for console diagnostics (`wasm_canvas_build_stamp`, stack dumps).
   * ~**Tutorial embedding**~ — `make basic-wasm-modular`; `web/tutorial-embed.js` + `RgcBasicTutorialEmbed.mount()` for **multiple** terminal instances per page. Guide: **`docs/tutorial-embedding.md`**. Example: `web/tutorial-example.html`. CI: `tests/wasm_tutorial_embed_test.py`, `make wasm-tutorial-test`.
+  * ~**IDE tool host (canvas WASM)**~ — **`basic_load_and_run_gfx_argline`** exported; **`ARG$(1)`** … for bundled **`.bas`** tools (e.g. PNG preview). Spec: **`docs/ide-wasm-tools.md`**. Host IDE still needs UI wiring (click `.png` → write MEMFS → call export).
   * ~**HTTP → MEMFS / binary I/O (for IDE tools & portable assets)**~ — **`HTTPFETCH url$, path$`** (WASM + Unix/`curl`), **`OPEN`** with **`"rb:"`/`"wb:"`/`"ab:"`**, **`PUTBYTE`/`GETBYTE`**. IDE can still **`FS.writeFile`** without interpreter changes. Notes: **`docs/http-vfs-assets.md`**.
   * **Still open — richer tutorial UX**: step-through debugging or synchronized markdown blocks (beyond Run button + static program text). ~Optional **`runOnEdit`** in `tutorial-embed.js`~ for debounced auto-run after edits.
 

@@ -2009,7 +2009,7 @@ static int palette_mode = PALETTE_ANSI;
 static int cursor_hidden = 0;
 static int petscii_lowercase_opt = 0;
 static int petscii_lowercase_cli = 0; /* Restored at each load_program so #OPTION can override per file. */
-/* 0 = C64 PETSCII ROM (default), 1 = Commodore PET 2K chargen (-charset pet-* / #OPTION charset). */
+/* 0 = C64 PETSCII ROM (default), 1 = PET-style alt glyphs from pet_*.64c (-charset pet-*). */
 static int charrom_family_opt = 0;
 static int charrom_family_cli = 0;
 /* Max string length (1..MAX_STR_LEN); default 4096; #OPTION maxstr 255 for C64 compatibility. */
@@ -10234,6 +10234,24 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
                                    (dir[7] == '\0' || dir[7] == ' ' || dir[7] == '\t')) {
                             p = scan;
                         }
+                    } else {
+                        /* "10 OPTION …" / "10 INCLUDE …" (no #) — same as #OPTION for loader */
+                        char *dir = scan;
+                        while (*dir == ' ' || *dir == '\t') {
+                            dir++;
+                        }
+                        if ((toupper((unsigned char)dir[0]) == 'O' && toupper((unsigned char)dir[1]) == 'P' &&
+                             toupper((unsigned char)dir[2]) == 'T' && toupper((unsigned char)dir[3]) == 'I' &&
+                             toupper((unsigned char)dir[4]) == 'O' && toupper((unsigned char)dir[5]) == 'N') &&
+                            (dir[6] == '\0' || dir[6] == ' ' || dir[6] == '\t')) {
+                            p = scan;
+                        } else if ((toupper((unsigned char)dir[0]) == 'I' && toupper((unsigned char)dir[1]) == 'N' &&
+                                    toupper((unsigned char)dir[2]) == 'C' && toupper((unsigned char)dir[3]) == 'L' &&
+                                    toupper((unsigned char)dir[4]) == 'U' && toupper((unsigned char)dir[5]) == 'D' &&
+                                    toupper((unsigned char)dir[6]) == 'E') &&
+                                   (dir[7] == '\0' || dir[7] == ' ' || dir[7] == '\t')) {
+                            p = scan;
+                        }
                     }
                 }
             }
@@ -10246,10 +10264,42 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
             continue;
         }
 
-        /* Meta directives: #OPTION, #INCLUDE */
-        if (p[0] == '#') {
-            *first_line_seen = 1;
-            p++;
+        /* Meta directives: #OPTION / #INCLUDE, or OPTION / INCLUDE (IDE / 8bitworkshop style, no #). */
+        {
+            int meta = 0;
+            if (p[0] == '#') {
+                *first_line_seen = 1;
+                p++;
+                while (*p == ' ' || *p == '\t') p++;
+                meta = 1;
+            } else {
+                char *q = p;
+                if (isdigit((unsigned char)*q)) {
+                    while (isdigit((unsigned char)*q)) q++;
+                    if (*q == ' ' || *q == '\t') {
+                        while (*q == ' ' || *q == '\t') q++;
+                    } else {
+                        q = NULL;
+                    }
+                }
+                if (q &&
+                    (((toupper((unsigned char)q[0]) == 'O' && toupper((unsigned char)q[1]) == 'P' &&
+                       toupper((unsigned char)q[2]) == 'T' && toupper((unsigned char)q[3]) == 'I' &&
+                       toupper((unsigned char)q[4]) == 'O' && toupper((unsigned char)q[5]) == 'N') &&
+                      (q[6] == '\0' || q[6] == ' ' || q[6] == '\t')) ||
+                     ((toupper((unsigned char)q[0]) == 'I' && toupper((unsigned char)q[1]) == 'N' &&
+                       toupper((unsigned char)q[2]) == 'C' && toupper((unsigned char)q[3]) == 'L' &&
+                       toupper((unsigned char)q[4]) == 'U' && toupper((unsigned char)q[5]) == 'D' &&
+                       toupper((unsigned char)q[6]) == 'E') &&
+                      (q[7] == '\0' || q[7] == ' ' || q[7] == '\t')))) {
+                    p = q;
+                    *first_line_seen = 1;
+                    meta = 1;
+                }
+            }
+            if (!meta) {
+                goto after_meta_directives;
+            }
             while (*p == ' ' || *p == '\t') p++;
             if ((toupper((unsigned char)p[0])=='O' && toupper((unsigned char)p[1])=='P' && toupper((unsigned char)p[2])=='T' && toupper((unsigned char)p[3])=='I' && toupper((unsigned char)p[4])=='O' && toupper((unsigned char)p[5])=='N') && (p[6]=='\0' || p[6]==' ' || p[6]=='\t')) {
                 char opt_name[64], opt_val[64];
@@ -10317,6 +10367,7 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
             exit(1);
         }
 
+after_meta_directives:
         *first_line_seen = 1;
 
         if (*use_explicit_numbers == -1) {
@@ -10367,6 +10418,29 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
                     free(linebuf);
                     exit(1);
                 }
+            } else if ((toupper((unsigned char)p[0])=='O' && toupper((unsigned char)p[1])=='P' && toupper((unsigned char)p[2])=='T' && toupper((unsigned char)p[3])=='I' && toupper((unsigned char)p[4])=='O' && toupper((unsigned char)p[5])=='N') && (p[6]=='\0' || p[6]==' ' || p[6]=='\t')) {
+                /* "10 OPTION charset pet-lower" (IDE style, no #) */
+                char opt_name[64], opt_val[64];
+                char *qq;
+                char *dir = p + 6;
+                while (*dir == ' ' || *dir == '\t') dir++;
+                qq = opt_name;
+                while (*dir && *dir != ' ' && *dir != '\t' && (size_t)(qq - opt_name) < sizeof(opt_name) - 1)
+                    *qq++ = (char)*dir++;
+                *qq = '\0';
+                while (*dir == ' ' || *dir == '\t') dir++;
+                qq = opt_val;
+                while (*dir && (size_t)(qq - opt_val) < sizeof(opt_val) - 1) *qq++ = (char)*dir++;
+                *qq = '\0';
+                while (qq > opt_val && (qq[-1] == ' ' || qq[-1] == '\t')) *--qq = '\0';
+                if (apply_option_directive(opt_name, opt_val[0] ? opt_val : NULL) != 0) {
+                    fprintf(stderr, "Unknown or invalid #OPTION: %s %s\n", opt_name, opt_val);
+                    fprintf(stderr, "  Hint: See #OPTION names in docs (e.g. columns, charset) and values.\n");
+                    free(linebuf);
+                    exit(1);
+                }
+                free(linebuf);
+                continue;
             }
             transformed = transform_basic_line(p);
             {
@@ -10932,6 +11006,102 @@ EMSCRIPTEN_KEEPALIVE void basic_load_and_run_gfx(const char *path)
     run_program(path, 0, NULL);
     wasm_gfx_refresh_js();
     EM_ASM({ if (typeof Module !== 'undefined') { Module['wasmGfxRunDone'] = 1; } });
+}
+
+/* Split a shell-like arg line into tokens (spaces; quoted runs preserve spaces).
+ * Writes NUL-terminated strings into pool; sets argv[0..argc-1]. Returns argc or -1 on overflow. */
+static int wasm_split_tool_arg_line(const char *argline, char *pool, size_t pool_sz,
+    char **argv, int argv_max)
+{
+    const char *p;
+    char *out;
+    char *pool_end;
+    char *tok_start;
+    int argc;
+
+    if (!argline) {
+        argline = "";
+    }
+    p = argline;
+    out = pool;
+    pool_end = pool + pool_sz;
+    argc = 0;
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') {
+        p++;
+    }
+    while (*p && argc < argv_max) {
+        tok_start = out;
+        if (*p == '"' || *p == '\'') {
+            char qch = *p++;
+            while (*p && *p != qch) {
+                if (out >= pool_end - 1) {
+                    return -1;
+                }
+                *out++ = (char)*p++;
+            }
+            if (*p == qch) {
+                p++;
+            }
+        } else {
+            while (*p && *p != ' ' && *p != '\t' && *p != '\r' && *p != '\n') {
+                if (out >= pool_end - 1) {
+                    return -1;
+                }
+                *out++ = (char)*p++;
+            }
+        }
+        if (out >= pool_end) {
+            return -1;
+        }
+        *out++ = '\0';
+        argv[argc++] = tok_start;
+        while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') {
+            p++;
+        }
+    }
+    if (*p && argc >= argv_max) {
+        return -1;
+    }
+    return argc;
+}
+
+/* Canvas WASM: load .bas from path, then run with trailing args (for IDE tools: ARG$(1) = asset path).
+ * argline format: same as argv after the program name, e.g. '"/tools/png_view.bas" "/preview.png"'
+ * or '/tools/png_view.bas /preview.png' (no spaces in paths).
+ * First token must be the .bas path (MEMFS), matching basic_load_and_run_gfx(path). */
+EMSCRIPTEN_KEEPALIVE int basic_load_and_run_gfx_argline(const char *argline)
+{
+#define WASM_TOOL_ARGV_MAX 32
+#define WASM_TOOL_POOL 4096
+    static char pool[WASM_TOOL_POOL];
+    char *argv[WASM_TOOL_ARGV_MAX];
+    int argc;
+    const char *bas_path;
+
+    argc = wasm_split_tool_arg_line(argline, pool, sizeof(pool), argv, WASM_TOOL_ARGV_MAX);
+    if (argc < 0) {
+        fprintf(stderr, "basic_load_and_run_gfx_argline: argument line too long or too many tokens\n");
+        return -1;
+    }
+    if (argc < 1) {
+        fprintf(stderr, "basic_load_and_run_gfx_argline: need at least program path\n");
+        fprintf(stderr, "  Hint: First token is the .bas file (e.g. /ide/png_view.bas), then ARG$(1), ...\n");
+        return -1;
+    }
+    bas_path = argv[0];
+    EM_ASM({ if (typeof Module !== 'undefined') { Module['wasmGfxRunDone'] = 0; } });
+    load_program(bas_path);
+    wasm_gfx_set_video();
+    if (argc == 1) {
+        run_program(bas_path, 0, NULL);
+    } else {
+        run_program(bas_path, argc - 1, argv + 1);
+    }
+    wasm_gfx_refresh_js();
+    EM_ASM({ if (typeof Module !== 'undefined') { Module['wasmGfxRunDone'] = 1; } });
+    return 0;
+#undef WASM_TOOL_ARGV_MAX
+#undef WASM_TOOL_POOL
 }
 #endif /* __EMSCRIPTEN__ */
 #endif /* GFX_VIDEO */
