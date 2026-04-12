@@ -1,15 +1,15 @@
 # IDE integration: RGC-BASIC canvas WASM as a tool host
 
-**Status:** WASM export implemented; IDE UI is up to the host application (e.g. 8bitworkshop fork).
+**Status:** WASM exports **`basic_load_and_run_gfx`** and **`basic_load_and_run_gfx_argline`** are implemented; IDE UI is up to the host application. Use **`HTTPFETCH`** when the tool should download an asset into MEMFS without JavaScript.
 
 ## Goal
 
-Use the **same** `basic-canvas.wasm` build to run small **utility programs** (image preview, asset validators, etc.) when the user selects a non-code file. The tool is a normal **`.bas`** file; the IDE passes **paths** as **command-line arguments**, exposed in BASIC as **`ARG$(1)`**, **`ARG$(2)`**, … (see below).
+Use the **`basic-canvas.wasm`** build to run small **utility programs** (image preview, asset validators, etc.) when the user selects a non-code file. The tool is a normal **`.bas`** file. The IDE can pass **paths** as **command-line arguments** (**`ARG$(1)`** …) via **`basic_load_and_run_gfx_argline`**, or write to a **fixed MEMFS path** and call **`basic_load_and_run_gfx`** alone.
 
 ## URL vs local paths (LOADSPRITE, OPEN, etc.)
 
 - **`LOADSPRITE`**, **`OPEN`**, and other file paths are resolved against the **Emscripten MEMFS** (and the sprite **base directory** for relative paths), i.e. **local/VFS paths** such as **`/preview.png`** or **`examples/foo.png`**.
-- **HTTP/HTTPS URLs are not** passed directly to `fopen` / PNG decode in the sprite path. To load from the network, use **`HTTP$("https://...")`** to fetch bytes, then (today) you would need to **`PRINT#`** to a VFS file or extend the runtime with a dedicated helper — **not** `LOADSPRITE "https://..."` out of the box.
+- **HTTP/HTTPS URLs are not** passed directly to `fopen` / PNG decode in the sprite path. To load from the network, use **`HTTPFETCH(url$, "/memfs/path.png")`** (binary-safe) or **`HTTP$`** for small text responses, then **`LOADSPRITE 1, "/memfs/path.png"`** — **not** `LOADSPRITE "https://..."` out of the box.
 
 ## BASIC API for tool arguments
 
@@ -20,15 +20,35 @@ Use the **same** `basic-canvas.wasm` build to run small **utility programs** (im
 | **`ARG$(2)`** | Second trailing argument. |
 | **`ARGC()`** | Number of trailing arguments (not including the program path). |
 
-Example tool snippet:
+Example tool snippet (IDE wrote **`/preview.png`** or passed it as **`ARG$(1)`**):
 
 ```basic
-REM First trailing arg = file to preview (IDE writes to MEMFS first)
+REM With argline: F$ = ARG$(1)
 F$ = ARG$(1)
 IF F$ = "" THEN PRINT "No file": END
 LOADSPRITE 1, F$
 REM ...
 ```
+
+## WASM entry point: `basic_load_and_run_gfx`
+
+The canvas build exports **`_basic_load_and_run_gfx`** (see **`Makefile`** `EXPORTED_FUNCTIONS`).
+
+**C signature:**
+
+```c
+void basic_load_and_run_gfx(const char *path);
+```
+
+Loads the **`.bas`** at **`path`** (MEMFS), initializes video, runs **`run_program`** with **no** extra arguments (`ARGC()` = 0), then sets **`Module.wasmGfxRunDone`**.
+
+### JavaScript usage
+
+```javascript
+Module.ccall('basic_load_and_run_gfx', null, ['string'], ['/ide/tools/png_view.bas']);
+```
+
+Use **`ccall`** with **`{ async: true }`** when using Asyncify (**`INPUT`**, **`HTTP$`**, **`HTTPFETCH`**, etc.).
 
 ## WASM entry point: `basic_load_and_run_gfx_argline`
 
@@ -43,7 +63,7 @@ int basic_load_and_run_gfx_argline(const char *argline);
 **Behaviour:**
 
 1. Parses **`argline`** into tokens (space-separated; **double- or single-quoted** tokens may contain spaces).
-2. **First token** = path to the **`.bas`** file (must exist on **MEMFS**, e.g. **`/ide/png_view.bas`**).
+2. **First token** = path to the **`.bas`** file (must exist on **MEMFS**).
 3. Remaining tokens = **`argv`** for **`run_program(bas_path, argc-1, argv+1)`**, so **`ARG$(1)`** = first extra token, etc.
 4. Calls **`load_program`**, **`wasm_gfx_set_video`**, **`run_program`**, then refreshes the canvas framebuffer.
 5. Returns **0** on success, **-1** on parse error (stderr hint).
@@ -62,28 +82,29 @@ int basic_load_and_run_gfx_argline(const char *argline);
 ```javascript
 const bas = '/ide/png_view.bas';
 const png = '/preview.png';
-// Ensure files exist on Module.FS (writeFile / copy from editor buffer)
 const rc = Module.ccall(
   'basic_load_and_run_gfx_argline',
   'number',
   ['string'],
-  ['"' + bas + '" "' + png + '"']  // or JSON-escape paths
+  ['"' + bas + '" "' + png + '"'],
+  { async: true }
 );
 ```
 
-Use **`ccall`** / **`cwrap`** with the **mangled** export name **`_basic_load_and_run_gfx_argline`** (Emscripten default).
+Use the **mangled** export name **`_basic_load_and_run_gfx_argline`** (Emscripten default).
 
 ## IDE workflow (recommended)
 
-1. **Bundle** tool programs under a fixed MEMFS prefix, e.g. **`/ide/tools/png_view.bas`**, at WASM startup (embed in JS or fetch once and `FS.writeFile`).
+1. **Bundle** tool programs under a fixed MEMFS prefix, e.g. **`/ide/tools/png_view.bas`**, at WASM startup (**`FS.writeFile`** / embed).
 2. When the user **opens a `.png`** (or other asset):
-   - Write bytes to a predictable path, e.g. **`/preview.png`** (or include a hash in the name for parallel tools).
-   - Call **`basic_load_and_run_gfx_argline`** with the tool **`.bas`** path and **`/preview.png`** as **`ARG$(1)`**.
+   - **Option A:** Write bytes to **`/preview.png`**, then **`basic_load_and_run_gfx_argline`** with the tool **`.bas`** and **`/preview.png`** as **`ARG$(1)`**.
+   - **Option B:** Run a tool that calls **`HTTPFETCH`** to download into MEMFS, then **`LOADSPRITE`** / **`OPEN`**.
 3. **Focus** the canvas for **`INKEY$`** / **`GET`** if the tool uses them.
-4. On **Stop** / **new file**, stop the run (`wasmStopRequested` / existing canvas controls) before launching another tool.
+4. On **Stop** / **new file**, use **`wasmStopRequested`** / existing canvas controls before launching another tool.
 
 ## Related
 
+- **`docs/http-vfs-assets.md`** — **`HTTPFETCH`**, binary **`OPEN`**, **`PUTBYTE`/`GETBYTE`**.
 - **`docs/tutorial-embedding.md`**, **`web/vfs-helpers.js`** — VFS upload patterns.
-- **`web/canvas.html`** — `basic_load_and_run_gfx`, pause/stop hooks.
-- **`CHANGELOG.md`** — entry for this export.
+- **`web/canvas.html`** — **`basic_load_and_run_gfx`**, pause/stop hooks.
+- **`CHANGELOG.md`** — **`basic_load_and_run_gfx_argline`**, **`HTTPFETCH`**.
