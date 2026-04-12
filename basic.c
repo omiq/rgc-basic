@@ -9891,6 +9891,24 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
                                    (dir[7] == '\0' || dir[7] == ' ' || dir[7] == '\t')) {
                             p = scan;
                         }
+                    } else {
+                        /* "10 OPTION …" / "10 INCLUDE …" (no #) — same as #OPTION for loader */
+                        char *dir = scan;
+                        while (*dir == ' ' || *dir == '\t') {
+                            dir++;
+                        }
+                        if ((toupper((unsigned char)dir[0]) == 'O' && toupper((unsigned char)dir[1]) == 'P' &&
+                             toupper((unsigned char)dir[2]) == 'T' && toupper((unsigned char)dir[3]) == 'I' &&
+                             toupper((unsigned char)dir[4]) == 'O' && toupper((unsigned char)dir[5]) == 'N') &&
+                            (dir[6] == '\0' || dir[6] == ' ' || dir[6] == '\t')) {
+                            p = scan;
+                        } else if ((toupper((unsigned char)dir[0]) == 'I' && toupper((unsigned char)dir[1]) == 'N' &&
+                                    toupper((unsigned char)dir[2]) == 'C' && toupper((unsigned char)dir[3]) == 'L' &&
+                                    toupper((unsigned char)dir[4]) == 'U' && toupper((unsigned char)dir[5]) == 'D' &&
+                                    toupper((unsigned char)dir[6]) == 'E') &&
+                                   (dir[7] == '\0' || dir[7] == ' ' || dir[7] == '\t')) {
+                            p = scan;
+                        }
                     }
                 }
             }
@@ -9903,10 +9921,42 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
             continue;
         }
 
-        /* Meta directives: #OPTION, #INCLUDE */
-        if (p[0] == '#') {
-            *first_line_seen = 1;
-            p++;
+        /* Meta directives: #OPTION / #INCLUDE, or OPTION / INCLUDE (IDE / 8bitworkshop style, no #). */
+        {
+            int meta = 0;
+            if (p[0] == '#') {
+                *first_line_seen = 1;
+                p++;
+                while (*p == ' ' || *p == '\t') p++;
+                meta = 1;
+            } else {
+                char *q = p;
+                if (isdigit((unsigned char)*q)) {
+                    while (isdigit((unsigned char)*q)) q++;
+                    if (*q == ' ' || *q == '\t') {
+                        while (*q == ' ' || *q == '\t') q++;
+                    } else {
+                        q = NULL;
+                    }
+                }
+                if (q &&
+                    (((toupper((unsigned char)q[0]) == 'O' && toupper((unsigned char)q[1]) == 'P' &&
+                       toupper((unsigned char)q[2]) == 'T' && toupper((unsigned char)q[3]) == 'I' &&
+                       toupper((unsigned char)q[4]) == 'O' && toupper((unsigned char)q[5]) == 'N') &&
+                      (q[6] == '\0' || q[6] == ' ' || q[6] == '\t')) ||
+                     ((toupper((unsigned char)q[0]) == 'I' && toupper((unsigned char)q[1]) == 'N' &&
+                       toupper((unsigned char)q[2]) == 'C' && toupper((unsigned char)q[3]) == 'L' &&
+                       toupper((unsigned char)q[4]) == 'U' && toupper((unsigned char)q[5]) == 'D' &&
+                       toupper((unsigned char)q[6]) == 'E') &&
+                      (q[7] == '\0' || q[7] == ' ' || q[7] == '\t')))) {
+                    p = q;
+                    *first_line_seen = 1;
+                    meta = 1;
+                }
+            }
+            if (!meta) {
+                goto after_meta_directives;
+            }
             while (*p == ' ' || *p == '\t') p++;
             if ((toupper((unsigned char)p[0])=='O' && toupper((unsigned char)p[1])=='P' && toupper((unsigned char)p[2])=='T' && toupper((unsigned char)p[3])=='I' && toupper((unsigned char)p[4])=='O' && toupper((unsigned char)p[5])=='N') && (p[6]=='\0' || p[6]==' ' || p[6]=='\t')) {
                 char opt_name[64], opt_val[64];
@@ -9974,6 +10024,7 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
             exit(1);
         }
 
+after_meta_directives:
         *first_line_seen = 1;
 
         if (*use_explicit_numbers == -1) {
@@ -10024,6 +10075,29 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
                     free(linebuf);
                     exit(1);
                 }
+            } else if ((toupper((unsigned char)p[0])=='O' && toupper((unsigned char)p[1])=='P' && toupper((unsigned char)p[2])=='T' && toupper((unsigned char)p[3])=='I' && toupper((unsigned char)p[4])=='O' && toupper((unsigned char)p[5])=='N') && (p[6]=='\0' || p[6]==' ' || p[6]=='\t')) {
+                /* "10 OPTION charset pet-lower" (IDE style, no #) */
+                char opt_name[64], opt_val[64];
+                char *qq;
+                char *dir = p + 6;
+                while (*dir == ' ' || *dir == '\t') dir++;
+                qq = opt_name;
+                while (*dir && *dir != ' ' && *dir != '\t' && (size_t)(qq - opt_name) < sizeof(opt_name) - 1)
+                    *qq++ = (char)*dir++;
+                *qq = '\0';
+                while (*dir == ' ' || *dir == '\t') dir++;
+                qq = opt_val;
+                while (*dir && (size_t)(qq - opt_val) < sizeof(opt_val) - 1) *qq++ = (char)*dir++;
+                *qq = '\0';
+                while (qq > opt_val && (qq[-1] == ' ' || qq[-1] == '\t')) *--qq = '\0';
+                if (apply_option_directive(opt_name, opt_val[0] ? opt_val : NULL) != 0) {
+                    fprintf(stderr, "Unknown or invalid #OPTION: %s %s\n", opt_name, opt_val);
+                    fprintf(stderr, "  Hint: See #OPTION names in docs (e.g. columns, charset) and values.\n");
+                    free(linebuf);
+                    exit(1);
+                }
+                free(linebuf);
+                continue;
             }
             transformed = transform_basic_line(p);
             {
