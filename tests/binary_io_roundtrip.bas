@@ -1,0 +1,12 @@
+10 REM Native: binary OPEN prefix + PUTBYTE/GETBYTE round-trip
+20 OPEN 1,1,1,"wb:bin_io_test.tmp"
+30 PUTBYTE #1, 65
+40 PUTBYTE #1, 255
+50 CLOSE 1
+60 OPEN 2,1,0,"rb:bin_io_test.tmp"
+70 GETBYTE #2, B1
+80 GETBYTE #2, B2
+90 CLOSE 2
+100 IF B1 <> 65 OR B2 <> 255 THEN PRINT "BINIO_BAD": END
+110 PRINT "BINIO_OK"
+120 END
