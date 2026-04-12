@@ -237,6 +237,7 @@ Printable and graphics PETSCII codes are mapped to Unicode (e.g. £ ↑ ←, box
 output nothing (invisible, like on a real C64), and only printable/graphics bytes produce
 visible characters. Use this when you need strict one-character-per-column alignment (e.g.
 viewing .seq files or pasting output into a fixed-width editor).
+- **In source files**, charset and other interpreter toggles use **`#OPTION name value`** (hash). The **8bitworkshop** IDE also emits **`OPTION name value`** without `#` — RGC-BASIC accepts both (e.g. **`#OPTION charset pet-lower`** or **`OPTION CHARSET PET-LOWER`** on a line).
 - `-charset …`: choose the PETSCII **character set** used for rendering letters in `-petscii` mode, and (in **basic-gfx** / **canvas WASM**) which **8×8 glyph table** fills the virtual charset RAM (**same screen-code layout as the C64** in all cases; only the bitmap bytes differ for `pet-*`):
   - **C64 (default):** `upper` / `uc` / `c64-upper` — uppercase/graphics; `lower` / `lc` / `c64-lower` — lowercase/uppercase (matches **VICE** / stock C64 ROM — use this to match the IDE’s **C64** platform).
   - **PET-style alternate font** (from **`pet_uppercase.64c`** / **`pet_lowercase.64c`** in the repo — the “custom charset” / PET-like look on **C64**, not the physical **PET 2001** hardware ROM): `pet-upper` / `pet-graphics`; `pet-lower` / `pet-text`. Same `#OPTION charset …` names.
