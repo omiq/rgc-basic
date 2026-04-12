@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **Canvas WASM IDE tools — `basic_load_and_run_gfx_argline`:** New export parses a single **`argline`** (quoted tokens allowed); **first token** = **`.bas`** path on MEMFS; rest = **`ARG$(1)`** … for **`run_program`**. Use from the IDE to pass asset paths (e.g. PNG preview). Spec: **`docs/ide-wasm-tools.md`**.
+
 - **Loader: `OPTION` / `INCLUDE` without `#`:** Meta lines are accepted as **`OPTION …`** / **`INCLUDE …`** (same as **`#OPTION`** / **`#INCLUDE`**) for **numbered** and **unnumbered** programs — matches the Retro Game Coders **8bitworkshop** IDE style and avoids **`Expected '='`** when using e.g. **`10 OPTION CHARSET PET-LOWER`**.
 
 - **PET-style vs C64 character ROM (basic-gfx + canvas WASM):** **`GfxVideoState.charrom_family`** selects the built-in **C64** glyph tables (default) or alternate **8×8 bitmaps** in **`pet_uppercase.64c`** / **`pet_lowercase.64c`** (same **256 screen-code order** as the C64 font; only pixel data changes — matches the “PET feel” custom charset on **C64** in the Retro Game Coders IDE). Not the physical **PET 2001** 2K chargen. CLI / **`#OPTION`**: **`pet-upper`** / **`pet-graphics`**, **`pet-lower`** / **`pet-text`**; **`c64-upper`** / **`c64-lower`** for stock C64 ROMs. Each **`load_program`** restores charset options from the CLI baseline. **`tests/gfx_video_test`**: C64 vs PET-style glyph **0** differ when **`charrom_family`** is set.

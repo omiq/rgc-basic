@@ -10664,6 +10664,102 @@ EMSCRIPTEN_KEEPALIVE void basic_load_and_run_gfx(const char *path)
     wasm_gfx_refresh_js();
     EM_ASM({ if (typeof Module !== 'undefined') { Module['wasmGfxRunDone'] = 1; } });
 }
+
+/* Split a shell-like arg line into tokens (spaces; quoted runs preserve spaces).
+ * Writes NUL-terminated strings into pool; sets argv[0..argc-1]. Returns argc or -1 on overflow. */
+static int wasm_split_tool_arg_line(const char *argline, char *pool, size_t pool_sz,
+    char **argv, int argv_max)
+{
+    const char *p;
+    char *out;
+    char *pool_end;
+    char *tok_start;
+    int argc;
+
+    if (!argline) {
+        argline = "";
+    }
+    p = argline;
+    out = pool;
+    pool_end = pool + pool_sz;
+    argc = 0;
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') {
+        p++;
+    }
+    while (*p && argc < argv_max) {
+        tok_start = out;
+        if (*p == '"' || *p == '\'') {
+            char qch = *p++;
+            while (*p && *p != qch) {
+                if (out >= pool_end - 1) {
+                    return -1;
+                }
+                *out++ = (char)*p++;
+            }
+            if (*p == qch) {
+                p++;
+            }
+        } else {
+            while (*p && *p != ' ' && *p != '\t' && *p != '\r' && *p != '\n') {
+                if (out >= pool_end - 1) {
+                    return -1;
+                }
+                *out++ = (char)*p++;
+            }
+        }
+        if (out >= pool_end) {
+            return -1;
+        }
+        *out++ = '\0';
+        argv[argc++] = tok_start;
+        while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') {
+            p++;
+        }
+    }
+    if (*p && argc >= argv_max) {
+        return -1;
+    }
+    return argc;
+}
+
+/* Canvas WASM: load .bas from path, then run with trailing args (for IDE tools: ARG$(1) = asset path).
+ * argline format: same as argv after the program name, e.g. '"/tools/png_view.bas" "/preview.png"'
+ * or '/tools/png_view.bas /preview.png' (no spaces in paths).
+ * First token must be the .bas path (MEMFS), matching basic_load_and_run_gfx(path). */
+EMSCRIPTEN_KEEPALIVE int basic_load_and_run_gfx_argline(const char *argline)
+{
+#define WASM_TOOL_ARGV_MAX 32
+#define WASM_TOOL_POOL 4096
+    static char pool[WASM_TOOL_POOL];
+    char *argv[WASM_TOOL_ARGV_MAX];
+    int argc;
+    const char *bas_path;
+
+    argc = wasm_split_tool_arg_line(argline, pool, sizeof(pool), argv, WASM_TOOL_ARGV_MAX);
+    if (argc < 0) {
+        fprintf(stderr, "basic_load_and_run_gfx_argline: argument line too long or too many tokens\n");
+        return -1;
+    }
+    if (argc < 1) {
+        fprintf(stderr, "basic_load_and_run_gfx_argline: need at least program path\n");
+        fprintf(stderr, "  Hint: First token is the .bas file (e.g. /ide/png_view.bas), then ARG$(1), ...\n");
+        return -1;
+    }
+    bas_path = argv[0];
+    EM_ASM({ if (typeof Module !== 'undefined') { Module['wasmGfxRunDone'] = 0; } });
+    load_program(bas_path);
+    wasm_gfx_set_video();
+    if (argc == 1) {
+        run_program(bas_path, 0, NULL);
+    } else {
+        run_program(bas_path, argc - 1, argv + 1);
+    }
+    wasm_gfx_refresh_js();
+    EM_ASM({ if (typeof Module !== 'undefined') { Module['wasmGfxRunDone'] = 1; } });
+    return 0;
+#undef WASM_TOOL_ARGV_MAX
+#undef WASM_TOOL_POOL
+}
 #endif /* __EMSCRIPTEN__ */
 #endif /* GFX_VIDEO */
 
