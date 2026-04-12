@@ -109,10 +109,12 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
   - `MEMSET addr, len, val` / `MEMCPY dest, src, len`: (basic-gfx only) fill or copy bytes in virtual memory. Terminal build reports an error.
   - `CLR`: resets all variables to 0/empty, clears GOSUB/FOR stacks and DATA pointer; DEF FN definitions are kept.
   - **File I/O (CBM-style)**:
-    - `OPEN lfn, device, secondary, "filename"` — open a file (device 1 = disk/file; secondary 0 = read, 1 = write, 2 = append). Filename is a path in the current directory.
+    - `OPEN lfn, device, secondary, "filename"` — open a file (device **1** = disk/file; secondary 0 = read, 1 = write, 2 = append). Filename is a path in the current directory. For **binary** mode, prefix the path: `"rb:path"`, `"wb:path"`, or `"ab:path"` (e.g. `OPEN 1,1,0,"rb:data.bin"`).
     - `PRINT# lfn, expr [,|; expr ...]` — write to the open file (like `PRINT` to file).
     - `INPUT# lfn, var [, var ...]` — read from the open file into variables (one token per variable; comma/newline separated).
     - `GET# lfn, stringvar` — read one character from the file into a string variable.
+    - `PUTBYTE #lfn, expr` — write one byte (0–255) to a binary-open channel.
+    - `GETBYTE #lfn, numericvar` — read one byte into a **numeric** variable (0–255, or **-1** at EOF).
     - `CLOSE [lfn [, lfn ...]]` — close file(s); `CLOSE` with no arguments closes all.
     - `ST` — system variable set after `INPUT#`/`GET#`: 0 = success, 64 = end of file, 1 = error / file not open. Use e.g. `IF ST <> 0 THEN GOTO done`.
 - **Variables**
@@ -151,7 +153,8 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
     - `ARG$(n)` — returns the *n*th argument as a string. `ARG$(0)` is the script path; `ARG$(1)` … `ARG$(ARGC())` are the arguments. Out-of-range returns `""`.
     - `SYSTEM(cmd$)`** — runs a shell command (e.g. `SYSTEM("ls -l")`), waits for it to finish, and returns its exit status (0 = success).
     - `EXEC$(cmd$)` — runs a shell command and returns its standard output as a string (up to 255 characters; trailing newline trimmed). Use for scripting (e.g. `U$ = EXEC$("whoami")`).
-    - **Browser WASM only**: `HTTP$(url$ [, method$ [, body$]])` — `fetch` the URL; returns response body as a string. `HTTP(url$)` without `$` is the same call. `HTTPSTATUS()` — last HTTP status from `HTTP$` (0 if the request failed). Outside the Emscripten build, `HTTP$` returns `""` (use `EXEC$` with `curl` on native). APIs must allow **CORS** from your page origin. See `examples/http_time_london.bas`.
+    - **Browser WASM only**: `HTTP$(url$ [, method$ [, body$]])` — `fetch` the URL; returns response body as a string. `HTTP(url$)` without `$` is the same call. `HTTPSTATUS()` — last HTTP status from `HTTP$` / `HTTPFETCH` (0 if the request failed). Outside the Emscripten build, `HTTP$` returns `""` (use `EXEC$` with `curl` on native). APIs must allow **CORS** from your page origin. See `examples/http_time_london.bas`.
+    - **`HTTPFETCH(url$, path$ [, method$ [, body$]])`** — **browser WASM**: downloads the response body to a **MEMFS path** (binary-safe; avoids `MAXSTR`). Returns the HTTP status code; use `HTTPSTATUS()` for the same value. **Unix native**: if `curl` is on `PATH`, writes to `path$` and returns the status (GET only). Otherwise returns `0`.
 
 ### Additional/Non-Standard BASIC Commands
 
