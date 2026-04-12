@@ -85,6 +85,7 @@
   * ~**Deploy hygiene**~ — `canvas.html` pairs cache-bust query on `basic-canvas.js` and `basic-canvas.wasm`; optional `?debug=1` for console diagnostics (`wasm_canvas_build_stamp`, stack dumps).
   * ~**Tutorial embedding**~ — `make basic-wasm-modular`; `web/tutorial-embed.js` + `RgcBasicTutorialEmbed.mount()` for **multiple** terminal instances per page. Guide: **`docs/tutorial-embedding.md`**. Example: `web/tutorial-example.html`. CI: `tests/wasm_tutorial_embed_test.py`, `make wasm-tutorial-test`.
   * ~**IDE tool host (canvas WASM)**~ — **`basic_load_and_run_gfx_argline`** exported; **`ARG$(1)`** … for bundled **`.bas`** tools (e.g. PNG preview). Spec: **`docs/ide-wasm-tools.md`**. Host IDE still needs UI wiring (click `.png` → write MEMFS → call export).
+  * **HTTP → MEMFS / binary I/O (for IDE tools & portable assets)** — Not started. **`HTTP$`** as a string is poor for large PNGs; **`PRINT#`** is not binary-safe. Recommend **fetch-to-file** (`HTTPFETCH`-style) + **`OPEN` binary** / **byte I/O**; IDE can still **`FS.writeFile`** without interpreter changes. Design notes: **`docs/http-vfs-assets.md`**.
   * **Still open — richer tutorial UX**: step-through debugging or synchronized markdown blocks (beyond Run button + static program text). ~Optional **`runOnEdit`** in `tutorial-embed.js`~ for debounced auto-run after edits.
 
 * ~~Subroutines and Functions~~
