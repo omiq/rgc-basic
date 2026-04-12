@@ -161,6 +161,34 @@ def main() -> int:
                 timeout=120000,
             )
 
+            # HTTPFETCH + binary OPEN/GETBYTE (MEMFS)
+            fetch_prog = (
+                '10 U$ = "http://127.0.0.1:%d/wasm_httpfetch_test.bin"\n'
+                '20 P$ = "/fetch_test.bin"\n'
+                "30 S = HTTPFETCH(U$, P$)\n"
+                "40 IF HTTPSTATUS() <> 200 THEN PRINT \"BADSTATUS\"; HTTPSTATUS() : END\n"
+                '50 OPEN 1,1,0,"rb:/fetch_test.bin"\n'
+                "60 GETBYTE #1, B1\n"
+                "70 GETBYTE #1, B2\n"
+                "80 GETBYTE #1, B3\n"
+                "90 GETBYTE #1, B4\n"
+                "100 GETBYTE #1, B5\n"
+                "110 CLOSE 1\n"
+                "120 IF B1<>1 OR B2<>2 OR B3<>3 OR B4<>4 OR B5<>255 THEN PRINT \"BYTEBAD\"; B1; B2; B3; B4; B5 : END\n"
+                '130 PRINT "FETCH_BYTES_OK"\n'
+                "140 END\n"
+            ) % port
+            page.fill("#program", fetch_prog)
+            _click_run(page)
+            try:
+                page.wait_for_function(
+                    "() => (document.getElementById('output').textContent || '').includes('FETCH_BYTES_OK')",
+                    timeout=120000,
+                )
+            except Exception:
+                out = page.text_content("#output") or ""
+                raise RuntimeError(f"HTTPFETCH/GETBYTE test failed; output={out!r}") from None
+
             browser.close()
     finally:
         httpd.shutdown()
