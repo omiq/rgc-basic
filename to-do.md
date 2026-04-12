@@ -54,6 +54,12 @@
   - **Front-ends:** window / framebuffer height becomes **rows×8** (50 rows → **400** px tall vs today’s **200**); WASM RGBA size and any hard-coded **200** in `canvas.html` / JS must track **rows**.
   - **Difficulty:** **moderate** — dozens of touch points across the interpreter and both renderers, but **bounded**; implementing **40×50** first is **materially simpler** than fully general **rows × columns** with a larger RAM model.
 
+* **VGA-style 640×480 addressable pixels** — *idea; not started.* Goal: a **screen** / mode where the composited output is a **true 640×480** pixel surface (late-80s / early-90s **IBM PC VGA** feel), not merely **upscaling** the current **640×200** (80×25×8) framebuffer in the window.
+  - **Distinct from:** “640×480 window” that **stretches or letterboxes** existing **640×200** content — that would be **low–moderate** effort (presentation only).
+  - **This idea:** **every pixel** in **640×480** is a first-class drawing target — implies rethinking **text grid** (e.g. **80×60** at **8×8** cells, or non-8×8 metrics), **hires bitmap** (today **`GFX_BITMAP_*`** is **320×200** 1bpp), **sprites** (positioning, clipping, z-order), **`SCROLL`**, borders, and **WASM RGBA** buffer size (**640×480×4 ≈ 1.2 MiB** per full frame vs today’s **640×200×4**).
+  - **Overlaps:** configurable **`rows`** / larger **`GFX_TEXT_SIZE`**, possible **separate “VGA mode”** vs **C64-compat** mode so existing programs stay predictable.
+  - **Difficulty:** **high** — cross-cutting; comparable to a **new display preset** plus buffer growth and renderer work in **basic-gfx**, **canvas WASM**, and any **POKE/PEEK** semantics if video memory is exposed.
+
 * PETSCII symbols & graphics
   * ~Unicode stand-ins~
   * ~Bitmap rendering of 40×25 characters (raylib)~ — **basic-gfx** merged to main.
