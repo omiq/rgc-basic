@@ -60,6 +60,8 @@
   - **Overlaps:** configurable **`rows`** / larger **`GFX_TEXT_SIZE`**, possible **separate “VGA mode”** vs **C64-compat** mode so existing programs stay predictable.
   - **Difficulty:** **high** — cross-cutting; comparable to a **new display preset** plus buffer growth and renderer work in **basic-gfx**, **canvas WASM**, and any **POKE/PEEK** semantics if video memory is exposed.
 
+* **Sample sound playback (basic-gfx + canvas WASM only)** — *idea; not started.* Design: **`docs/rgc-sound-sample-spec.md`**. MVP: **single voice** (new **`PLAYSOUND`** stops previous), **`LOADSOUND` / `UNLOADSOUND` / `PLAYSOUND` / `STOPSOUND` / `PAUSESOUND` / `RESUMESOUND` / `SOUNDVOL`**, **`SOUNDPLAYING()`**; **non-blocking** gameplay; **WAV (PCM)** first; native **Raylib** with **command queue** from interpreter thread to main loop; **Web Audio** on WASM + **VFS** paths. **Difficulty:** **moderate** (native) to **moderate–high** (+ WASM); terminal build out of scope.
+
 * PETSCII symbols & graphics
   * ~Unicode stand-ins~
   * ~Bitmap rendering of 40×25 characters (raylib)~ — **basic-gfx** merged to main.
