@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **Documentation:** **`docs/wordpress-canvas-embed.md`** — embedding **canvas WASM** (sprites, **`SCREEN 1`**) in WordPress: iframe **`canvas.html`**, custom HTML, vs terminal-only plugin; links to **`docs/ide-retrogamecoders-canvas-integration.md`** and **`docs/wasm-assets-loadsprite-http.md`**.
+
 - **Documentation:** **`docs/wasm-assets-loadsprite-http.md`** — why **`LOADSPRITE`** cannot use **`https://`** URLs; **`HTTPFETCH`** to MEMFS; CORS; JS **`FS.writeFile`**; canvas vs terminal embeds. Linked from **`docs/http-vfs-assets.md`** and **`web/README.md`**.
 
 - **WASM `HTTP$` / `HTTPFETCH`:** Before Asyncify **`fetch`**, flush **canvas** framebuffer to JS (**`wasm_gfx_refresh_js`**) or **terminal** stdout buffer (**`BEFORE_CSTDIO`**) and **`emscripten_sleep(0)`** so **`PRINT`** output (e.g. headers) is visible before the network call blocks.
