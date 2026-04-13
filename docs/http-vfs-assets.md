@@ -59,5 +59,6 @@ This document records **whether** and **how** the language supports **portable**
 
 ## Related
 
+- **`docs/wasm-assets-loadsprite-http.md`** — **`LOADSPRITE`** cannot use **`https://`** URLs; use **`HTTPFETCH`** to MEMFS or host **`FS.writeFile`** (embeds, WordPress, tutorials).
 - **`docs/ide-wasm-tools.md`** — **`basic_load_and_run_gfx`**, **`basic_load_and_run_gfx_argline`**, **`ARG$`**, MEMFS.
 - **`web/README.md`** — **`HTTP$`**, **`HTTPFETCH`**, Asyncify, CORS.
