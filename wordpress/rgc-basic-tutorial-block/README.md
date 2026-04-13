@@ -35,6 +35,8 @@ cd wordpress/rgc-basic-tutorial-block
 ./copy-web-assets.sh /path/to/rgc-basic
 ```
 
+The script copies **`web/`** WASM/JS, **`assets/js/gfx-embed-mount.js`**, and syncs **`build/`** from the repo (**`block-editor.js`**, **`gfx-block-editor.js`**, **`frontend-init.js`**, **`frontend-gfx-init.js`**, **`block-frontend.css`**) so FTP uploads always include the latest Gutenberg editor files.
+
 Or manually copy into `assets/wasm/`:
 
 - `web/basic-modular.js`

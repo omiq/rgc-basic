@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **`copy-web-assets.sh`:** After copying WASM/JS, syncs **`wordpress/rgc-basic-tutorial-block/build/`** from **`$REPO`** (**`gfx-block-editor.js`**, **`block-editor.js`**, front-end inits, CSS) so deploys include renamed GFX editor script without manual FTP of **`build/`**.
+
 - **WordPress plugin 1.2.6:** Renamed **`build/block-editor-gfx.js`** → **`build/gfx-block-editor.js`** — FTP had often left **`block-editor-gfx.js`** as a duplicate of **`block-editor.js`** (wrong **`registerBlockType`**), and Cloudflare cached **`max-age=31536000`**. New filename + comment guard; purge CDN after deploy. Bootstrap file may be **`rgc-basic-blocks.php`** (same code as historical **`rgc-basic-tutorial-block.php`**).
 
 - **WordPress plugin 1.2.1:** **`enqueue_block_editor_assets`** now calls **`wp_enqueue_script`** for **`rgc-basic-tutorial-block-editor`** and **`rgc-basic-tutorial-block-editor-gfx`** so the GFX editor script always loads in Gutenberg (fixes missing second block when **`block-gfx.json`** on server was outdated or PHP opcode cache served old registration).
