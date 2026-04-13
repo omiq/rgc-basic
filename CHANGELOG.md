@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **WordPress plugin 1.2.1:** **`enqueue_block_editor_assets`** now calls **`wp_enqueue_script`** for **`rgc-basic-tutorial-block-editor`** and **`rgc-basic-tutorial-block-editor-gfx`** so **`block-editor-gfx.js`** always loads in Gutenberg (fixes missing second block when **`block-gfx.json`** on server was outdated or PHP opcode cache served old registration).
+
 - **WordPress plugin 1.2.0:** Split editor scripts: **`build/block-editor-gfx.js`** registers **`rgc-basic/gfx-embed`**; **`block-gfx.json`** uses **`editorScript`** `rgc-basic-tutorial-block-editor-gfx`. Avoids missing second block when an old cached **`block-editor.js`** was uploaded without the combined two-block file.
 
 - **WordPress plugin:** **`assets/js/gfx-embed-mount.js`** was listed in **`.gitignore`** under **`assets/js/*`**, so it never existed in the remote repo after **`git pull`** — fixed by un-ignoring that file and adding it to version control.
