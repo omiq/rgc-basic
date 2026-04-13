@@ -1,6 +1,9 @@
 # RGC-BASIC Tutorial Embed (WordPress plugin)
 
-Gutenberg block **RGC-BASIC embed** (`rgc-basic/tutorial-embed`) that loads `tutorial-embed.js`, `vfs-helpers.js`, and (from your site) `basic-modular.js` + `basic-modular.wasm`.
+Two Gutenberg blocks:
+
+- **RGC-BASIC embed** (`rgc-basic/tutorial-embed`) — terminal WASM: `tutorial-embed.js`, `vfs-helpers.js`, and `basic-modular.js` + `basic-modular.wasm`.
+- **RGC-BASIC GFX embed** (`rgc-basic/gfx-embed`) — canvas / sprites: `gfx-embed-mount.js`, `vfs-helpers.js`, and `basic-canvas.js` + `basic-canvas.wasm` (same **WASM base URL** as the terminal build).
 
 ## Install
 
@@ -21,11 +24,15 @@ Or manually copy into `assets/wasm/`:
 
 - `web/basic-modular.js`
 - `web/basic-modular.wasm`
+- `web/basic-canvas.js` (GFX block)
+- `web/basic-canvas.wasm` (GFX block; run `make basic-wasm-canvas` in the repo)
 
 And into `assets/js/` (or re-run the script):
 
 - `web/tutorial-embed.js`
 - `web/vfs-helpers.js`
+
+The repo ships `assets/js/gfx-embed-mount.js` in the plugin (no copy from `web/` required).
 
 ## Custom WASM URL
 
@@ -41,13 +48,19 @@ add_filter( 'rgc_basic_tutorial_wasm_base_url', function () {
 
 ## Block options
 
-Stored as block attributes: `program`, `showEditor`, `showPauseStop`, `showVfsTools`, `editorMinHeight`, `outputMinHeight`. The PHP render callback passes them to `RgcBasicTutorialEmbed.mount` (with `baseUrl`).
+**Terminal embed** — attributes: `program`, `showEditor`, `showPauseStop`, `showVfsTools`, `editorMinHeight`, `outputMinHeight`. The PHP render callback passes them to `RgcBasicTutorialEmbed.mount` (with `baseUrl`).
+
+**GFX embed** — attributes: `program`, `showEditor`, `showControls` (Run / Pause / Stop / Zoom), `showFullscreen`, `showVfsTools`, optional `posterImageUrl` (centered **Run** defers WASM load until click), and `interpreterFlags` (passed to `basic_apply_arg_string`). The render callback outputs JSON for `RgcBasicGfxEmbed.mount` (with `wasmBaseUrl`).
 
 Filter for advanced cases:
 
 ```php
 add_filter( 'rgc_basic_tutorial_embed_options', function ( $opts, $attributes, $block ) {
     // e.g. $opts['flags'] = '-petscii -palette ansi -charset upper';
+    return $opts;
+}, 10, 3 );
+
+add_filter( 'rgc_basic_gfx_embed_options', function ( $opts, $attributes, $block ) {
     return $opts;
 }, 10, 3 );
 ```
@@ -57,11 +70,16 @@ add_filter( 'rgc_basic_tutorial_embed_options', function ( $opts, $attributes, $
 | Path | Role |
 |------|------|
 | `rgc-basic-tutorial-block.php` | Plugin bootstrap, enqueue, render callback, settings |
-| `block.json` | Block metadata + attributes |
-| `build/block-editor.js` | Block editor UI |
+| `block.json` | Terminal block metadata + attributes |
+| `block-gfx.json` | GFX block metadata + attributes |
+| `build/block-editor.js` | Block editor UI (both blocks) |
 | `build/frontend-init.js` | Finds configs and calls `RgcBasicTutorialEmbed.mount` |
+| `build/frontend-gfx-init.js` | Finds configs and calls `RgcBasicGfxEmbed.mount` |
+| `assets/js/gfx-embed-mount.js` | Canvas WASM shell (from `canvas.html` logic) |
 | `build/block-frontend.css` | Light wrapper spacing |
 | `assets/js/` | Copied from repo `web/` |
 | `assets/wasm/` | Copied modular build output |
 
 See also [tutorial-embedding.md](../../docs/tutorial-embedding.md) in the main repository.
+
+**Canvas / sprites / `SCREEN 1`:** Use the **RGC-BASIC GFX embed** block, or see **[`docs/wordpress-canvas-embed.md`](../../docs/wordpress-canvas-embed.md)** for iframe and custom HTML options.
