@@ -65,3 +65,5 @@ add_filter( 'rgc_basic_tutorial_embed_options', function ( $opts, $attributes, $
 | `assets/wasm/` | Copied modular build output |
 
 See also [tutorial-embedding.md](../../docs/tutorial-embedding.md) in the main repository.
+
+**Canvas / sprites / `SCREEN 1`:** This block uses the **terminal** WASM build only. For **`LOADSPRITE`**, **`basic-canvas.wasm`**, and **`canvas.html`**-style embeds in WordPress, see **[`docs/wordpress-canvas-embed.md`](../../docs/wordpress-canvas-embed.md)**.
