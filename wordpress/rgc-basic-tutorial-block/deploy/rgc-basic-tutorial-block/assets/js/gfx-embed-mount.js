@@ -67,6 +67,211 @@
     return sharedRuntime.initPromise;
   }
 
+  /* ------------------------------------------------------------------ *
+   *  BASIC syntax highlighter (twin-overlay technique).
+   *  A <pre><code> sits behind a transparent <textarea>; on every input
+   *  we re-render the highlighted HTML and sync scroll position.
+   * ------------------------------------------------------------------ */
+  var BASIC_KEYWORDS = [
+    'IF','THEN','ELSE','ELSEIF','ENDIF','END','FOR','TO','STEP','NEXT',
+    'GOTO','GOSUB','RETURN','PRINT','INPUT','LET','DIM','REM','WHILE',
+    'WEND','DO','LOOP','UNTIL','REPEAT','DATA','READ','RESTORE','DEF',
+    'FN','ON','OFF','AS','OPEN','CLOSE','GET','PUT','CLS','CLR','POKE',
+    'PEEK','WAIT','SYS','STOP','CONT','RUN','NEW','LIST','RANDOMIZE',
+    'CONTINUE','EXIT','BREAK','SELECT','CASE','SUB','ENDSUB','CALL',
+    'FUNCTION','ENDFUNCTION','GLOBAL','LOCAL','STATIC','OPTION','SWAP'
+  ];
+  var BASIC_FUNCS = [
+    'ABS','ASC','ATN','CHR\\$','COS','EXP','INT','LEN','LOG','MID\\$',
+    'LEFT\\$','RIGHT\\$','RND','SGN','SIN','SPC','STR\\$','SQR','TAB',
+    'TAN','VAL','HTTP\\$','HTTPSTATUS','EXEC\\$','TIME','TIME\\$',
+    'DATE\\$','INKEY\\$','GETKEY\\$','POS','USR','FRE','HEX\\$','OCT\\$',
+    'BIN\\$','INSTR','UCASE\\$','LCASE\\$','TRIM\\$','LTRIM\\$','RTRIM\\$',
+    'SPACE\\$','STRING\\$','ATN2','CEIL','FLOOR','ROUND','POW','MOD',
+    'MIN','MAX','PI'
+  ];
+  var BASIC_OPS = ['AND','OR','NOT','XOR','MOD'];
+  var KW_RE   = new RegExp('\\b(' + BASIC_KEYWORDS.join('|') + ')\\b', 'gi');
+  var FN_RE   = new RegExp('\\b(' + BASIC_FUNCS.join('|') + ')(?=\\s*\\()', 'gi');
+  var OP_RE   = new RegExp('\\b(' + BASIC_OPS.join('|') + ')\\b', 'gi');
+  var NUM_RE  = /\b(\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?\b/g;
+  var LINENO_RE = /^(\s*)(\d+)(?=\s)/;
+  var VAR_RE  = /\b[A-Za-z_][A-Za-z0-9_]*\$?/g; // only used to not reclassify keywords
+
+  function escapeHtml(s) {
+    return s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  /**
+   * Tokenise a single line, respecting strings, comments and {petscii} escapes.
+   * Returns safe HTML with <span class="tok-*"> wrappers.
+   */
+  function highlightLine(line) {
+    // Fast path: empty line keeps layout height via \u200B (zero-width space).
+    if (line.length === 0) return '\u200B';
+
+    var out = '';
+    var i = 0;
+    var len = line.length;
+
+    // Leading line number.
+    var m = LINENO_RE.exec(line);
+    if (m) {
+      out += m[1] + '<span class="tok-lineno">' + m[2] + '</span>';
+      i = m[0].length;
+    }
+
+    while (i < len) {
+      var c = line.charAt(i);
+
+      // Comment: REM ... to end of line, or ' ... to end of line.
+      if (c === "'" ) {
+        out += '<span class="tok-comment">' + escapeHtml(line.slice(i)) + '</span>';
+        break;
+      }
+      if ((c === 'R' || c === 'r') &&
+          /^rem\b/i.test(line.slice(i))) {
+        out += '<span class="tok-comment">' + escapeHtml(line.slice(i)) + '</span>';
+        break;
+      }
+
+      // Preprocessor / directive: #OPTION ...
+      if (c === '#' && i === 0) {
+        var dEnd = line.length;
+        out += '<span class="tok-directive">' + escapeHtml(line.slice(i, dEnd)) + '</span>';
+        i = dEnd;
+        continue;
+      }
+
+      // String literal "..."
+      if (c === '"') {
+        var j = i + 1;
+        while (j < len && line.charAt(j) !== '"') j++;
+        if (j < len) j++; // consume closing quote
+        var str = line.slice(i, j);
+        // Highlight {petscii} escapes inside strings.
+        var strHtml = escapeHtml(str).replace(/\{[^{}]+\}/g, function (esc) {
+          return '<span class="tok-escape">' + esc + '</span>';
+        });
+        out += '<span class="tok-string">' + strHtml + '</span>';
+        i = j;
+        continue;
+      }
+
+      // Number literal.
+      NUM_RE.lastIndex = i;
+      var nm = NUM_RE.exec(line);
+      if (nm && nm.index === i) {
+        out += '<span class="tok-number">' + escapeHtml(nm[0]) + '</span>';
+        i += nm[0].length;
+        continue;
+      }
+
+      // Identifier / keyword / function / operator.
+      if (/[A-Za-z_]/.test(c)) {
+        var k = i + 1;
+        while (k < len && /[A-Za-z0-9_]/.test(line.charAt(k))) k++;
+        if (k < len && line.charAt(k) === '$') k++; // string-typed ident
+        var word = line.slice(i, k);
+        var cls = null;
+        if (new RegExp('^(' + BASIC_KEYWORDS.join('|') + ')$', 'i').test(word)) {
+          cls = 'tok-keyword';
+        } else if (new RegExp('^(' + BASIC_OPS.join('|') + ')$', 'i').test(word)) {
+          cls = 'tok-operator';
+        } else if (new RegExp('^(' + BASIC_FUNCS.join('|').replace(/\\\$/g, '\\$') + ')$', 'i').test(word) &&
+                   line.charAt(k) === '(') {
+          cls = 'tok-function';
+        } else {
+          cls = 'tok-ident';
+        }
+        out += '<span class="' + cls + '">' + escapeHtml(word) + '</span>';
+        i = k;
+        continue;
+      }
+
+      // Operators / punctuation.
+      if (/[=+\-*/^<>(),:;?]/.test(c)) {
+        var oEnd = i + 1;
+        // merge multi-char ops like <= >= <>
+        if ((c === '<' || c === '>') && (line.charAt(oEnd) === '=' || line.charAt(oEnd) === '>')) {
+          oEnd++;
+        }
+        out += '<span class="tok-punct">' + escapeHtml(line.slice(i, oEnd)) + '</span>';
+        i = oEnd;
+        continue;
+      }
+
+      // Default: passthrough single char.
+      out += escapeHtml(c);
+      i++;
+    }
+
+    return out;
+  }
+
+  function highlightBasic(src) {
+    // Split on \n keeping empty lines. Trailing newline -> trailing empty line
+    // which the overlay also needs, so the <pre> grows with the textarea.
+    var lines = String(src == null ? '' : src).split('\n');
+    var html = '';
+    for (var i = 0; i < lines.length; i++) {
+      html += highlightLine(lines[i]) + '\n';
+    }
+    return html;
+  }
+
+  /**
+   * Wrap a textarea with a highlight overlay. Returns the wrapper element.
+   * The overlay mirrors textarea content + scroll position.
+   */
+  function attachHighlightOverlay(ta) {
+    var wrap = document.createElement('div');
+    wrap.className = 'rgc-basic-gfx-editor';
+
+    var pre = document.createElement('pre');
+    pre.className = 'rgc-basic-gfx-highlight';
+    pre.setAttribute('aria-hidden', 'true');
+    var code = document.createElement('code');
+    pre.appendChild(code);
+
+    // Move the textarea into the wrapper (keeping its current DOM position
+    // on the parent by inserting wrap where ta was).
+    var parent = ta.parentNode;
+    if (parent) parent.insertBefore(wrap, ta);
+    wrap.appendChild(pre);
+    wrap.appendChild(ta);
+    ta.classList.add('rgc-basic-gfx-program--highlighted');
+
+    function render() {
+      code.innerHTML = highlightBasic(ta.value);
+    }
+    function syncScroll() {
+      pre.scrollTop = ta.scrollTop;
+      pre.scrollLeft = ta.scrollLeft;
+    }
+
+    ta.addEventListener('input', function () { render(); syncScroll(); });
+    ta.addEventListener('scroll', syncScroll);
+    ta.addEventListener('keyup', syncScroll);
+    // Tab inserts two spaces (common BASIC indentation)
+    ta.addEventListener('keydown', function (e) {
+      if (e.key === 'Tab' && !e.shiftKey) {
+        e.preventDefault();
+        var s = ta.selectionStart, eEnd = ta.selectionEnd;
+        ta.value = ta.value.slice(0, s) + '  ' + ta.value.slice(eEnd);
+        ta.selectionStart = ta.selectionEnd = s + 2;
+        render();
+        syncScroll();
+      }
+    });
+
+    render();
+    return wrap;
+  }
+
   function numPtr(p) {
     if (p == null) return 0;
     if (typeof p === 'bigint') return Number(p);
@@ -217,6 +422,14 @@
     logEl.className = 'rgc-basic-gfx-log';
 
     app.appendChild(ta);
+    // Wrap the textarea in a syntax-highlighting overlay. The wrapper
+    // replaces the textarea in the DOM so subsequent .appendChild of the
+    // toolbar still appears after the editor.
+    var editorWrap = attachHighlightOverlay(ta);
+    if (!showEditor) {
+      editorWrap.hidden = true;
+      editorWrap.setAttribute('aria-hidden', 'true');
+    }
     app.appendChild(toolbar);
     app.appendChild(vfsHost);
     app.appendChild(canvasWrap);
