@@ -51,6 +51,5 @@ make basic-wasm-canvas
 cp -r web/*.* ../8bitworkshop/rgc-basic
 cp -r examples/*.* ../8bitworkshop/presets/rgc-basic/
 cd wordpress/rgc-basic-tutorial-block/
-./copy-web-assets.sh
+./copy-web-assets.sh --upload
 cd ../..
-
