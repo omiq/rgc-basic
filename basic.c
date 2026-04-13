@@ -4706,9 +4706,22 @@ static const char *json_parse_value(const char **pp, char *out, size_t out_size)
         return out;
     }
     if (*p == '{' || *p == '[') {
-        json_skip_value(&p);
+        {
+            const char *start = p;
+            json_skip_value(&p);
+            {
+                size_t len = (size_t)(p - start);
+                if (len >= out_size) {
+                    len = out_size - 1;
+                }
+                if (out_size > 0) {
+                    memcpy(out, start, len);
+                    out[len] = '\0';
+                }
+            }
+        }
         *pp = p;
-        return NULL;  /* caller should use out for primitive; for struct we return NULL */
+        return out;
     }
     return NULL;
 }
@@ -4734,6 +4747,7 @@ static void json_skip_value(const char **pp)
             if (*p == ':') { p++; json_skip_value(&p); }
             json_skip_ws(&p);
             if (*p == ',') { p++; continue; }
+            if (*p == '}') { p++; break; }
             break;
         }
     } else if (*p == '[') {
@@ -4744,6 +4758,7 @@ static void json_skip_value(const char **pp)
             json_skip_value(&p);
             json_skip_ws(&p);
             if (*p == ',') { p++; continue; }
+            if (*p == ']') { p++; break; }
             break;
         }
     } else if ((*p >= '0' && *p <= '9') || *p == '-' || *p == '+') {
