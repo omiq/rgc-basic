@@ -1,0 +1,46 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "rgc-basic/gfx-embed",
+  "title": "RGC-BASIC GFX embed",
+  "category": "widgets",
+  "icon": "format-image",
+  "description": "Interactive RGC-BASIC canvas (sprites, SCREEN 1). Host basic-canvas.js and basic-canvas.wasm on HTTPS.",
+  "keywords": ["rgc", "rgc-basic", "basic", "canvas", "sprite", "gfx", "embed", "petscii"],
+  "textdomain": "rgc-basic-tutorial-block",
+  "supports": {
+    "html": false,
+    "align": true
+  },
+  "editorScript": "rgc-basic-tutorial-block-editor-gfx",
+  "attributes": {
+    "program": {
+      "type": "string",
+      "default": "10 END\n"
+    },
+    "showEditor": {
+      "type": "boolean",
+      "default": true
+    },
+    "showControls": {
+      "type": "boolean",
+      "default": true
+    },
+    "showFullscreen": {
+      "type": "boolean",
+      "default": true
+    },
+    "showVfsTools": {
+      "type": "boolean",
+      "default": true
+    },
+    "posterImageUrl": {
+      "type": "string",
+      "default": ""
+    },
+    "interpreterFlags": {
+      "type": "string",
+      "default": "-petscii -charset lower -palette ansi -columns 40"
+    }
+  }
+}
