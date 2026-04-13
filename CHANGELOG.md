@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **`INSTR` case-insensitive option:** **`INSTR(source$, search$ [, start [, ignore_case]])`** — when **`ignore_case`** is non‑zero, matching uses **ASCII** case folding (`tolower` on each byte). Omitted or **0** preserves the previous case-sensitive behavior. Regression: **`tests/instr_case_insensitive.bas`**.
+
 - **Documentation:** **`docs/http-vfs-assets.md`** — design notes on **HTTP fetch → MEMFS**, **binary file I/O**, and **IDE tools** (complements **`docs/ide-wasm-tools.md`**); linked from **`to-do.md`**.
 
 - **Canvas WASM IDE tools — `basic_load_and_run_gfx_argline`:** New export parses a single **`argline`** (quoted tokens allowed); **first token** = **`.bas`** path on MEMFS; rest = **`ARG$(1)`** … for **`run_program`**. Use from the IDE to pass asset paths (e.g. PNG preview). Spec: **`docs/ide-wasm-tools.md`**.

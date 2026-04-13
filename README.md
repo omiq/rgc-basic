@@ -126,7 +126,7 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
   - **Math**: `SIN`, `COS`, `TAN`, `ABS`, `INT`, `SQR`, `SGN`, `EXP`, `LOG`, `RND`.
   - **Strings**:
     - `LEN`, `VAL`, `STR$`, `CHR$`, `ASC`, `INSTR`.
-    - `INSTR(source$, search$ [, start])` – 1‑based index of `search$` in `source$`, or `0` if not found. Optional `start` (1‑based) begins the search from that position.
+    - `INSTR(source$, search$ [, start [, ignore_case]])` – 1‑based index of `search$` in `source$`, or `0` if not found. Optional `start` (1‑based) begins the search from that position. Optional `ignore_case`: non‑zero uses ASCII case‑insensitive matching (`tolower` per byte).
     - `REPLACE(str$, find$, repl$)` – replace all occurrences of `find$` with `repl$`.
     - `TRIM$(s$)`, `LTRIM$(s$)`, `RTRIM$(s$)` – strip leading, trailing, or both whitespace.
     - `FIELD$(str$, delim$, n)` – extract the *n*th field (1‑based) from a delimited string (awk‑like).
