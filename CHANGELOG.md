@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **WordPress plugin — RGC-BASIC GFX embed block:** **`wordpress/rgc-basic-tutorial-block`** registers **`rgc-basic/gfx-embed`** (`block-gfx.json`): canvas WASM via **`gfx-embed-mount.js`** + **`frontend-gfx-init.js`**, **`basic-canvas.js`** / **`basic-canvas.wasm`** from the same WASM base URL as the terminal block; inspector options for code, controls, fullscreen, poster image, interpreter flags. **`copy-web-assets.sh`** copies canvas WASM when present. **`docs/wordpress-canvas-embed.md`** documents **Option 4**.
+
 - **`JSON$` object/array values:** Fixed **`json_skip_value`** so **`}`** / **`]`** after the last property/element is consumed (parser previously stopped one delimiter short for nested objects/arrays). **`JSON$(json$, path)`** returns the **raw JSON text** for object and array values (truncated to max string length). Regression: **`tests/json_test.bas`**, **`tests/json_object_value_test.bas`**.
 
 - **`INSTR` case-insensitive option:** **`INSTR(source$, search$ [, start [, ignore_case]])`** — when **`ignore_case`** is non‑zero, matching uses **ASCII** case folding (`tolower` on each byte). Omitted or **0** preserves the previous case-sensitive behavior. Regression: **`tests/instr_case_insensitive.bas`**.

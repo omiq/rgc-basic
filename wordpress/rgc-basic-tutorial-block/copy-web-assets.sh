@@ -21,3 +21,10 @@ else
   echo "Copied JS helpers only. Build WASM in the repo: make basic-wasm-modular"
   echo "Then re-run this script or copy web/basic-modular.js and .wasm to assets/wasm/"
 fi
+
+if [ -f "$REPO/web/basic-canvas.js" ] && [ -f "$REPO/web/basic-canvas.wasm" ]; then
+  cp -f "$REPO/web/basic-canvas.js" "$REPO/web/basic-canvas.wasm" "$ROOT/assets/wasm/"
+  echo "Copied basic-canvas.js/.wasm (GFX embed block)"
+else
+  echo "No basic-canvas.js/.wasm found. For the GFX block run: make basic-wasm-canvas"
+fi
