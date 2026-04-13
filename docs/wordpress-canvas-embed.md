@@ -1,6 +1,6 @@
 # Embedding canvas WASM (sprites, `SCREEN 1`) in WordPress
 
-The official plugin **`wordpress/rgc-basic-tutorial-block`** embeds the **terminal** build (`basic-modular.js` / `basic-modular.wasm` via **`tutorial-embed.js`**). That is enough for **`PRINT`**, **`INPUT`**, PETSCII in the output panel, etc. It does **not** load **`basic-canvas.js`** or a **`&lt;canvas&gt;`**, so programs that need **`LOADSPRITE`**, **`SCREEN 1`**, **`LINE`**, **`HTTPFETCH`** into MEMFS for PNGs, etc. must use one of the approaches below.
+The official plugin **`wordpress/rgc-basic-tutorial-block`** includes a **terminal** block (`basic-modular.js` / `basic-modular.wasm` via **`tutorial-embed.js`**) and a **GFX** block (`basic-canvas.js` / **`basic-canvas.wasm`** — see **Option 4**). The terminal build is enough for **`PRINT`**, **`INPUT`**, PETSCII in the output panel, etc. If you are not using the GFX block, programs that need **`LOADSPRITE`**, **`SCREEN 1`**, **`LINE`**, **`HTTPFETCH`** into MEMFS for PNGs, etc. can use the iframe or custom HTML options below.
 
 ## Option 1 — Iframe a hosted `canvas.html` (simplest)
 
@@ -45,12 +45,16 @@ LOADSPRITE 2, "/boing_shadow.png"
 
 (See **`docs/wasm-assets-loadsprite-http.md`**.)
 
-## Future / plugin extension
+## Option 4 — WordPress plugin “RGC-BASIC GFX embed” block
 
-A dedicated **“canvas”** block could enqueue **`basic-canvas.js`** / **`basic-canvas.wasm`** and reuse **`canvas.html`** logic; the current plugin would need new assets and **`frontend-init.js`** changes. Until then, **iframe** or **custom HTML** are the supported paths for sprite demos.
+The plugin **`wordpress/rgc-basic-tutorial-block`** registers **`rgc-basic/gfx-embed`**. It enqueues **`gfx-embed-mount.js`**, **`frontend-gfx-init.js`**, and loads **`basic-canvas.js`** + **`basic-canvas.wasm`** from the same **WASM base URL** as the terminal block (**Settings → RGC-BASIC Tutorial**).
+
+Copy **`basic-canvas.js`** and **`basic-canvas.wasm`** into the plugin’s **`assets/wasm/`** (or host them at your CDN URL). Run **`make basic-wasm-canvas`** in the RGC-BASIC repo, then **`copy-web-assets.sh`** from the plugin folder.
+
+Block options include show/hide code, toolbar controls, fullscreen, optional **poster image URL** (centered **Run** defers WASM load until the visitor clicks), and **interpreter flags**.
 
 ## Related
 
 - **`docs/ide-retrogamecoders-canvas-integration.md`** — Module, Asyncify, MEMFS, `basic_load_and_run_gfx`
 - **`docs/wasm-assets-loadsprite-http.md`** — `HTTPFETCH`, CORS, `LOADSPRITE` paths
-- **`wordpress/rgc-basic-tutorial-block/README.md`** — terminal embed only
+- **`wordpress/rgc-basic-tutorial-block/README.md`** — terminal + GFX embed blocks
