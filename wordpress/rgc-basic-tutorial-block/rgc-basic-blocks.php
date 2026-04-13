@@ -253,7 +253,7 @@ function rgc_basic_tutorial_register_block() {
 	);
 
 	register_block_type(
-		RGC_BASIC_TUTORIAL_BLOCK_DIR . 'block-gfx.json',
+		RGC_BASIC_TUTORIAL_BLOCK_DIR . 'blocks/gfx',
 		array(
 			'render_callback' => 'rgc_basic_tutorial_render_gfx_block',
 		)
