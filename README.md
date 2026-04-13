@@ -126,7 +126,7 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
   - **Math**: `SIN`, `COS`, `TAN`, `ABS`, `INT`, `SQR`, `SGN`, `EXP`, `LOG`, `RND`.
   - **Strings**:
     - `LEN`, `VAL`, `STR$`, `CHR$`, `ASC`, `INSTR`.
-    - `INSTR(source$, search$ [, start])` – 1‑based index of `search$` in `source$`, or `0` if not found. Optional `start` (1‑based) begins the search from that position.
+    - `INSTR(source$, search$ [, start [, ignore_case]])` – 1‑based index of `search$` in `source$`, or `0` if not found. Optional `start` (1‑based) begins the search from that position. Optional `ignore_case`: non‑zero uses ASCII case‑insensitive matching (`tolower` per byte).
     - `REPLACE(str$, find$, repl$)` – replace all occurrences of `find$` with `repl$`.
     - `TRIM$(s$)`, `LTRIM$(s$)`, `RTRIM$(s$)` – strip leading, trailing, or both whitespace.
     - `FIELD$(str$, delim$, n)` – extract the *n*th field (1‑based) from a delimited string (awk‑like).
@@ -138,7 +138,7 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
   - **Arrays**:
     - `INDEXOF(arr, value)` / `LASTINDEXOF(arr, value)` – 1‑based index of first/last element equal to `value`, or `0` if not found. Works on numeric and string arrays.
   - **JSON**:
-    - `JSON$(json$, path$)` – path-based extraction from a JSON string. Returns the value at `path` as a string. Path format: `"key"`, `"key[0]"`, `"key.subkey"`, etc. Use `VAL(JSON$(j$, "count"))` for numeric values.
+    - `JSON$(json$, path$)` – path-based extraction from a JSON string. Returns the value at `path` as a string. Path format: `"key"`, `"key[0]"`, `"key.subkey"`, etc. String, number, `true`/`false`, and `null` return as text; **object** and **array** values return the **raw JSON** substring (up to max string length). Use `VAL(JSON$(j$, "count"))` for numeric values.
   - **Environment & platform**:
     - `ENV$(name$)` – returns the value of environment variable `name$`, or `""` if not set.
     - `PLATFORM$()` – returns `"linux-terminal"`, `"linux-gfx"`, `"windows-terminal"`, `"windows-gfx"`, `"mac-terminal"`, or `"mac-gfx"` depending on OS and build.
