@@ -1,0 +1,519 @@
+/**
+ * RGC-BASIC canvas WASM embed for WordPress (one instance per mount).
+ * Depends: vfs-helpers.js (optional, for VFS UI).
+ * Loads: basic-canvas.js + basic-canvas.wasm from opts.wasmBaseUrl
+ */
+(function (global) {
+  'use strict';
+
+  var canvasJsPromise = null;
+
+  function ensureTrailingSlash(url) {
+    if (!url) return '';
+    return url.slice(-1) === '/' ? url : url + '/';
+  }
+
+  function loadScriptOnce(src) {
+    if (canvasJsPromise) return canvasJsPromise;
+    canvasJsPromise = new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = src;
+      s.async = false;
+      s.onload = function () { resolve(); };
+      s.onerror = function () { reject(new Error('Failed to load ' + src)); };
+      document.head.appendChild(s);
+    });
+    return canvasJsPromise;
+  }
+
+  function numPtr(p) {
+    if (p == null) return 0;
+    if (typeof p === 'bigint') return Number(p);
+    return Number(p);
+  }
+
+  /**
+   * @param {HTMLElement} container
+   * @param {object} opts
+   * @param {string} opts.program
+   * @param {boolean} [opts.showEditor]
+   * @param {boolean} [opts.showControls]
+   * @param {boolean} [opts.showFullscreen]
+   * @param {string} [opts.posterImageUrl]
+   * @param {boolean} [opts.deferLoad] - load WASM on first Run (default true if poster)
+   * @param {string} opts.wasmBaseUrl - URL to folder with basic-canvas.js
+   * @param {string} [opts.assetCacheBust]
+   * @param {boolean} [opts.showVfsTools]
+   * @param {string} [opts.interpreterFlags] - e.g. "-petscii -charset lower"
+   */
+  function mount(container, opts) {
+    opts = opts || {};
+    var program = typeof opts.program === 'string' ? opts.program : '10 END\n';
+    var showEditor = opts.showEditor !== false;
+    var showControls = opts.showControls !== false;
+    var showFullscreen = opts.showFullscreen !== false;
+    var posterUrl = (opts.posterImageUrl && String(opts.posterImageUrl).trim()) || '';
+    var deferLoad = opts.deferLoad !== false && !!posterUrl;
+    var wasmBase = ensureTrailingSlash(opts.wasmBaseUrl || '');
+    var assetCb = opts.assetCacheBust || String(Date.now());
+    var showVfs = opts.showVfsTools !== false;
+    var flagsStr = typeof opts.interpreterFlags === 'string' ? opts.interpreterFlags : '-petscii -charset lower -palette ansi -columns 40';
+
+    if (!wasmBase) {
+      return Promise.reject(new Error('RgcBasicGfxEmbed: wasmBaseUrl is required'));
+    }
+
+    var root = document.createElement('div');
+    root.className = 'rgc-basic-gfx-embed';
+    container.appendChild(root);
+
+    var posterLayer = document.createElement('div');
+    posterLayer.className = 'rgc-basic-gfx-poster';
+    var posterImg = document.createElement('img');
+    posterImg.className = 'rgc-basic-gfx-poster-img';
+    posterImg.alt = '';
+    var posterBtn = document.createElement('button');
+    posterBtn.type = 'button';
+    posterBtn.className = 'rgc-basic-gfx-run-poster';
+    posterBtn.textContent = 'Run';
+
+    if (posterUrl) {
+      posterImg.src = posterUrl;
+      posterLayer.appendChild(posterImg);
+      posterLayer.appendChild(posterBtn);
+      root.appendChild(posterLayer);
+    }
+
+    var app = document.createElement('div');
+    app.className = 'rgc-basic-gfx-app';
+    if (posterUrl && deferLoad) {
+      app.hidden = true;
+    }
+
+    var ta = document.createElement('textarea');
+    ta.className = 'rgc-basic-gfx-program';
+    ta.spellcheck = false;
+    ta.value = program;
+    if (!showEditor) {
+      ta.hidden = true;
+      ta.setAttribute('aria-hidden', 'true');
+    }
+
+    var toolbar = document.createElement('div');
+    toolbar.className = 'rgc-basic-gfx-toolbar';
+    if (!showControls) {
+      toolbar.classList.add('rgc-basic-gfx-toolbar--minimal');
+    }
+
+    function btn(label, id) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = label;
+      if (id) b.id = id;
+      return b;
+    }
+
+    var runBtn = btn('Run', '');
+    var pauseBtn = btn('Pause', '');
+    var resumeBtn = btn('Resume', '');
+    var stopBtn = btn('Stop', '');
+    pauseBtn.disabled = true;
+    resumeBtn.disabled = true;
+    stopBtn.disabled = true;
+
+    var zoomEl = document.createElement('select');
+    zoomEl.className = 'rgc-basic-gfx-zoom';
+    ;[['1', '1x'], ['2', '2x'], ['3', '3x'], ['4', '4x']].forEach(function (z) {
+      var o = document.createElement('option');
+      o.value = z[0];
+      o.textContent = z[1];
+      if (z[0] === '2') o.selected = true;
+      zoomEl.appendChild(o);
+    });
+
+    var fsBtn = btn('Fullscreen', '');
+
+    toolbar.appendChild(runBtn);
+    if (showControls) {
+      toolbar.appendChild(pauseBtn);
+      toolbar.appendChild(resumeBtn);
+      toolbar.appendChild(stopBtn);
+      toolbar.appendChild(document.createTextNode(' Zoom '));
+      toolbar.appendChild(zoomEl);
+    }
+    if (showFullscreen) {
+      toolbar.appendChild(fsBtn);
+    }
+
+    var vfsHost = document.createElement('div');
+    vfsHost.className = 'rgc-basic-gfx-vfs';
+    if (!showVfs) {
+      vfsHost.style.display = 'none';
+    }
+
+    var canvasWrap = document.createElement('div');
+    canvasWrap.className = 'rgc-basic-gfx-canvas-wrap';
+
+    var canvas = document.createElement('canvas');
+    canvas.className = 'rgc-basic-gfx-screen';
+    canvas.width = 320;
+    canvas.height = 200;
+    canvas.tabIndex = 0;
+    canvas.title = 'Click for keyboard input';
+    canvasWrap.appendChild(canvas);
+
+    var inputRow = document.createElement('div');
+    inputRow.className = 'rgc-basic-gfx-input-row';
+    inputRow.style.display = 'none';
+    var inputLine = document.createElement('input');
+    inputLine.type = 'text';
+    inputLine.className = 'rgc-basic-gfx-input-line';
+    inputLine.autocomplete = 'off';
+    inputRow.appendChild(document.createTextNode('INPUT '));
+    inputRow.appendChild(inputLine);
+
+    var logEl = document.createElement('div');
+    logEl.className = 'rgc-basic-gfx-log';
+
+    app.appendChild(ta);
+    app.appendChild(toolbar);
+    app.appendChild(vfsHost);
+    app.appendChild(canvasWrap);
+    app.appendChild(inputRow);
+    app.appendChild(logEl);
+    root.appendChild(app);
+
+    var ctx = canvas.getContext('2d', { alpha: false });
+    var img = ctx.createImageData(320, 200);
+    var wasmRunPending = false;
+    var lastRgbaVer = 0;
+    var copyFailLogged = false;
+    var Module = null;
+
+    var C64_PALETTE_RGB = [
+      [0, 0, 0], [255, 255, 255], [136, 0, 0], [170, 255, 238],
+      [204, 68, 204], [0, 204, 85], [0, 0, 170], [238, 238, 119],
+      [221, 136, 85], [102, 68, 0], [255, 119, 119], [51, 51, 51],
+      [119, 119, 119], [170, 255, 102], [0, 136, 255], [187, 187, 187]
+    ];
+
+    function logErr(msg) {
+      logEl.textContent = msg || '';
+      logEl.style.display = msg && String(msg).length ? 'block' : 'none';
+    }
+
+    function wasmMemoryBuffer() {
+      var M = window.Module;
+      if (!M) return null;
+      if (M.wasmMemory && M.wasmMemory.buffer) return M.wasmMemory.buffer;
+      if (M.asm && M.asm.memory && M.asm.memory.buffer) return M.asm.memory.buffer;
+      if (M.HEAPU8 && M.HEAPU8.buffer) return M.HEAPU8.buffer;
+      if (M.HEAP8 && M.HEAP8.buffer) return M.HEAP8.buffer;
+      return null;
+    }
+
+    function heapU8() {
+      var M = window.Module;
+      return M ? (M.HEAPU8 || M['HEAPU8'] || null) : null;
+    }
+
+    function applyZoom() {
+      var z = parseInt(zoomEl.value, 10) || 2;
+      canvas.style.width = canvas.width * z + 'px';
+      canvas.style.height = canvas.height * z + 'px';
+    }
+
+    function copyRgbaFromWasm() {
+      var M = Module;
+      if (!M || !M._wasm_gfx_rgba_ptr) {
+        if (!copyFailLogged) {
+          copyFailLogged = true;
+          logErr('Canvas: rebuild basic-wasm-canvas and hard-refresh.');
+        }
+        return false;
+      }
+      var ptr = numPtr(M._wasm_gfx_rgba_ptr());
+      var buf = wasmMemoryBuffer();
+      var w = M.wasmGfxFbW || 320;
+      var h = M.wasmGfxFbH || 200;
+      var need = w * h * 4;
+      var hu = heapU8();
+      var u8 = null;
+      if (buf && ptr >= 0 && ptr + need <= buf.byteLength) {
+        try {
+          u8 = new Uint8Array(buf, ptr, need);
+        } catch (e) {
+          u8 = null;
+        }
+      }
+      if (!u8 && hu && ptr >= 0 && ptr + need <= hu.length) {
+        u8 = hu.subarray(ptr, ptr + need);
+      }
+      if (!u8) return false;
+      var borderPx = typeof M.wasmGfxBorderPx === 'number' && M.wasmGfxBorderPx > 0 ? M.wasmGfxBorderPx | 0 : 0;
+      if (borderPx > 256) borderPx = 256;
+      var bci = typeof M.wasmGfxBorderColorIdx === 'number' ? M.wasmGfxBorderColorIdx : -1;
+      var bgIdx = typeof M.wasmGfxContentBgIdx === 'number' ? M.wasmGfxContentBgIdx & 15 : 0;
+      var borderIdx = bci >= 0 && bci <= 15 ? bci & 15 : bgIdx;
+      var brgb = C64_PALETTE_RGB[borderIdx] || C64_PALETTE_RGB[0];
+      var cw = w + 2 * borderPx;
+      var ch = h + 2 * borderPx;
+      if (canvas.width !== cw || canvas.height !== ch) {
+        canvas.width = cw;
+        canvas.height = ch;
+        img = null;
+      }
+      ctx.fillStyle = 'rgb(' + brgb[0] + ',' + brgb[1] + ',' + brgb[2] + ')';
+      ctx.fillRect(0, 0, cw, ch);
+      if (!img || img.width !== w || img.height !== h) {
+        img = ctx.createImageData(w, h);
+      }
+      img.data.set(u8);
+      ctx.putImageData(img, borderPx, borderPx);
+      return true;
+    }
+
+    function frame() {
+      requestAnimationFrame(frame);
+      if (!wasmRunPending || !Module || !Module._wasm_gfx_rgba_version_read) return;
+      var ver = numPtr(Module._wasm_gfx_rgba_version_read());
+      if (ver !== lastRgbaVer) {
+        lastRgbaVer = ver;
+        copyRgbaFromWasm();
+      }
+    }
+    requestAnimationFrame(frame);
+
+    function wireRunHandlers() {
+      Module = window.Module;
+      runBtn.onclick = function () {
+        logErr('');
+        copyFailLogged = false;
+        inputRow.style.display = 'none';
+        Module.wasmStopRequested = 0;
+        Module.wasmPaused = 0;
+        wasmRunPending = true;
+        lastRgbaVer = -1;
+        runBtn.disabled = true;
+        if (showControls) {
+          pauseBtn.disabled = false;
+          resumeBtn.disabled = true;
+          stopBtn.disabled = false;
+        }
+        var rc = Module.ccall('basic_apply_arg_string', 'number', ['string'], [flagsStr]);
+        if (rc !== 0) {
+          logErr('Invalid interpreter options.');
+          wasmRunPending = false;
+          runBtn.disabled = false;
+          return;
+        }
+        Module.FS.writeFile('/program.bas', ta.value);
+        if (Module._wasm_gfx_key_state_ptr && Module.HEAPU8) {
+          var kp = Module._wasm_gfx_key_state_ptr();
+          if (kp) Module.HEAPU8.fill(0, kp, kp + 256);
+        } else if (Module._wasm_gfx_key_state_clear) {
+          Module.ccall('wasm_gfx_key_state_clear', null, [], []);
+        }
+        canvas.focus();
+        Module.ccall('basic_load_and_run_gfx', null, ['string'], ['/program.bas'], { async: true })
+          .catch(function (e) {
+            logErr(String(e && e.message ? e.message : e));
+          })
+          .finally(function () {
+            wasmRunPending = false;
+            Module.wasmPaused = 0;
+            runBtn.disabled = false;
+            if (showControls) {
+              pauseBtn.disabled = true;
+              resumeBtn.disabled = true;
+              stopBtn.disabled = true;
+            }
+            copyRgbaFromWasm();
+          });
+      };
+
+      if (showControls) {
+        pauseBtn.onclick = function () {
+          Module.wasmPaused = 1;
+          pauseBtn.disabled = true;
+          resumeBtn.disabled = false;
+        };
+        resumeBtn.onclick = function () {
+          Module.wasmPaused = 0;
+          pauseBtn.disabled = false;
+          resumeBtn.disabled = true;
+        };
+        stopBtn.onclick = function () {
+          Module.wasmStopRequested = 1;
+          Module.wasmPaused = 0;
+        };
+      }
+
+      zoomEl.addEventListener('change', applyZoom);
+
+      if (showFullscreen) {
+        fsBtn.onclick = function () {
+          if (!document.fullscreenElement) {
+            canvasWrap.requestFullscreen().catch(function () {});
+          } else {
+            document.exitFullscreen();
+          }
+        };
+      }
+
+      Module.printErr = function (t) {
+        var s = String(t);
+        if (logEl.textContent && logEl.textContent.length) {
+          logEl.textContent = logEl.textContent + '\n' + s;
+        } else {
+          logErr(s);
+        }
+      };
+
+      Module.onWasmNeedInputLine = function () {
+        inputRow.style.display = 'flex';
+        inputLine.value = '';
+        inputLine.focus();
+      };
+
+      Module.onAbort = function (what) {
+        logErr('WASM aborted: ' + (what || 'unknown'));
+        wasmRunPending = false;
+        runBtn.disabled = false;
+        if (showControls) {
+          pauseBtn.disabled = true;
+          resumeBtn.disabled = true;
+          stopBtn.disabled = true;
+        }
+        Module.wasmPaused = 0;
+      };
+
+      if (typeof RgcVfsHelpers !== 'undefined' && showVfs) {
+        RgcVfsHelpers.vfsMountUI(vfsHost, Module, {
+          pathDefault: '/out.txt',
+          onStatus: function (msg) {
+            logErr(msg);
+          }
+        });
+      }
+
+      function wasmGfxKeyIndex(ev) {
+        var k = ev.key;
+        if (k === 'Escape') return 27;
+        if (k === 'Enter') return 13;
+        if (k === ' ' || k === 'Spacebar') return 32;
+        if (k === 'ArrowUp') return 145;
+        if (k === 'ArrowDown') return 17;
+        if (k === 'ArrowLeft') return 157;
+        if (k === 'ArrowRight') return 29;
+        if (k === 'Tab') return 9;
+        if (k.length === 1) {
+          var c = k.charCodeAt(0);
+          if (c >= 97 && c <= 122) c -= 32;
+          if ((c >= 65 && c <= 90) || (c >= 48 && c <= 57)) return c;
+        }
+        return -1;
+      }
+      function wasmGfxKeyStateSync(ev, down) {
+        if (inputRow.style.display === 'flex') return;
+        var idx = wasmGfxKeyIndex(ev);
+        if (idx < 0 || idx >= 256) return;
+        var base = typeof Module._wasm_gfx_key_state_ptr === 'function' ? Module._wasm_gfx_key_state_ptr() : 0;
+        if (base && Module.HEAPU8) {
+          Module.HEAPU8[base + idx] = down ? 1 : 0;
+        } else if (Module._wasm_gfx_key_state_set) {
+          Module.ccall('wasm_gfx_key_state_set', null, ['number', 'number'], [idx, down ? 1 : 0]);
+        }
+      }
+      canvas.addEventListener(
+        'keydown',
+        function (ev) {
+          if (inputRow.style.display === 'flex') return;
+          ev.preventDefault();
+          wasmGfxKeyStateSync(ev, true);
+          var code = ev.keyCode || ev.which;
+          if (code === 13) Module.ccall('wasm_push_key', null, ['number'], [13]);
+          else if (ev.key && ev.key.length === 1) {
+            Module.ccall('wasm_push_key', null, ['number'], [ev.key.charCodeAt(0) & 0xff]);
+          }
+        },
+        true
+      );
+      canvas.addEventListener('keyup', function (ev) {
+        wasmGfxKeyStateSync(ev, false);
+      }, true);
+
+      inputLine.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          Module.wasmInputLineText = inputLine.value;
+          Module.wasmInputLineReady = 1;
+          inputRow.style.display = 'none';
+          canvas.focus();
+        }
+      });
+
+      runBtn.disabled = false;
+      applyZoom();
+      copyRgbaFromWasm();
+    }
+
+    function initModule() {
+      var cb = assetCb;
+      window.Module = {
+        canvasAssetCb: cb,
+        locateFile: function (p) {
+          if (p.endsWith('.wasm')) {
+            return wasmBase + 'basic-canvas.wasm?cb=' + encodeURIComponent(cb);
+          }
+          return wasmBase + p;
+        },
+        onRuntimeInitialized: function () {
+          wireRunHandlers();
+        }
+      };
+      var jsUrl = wasmBase + 'basic-canvas.js?cb=' + encodeURIComponent(cb);
+      return loadScriptOnce(jsUrl);
+    }
+
+    function revealAppAndRun() {
+      if (posterLayer.parentNode) {
+        posterLayer.style.display = 'none';
+      }
+      app.hidden = false;
+      return initModule().then(function () {
+        runBtn.click();
+      });
+    }
+
+    posterBtn.addEventListener('click', function () {
+      revealAppAndRun().catch(function (e) {
+        logErr(String(e && e.message ? e.message : e));
+        app.hidden = false;
+      });
+    });
+
+    if (!deferLoad || !posterUrl) {
+      initModule().then(function () {
+        if (posterUrl) {
+          posterLayer.style.display = 'none';
+          app.hidden = false;
+        }
+      });
+    }
+
+    return Promise.resolve({
+      container: root,
+      getProgram: function () {
+        return ta.value;
+      },
+      setProgram: function (s) {
+        ta.value = s;
+      }
+    });
+  }
+
+  global.RgcBasicGfxEmbed = {
+    mount: mount
+  };
+})(typeof window !== 'undefined' ? window : this);

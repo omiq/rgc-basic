@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **WordPress plugin:** **`assets/js/gfx-embed-mount.js`** was listed in **`.gitignore`** under **`assets/js/*`**, so it never existed in the remote repo after **`git pull`** — fixed by un-ignoring that file and adding it to version control.
+
 - **WordPress plugin 1.1.0:** Plugin version bump; **`block-gfx.json`** keywords expanded (**rgc**, **gfx**, **embed**) so the inserter search finds the GFX block; README troubleshooting when **`build/block-editor.js`** is stale (only terminal block appears).
 
 - **`copy-web-assets.sh`:** Deploys **`gfx-embed-mount.js`** (not under **`web/`**): if **`assets/js/gfx-embed-mount.js`** already exists next to the script (after **`git pull`**), the script keeps it; otherwise copies from **`$REPO/wordpress/rgc-basic-tutorial-block/assets/js/`** when present. Fixes **404** for the GFX block when the file was never copied to the server.
