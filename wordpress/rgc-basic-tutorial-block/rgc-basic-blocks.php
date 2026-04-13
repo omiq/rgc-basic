@@ -2,10 +2,10 @@
 /**
  * Plugin Name:       RGC-BASIC Tutorial Embed
  * Description:       Gutenberg block to embed RGC-BASIC interpreters (WASM) in posts and pages. Upload modular WASM assets to the plugin or set a custom base URL.
- * Version:           1.2.1
+ * Version:           1.2.5
  * Requires at least: 6.0
  * Requires PHP:      7.4
- * Author:            RGC-BASIC
+ * Author:            Chris Garrett
  * License:           GPL-2.0-or-later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain:       rgc-basic-tutorial-block
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'RGC_BASIC_TUTORIAL_BLOCK_VERSION', '1.2.1' );
+define( 'RGC_BASIC_TUTORIAL_BLOCK_VERSION', '1.2.5' );
 define( 'RGC_BASIC_TUTORIAL_BLOCK_DIR', plugin_dir_path( __FILE__ ) );
 define( 'RGC_BASIC_TUTORIAL_BLOCK_URL', plugin_dir_url( __FILE__ ) );
 
