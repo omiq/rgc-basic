@@ -35,7 +35,7 @@ cd wordpress/rgc-basic-tutorial-block
 ./copy-web-assets.sh /path/to/rgc-basic
 ```
 
-The script copies **`web/`** WASM/JS, **`assets/js/gfx-embed-mount.js`**, and syncs **`build/`** from the repo (**`block-editor.js`**, **`gfx-block-editor.js`**, **`frontend-init.js`**, **`frontend-gfx-init.js`**, **`block-frontend.css`**) so FTP uploads always include the latest Gutenberg editor files.
+The script copies **`web/`** WASM/JS, **`assets/js/gfx-embed-mount.js`**, and — when your plugin copy is **outside** the git tree — syncs **`build/`** from **`$REPO`** (**`gfx-block-editor.js`**, **`block-editor.js`**, front-end inits, CSS). If you run the script **inside** `wordpress/rgc-basic-tutorial-block` in the repo, **`build/`** is already that checkout and nothing is copied there (no error).
 
 Or manually copy into `assets/wasm/`:
 
