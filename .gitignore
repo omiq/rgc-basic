@@ -89,3 +89,5 @@ wordpress/rgc-basic-tutorial-block/assets/wasm/*
 wordpress/rgc-basic-tutorial-block/assets/js/*
 !wordpress/rgc-basic-tutorial-block/assets/wasm/.gitkeep
 !wordpress/rgc-basic-tutorial-block/assets/js/.gitkeep
+# Source-controlled (not copied from web/)
+!wordpress/rgc-basic-tutorial-block/assets/js/gfx-embed-mount.js
