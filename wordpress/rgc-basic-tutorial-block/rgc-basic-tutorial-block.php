@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       RGC-BASIC Tutorial Embed
  * Description:       Gutenberg block to embed RGC-BASIC interpreters (WASM) in posts and pages. Upload modular WASM assets to the plugin or set a custom base URL.
- * Version:           1.1.0
+ * Version:           1.2.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            RGC-BASIC
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'RGC_BASIC_TUTORIAL_BLOCK_VERSION', '1.1.0' );
+define( 'RGC_BASIC_TUTORIAL_BLOCK_VERSION', '1.2.0' );
 define( 'RGC_BASIC_TUTORIAL_BLOCK_DIR', plugin_dir_path( __FILE__ ) );
 define( 'RGC_BASIC_TUTORIAL_BLOCK_URL', plugin_dir_url( __FILE__ ) );
 
@@ -218,6 +218,23 @@ function rgc_basic_tutorial_register_block() {
 		),
 		file_exists( RGC_BASIC_TUTORIAL_BLOCK_DIR . 'build/block-editor.js' )
 			? (string) filemtime( RGC_BASIC_TUTORIAL_BLOCK_DIR . 'build/block-editor.js' )
+			: RGC_BASIC_TUTORIAL_BLOCK_VERSION,
+		true
+	);
+
+	wp_register_script(
+		'rgc-basic-tutorial-block-editor-gfx',
+		RGC_BASIC_TUTORIAL_BLOCK_URL . 'build/block-editor-gfx.js',
+		array(
+			'wp-blocks',
+			'wp-element',
+			'wp-block-editor',
+			'wp-components',
+			'wp-i18n',
+			'wp-server-side-render',
+		),
+		file_exists( RGC_BASIC_TUTORIAL_BLOCK_DIR . 'build/block-editor-gfx.js' )
+			? (string) filemtime( RGC_BASIC_TUTORIAL_BLOCK_DIR . 'build/block-editor-gfx.js' )
 			: RGC_BASIC_TUTORIAL_BLOCK_VERSION,
 		true
 	);

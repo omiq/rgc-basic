@@ -1,6 +1,6 @@
 /**
- * Gutenberg block editor: terminal embed only (rgc-basic/tutorial-embed).
- * GFX block is registered from block-editor-gfx.js (separate file = reliable deploy).
+ * Gutenberg block editor: canvas GFX embed (rgc-basic/gfx-embed).
+ * Loaded separately from block-editor.js so uploads/cache cannot drop the second block.
  */
 ( function ( wp ) {
 	'use strict';
@@ -17,12 +17,12 @@
 	var TextControl = wp.components.TextControl;
 	var ServerSideRender = wp.serverSideRender;
 
-	registerBlockType( 'rgc-basic/tutorial-embed', {
+	registerBlockType( 'rgc-basic/gfx-embed', {
 		edit: function ( props ) {
 			var attributes = props.attributes;
 			var setAttributes = props.setAttributes;
 			var blockProps = useBlockProps( {
-				className: 'rgc-basic-tutorial-block-editor',
+				className: 'rgc-basic-gfx-block-editor',
 			} );
 
 			return el(
@@ -33,7 +33,7 @@
 					null,
 					el(
 						PanelBody,
-						{ title: __( 'Embed options', 'rgc-basic-tutorial-block' ), initialOpen: true },
+						{ title: __( 'GFX embed options', 'rgc-basic-tutorial-block' ), initialOpen: true },
 						el( ToggleControl, {
 							label: __( 'Show code editor', 'rgc-basic-tutorial-block' ),
 							checked: !! attributes.showEditor,
@@ -42,10 +42,17 @@
 							},
 						} ),
 						el( ToggleControl, {
-							label: __( 'Show pause / stop', 'rgc-basic-tutorial-block' ),
-							checked: !! attributes.showPauseStop,
+							label: __( 'Show Run / Pause / Stop / Zoom', 'rgc-basic-tutorial-block' ),
+							checked: !! attributes.showControls,
 							onChange: function ( v ) {
-								setAttributes( { showPauseStop: v } );
+								setAttributes( { showControls: v } );
+							},
+						} ),
+						el( ToggleControl, {
+							label: __( 'Show fullscreen button', 'rgc-basic-tutorial-block' ),
+							checked: !! attributes.showFullscreen,
+							onChange: function ( v ) {
+								setAttributes( { showFullscreen: v } );
 							},
 						} ),
 						el( ToggleControl, {
@@ -56,17 +63,22 @@
 							},
 						} ),
 						el( TextControl, {
-							label: __( 'Editor min height (CSS)', 'rgc-basic-tutorial-block' ),
-							value: attributes.editorMinHeight || '120px',
+							label: __( 'Poster image URL (optional)', 'rgc-basic-tutorial-block' ),
+							help: __(
+								'If set, WASM loads when the visitor clicks Run on the poster (saves bandwidth).',
+								'rgc-basic-tutorial-block'
+							),
+							value: attributes.posterImageUrl || '',
 							onChange: function ( v ) {
-								setAttributes( { editorMinHeight: v } );
+								setAttributes( { posterImageUrl: v } );
 							},
 						} ),
 						el( TextControl, {
-							label: __( 'Output min height (CSS)', 'rgc-basic-tutorial-block' ),
-							value: attributes.outputMinHeight || '100px',
+							label: __( 'Interpreter flags', 'rgc-basic-tutorial-block' ),
+							help: __( 'Example: -petscii -charset lower -palette ansi -columns 40', 'rgc-basic-tutorial-block' ),
+							value: attributes.interpreterFlags || '',
 							onChange: function ( v ) {
-								setAttributes( { outputMinHeight: v } );
+								setAttributes( { interpreterFlags: v } );
 							},
 						} )
 					)
@@ -75,16 +87,16 @@
 					'div',
 					blockProps,
 					el( TextareaControl, {
-						label: __( 'BASIC program', 'rgc-basic-tutorial-block' ),
+						label: __( 'BASIC program (canvas / sprites)', 'rgc-basic-tutorial-block' ),
 						value: attributes.program || '',
 						onChange: function ( v ) {
 							setAttributes( { program: v } );
 						},
-						rows: 12,
+						rows: 14,
 						style: { fontFamily: 'monospace' },
 					} ),
 					el( ServerSideRender, {
-						block: 'rgc-basic/tutorial-embed',
+						block: 'rgc-basic/gfx-embed',
 						attributes: attributes,
 					} )
 				)

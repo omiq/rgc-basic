@@ -12,7 +12,7 @@
     "html": false,
     "align": true
   },
-  "editorScript": "rgc-basic-tutorial-block-editor",
+  "editorScript": "rgc-basic-tutorial-block-editor-gfx",
   "attributes": {
     "program": {
       "type": "string",
