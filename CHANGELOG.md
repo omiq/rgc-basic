@@ -4,7 +4,7 @@
 
 - **WordPress plugin 1.1.0:** Plugin version bump; **`block-gfx.json`** keywords expanded (**rgc**, **gfx**, **embed**) so the inserter search finds the GFX block; README troubleshooting when **`build/block-editor.js`** is stale (only terminal block appears).
 
-- **`copy-web-assets.sh`:** Now copies **`gfx-embed-mount.js`** from **`wordpress/rgc-basic-tutorial-block/assets/js/`** in the repo into the plugin’s **`assets/js/`** (that file is not under **`web/`**; previously the script never deployed it, causing **404** for the GFX block in the editor).
+- **`copy-web-assets.sh`:** Deploys **`gfx-embed-mount.js`** (not under **`web/`**): if **`assets/js/gfx-embed-mount.js`** already exists next to the script (after **`git pull`**), the script keeps it; otherwise copies from **`$REPO/wordpress/rgc-basic-tutorial-block/assets/js/`** when present. Fixes **404** for the GFX block when the file was never copied to the server.
 
 - **WordPress plugin — RGC-BASIC GFX embed block:** **`wordpress/rgc-basic-tutorial-block`** registers **`rgc-basic/gfx-embed`** (`block-gfx.json`): canvas WASM via **`gfx-embed-mount.js`** + **`frontend-gfx-init.js`**, **`basic-canvas.js`** / **`basic-canvas.wasm`** from the same WASM base URL as the terminal block; inspector options for code, controls, fullscreen, poster image, interpreter flags. **`copy-web-assets.sh`** copies canvas WASM when present. **`docs/wordpress-canvas-embed.md`** documents **Option 4**.
 
