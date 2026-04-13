@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       RGC-BASIC Tutorial Embed
  * Description:       Gutenberg block to embed RGC-BASIC interpreters (WASM) in posts and pages. Upload modular WASM assets to the plugin or set a custom base URL.
- * Version:           1.2.0
+ * Version:           1.2.1
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            RGC-BASIC
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'RGC_BASIC_TUTORIAL_BLOCK_VERSION', '1.2.0' );
+define( 'RGC_BASIC_TUTORIAL_BLOCK_VERSION', '1.2.1' );
 define( 'RGC_BASIC_TUTORIAL_BLOCK_DIR', plugin_dir_path( __FILE__ ) );
 define( 'RGC_BASIC_TUTORIAL_BLOCK_URL', plugin_dir_url( __FILE__ ) );
 
@@ -180,6 +180,12 @@ function rgc_basic_tutorial_enqueue_editor_assets() {
 	if ( ! $screen || ! $screen->is_block_editor() ) {
 		return;
 	}
+	/*
+	 * Force both block editor scripts to load. Relying only on block.json editorScript
+	 * can fail if block-gfx.json is stale on disk, opcode cache, or WP block registration order.
+	 */
+	wp_enqueue_script( 'rgc-basic-tutorial-block-editor' );
+	wp_enqueue_script( 'rgc-basic-tutorial-block-editor-gfx' );
 	wp_enqueue_style( 'rgc-basic-tutorial-embed-frontend' );
 	wp_enqueue_script( 'rgc-basic-tutorial-embed-init' );
 	wp_localize_script(

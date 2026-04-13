@@ -22,7 +22,7 @@ The GFX block uses a **separate** editor script so a stale `block-editor.js` can
 - `rgc-basic-tutorial-block.php`
 - `assets/js/gfx-embed-mount.js`
 
-Then **Plugins → deactivate** RGC-BASIC Tutorial Embed → **Activate** again (or use a cache plugin’s “purge all caches”). Hard-refresh the block editor (**Ctrl+Shift+R** / **Cmd+Shift+R**). Search for **“gfx”** or **“canvas”** as well as **“rgc”**.
+Then **Plugins → deactivate** RGC-BASIC Tutorial Embed → **Activate** again (or use a cache plugin’s “purge all caches”). Hard-refresh the block editor (**Ctrl+Shift+R** / **Cmd+Shift+R**). Search for **“gfx”** or **“canvas”** as well as **“rgc”**. In DevTools → Network, filter **`block-editor-gfx`** — it must load (**200**). Plugin **1.2.1+** enqueues it on every editor load so a stale **`block-gfx.json`** alone cannot hide the GFX block.
 
 If DevTools **Network** shows **404** on **`gfx-embed-mount.js`**, that file must exist at **`wp-content/plugins/rgc-basic-tutorial-block/assets/js/gfx-embed-mount.js`**. Re-run **`copy-web-assets.sh`** from a full repo checkout (the script copies it), or copy that file from git into **`assets/js/`**.
 
