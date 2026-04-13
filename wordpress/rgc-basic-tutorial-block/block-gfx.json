@@ -6,7 +6,7 @@
   "category": "widgets",
   "icon": "format-image",
   "description": "Interactive RGC-BASIC canvas (sprites, SCREEN 1). Host basic-canvas.js and basic-canvas.wasm on HTTPS.",
-  "keywords": ["basic", "canvas", "sprite", "rgc-basic", "petscii"],
+  "keywords": ["rgc", "rgc-basic", "basic", "canvas", "sprite", "gfx", "embed", "petscii"],
   "textdomain": "rgc-basic-tutorial-block",
   "supports": {
     "html": false,
