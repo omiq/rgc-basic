@@ -39,3 +39,15 @@ if [ -f "$REPO/web/basic-canvas.js" ] && [ -f "$REPO/web/basic-canvas.wasm" ]; t
 else
   echo "No basic-canvas.js/.wasm found. For the GFX block run: make basic-wasm-canvas"
 fi
+
+# Gutenberg build/*.js — not produced by make; ship in git under wordpress/rgc-basic-tutorial-block/build/
+BUILD_SRC="$REPO/wordpress/rgc-basic-tutorial-block/build"
+if [ -d "$BUILD_SRC" ]; then
+  mkdir -p "$ROOT/build"
+  for f in block-editor.js gfx-block-editor.js frontend-init.js frontend-gfx-init.js block-frontend.css; do
+    if [ -f "$BUILD_SRC/$f" ]; then
+      cp -f "$BUILD_SRC/$f" "$ROOT/build/"
+    fi
+  done
+  echo "Synced build/ from repo (block-editor.js, gfx-block-editor.js, frontend-*.js, CSS)"
+fi
