@@ -50,6 +50,15 @@ function rgc_basic_tutorial_wasm_files_present() {
 }
 
 /**
+ * Whether canvas WASM files exist (GFX embed block).
+ */
+function rgc_basic_tutorial_canvas_wasm_files_present() {
+	$wasm = RGC_BASIC_TUTORIAL_BLOCK_DIR . 'assets/wasm/basic-canvas.wasm';
+	$js   = RGC_BASIC_TUTORIAL_BLOCK_DIR . 'assets/wasm/basic-canvas.js';
+	return is_readable( $wasm ) && is_readable( $js );
+}
+
+/**
  * Register and enqueue scripts/styles when the block appears (editor + front).
  */
 function rgc_basic_tutorial_register_assets() {
@@ -99,6 +108,26 @@ function rgc_basic_tutorial_register_assets() {
 	);
 
 	wp_register_script(
+		'rgc-basic-gfx-embed-mount',
+		RGC_BASIC_TUTORIAL_BLOCK_URL . 'assets/js/gfx-embed-mount.js',
+		array( 'rgc-basic-vfs-helpers' ),
+		file_exists( RGC_BASIC_TUTORIAL_BLOCK_DIR . 'assets/js/gfx-embed-mount.js' )
+			? (string) filemtime( RGC_BASIC_TUTORIAL_BLOCK_DIR . 'assets/js/gfx-embed-mount.js' )
+			: RGC_BASIC_TUTORIAL_BLOCK_VERSION,
+		true
+	);
+
+	wp_register_script(
+		'rgc-basic-gfx-embed-init',
+		RGC_BASIC_TUTORIAL_BLOCK_URL . 'build/frontend-gfx-init.js',
+		array( 'rgc-basic-gfx-embed-mount' ),
+		file_exists( RGC_BASIC_TUTORIAL_BLOCK_DIR . 'build/frontend-gfx-init.js' )
+			? (string) filemtime( RGC_BASIC_TUTORIAL_BLOCK_DIR . 'build/frontend-gfx-init.js' )
+			: RGC_BASIC_TUTORIAL_BLOCK_VERSION,
+		true
+	);
+
+	wp_register_script(
 		'rgc-basic-wasm-modular',
 		rgc_basic_tutorial_wasm_base_url() . 'basic-modular.js',
 		array(),
@@ -113,18 +142,32 @@ add_action( 'init', 'rgc_basic_tutorial_register_assets' );
  * Enqueue WASM loader before our embed (tutorial-embed loads it async; registering helps dependency order if extended).
  */
 function rgc_basic_tutorial_enqueue_block_assets() {
-	if ( ! has_block( 'rgc-basic/tutorial-embed' ) ) {
+	$has_tutorial = has_block( 'rgc-basic/tutorial-embed' );
+	$has_gfx      = has_block( 'rgc-basic/gfx-embed' );
+	if ( ! $has_tutorial && ! $has_gfx ) {
 		return;
 	}
 	wp_enqueue_style( 'rgc-basic-tutorial-embed-frontend' );
-	wp_enqueue_script( 'rgc-basic-tutorial-embed-init' );
-	wp_localize_script(
-		'rgc-basic-tutorial-embed-init',
-		'rgcBasicTutorialBlock',
-		array(
-			'baseUrl' => rgc_basic_tutorial_wasm_base_url(),
-		)
-	);
+	if ( $has_tutorial ) {
+		wp_enqueue_script( 'rgc-basic-tutorial-embed-init' );
+		wp_localize_script(
+			'rgc-basic-tutorial-embed-init',
+			'rgcBasicTutorialBlock',
+			array(
+				'baseUrl' => rgc_basic_tutorial_wasm_base_url(),
+			)
+		);
+	}
+	if ( $has_gfx ) {
+		wp_enqueue_script( 'rgc-basic-gfx-embed-init' );
+		wp_localize_script(
+			'rgc-basic-gfx-embed-init',
+			'rgcBasicGfxBlock',
+			array(
+				'wasmBaseUrl' => rgc_basic_tutorial_wasm_base_url(),
+			)
+		);
+	}
 }
 
 add_action( 'enqueue_block_assets', 'rgc_basic_tutorial_enqueue_block_assets' );
@@ -144,6 +187,14 @@ function rgc_basic_tutorial_enqueue_editor_assets() {
 		'rgcBasicTutorialBlock',
 		array(
 			'baseUrl' => rgc_basic_tutorial_wasm_base_url(),
+		)
+	);
+	wp_enqueue_script( 'rgc-basic-gfx-embed-init' );
+	wp_localize_script(
+		'rgc-basic-gfx-embed-init',
+		'rgcBasicGfxBlock',
+		array(
+			'wasmBaseUrl' => rgc_basic_tutorial_wasm_base_url(),
 		)
 	);
 }
@@ -175,6 +226,13 @@ function rgc_basic_tutorial_register_block() {
 		RGC_BASIC_TUTORIAL_BLOCK_DIR . 'block.json',
 		array(
 			'render_callback' => 'rgc_basic_tutorial_render_block',
+		)
+	);
+
+	register_block_type(
+		RGC_BASIC_TUTORIAL_BLOCK_DIR . 'block-gfx.json',
+		array(
+			'render_callback' => 'rgc_basic_tutorial_render_gfx_block',
 		)
 	);
 }
@@ -241,6 +299,76 @@ function rgc_basic_tutorial_render_block( $attributes, $content, $block ) {
 
 	return sprintf(
 		'<div %1$s><script type="application/json" class="rgc-basic-embed-config">%2$s</script></div>',
+		$wrapper,
+		$json
+	);
+}
+
+/**
+ * Render callback for rgc-basic/gfx-embed (canvas WASM).
+ *
+ * @param array    $attributes Block attributes.
+ * @param string   $content    Inner blocks (unused).
+ * @param WP_Block $block      Block instance.
+ * @return string
+ */
+function rgc_basic_tutorial_render_gfx_block( $attributes, $content, $block ) {
+	wp_enqueue_style( 'rgc-basic-tutorial-embed-frontend' );
+	wp_enqueue_script( 'rgc-basic-gfx-embed-init' );
+	wp_localize_script(
+		'rgc-basic-gfx-embed-init',
+		'rgcBasicGfxBlock',
+		array(
+			'wasmBaseUrl' => rgc_basic_tutorial_wasm_base_url(),
+		)
+	);
+
+	$defaults = array(
+		'program'           => "10 END\n",
+		'showEditor'        => true,
+		'showControls'      => true,
+		'showFullscreen'    => true,
+		'showVfsTools'      => true,
+		'posterImageUrl'    => '',
+		'interpreterFlags'  => '-petscii -charset lower -palette ansi -columns 40',
+	);
+
+	$a = wp_parse_args( $attributes, $defaults );
+
+	$program = isset( $a['program'] ) ? (string) $a['program'] : $defaults['program'];
+	$program = str_replace( array( "\r\n", "\r" ), "\n", $program );
+
+	$poster = isset( $a['posterImageUrl'] ) ? trim( (string) $a['posterImageUrl'] ) : '';
+
+	$opts = array(
+		'program'          => $program,
+		'showEditor'       => (bool) $a['showEditor'],
+		'showControls'     => (bool) $a['showControls'],
+		'showFullscreen'   => (bool) $a['showFullscreen'],
+		'showVfsTools'     => (bool) $a['showVfsTools'],
+		'posterImageUrl'   => $poster,
+		'interpreterFlags' => isset( $a['interpreterFlags'] ) ? (string) $a['interpreterFlags'] : $defaults['interpreterFlags'],
+		'wasmBaseUrl'      => rgc_basic_tutorial_wasm_base_url(),
+	);
+
+	$opts = apply_filters( 'rgc_basic_gfx_embed_options', $opts, $attributes, $block );
+
+	$json = wp_json_encode(
+		$opts,
+		JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE
+	);
+	if ( ! is_string( $json ) ) {
+		$json = '{}';
+	}
+
+	$wrapper = get_block_wrapper_attributes(
+		array(
+			'class' => 'rgc-basic-gfx-block-root',
+		)
+	);
+
+	return sprintf(
+		'<div %1$s><script type="application/json" class="rgc-basic-gfx-embed-config">%2$s</script></div>',
 		$wrapper,
 		$json
 	);
@@ -343,7 +471,7 @@ function rgc_basic_tutorial_admin_notice_missing_wasm() {
 		return;
 	}
 	echo '<div class="notice notice-warning"><p>';
-	echo esc_html__( 'RGC-BASIC Tutorial Embed: add basic-modular.js and basic-modular.wasm to wp-content/plugins/rgc-basic-tutorial-block/assets/wasm/ (run copy-web-assets.sh from the plugin folder) or configure Settings → RGC-BASIC Tutorial.', 'rgc-basic-tutorial-block' );
+	echo esc_html__( 'RGC-BASIC Tutorial Embed: add basic-modular.js and basic-modular.wasm to wp-content/plugins/rgc-basic-tutorial-block/assets/wasm/ (run copy-web-assets.sh from the plugin folder) or configure Settings → RGC-BASIC Tutorial. For the GFX canvas block, also copy basic-canvas.js and basic-canvas.wasm.', 'rgc-basic-tutorial-block' );
 	echo '</p></div>';
 }
 
