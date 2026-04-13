@@ -18,8 +18,32 @@
 	var TextControl = wp.components.TextControl;
 	var ServerSideRender = wp.serverSideRender;
 
+	/*
+	 * Self-sufficient registration: include title/category/icon/attributes so the
+	 * block appears in the inserter even when server-side register_block_type()
+	 * fails (e.g. blocks/gfx/block.json not deployed, opcache stale, etc.).
+	 * WP still merges any server-side metadata by name on top when present.
+	 */
 	registerBlockType( 'rgc-basic/gfx-embed', {
 		apiVersion: 3,
+		title: __( 'RGC-BASIC GFX embed', 'rgc-basic-tutorial-block' ),
+		description: __(
+			'Interactive RGC-BASIC canvas (sprites, SCREEN 1). Host basic-canvas.js and basic-canvas.wasm on HTTPS.',
+			'rgc-basic-tutorial-block'
+		),
+		category: 'widgets',
+		icon: 'format-image',
+		keywords: [ 'rgc', 'rgc-basic', 'basic', 'canvas', 'sprite', 'gfx', 'embed', 'petscii' ],
+		supports: { html: false, align: true },
+		attributes: {
+			program:          { type: 'string',  default: '10 END\n' },
+			showEditor:       { type: 'boolean', default: true },
+			showControls:     { type: 'boolean', default: true },
+			showFullscreen:   { type: 'boolean', default: true },
+			showVfsTools:     { type: 'boolean', default: true },
+			posterImageUrl:   { type: 'string',  default: '' },
+			interpreterFlags: { type: 'string',  default: '-petscii -charset lower -palette ansi -columns 40' },
+		},
 		edit: function ( props ) {
 			var attributes = props.attributes;
 			var setAttributes = props.setAttributes;
