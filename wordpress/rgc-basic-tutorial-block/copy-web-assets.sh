@@ -14,13 +14,16 @@ fi
 mkdir -p "$ROOT/assets/js" "$ROOT/assets/wasm"
 cp -f "$REPO/web/tutorial-embed.js" "$ROOT/assets/js/"
 cp -f "$REPO/web/vfs-helpers.js" "$ROOT/assets/js/"
-# Canvas GFX WordPress shell (not under web/ — lives in this plugin tree in the repo)
-GFX_MOUNT="$REPO/wordpress/rgc-basic-tutorial-block/assets/js/gfx-embed-mount.js"
-if [ -f "$GFX_MOUNT" ]; then
-	cp -f "$GFX_MOUNT" "$ROOT/assets/js/"
-	echo "Copied gfx-embed-mount.js (GFX embed block)"
+# Canvas GFX WordPress shell (not under web/ — ships in assets/js/ in git)
+GFX_HERE="$ROOT/assets/js/gfx-embed-mount.js"
+GFX_IN_REPO="$REPO/wordpress/rgc-basic-tutorial-block/assets/js/gfx-embed-mount.js"
+if [ -f "$GFX_HERE" ]; then
+	echo "gfx-embed-mount.js already in assets/js/ (GFX embed block)"
+elif [ -f "$GFX_IN_REPO" ]; then
+	cp -f "$GFX_IN_REPO" "$ROOT/assets/js/"
+	echo "Copied gfx-embed-mount.js from \$REPO wordpress path (GFX embed block)"
 else
-	echo "warning: gfx-embed-mount.js not found at $GFX_MOUNT — git pull rgc-basic, or copy manually into assets/js/" >&2
+	echo "warning: gfx-embed-mount.js missing — run 'git pull' in rgc-basic, or copy assets/js/gfx-embed-mount.js from the plugin on GitHub" >&2
 fi
 if [ -f "$REPO/web/basic-modular.js" ] && [ -f "$REPO/web/basic-modular.wasm" ]; then
   cp -f "$REPO/web/basic-modular.js" "$REPO/web/basic-modular.wasm" "$ROOT/assets/wasm/"

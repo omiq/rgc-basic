@@ -46,7 +46,7 @@ And into `assets/js/` (or re-run the script):
 - `web/tutorial-embed.js`
 - `web/vfs-helpers.js`
 
-The file **`assets/js/gfx-embed-mount.js`** is part of the plugin in git (it is **not** produced by `make` or copied from `web/`). **`copy-web-assets.sh`** now copies it from the repo path when you run the script from a full checkout. If that file is missing on the server, the block editor returns **404** for `gfx-embed-mount.js` — upload it into **`assets/js/`**.
+The file **`assets/js/gfx-embed-mount.js`** is part of the plugin in git (it is **not** produced by `make` or copied from `web/`). Run **`git pull`** in the RGC-BASIC repo so that file exists under **`wordpress/rgc-basic-tutorial-block/assets/js/`**. **`copy-web-assets.sh`** verifies it is present (or copies it from **`$REPO/wordpress/rgc-basic-tutorial-block/...`** when you pass the repo path). If that file is missing on the server, the block editor returns **404** for `gfx-embed-mount.js` — upload it into **`assets/js/`**.
 
 ## Custom WASM URL
 
