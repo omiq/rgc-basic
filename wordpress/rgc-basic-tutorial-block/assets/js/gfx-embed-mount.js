@@ -6,7 +6,22 @@
 (function (global) {
   'use strict';
 
+  /*
+   * basic-canvas.js is a non-MODULARIZE'd Emscripten build: there is exactly
+   * ONE WASM runtime per page. Every mount() shares the same window.Module.
+   *
+   * Per-mount state (program source, flags, canvas, callbacks) is swapped in
+   * by whichever embed currently "owns" the runtime. Only the active owner's
+   * rAF loop blits to its canvas — idle embeds freeze at their last frame.
+   */
   var canvasJsPromise = null;
+  var sharedRuntime = {
+    initPromise: null,
+    Module: null,          // the live window.Module once runtime is initialised
+    activeMount: null,     // id of the mount currently running (or null)
+    currentRun: null       // promise for the in-flight basic_load_and_run_gfx call
+  };
+  var mountIdSeq = 0;
 
   function ensureTrailingSlash(url) {
     if (!url) return '';
@@ -24,6 +39,32 @@
       document.head.appendChild(s);
     });
     return canvasJsPromise;
+  }
+
+  /**
+   * Initialise the shared Emscripten runtime exactly once. All mounts share
+   * the same window.Module; per-mount callbacks are swapped on claim.
+   */
+  function ensureRuntime(wasmBase, assetCb) {
+    if (sharedRuntime.initPromise) return sharedRuntime.initPromise;
+    sharedRuntime.initPromise = new Promise(function (resolve, reject) {
+      window.Module = {
+        canvasAssetCb: assetCb,
+        locateFile: function (p) {
+          if (p.endsWith('.wasm')) {
+            return wasmBase + 'basic-canvas.wasm?cb=' + encodeURIComponent(assetCb);
+          }
+          return wasmBase + p;
+        },
+        onRuntimeInitialized: function () {
+          sharedRuntime.Module = window.Module;
+          resolve(sharedRuntime.Module);
+        }
+      };
+      var jsUrl = wasmBase + 'basic-canvas.js?cb=' + encodeURIComponent(assetCb);
+      loadScriptOnce(jsUrl).catch(reject);
+    });
+    return sharedRuntime.initPromise;
   }
 
   function numPtr(p) {
@@ -189,6 +230,11 @@
     var lastRgbaVer = 0;
     var copyFailLogged = false;
     var Module = null;
+    var mountId = ++mountIdSeq;
+
+    function isActive() {
+      return sharedRuntime.activeMount === mountId;
+    }
 
     var C64_PALETTE_RGB = [
       [0, 0, 0], [255, 255, 255], [136, 0, 0], [170, 255, 238],
@@ -275,6 +321,9 @@
 
     function frame() {
       requestAnimationFrame(frame);
+      // Only the active mount blits — idle embeds freeze at their last frame
+      // so a running embed can't stomp on another embed's canvas.
+      if (!isActive()) return;
       if (!wasmRunPending || !Module || !Module._wasm_gfx_rgba_version_read) return;
       var ver = numPtr(Module._wasm_gfx_rgba_version_read());
       if (ver !== lastRgbaVer) {
@@ -284,66 +333,120 @@
     }
     requestAnimationFrame(frame);
 
-    function wireRunHandlers() {
-      Module = window.Module;
-      runBtn.onclick = function () {
-        logErr('');
-        copyFailLogged = false;
-        inputRow.style.display = 'none';
-        Module.wasmStopRequested = 0;
-        Module.wasmPaused = 0;
-        wasmRunPending = true;
-        lastRgbaVer = -1;
-        runBtn.disabled = true;
+    /*
+     * Swap the runtime's per-run callbacks to point at THIS mount. Called
+     * when this mount claims ownership of the shared runtime (on Run click).
+     */
+    function claimRuntime() {
+      sharedRuntime.activeMount = mountId;
+      Module.printErr = function (t) {
+        var s = String(t);
+        if (logEl.textContent && logEl.textContent.length) {
+          logEl.textContent = logEl.textContent + '\n' + s;
+        } else {
+          logErr(s);
+        }
+      };
+      Module.onWasmNeedInputLine = function () {
+        inputRow.style.display = 'flex';
+        inputLine.value = '';
+        inputLine.focus();
+      };
+      Module.onAbort = function (what) {
+        logErr('WASM aborted: ' + (what || 'unknown'));
+        wasmRunPending = false;
+        runBtn.disabled = false;
         if (showControls) {
-          pauseBtn.disabled = false;
+          pauseBtn.disabled = true;
           resumeBtn.disabled = true;
-          stopBtn.disabled = false;
+          stopBtn.disabled = true;
         }
-        var rc = Module.ccall('basic_apply_arg_string', 'number', ['string'], [flagsStr]);
-        if (rc !== 0) {
-          logErr('Invalid interpreter options.');
+        Module.wasmPaused = 0;
+      };
+    }
+
+    function doRun() {
+      // Stale callbacks from another embed must be replaced before we touch Module.
+      claimRuntime();
+      logErr('');
+      copyFailLogged = false;
+      inputRow.style.display = 'none';
+      Module.wasmStopRequested = 0;
+      Module.wasmPaused = 0;
+      wasmRunPending = true;
+      lastRgbaVer = -1;
+      runBtn.disabled = true;
+      if (showControls) {
+        pauseBtn.disabled = false;
+        resumeBtn.disabled = true;
+        stopBtn.disabled = false;
+      }
+      var rc = Module.ccall('basic_apply_arg_string', 'number', ['string'], [flagsStr]);
+      if (rc !== 0) {
+        logErr('Invalid interpreter options.');
+        wasmRunPending = false;
+        runBtn.disabled = false;
+        return Promise.resolve();
+      }
+      Module.FS.writeFile('/program.bas', ta.value);
+      if (Module._wasm_gfx_key_state_ptr && Module.HEAPU8) {
+        var kp = Module._wasm_gfx_key_state_ptr();
+        if (kp) Module.HEAPU8.fill(0, kp, kp + 256);
+      } else if (Module._wasm_gfx_key_state_clear) {
+        Module.ccall('wasm_gfx_key_state_clear', null, [], []);
+      }
+      canvas.focus();
+      var runP = Module.ccall('basic_load_and_run_gfx', null, ['string'], ['/program.bas'], { async: true })
+        .catch(function (e) {
+          logErr(String(e && e.message ? e.message : e));
+        })
+        .finally(function () {
           wasmRunPending = false;
+          Module.wasmPaused = 0;
           runBtn.disabled = false;
-          return;
+          if (showControls) {
+            pauseBtn.disabled = true;
+            resumeBtn.disabled = true;
+            stopBtn.disabled = true;
+          }
+          copyRgbaFromWasm();
+          if (sharedRuntime.currentRun === runP) {
+            sharedRuntime.currentRun = null;
+          }
+        });
+      sharedRuntime.currentRun = runP;
+      return runP;
+    }
+
+    function wireRunHandlers() {
+      Module = sharedRuntime.Module || window.Module;
+      runBtn.onclick = function () {
+        // Only one WASM instance per page. If another embed is currently
+        // running, ask it to stop and wait for it to finish before we start.
+        var prev = sharedRuntime.currentRun;
+        if (prev) {
+          if (Module) Module.wasmStopRequested = 1;
+          Promise.resolve(prev).then(doRun).catch(function () { doRun(); });
+        } else {
+          doRun();
         }
-        Module.FS.writeFile('/program.bas', ta.value);
-        if (Module._wasm_gfx_key_state_ptr && Module.HEAPU8) {
-          var kp = Module._wasm_gfx_key_state_ptr();
-          if (kp) Module.HEAPU8.fill(0, kp, kp + 256);
-        } else if (Module._wasm_gfx_key_state_clear) {
-          Module.ccall('wasm_gfx_key_state_clear', null, [], []);
-        }
-        canvas.focus();
-        Module.ccall('basic_load_and_run_gfx', null, ['string'], ['/program.bas'], { async: true })
-          .catch(function (e) {
-            logErr(String(e && e.message ? e.message : e));
-          })
-          .finally(function () {
-            wasmRunPending = false;
-            Module.wasmPaused = 0;
-            runBtn.disabled = false;
-            if (showControls) {
-              pauseBtn.disabled = true;
-              resumeBtn.disabled = true;
-              stopBtn.disabled = true;
-            }
-            copyRgbaFromWasm();
-          });
       };
 
       if (showControls) {
         pauseBtn.onclick = function () {
+          if (!isActive()) return;
           Module.wasmPaused = 1;
           pauseBtn.disabled = true;
           resumeBtn.disabled = false;
         };
         resumeBtn.onclick = function () {
+          if (!isActive()) return;
           Module.wasmPaused = 0;
           pauseBtn.disabled = false;
           resumeBtn.disabled = true;
         };
         stopBtn.onclick = function () {
+          if (!isActive()) return;
           Module.wasmStopRequested = 1;
           Module.wasmPaused = 0;
         };
@@ -361,32 +464,9 @@
         };
       }
 
-      Module.printErr = function (t) {
-        var s = String(t);
-        if (logEl.textContent && logEl.textContent.length) {
-          logEl.textContent = logEl.textContent + '\n' + s;
-        } else {
-          logErr(s);
-        }
-      };
-
-      Module.onWasmNeedInputLine = function () {
-        inputRow.style.display = 'flex';
-        inputLine.value = '';
-        inputLine.focus();
-      };
-
-      Module.onAbort = function (what) {
-        logErr('WASM aborted: ' + (what || 'unknown'));
-        wasmRunPending = false;
-        runBtn.disabled = false;
-        if (showControls) {
-          pauseBtn.disabled = true;
-          resumeBtn.disabled = true;
-          stopBtn.disabled = true;
-        }
-        Module.wasmPaused = 0;
-      };
+      // Module.printErr / onWasmNeedInputLine / onAbort are assigned in
+      // claimRuntime() on each Run click so that each embed's callbacks
+      // route to its own log/input UI.
 
       if (typeof RgcVfsHelpers !== 'undefined' && showVfs) {
         RgcVfsHelpers.vfsMountUI(vfsHost, Module, {
@@ -458,30 +538,25 @@
       copyRgbaFromWasm();
     }
 
-    var runtimeReadyPromise = null;
+    var handlersWired = false;
+    /*
+     * Per-mount init: await the shared runtime singleton, then wire THIS
+     * mount's Run/Pause/Stop handlers. Called from posterBtn click (deferred
+     * load) or eagerly on mount when there's no poster.
+     */
     function initModule() {
-      if (runtimeReadyPromise) return runtimeReadyPromise;
-      var cb = assetCb;
-      runtimeReadyPromise = new Promise(function (resolve, reject) {
-        window.Module = {
-          canvasAssetCb: cb,
-          locateFile: function (p) {
-            if (p.endsWith('.wasm')) {
-              return wasmBase + 'basic-canvas.wasm?cb=' + encodeURIComponent(cb);
-            }
-            return wasmBase + p;
-          },
-          onRuntimeInitialized: function () {
-            // wireRunHandlers attaches runBtn.onclick — resolve AFTER that so
-            // callers (poster Run button) can safely invoke runBtn.click().
-            try { wireRunHandlers(); } catch (e) { reject(e); return; }
-            resolve();
+      return ensureRuntime(wasmBase, assetCb).then(function (M) {
+        Module = M;
+        if (!handlersWired) {
+          handlersWired = true;
+          try {
+            wireRunHandlers();
+          } catch (e) {
+            handlersWired = false;
+            throw e;
           }
-        };
-        var jsUrl = wasmBase + 'basic-canvas.js?cb=' + encodeURIComponent(cb);
-        loadScriptOnce(jsUrl).catch(reject);
+        }
       });
-      return runtimeReadyPromise;
     }
 
     function revealAppAndRun() {
