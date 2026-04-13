@@ -14,6 +14,14 @@ fi
 mkdir -p "$ROOT/assets/js" "$ROOT/assets/wasm"
 cp -f "$REPO/web/tutorial-embed.js" "$ROOT/assets/js/"
 cp -f "$REPO/web/vfs-helpers.js" "$ROOT/assets/js/"
+# Canvas GFX WordPress shell (not under web/ — lives in this plugin tree in the repo)
+GFX_MOUNT="$REPO/wordpress/rgc-basic-tutorial-block/assets/js/gfx-embed-mount.js"
+if [ -f "$GFX_MOUNT" ]; then
+	cp -f "$GFX_MOUNT" "$ROOT/assets/js/"
+	echo "Copied gfx-embed-mount.js (GFX embed block)"
+else
+	echo "warning: gfx-embed-mount.js not found at $GFX_MOUNT — git pull rgc-basic, or copy manually into assets/js/" >&2
+fi
 if [ -f "$REPO/web/basic-modular.js" ] && [ -f "$REPO/web/basic-modular.wasm" ]; then
   cp -f "$REPO/web/basic-modular.js" "$REPO/web/basic-modular.wasm" "$ROOT/assets/wasm/"
   echo "Copied JS helpers + basic-modular.js/.wasm"

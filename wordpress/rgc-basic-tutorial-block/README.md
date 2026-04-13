@@ -23,6 +23,8 @@ The **GFX** block is registered by the same editor script as the terminal block.
 
 Then **Plugins → deactivate** RGC-BASIC Tutorial Embed → **Activate** again (or use a cache plugin’s “purge all caches”). Hard-refresh the block editor (**Ctrl+Shift+R** / **Cmd+Shift+R**). Search for **“gfx”** or **“canvas”** as well as **“rgc”**.
 
+If DevTools **Network** shows **404** on **`gfx-embed-mount.js`**, that file must exist at **`wp-content/plugins/rgc-basic-tutorial-block/assets/js/gfx-embed-mount.js`**. Re-run **`copy-web-assets.sh`** from a full repo checkout (the script copies it), or copy that file from git into **`assets/js/`**.
+
 ## Ship WASM files
 
 From an RGC-BASIC checkout:
@@ -44,7 +46,7 @@ And into `assets/js/` (or re-run the script):
 - `web/tutorial-embed.js`
 - `web/vfs-helpers.js`
 
-The repo ships `assets/js/gfx-embed-mount.js` in the plugin (no copy from `web/` required).
+The file **`assets/js/gfx-embed-mount.js`** is part of the plugin in git (it is **not** produced by `make` or copied from `web/`). **`copy-web-assets.sh`** now copies it from the repo path when you run the script from a full checkout. If that file is missing on the server, the block editor returns **404** for `gfx-embed-mount.js` — upload it into **`assets/js/`**.
 
 ## Custom WASM URL
 
