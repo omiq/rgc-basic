@@ -18,6 +18,7 @@
 	var ServerSideRender = wp.serverSideRender;
 
 	registerBlockType( 'rgc-basic/tutorial-embed', {
+		apiVersion: 3,
 		edit: function ( props ) {
 			var attributes = props.attributes;
 			var setAttributes = props.setAttributes;

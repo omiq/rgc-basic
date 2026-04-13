@@ -19,6 +19,7 @@
 	var ServerSideRender = wp.serverSideRender;
 
 	registerBlockType( 'rgc-basic/gfx-embed', {
+		apiVersion: 3,
 		edit: function ( props ) {
 			var attributes = props.attributes;
 			var setAttributes = props.setAttributes;
