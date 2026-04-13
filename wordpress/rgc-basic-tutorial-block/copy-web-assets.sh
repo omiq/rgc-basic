@@ -87,6 +87,18 @@ else
 	echo "warning: gfx-embed-mount.js missing — run 'git pull' in rgc-basic, or copy assets/js/gfx-embed-mount.js from the plugin on GitHub" >&2
 fi
 
+# Shared syntax highlighter (used by both tutorial + gfx embeds).
+HL_HERE="$ROOT/assets/js/basic-highlight.js"
+HL_IN_REPO="$REPO/wordpress/rgc-basic-tutorial-block/assets/js/basic-highlight.js"
+if [ -f "$HL_IN_REPO" ] && [ "$HL_IN_REPO" != "$HL_HERE" ]; then
+	cp -f "$HL_IN_REPO" "$ROOT/assets/js/"
+	echo "Copied basic-highlight.js from \$REPO (shared highlighter)"
+elif [ -f "$HL_HERE" ]; then
+	echo "basic-highlight.js already in assets/js/ (shared highlighter)"
+else
+	echo "warning: basic-highlight.js missing — run 'git pull' in rgc-basic, or copy assets/js/basic-highlight.js from the plugin on GitHub" >&2
+fi
+
 # ----- assets/wasm (from web/) -----
 if [ -f "$REPO/web/basic-modular.js" ] && [ -f "$REPO/web/basic-modular.wasm" ]; then
 	cp -f "$REPO/web/basic-modular.js"   "$ROOT/assets/wasm/"
@@ -180,7 +192,7 @@ if [ -n "$DEPLOY" ]; then
 	done
 
 	# Frontend JS shells.
-	for f in tutorial-embed.js vfs-helpers.js gfx-embed-mount.js; do
+	for f in tutorial-embed.js vfs-helpers.js gfx-embed-mount.js basic-highlight.js; do
 		if [ -f "$ROOT/assets/js/$f" ]; then
 			cp -f "$ROOT/assets/js/$f" "$DEPLOY_DIR/assets/js/"
 		else
