@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **`JSON$` object/array values:** Fixed **`json_skip_value`** so **`}`** / **`]`** after the last property/element is consumed (parser previously stopped one delimiter short for nested objects/arrays). **`JSON$(json$, path)`** returns the **raw JSON text** for object and array values (truncated to max string length). Regression: **`tests/json_test.bas`**, **`tests/json_object_value_test.bas`**.
+
 - **`INSTR` case-insensitive option:** **`INSTR(source$, search$ [, start [, ignore_case]])`** — when **`ignore_case`** is non‑zero, matching uses **ASCII** case folding (`tolower` on each byte). Omitted or **0** preserves the previous case-sensitive behavior. Regression: **`tests/instr_case_insensitive.bas`**.
 
 - **Documentation:** **`docs/http-vfs-assets.md`** — design notes on **HTTP fetch → MEMFS**, **binary file I/O**, and **IDE tools** (complements **`docs/ide-wasm-tools.md`**); linked from **`to-do.md`**.
