@@ -4981,6 +4981,13 @@ static struct value eval_function(const char *name, char **p)
         (*p)++;
         skip_spaces(p);
 #if defined(__EMSCRIPTEN__)
+        /* Let host paint any prior PRINT before Asyncify suspends for fetch (canvas + terminal WASM). */
+#if defined(GFX_VIDEO)
+        wasm_gfx_refresh_js();
+#else
+        BEFORE_CSTDIO();
+#endif
+        emscripten_sleep(0);
         wasm_http_fetch_emscripten(v_url.str, meth, bod, blen, outbuf, sizeof(outbuf), &st);
         http_last_status = st;
         return make_str(outbuf);
@@ -5042,6 +5049,14 @@ static struct value eval_function(const char *name, char **p)
         }
         (*p)++;
         skip_spaces(p);
+#if defined(__EMSCRIPTEN__)
+#if defined(GFX_VIDEO)
+        wasm_gfx_refresh_js();
+#else
+        BEFORE_CSTDIO();
+#endif
+        emscripten_sleep(0);
+#endif
         rc = http_fetch_to_file_impl(v_url.str, v_path.str, meth, bod, blen, &st);
         http_last_status = st;
         if (rc != 0) {
