@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **Documentation:** **`docs/wasm-assets-loadsprite-http.md`** — why **`LOADSPRITE`** cannot use **`https://`** URLs; **`HTTPFETCH`** to MEMFS; CORS; JS **`FS.writeFile`**; canvas vs terminal embeds. Linked from **`docs/http-vfs-assets.md`** and **`web/README.md`**.
+
 - **WASM `HTTP$` / `HTTPFETCH`:** Before Asyncify **`fetch`**, flush **canvas** framebuffer to JS (**`wasm_gfx_refresh_js`**) or **terminal** stdout buffer (**`BEFORE_CSTDIO`**) and **`emscripten_sleep(0)`** so **`PRINT`** output (e.g. headers) is visible before the network call blocks.
 
 - **`JSON$` object/array values:** Fixed **`json_skip_value`** so **`}`** / **`]`** after the last property/element is consumed (parser previously stopped one delimiter short for nested objects/arrays). **`JSON$(json$, path)`** returns the **raw JSON text** for object and array values (truncated to max string length). Regression: **`tests/json_test.bas`**, **`tests/json_object_value_test.bas`**.
