@@ -458,22 +458,30 @@
       copyRgbaFromWasm();
     }
 
+    var runtimeReadyPromise = null;
     function initModule() {
+      if (runtimeReadyPromise) return runtimeReadyPromise;
       var cb = assetCb;
-      window.Module = {
-        canvasAssetCb: cb,
-        locateFile: function (p) {
-          if (p.endsWith('.wasm')) {
-            return wasmBase + 'basic-canvas.wasm?cb=' + encodeURIComponent(cb);
+      runtimeReadyPromise = new Promise(function (resolve, reject) {
+        window.Module = {
+          canvasAssetCb: cb,
+          locateFile: function (p) {
+            if (p.endsWith('.wasm')) {
+              return wasmBase + 'basic-canvas.wasm?cb=' + encodeURIComponent(cb);
+            }
+            return wasmBase + p;
+          },
+          onRuntimeInitialized: function () {
+            // wireRunHandlers attaches runBtn.onclick — resolve AFTER that so
+            // callers (poster Run button) can safely invoke runBtn.click().
+            try { wireRunHandlers(); } catch (e) { reject(e); return; }
+            resolve();
           }
-          return wasmBase + p;
-        },
-        onRuntimeInitialized: function () {
-          wireRunHandlers();
-        }
-      };
-      var jsUrl = wasmBase + 'basic-canvas.js?cb=' + encodeURIComponent(cb);
-      return loadScriptOnce(jsUrl);
+        };
+        var jsUrl = wasmBase + 'basic-canvas.js?cb=' + encodeURIComponent(cb);
+        loadScriptOnce(jsUrl).catch(reject);
+      });
+      return runtimeReadyPromise;
     }
 
     function revealAppAndRun() {
@@ -482,6 +490,7 @@
       }
       app.hidden = false;
       return initModule().then(function () {
+        // Runtime is ready and handlers are wired — now clicking Run actually runs.
         runBtn.click();
       });
     }

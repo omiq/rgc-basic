@@ -42,7 +42,14 @@
   position: absolute;
   left: 50%;
   top: 50%;
-  transform: translate(-50%, -50%);
+  /*
+   * Use the `translate` property (not inside `transform`) for centering so
+   * that a theme's `button:hover { transform: translateY(-1px) }` etc. can't
+   * clobber our centering and shift the button off-centre. Modern browsers
+   * compose `translate` + `transform` together instead of overriding.
+   */
+  translate: -50% -50%;
+  transform: none;
   padding: 0.65em 1.75em;
   font-size: 1.1rem;
   font-weight: 600;
@@ -54,8 +61,13 @@
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }
 
-.rgc-basic-gfx-run-poster:hover {
+.rgc-basic-gfx-run-poster:hover,
+.rgc-basic-gfx-run-poster:focus,
+.rgc-basic-gfx-run-poster:active {
   background: #256a3a;
+  /* Neutralise any theme hover/active transform that would shift the button. */
+  transform: none;
+  translate: -50% -50%;
 }
 
 .rgc-basic-gfx-app {
