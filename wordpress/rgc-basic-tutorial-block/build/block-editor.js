@@ -1,6 +1,6 @@
 /**
  * Gutenberg block editor: terminal embed only (rgc-basic/tutorial-embed).
- * GFX block is registered from block-editor-gfx.js (separate file = reliable deploy).
+ * GFX block is registered from gfx-block-editor.js (separate file = reliable deploy).
  */
 ( function ( wp ) {
 	'use strict';
