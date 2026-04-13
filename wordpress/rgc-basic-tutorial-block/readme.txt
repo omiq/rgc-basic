@@ -4,7 +4,7 @@ Tags: block, gutenberg, basic, code, tutorial, wasm
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.2.6
+Stable tag: 1.2.7
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -36,6 +36,9 @@ WASM must be served over **HTTPS** (or localhost). If files are missing, configu
 Yes. The helper adds classes such as `rgc-tutorial-embed` (see `docs/tutorial-embedding.md` in the RGC-BASIC repo).
 
 == Changelog ==
+
+= 1.2.7 =
+* Explicit apiVersion 3 in block editor JS for WordPress 6.9 iframe inserter (GFX block was registered but hidden from search).
 
 = 1.2.6 =
 * Same as 1.2.2; plugin PHP entry file may be **`rgc-basic-blocks.php`**.
