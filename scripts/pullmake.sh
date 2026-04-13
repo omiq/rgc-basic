@@ -50,3 +50,7 @@ make basic-wasm-canvas
 # Or canvas-only gate: sh scripts/verify-canvas-wasm.sh
 cp -r web/*.* ../8bitworkshop/rgc-basic
 cp -r examples/*.* ../8bitworkshop/presets/rgc-basic/
+cd wordpress/rgc-basic-tutorial-block/
+./copy-web-assets.sh 
+cd ../..
+
