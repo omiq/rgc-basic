@@ -13,11 +13,12 @@ Two Gutenberg blocks:
 
 ### If you only see “RGC-BASIC embed” (terminal), not “RGC-BASIC GFX embed”
 
-The **GFX** block is registered by the same editor script as the terminal block. You must upload **all** of these from the repo (same version / same upload batch):
+The GFX block uses a **separate** editor script so a stale `block-editor.js` cannot hide it. Upload **all** of these from the repo (same version / same batch):
 
-- `build/block-editor.js` — must contain **two** blocks (`rgc-basic/tutorial-embed` and `rgc-basic/gfx-embed`). If this file is old, WordPress never registers the GFX block.
+- `build/block-editor.js` — terminal block only
+- **`build/block-editor-gfx.js`** — GFX block (`rgc-basic/gfx-embed`); **required** — without it the second block will not appear in the inserter
 - `build/frontend-gfx-init.js`
-- `block-gfx.json`
+- `block-gfx.json` (must reference `editorScript`: `rgc-basic-tutorial-block-editor-gfx`)
 - `rgc-basic-tutorial-block.php`
 - `assets/js/gfx-embed-mount.js`
 
@@ -86,7 +87,8 @@ add_filter( 'rgc_basic_gfx_embed_options', function ( $opts, $attributes, $block
 | `rgc-basic-tutorial-block.php` | Plugin bootstrap, enqueue, render callback, settings |
 | `block.json` | Terminal block metadata + attributes |
 | `block-gfx.json` | GFX block metadata + attributes |
-| `build/block-editor.js` | Block editor UI (both blocks) |
+| `build/block-editor.js` | Terminal block editor UI |
+| `build/block-editor-gfx.js` | GFX block editor UI |
 | `build/frontend-init.js` | Finds configs and calls `RgcBasicTutorialEmbed.mount` |
 | `build/frontend-gfx-init.js` | Finds configs and calls `RgcBasicGfxEmbed.mount` |
 | `assets/js/gfx-embed-mount.js` | Canvas WASM shell (from `canvas.html` logic) |

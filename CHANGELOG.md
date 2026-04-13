@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **WordPress plugin 1.2.0:** Split editor scripts: **`build/block-editor-gfx.js`** registers **`rgc-basic/gfx-embed`**; **`block-gfx.json`** uses **`editorScript`** `rgc-basic-tutorial-block-editor-gfx`. Avoids missing second block when an old cached **`block-editor.js`** was uploaded without the combined two-block file.
+
 - **WordPress plugin:** **`assets/js/gfx-embed-mount.js`** was listed in **`.gitignore`** under **`assets/js/*`**, so it never existed in the remote repo after **`git pull`** — fixed by un-ignoring that file and adding it to version control.
 
 - **WordPress plugin 1.1.0:** Plugin version bump; **`block-gfx.json`** keywords expanded (**rgc**, **gfx**, **embed**) so the inserter search finds the GFX block; README troubleshooting when **`build/block-editor.js`** is stale (only terminal block appears).
