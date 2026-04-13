@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **WordPress plugin 1.1.0:** Plugin version bump; **`block-gfx.json`** keywords expanded (**rgc**, **gfx**, **embed**) so the inserter search finds the GFX block; README troubleshooting when **`build/block-editor.js`** is stale (only terminal block appears).
+
 - **WordPress plugin — RGC-BASIC GFX embed block:** **`wordpress/rgc-basic-tutorial-block`** registers **`rgc-basic/gfx-embed`** (`block-gfx.json`): canvas WASM via **`gfx-embed-mount.js`** + **`frontend-gfx-init.js`**, **`basic-canvas.js`** / **`basic-canvas.wasm`** from the same WASM base URL as the terminal block; inspector options for code, controls, fullscreen, poster image, interpreter flags. **`copy-web-assets.sh`** copies canvas WASM when present. **`docs/wordpress-canvas-embed.md`** documents **Option 4**.
 
 - **Documentation:** **`docs/wordpress-canvas-embed.md`** — embedding **canvas WASM** (sprites, **`SCREEN 1`**) in WordPress: iframe **`canvas.html`**, custom HTML, vs terminal-only plugin; links to **`docs/ide-retrogamecoders-canvas-integration.md`** and **`docs/wasm-assets-loadsprite-http.md`**.
