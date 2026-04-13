@@ -10,4 +10,7 @@
 10 J2$ = "{" + Q$ + "x" + Q$ + ":{" + Q$ + "y" + Q$ + ":" + Q$ + "nested" + Q$ + "}}"
 11 IF JSON$(J2$, "x.y") = "nested" THEN PRINT "OK: JSON$ nested"
 12 IF JSON$(J$, "missing") = "" THEN PRINT "OK: JSON$ missing key"
-13 PRINT "JSON$ test done."
+13 J3$ = "{" + Q$ + "obj" + Q$ + ":{" + Q$ + "k" + Q$ + ":1}" + "}"
+14 IF INSTR(JSON$(J3$, "obj"), "{") = 1 THEN PRINT "OK: JSON$ object value"
+15 IF INSTR(JSON$(J$, "tags"), "[") = 1 THEN PRINT "OK: JSON$ array value"
+16 PRINT "JSON$ test done."

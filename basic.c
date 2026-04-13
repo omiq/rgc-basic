@@ -2318,6 +2318,24 @@ static struct value make_num(double v);
 static struct value make_str(const char *s);
 static struct var *find_or_create_var(const char *name, int is_string, int want_array, int dims, const int *dim_sizes, int total_size);
 static struct value eval_function(const char *name, char **p);
+
+/* INSTR helper: needle at hay[i..i+nlen-1]; ign_case uses tolower on unsigned char. */
+static int instr_match_at(const char *hay, int hay_len, int i, const char *needle, int nlen, int ign_case)
+{
+    int j;
+    if (i < 0 || nlen <= 0 || i + nlen > hay_len) {
+        return 0;
+    }
+    if (!ign_case) {
+        return strncmp(hay + i, needle, (size_t)nlen) == 0;
+    }
+    for (j = 0; j < nlen; j++) {
+        if (tolower((unsigned char)hay[i + j]) != tolower((unsigned char)needle[j])) {
+            return 0;
+        }
+    }
+    return 1;
+}
 static int user_func_lookup(const char *name);
 static void collect_data_from_program(void);
 static void statement_read(char **p);
@@ -4688,9 +4706,22 @@ static const char *json_parse_value(const char **pp, char *out, size_t out_size)
         return out;
     }
     if (*p == '{' || *p == '[') {
-        json_skip_value(&p);
+        {
+            const char *start = p;
+            json_skip_value(&p);
+            {
+                size_t len = (size_t)(p - start);
+                if (len >= out_size) {
+                    len = out_size - 1;
+                }
+                if (out_size > 0) {
+                    memcpy(out, start, len);
+                    out[len] = '\0';
+                }
+            }
+        }
         *pp = p;
-        return NULL;  /* caller should use out for primitive; for struct we return NULL */
+        return out;
     }
     return NULL;
 }
@@ -4716,6 +4747,7 @@ static void json_skip_value(const char **pp)
             if (*p == ':') { p++; json_skip_value(&p); }
             json_skip_ws(&p);
             if (*p == ',') { p++; continue; }
+            if (*p == '}') { p++; break; }
             break;
         }
     } else if (*p == '[') {
@@ -4726,6 +4758,7 @@ static void json_skip_value(const char **pp)
             json_skip_value(&p);
             json_skip_ws(&p);
             if (*p == ',') { p++; continue; }
+            if (*p == ']') { p++; break; }
             break;
         }
     } else if ((*p >= '0' && *p <= '9') || *p == '-' || *p == '+') {
@@ -5811,19 +5844,21 @@ static struct value eval_function(const char *name, char **p)
         }
     }
     case FN_INSTR: {
-        /* INSTR(source$, search$ [, start]) -> 1-based index or 0 if not found. */
+        /* INSTR(source$, search$ [, start [, ignore_case]]) -> 1-based index or 0 if not found. */
         struct value v_source = arg;
         struct value v_search;
+        struct value v_extra;
         int s_len;
         int sub_len;
         int start_pos = 0;  /* 0-based; default 0 = search from beginning */
+        int ign_case = 0;
         int i;
 
         ensure_str(&v_source);
         skip_spaces(p);
         if (**p != ',') {
             runtime_error_hint("INSTR requires at least 2 arguments",
-                                 "Use INSTR(haystack$, needle$) or INSTR(haystack$, needle$, start).");
+                                 "Use INSTR(haystack$, needle$) or INSTR(haystack$, needle$, start [, ignore_case]).");
             return make_num(0.0);
         }
         (*p)++;
@@ -5832,14 +5867,21 @@ static struct value eval_function(const char *name, char **p)
         ensure_str(&v_search);
         skip_spaces(p);
         if (**p == ',') {
-            struct value v_start;
             (*p)++;
             skip_spaces(p);
-            v_start = eval_expr(p);
-            ensure_num(&v_start);
-            start_pos = (int)v_start.num - 1;  /* convert 1-based to 0-based */
+            v_extra = eval_expr(p);
+            ensure_num(&v_extra);
+            start_pos = (int)v_extra.num - 1;  /* convert 1-based to 0-based */
             if (start_pos < 0) start_pos = 0;
             skip_spaces(p);
+            if (**p == ',') {
+                (*p)++;
+                skip_spaces(p);
+                v_extra = eval_expr(p);
+                ensure_num(&v_extra);
+                ign_case = ((int)v_extra.num != 0) ? 1 : 0;
+                skip_spaces(p);
+            }
         }
         if (**p == ')') {
             (*p)++;
@@ -5866,7 +5908,7 @@ static struct value eval_function(const char *name, char **p)
                 }
             }
 #endif
-            if (strncmp(v_source.str + i, v_search.str, (size_t)sub_len) == 0) {
+            if (instr_match_at(v_source.str, s_len, i, v_search.str, sub_len, ign_case)) {
                 return make_num((double)(i + 1));
             }
         }
