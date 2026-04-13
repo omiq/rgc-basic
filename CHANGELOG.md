@@ -2,7 +2,7 @@
 
 ### Unreleased
 
-- **`copy-web-assets.sh`:** After copying WASM/JS, syncs **`wordpress/rgc-basic-tutorial-block/build/`** from **`$REPO`** (**`gfx-block-editor.js`**, **`block-editor.js`**, front-end inits, CSS) so deploys include renamed GFX editor script without manual FTP of **`build/`**.
+- **`copy-web-assets.sh`:** After copying WASM/JS, syncs **`build/`** from **`$REPO`** when the plugin folder is **not** already inside that repo (e.g. copy plugin to Desktop then run with path to rgc-basic). If the script is run **from** `wordpress/rgc-basic-tutorial-block` inside the checkout, **`build/`** source and destination are the same — skip **`cp`** to avoid **`identical (not copied)`** errors.
 
 - **WordPress plugin 1.2.6:** Renamed **`build/block-editor-gfx.js`** → **`build/gfx-block-editor.js`** — FTP had often left **`block-editor-gfx.js`** as a duplicate of **`block-editor.js`** (wrong **`registerBlockType`**), and Cloudflare cached **`max-age=31536000`**. New filename + comment guard; purge CDN after deploy. Bootstrap file may be **`rgc-basic-blocks.php`** (same code as historical **`rgc-basic-tutorial-block.php`**).
 
