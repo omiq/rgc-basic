@@ -11,6 +11,18 @@ Two Gutenberg blocks:
 2. Activate **RGC-BASIC Tutorial Embed** under Plugins.
 3. Add the block to a post or page.
 
+### If you only see “RGC-BASIC embed” (terminal), not “RGC-BASIC GFX embed”
+
+The **GFX** block is registered by the same editor script as the terminal block. You must upload **all** of these from the repo (same version / same upload batch):
+
+- `build/block-editor.js` — must contain **two** blocks (`rgc-basic/tutorial-embed` and `rgc-basic/gfx-embed`). If this file is old, WordPress never registers the GFX block.
+- `build/frontend-gfx-init.js`
+- `block-gfx.json`
+- `rgc-basic-tutorial-block.php`
+- `assets/js/gfx-embed-mount.js`
+
+Then **Plugins → deactivate** RGC-BASIC Tutorial Embed → **Activate** again (or use a cache plugin’s “purge all caches”). Hard-refresh the block editor (**Ctrl+Shift+R** / **Cmd+Shift+R**). Search for **“gfx”** or **“canvas”** as well as **“rgc”**.
+
 ## Ship WASM files
 
 From an RGC-BASIC checkout:
