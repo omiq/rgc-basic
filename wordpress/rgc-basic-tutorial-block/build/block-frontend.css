@@ -79,9 +79,107 @@
 .rgc-basic-gfx-program {
   width: 100%;
   min-height: 120px;
-  font-family: ui-monospace, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 13px;
   box-sizing: border-box;
+}
+
+/* --- Syntax-highlighted editor (twin-overlay technique) --- */
+.rgc-basic-gfx-editor {
+  position: relative;
+  width: 100%;
+  min-height: 120px;
+}
+
+/* Shared typography so the textarea caret lines up with the highlight. */
+.rgc-basic-gfx-editor .rgc-basic-gfx-highlight,
+.rgc-basic-gfx-editor .rgc-basic-gfx-program {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  letter-spacing: 0;
+  tab-size: 2;
+  -moz-tab-size: 2;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  padding: 8px 10px;
+  margin: 0;
+  border: 1px solid #d0d7de;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+.rgc-basic-gfx-editor .rgc-basic-gfx-highlight {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  pointer-events: none;
+  background: #f7f8fa;
+  color: #24292f;
+  z-index: 0;
+}
+.rgc-basic-gfx-editor .rgc-basic-gfx-highlight code {
+  display: block;
+  white-space: pre-wrap;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  padding: 0;
+}
+
+.rgc-basic-gfx-editor .rgc-basic-gfx-program--highlighted {
+  position: relative;
+  width: 100%;
+  min-height: 120px;
+  background: transparent;
+  color: transparent;
+  caret-color: #24292f;
+  resize: vertical;
+  z-index: 1;
+  overflow: auto;
+}
+.rgc-basic-gfx-editor .rgc-basic-gfx-program--highlighted::selection {
+  background: rgba(56, 139, 253, 0.28);
+  color: transparent;
+}
+
+/* Tokens — light theme tuned to sit nicely on a white WP page. */
+.rgc-basic-gfx-highlight .tok-keyword   { color: #cf222e; font-weight: 600; }
+.rgc-basic-gfx-highlight .tok-function  { color: #8250df; }
+.rgc-basic-gfx-highlight .tok-operator  { color: #cf222e; }
+.rgc-basic-gfx-highlight .tok-string    { color: #0a3069; }
+.rgc-basic-gfx-highlight .tok-escape    { color: #116329; font-weight: 600; }
+.rgc-basic-gfx-highlight .tok-number    { color: #0550ae; }
+.rgc-basic-gfx-highlight .tok-comment   { color: #6e7781; font-style: italic; }
+.rgc-basic-gfx-highlight .tok-directive { color: #953800; font-weight: 600; }
+.rgc-basic-gfx-highlight .tok-lineno    { color: #6e7781; }
+.rgc-basic-gfx-highlight .tok-punct     { color: #24292f; }
+.rgc-basic-gfx-highlight .tok-ident     { color: #24292f; }
+
+/* Dark-mode theme — respects prefers-color-scheme or explicit .is-dark. */
+@media (prefers-color-scheme: dark) {
+  .rgc-basic-gfx-editor .rgc-basic-gfx-highlight {
+    background: #0d1117;
+    color: #c9d1d9;
+    border-color: #30363d;
+  }
+  .rgc-basic-gfx-editor .rgc-basic-gfx-program--highlighted {
+    caret-color: #c9d1d9;
+    border-color: #30363d;
+  }
+  .rgc-basic-gfx-highlight .tok-keyword   { color: #ff7b72; }
+  .rgc-basic-gfx-highlight .tok-function  { color: #d2a8ff; }
+  .rgc-basic-gfx-highlight .tok-operator  { color: #ff7b72; }
+  .rgc-basic-gfx-highlight .tok-string    { color: #a5d6ff; }
+  .rgc-basic-gfx-highlight .tok-escape    { color: #7ee787; }
+  .rgc-basic-gfx-highlight .tok-number    { color: #79c0ff; }
+  .rgc-basic-gfx-highlight .tok-comment   { color: #8b949e; }
+  .rgc-basic-gfx-highlight .tok-directive { color: #ffa657; }
+  .rgc-basic-gfx-highlight .tok-lineno    { color: #8b949e; }
+  .rgc-basic-gfx-highlight .tok-punct     { color: #c9d1d9; }
+  .rgc-basic-gfx-highlight .tok-ident     { color: #c9d1d9; }
 }
 
 .rgc-basic-gfx-toolbar {
