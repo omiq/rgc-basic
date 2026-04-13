@@ -1,6 +1,7 @@
 /**
- * Gutenberg block editor: canvas GFX embed (rgc-basic/gfx-embed).
- * Loaded separately from block-editor.js so uploads/cache cannot drop the second block.
+ * RGC-BASIC GFX embed — Gutenberg editor (rgc-basic/gfx-embed ONLY).
+ * If registerBlockType below says tutorial-embed, this file was overwritten by mistake; restore from git.
+ * Terminal block lives in block-editor.js only.
  */
 ( function ( wp ) {
 	'use strict';

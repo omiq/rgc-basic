@@ -4,7 +4,7 @@ Tags: block, gutenberg, basic, code, tutorial, wasm
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.2.1
+Stable tag: 1.2.6
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -37,11 +37,17 @@ Yes. The helper adds classes such as `rgc-tutorial-embed` (see `docs/tutorial-em
 
 == Changelog ==
 
+= 1.2.6 =
+* Same as 1.2.2; plugin PHP entry file may be **`rgc-basic-blocks.php`**.
+
+= 1.2.2 =
+* GFX editor script renamed to **`build/gfx-block-editor.js`** (distinct name so FTP does not overwrite it with `block-editor.js`). Purge CDN if Cloudflare cached the wrong file.
+
 = 1.2.1 =
-* Block editor always enqueues **`block-editor-gfx.js`** (not only via block.json) so the GFX block registers even with stale JSON or PHP opcode cache.
+* Block editor always enqueues the GFX editor script (not only via block.json) so the GFX block registers even with stale JSON or PHP opcode cache.
 
 = 1.2.0 =
-* GFX block editor script is **`build/block-editor-gfx.js`** (separate from `block-editor.js`) so the canvas block appears reliably after FTP upload.
+* GFX block uses a separate editor script file (see 1.2.2 for final name **`gfx-block-editor.js`**) so the canvas block appears reliably after FTP upload.
 
 = 1.1.0 =
 * Second block: **RGC-BASIC GFX embed** (canvas WASM). See plugin README: upload `build/block-editor.js` + `frontend-gfx-init.js` together or the new block will not appear.

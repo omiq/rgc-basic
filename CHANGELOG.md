@@ -2,7 +2,9 @@
 
 ### Unreleased
 
-- **WordPress plugin 1.2.1:** **`enqueue_block_editor_assets`** now calls **`wp_enqueue_script`** for **`rgc-basic-tutorial-block-editor`** and **`rgc-basic-tutorial-block-editor-gfx`** so **`block-editor-gfx.js`** always loads in Gutenberg (fixes missing second block when **`block-gfx.json`** on server was outdated or PHP opcode cache served old registration).
+- **WordPress plugin 1.2.6:** Renamed **`build/block-editor-gfx.js`** → **`build/gfx-block-editor.js`** — FTP had often left **`block-editor-gfx.js`** as a duplicate of **`block-editor.js`** (wrong **`registerBlockType`**), and Cloudflare cached **`max-age=31536000`**. New filename + comment guard; purge CDN after deploy. Bootstrap file may be **`rgc-basic-blocks.php`** (same code as historical **`rgc-basic-tutorial-block.php`**).
+
+- **WordPress plugin 1.2.1:** **`enqueue_block_editor_assets`** now calls **`wp_enqueue_script`** for **`rgc-basic-tutorial-block-editor`** and **`rgc-basic-tutorial-block-editor-gfx`** so the GFX editor script always loads in Gutenberg (fixes missing second block when **`block-gfx.json`** on server was outdated or PHP opcode cache served old registration).
 
 - **WordPress plugin 1.2.0:** Split editor scripts: **`build/block-editor-gfx.js`** registers **`rgc-basic/gfx-embed`**; **`block-gfx.json`** uses **`editorScript`** `rgc-basic-tutorial-block-editor-gfx`. Avoids missing second block when an old cached **`block-editor.js`** was uploaded without the combined two-block file.
 

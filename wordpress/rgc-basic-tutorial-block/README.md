@@ -16,13 +16,13 @@ Two Gutenberg blocks:
 The GFX block uses a **separate** editor script so a stale `block-editor.js` cannot hide it. Upload **all** of these from the repo (same version / same batch):
 
 - `build/block-editor.js` — terminal block only
-- **`build/block-editor-gfx.js`** — GFX block (`rgc-basic/gfx-embed`); **required** — without it the second block will not appear in the inserter
+- **`build/gfx-block-editor.js`** — GFX block (`rgc-basic/gfx-embed`); **required** — without it the second block will not appear in the inserter (renamed from `block-editor-gfx.js` to avoid FTP accidentally overwriting it with a copy of `block-editor.js`)
 - `build/frontend-gfx-init.js`
 - `block-gfx.json` (must reference `editorScript`: `rgc-basic-tutorial-block-editor-gfx`)
-- `rgc-basic-tutorial-block.php`
+- **`rgc-basic-blocks.php`** (or **`rgc-basic-tutorial-block.php`** — same plugin; use whichever filename is in your **`wp-content/plugins/.../`** folder)
 - `assets/js/gfx-embed-mount.js`
 
-Then **Plugins → deactivate** RGC-BASIC Tutorial Embed → **Activate** again (or use a cache plugin’s “purge all caches”). Hard-refresh the block editor (**Ctrl+Shift+R** / **Cmd+Shift+R**). Search for **“gfx”** or **“canvas”** as well as **“rgc”**. In DevTools → Network, filter **`block-editor-gfx`** — it must load (**200**). Plugin **1.2.1+** enqueues it on every editor load so a stale **`block-gfx.json`** alone cannot hide the GFX block.
+Then **Plugins → deactivate** RGC-BASIC Tutorial Embed → **Activate** again (or use a cache plugin’s “purge all caches”). Hard-refresh the block editor (**Ctrl+Shift+R** / **Cmd+Shift+R**). Search for **“gfx”** or **“canvas”** as well as **“rgc”**. In DevTools → Network, open **`gfx-block-editor.js`** — you must see **`registerBlockType( 'rgc-basic/gfx-embed'`** (not **`tutorial-embed`**). If it says **`tutorial-embed`**, the wrong file was uploaded. **Purge Cloudflare** (or wait) if the response is cached. Plugin **1.2.1+** enqueues the GFX editor script on every editor load.
 
 If DevTools **Network** shows **404** on **`gfx-embed-mount.js`**, that file must exist at **`wp-content/plugins/rgc-basic-tutorial-block/assets/js/gfx-embed-mount.js`**. Re-run **`copy-web-assets.sh`** from a full repo checkout (the script copies it), or copy that file from git into **`assets/js/`**.
 
@@ -84,11 +84,11 @@ add_filter( 'rgc_basic_gfx_embed_options', function ( $opts, $attributes, $block
 
 | Path | Role |
 |------|------|
-| `rgc-basic-tutorial-block.php` | Plugin bootstrap, enqueue, render callback, settings |
+| `rgc-basic-blocks.php` | Plugin bootstrap, enqueue, render callback, settings |
 | `block.json` | Terminal block metadata + attributes |
 | `block-gfx.json` | GFX block metadata + attributes |
 | `build/block-editor.js` | Terminal block editor UI |
-| `build/block-editor-gfx.js` | GFX block editor UI |
+| `build/gfx-block-editor.js` | GFX block editor UI |
 | `build/frontend-init.js` | Finds configs and calls `RgcBasicTutorialEmbed.mount` |
 | `build/frontend-gfx-init.js` | Finds configs and calls `RgcBasicGfxEmbed.mount` |
 | `assets/js/gfx-embed-mount.js` | Canvas WASM shell (from `canvas.html` logic) |
