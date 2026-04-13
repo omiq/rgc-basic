@@ -4,7 +4,7 @@ Tags: block, gutenberg, basic, code, tutorial, wasm
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.2.0
+Stable tag: 1.2.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -36,6 +36,9 @@ WASM must be served over **HTTPS** (or localhost). If files are missing, configu
 Yes. The helper adds classes such as `rgc-tutorial-embed` (see `docs/tutorial-embedding.md` in the RGC-BASIC repo).
 
 == Changelog ==
+
+= 1.2.1 =
+* Block editor always enqueues **`block-editor-gfx.js`** (not only via block.json) so the GFX block registers even with stale JSON or PHP opcode cache.
 
 = 1.2.0 =
 * GFX block editor script is **`build/block-editor-gfx.js`** (separate from `block-editor.js`) so the canvas block appears reliably after FTP upload.
