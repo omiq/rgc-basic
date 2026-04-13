@@ -41,13 +41,24 @@ else
 fi
 
 # Gutenberg build/*.js — not produced by make; ship in git under wordpress/rgc-basic-tutorial-block/build/
+# If this script lives inside $REPO/wordpress/.../ then BUILD_SRC is the same dir as $ROOT/build — skip cp (avoids "identical (not copied)" / error).
 BUILD_SRC="$REPO/wordpress/rgc-basic-tutorial-block/build"
 if [ -d "$BUILD_SRC" ]; then
-  mkdir -p "$ROOT/build"
-  for f in block-editor.js gfx-block-editor.js frontend-init.js frontend-gfx-init.js block-frontend.css; do
-    if [ -f "$BUILD_SRC/$f" ]; then
-      cp -f "$BUILD_SRC/$f" "$ROOT/build/"
+  BUILD_SAME=
+  if [ -d "$ROOT/build" ]; then
+    if [ "$(cd "$ROOT/build" && pwd)" = "$(cd "$BUILD_SRC" && pwd)" ]; then
+      BUILD_SAME=1
     fi
-  done
-  echo "Synced build/ from repo (block-editor.js, gfx-block-editor.js, frontend-*.js, CSS)"
+  fi
+  if [ -n "$BUILD_SAME" ]; then
+    echo "build/ already this checkout (run from plugin inside repo — nothing to sync)"
+  else
+    mkdir -p "$ROOT/build"
+    for f in block-editor.js gfx-block-editor.js frontend-init.js frontend-gfx-init.js block-frontend.css; do
+      if [ -f "$BUILD_SRC/$f" ]; then
+        cp -f "$BUILD_SRC/$f" "$ROOT/build/"
+      fi
+    done
+    echo "Synced build/ from repo (block-editor.js, gfx-block-editor.js, frontend-*.js, CSS)"
+  fi
 fi
