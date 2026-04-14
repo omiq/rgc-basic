@@ -208,17 +208,27 @@ Low-urgency cleanups noted during the April 2026 parser/CI hardening pass. None 
 
 ## Text in bitmap mode + pixel-space `DRAWTEXT`
 
-Planned post-1.6.3. Full design in **`docs/bitmap-text-plan.md`**. Summary:
+Full design in **`docs/bitmap-text-plan.md`**. Split into two halves: character-set rendering in bitmap mode (done), and the new Font / `DRAWTEXT` system (outstanding).
 
-* **Part 1 — `PRINT` / `LOCATE` / `TEXTAT` / `COLOR` / `BACKGROUND` / `CHR$(147)` work in `SCREEN 1`.** Same keyword, glyph-stamp into `bitmap[]` via the existing PET 8×8 chargen. C64-faithful. Programs that PRINT a HUD become portable across modes. Cursor and per-cell colour RAM are no-ops in bitmap mode (1bpp plane); scrolling uses `memmove` on the bitmap plane.
+**Shipped (post-1.6.3, unreleased):**
 
-* **Part 2 — new `DRAWTEXT x, y, text$ [, fg [, bg [, font_slot]]]`.** Pixel-space placement, per-call fg/bg (bg = -1 transparent), optional font slot. Modern escape hatch alongside the C64-compat `PRINT`.
+* ~**Step 1 — `gfx_video_bitmap_clear` + `gfx_video_bitmap_stamp_glyph` helpers; `CHR$(147)` routes on `screen_mode`.**~
+* ~**Step 2 — `PRINT` / `TEXTAT` render into `bitmap[]` via the active chargen when `screen_mode == GFX_SCREEN_BITMAP`.** Solid paper so over-prints overwrite cleanly; text plane untouched in bitmap mode per spec.~
+* ~**Step 3 — Bitmap-mode scroll on PRINT overflow.** `gfx_video_bitmap_scroll_up_cell` shifts the plane up 8 pixel rows via `memmove` and zeros the bottom cell; text-mode `gfx_scroll_up` unchanged.~
 
-* **`LOADFONT slot, "path.bin"` / `UNLOADFONT slot`** (MVP: raw 2KB chargen). Slot 0 is always the built-in PET chargen.
+Result so far: programs that `PRINT` a HUD, score, or status line in `SCREEN 1` now render exactly as they would in `SCREEN 0`, using the same chargen. Good for tutorial examples before Fonts arrive.
 
-* **Intermediate: offline converter tool `tools/pngfont2rgc`.** Turns a 128×128 PNG glyph sheet (16×16 grid of 8×8 cells) into the raw 2KB format `LOADFONT` consumes. Keeps the interpreter's font loader tiny while letting users bring any bitmap font — edit in Aseprite/GIMP/Photoshop, export, convert, load. TTF rendering inside the interpreter stays a far-future item.
+**Outstanding:**
 
-* **Implementation sequence** (six small test-first steps): helper + `CHR$(147)` clear → `PRINT`/`TEXTAT` in bitmap mode → scrolling → `DRAWTEXT` with built-in font → `LOADFONT` raw chargen → canvas WASM Playwright parity.
+* **Step 4 — `DRAWTEXT x, y, text$ [, fg [, bg [, font_slot [, scale]]]]`.** Pixel-space rendering. PETSCII-free — bytes in `text$` are raw Font-glyph indices (no control-code interpretation, no wrap, no screen-clear on 147). Per-call fg/bg (bg = -1 transparent). Integer `scale` ≥ 1, nearest-neighbour pixel-doubling. MVP colour path: temporarily override `gfx_vs->pen`/`paper` for the call.
 
-* **Open questions** in the doc: PETSCII/Unicode normalisation parity, 80-col mode interaction, cursor rendering in bitmap mode.
+* **Step 5 — `LOADFONT slot, "path.rgcfont"` / `UNLOADFONT slot`.** Reads the 8-byte `RGCF` magic header (width, height, glyph count) and the bitmap payload that follows. Fonts live in a separate `Font fonts[N]` array on `GfxVideoState` — entirely distinct from the active character set, which keeps its existing storage and layout. Slot 0 is the built-in default Font (a Font-copy of the 8×8 PET artwork); swapping the active character set does not touch it.
+
+* **Step 6 — Canvas WASM Playwright parity.** One Playwright case for `SCREEN 1 : PRINT "HI"`, one for `SCREEN 1 : DRAWTEXT 100, 50, "HI", 7`.
+
+* **Intermediate: offline converter tool `tools/pngfont2rgc`.** Turns a bitmap-font PNG into the `.rgcfont` format `LOADFONT` consumes. Keeps the interpreter's Font loader to a header-read plus one `fread`; lets users edit in Aseprite/GIMP/Photoshop, export PNG, convert, load. Uses `stb_image.h` already in `gfx/`. Optional `.py` companion for single-script edit+convert. Examples in `examples/fonts/` (8×8 default, 8×16 slim, 16×16 chunky, 16×16 bold).
+
+* **Terminology reminder (locked in the spec):** **character set** (lowercase, 8×8×256, PETSCII-indexed, drives `PRINT`/`LOCATE`/`TEXTAT`/`CHR$(147)` — already wired for bitmap mode); **Font** (capital F, arbitrary dimensions, PETSCII-free, `DRAWTEXT`-only, loaded via `LOADFONT`). The two concepts don't share storage, structs, or loaders. Sizing: per-slot native dimensions (different sizes = different Fonts) vs render-time integer scale (pixel-doubling at draw time). Weights ship as separate Fonts with their own artwork — no algorithmic fake-bold.
+
+* **Resolved open questions** (from the spec): PETSCII normalisation applies only to the character-set path (inherits from PRINT's existing flow); `DRAWTEXT` never normalises. Cursor in bitmap mode is a no-op for now — character-set-scope only, trivial XOR-stamp revival if anyone asks. 80-col is text-mode only; bitmap character-set path is forever 40×25.
 
