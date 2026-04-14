@@ -232,6 +232,13 @@
       requestAnimationFrame(pollWasmUiFlags);
 
       var Module = {
+        /* Demo host hook for EXEC$ / SYSTEM in WASM (see docs/wasm-host-exec.md). */
+        rgcHostExec: function(cmd) {
+          if (cmd === '__wasm_browser_host_exec_test__') {
+            return { stdout: 'HOST_OK', exitCode: 0 };
+          }
+          return { stdout: '', exitCode: -1 };
+        },
         print: function(text) { appendOutput(text); },
         printErr: function(text) { appendOutput(text, true); },
         onWasmNeedInputLine: function() {

@@ -144,6 +144,20 @@ def main() -> int:
                 timeout=120000,
             )
 
+            # EXEC$ host hook (Module.rgcHostExec) — see docs/wasm-host-exec.md
+            page.fill(
+                "#program",
+                '10 R$ = EXEC$("__wasm_browser_host_exec_test__")\n'
+                '20 IF R$ <> "HOST_OK" THEN PRINT "HOSTBAD"; R$ : END\n'
+                '30 PRINT "HOST_EXEC_OK"\n'
+                "40 END\n",
+            )
+            _click_run(page)
+            page.wait_for_function(
+                "() => (document.getElementById('output').textContent || '').includes('HOST_EXEC_OK')",
+                timeout=120000,
+            )
+
             # HTTP$ / HTTPSTATUS: async fetch (Asyncify + wasm_js_http_fetch_async)
             page.fill(
                 "#program",
