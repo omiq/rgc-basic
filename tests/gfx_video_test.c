@@ -207,6 +207,92 @@ int main(void)
         (void)overlap_hi; /* upper bound is informational */
     }
 
+    /* ============================================================
+     * Text-in-bitmap-mode step 1: gfx_video_bitmap_clear and
+     * gfx_video_bitmap_stamp_glyph. See docs/bitmap-text-plan.md.
+     * ============================================================ */
+    {
+        GfxVideoState b;
+        unsigned pixel_y;
+
+        gfx_video_init(&b);
+        b.screen_mode = GFX_SCREEN_BITMAP;
+
+        /* Pollute the bitmap, then clear it. */
+        memset(b.bitmap, 0xFF, sizeof(b.bitmap));
+        gfx_video_bitmap_clear(&b);
+        for (size_t i = 0; i < sizeof(b.bitmap); i++) {
+            assert(b.bitmap[i] == 0);
+        }
+
+        /* The text plane is NOT touched by bitmap clear. */
+        memset(b.screen, 'X', sizeof(b.screen));
+        gfx_video_bitmap_clear(&b);
+        assert(b.screen[0] == 'X');
+        assert(b.screen[500] == 'X');
+
+        /* Stamp a known glyph at cell (0, 0) with transparent bg.
+         * We put a recognisable pattern in s->chars[screencode * 8]
+         * and check it lands at bitmap[0..7 * 40 by stride 40]. */
+        {
+            uint8_t code = 42;
+            uint8_t pattern[8] = {0x81, 0x42, 0x24, 0x18, 0x18, 0x24, 0x42, 0x81};
+            memset(b.bitmap, 0, sizeof(b.bitmap));
+            memcpy(&b.chars[(unsigned)code * 8u], pattern, 8);
+            gfx_video_bitmap_stamp_glyph(&b, 0, 0, code, 0);
+            for (pixel_y = 0; pixel_y < 8; pixel_y++) {
+                unsigned off = pixel_y * (GFX_BITMAP_WIDTH / 8u);
+                assert(b.bitmap[off] == pattern[pixel_y]);
+            }
+            /* Cell to the right untouched. */
+            assert(b.bitmap[1] == 0);
+        }
+
+        /* Stamp at cell (5, 3) — byte offset = (3*8 + gr) * 40 + 5. */
+        {
+            uint8_t code = 7;
+            uint8_t pattern[8] = {0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55};
+            memset(b.bitmap, 0, sizeof(b.bitmap));
+            memcpy(&b.chars[(unsigned)code * 8u], pattern, 8);
+            gfx_video_bitmap_stamp_glyph(&b, 5, 3, code, 0);
+            for (pixel_y = 0; pixel_y < 8; pixel_y++) {
+                unsigned off = ((unsigned)3 * 8u + pixel_y) * 40u + 5u;
+                assert(b.bitmap[off] == pattern[pixel_y]);
+            }
+        }
+
+        /* Transparent OR vs solid overwrite. */
+        {
+            uint8_t code = 9;
+            uint8_t pattern[8] = {0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F};
+            memset(b.bitmap, 0xF0, sizeof(b.bitmap));
+            memcpy(&b.chars[(unsigned)code * 8u], pattern, 8);
+
+            /* Transparent: cell byte becomes 0xF0 | 0x0F == 0xFF. */
+            gfx_video_bitmap_stamp_glyph(&b, 0, 0, code, 0);
+            assert(b.bitmap[0] == 0xFF);
+
+            /* Solid: cell byte becomes 0x0F (paper cleared first). */
+            memset(b.bitmap, 0xF0, sizeof(b.bitmap));
+            gfx_video_bitmap_stamp_glyph(&b, 0, 0, code, 1);
+            assert(b.bitmap[0] == 0x0F);
+        }
+
+        /* Out-of-range cells are silently clipped (no crash, no writes). */
+        memset(b.bitmap, 0, sizeof(b.bitmap));
+        gfx_video_bitmap_stamp_glyph(&b, -1, 0, 42, 1);
+        gfx_video_bitmap_stamp_glyph(&b, 40, 0, 42, 1);
+        gfx_video_bitmap_stamp_glyph(&b, 0, -1, 42, 1);
+        gfx_video_bitmap_stamp_glyph(&b, 0, 25, 42, 1);
+        for (size_t i = 0; i < sizeof(b.bitmap); i++) {
+            assert(b.bitmap[i] == 0);
+        }
+
+        /* NULL state is tolerated. */
+        gfx_video_bitmap_clear(NULL);
+        gfx_video_bitmap_stamp_glyph(NULL, 0, 0, 0, 0);
+    }
+
     printf("gfx_video_test OK\n");
     return 0;
 }

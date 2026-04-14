@@ -124,5 +124,31 @@ void gfx_bitmap_set_pixel(GfxVideoState *s, int x, int y, int on);
 /* Bresenham line; each point is clipped (same semantics as PSET/PRESET). */
 void gfx_bitmap_line(GfxVideoState *s, int x0, int y0, int x1, int y1, int on);
 
+/* Clear the 320x200 1bpp bitmap plane to all-zero. Leaves the text plane
+ * and character RAM alone. Equivalent to memset(s->bitmap, 0, ...) but
+ * named so callers make their intent explicit (BITMAPCLEAR, CHR$(147) in
+ * bitmap mode, etc.). */
+void gfx_video_bitmap_clear(GfxVideoState *s);
+
+/* Stamp an 8x8 glyph from the active character set (s->chars[]) into the
+ * bitmap plane at character cell (col, row). Cells are 8x8 pixels; (0, 0)
+ * is top-left, col range [0, 39], row range [0, 24].
+ *
+ * screencode indexes s->chars[] at byte offset screencode*8.
+ *
+ * solid_bg:
+ *   0 — transparent paper: OR the glyph bits into bitmap[] (leaves
+ *       existing pixels in the cell intact where the glyph has 0 bits).
+ *   1 — opaque paper: overwrite the 8x8 cell with the glyph bits (clears
+ *       cleared pixels too).
+ *
+ * Out-of-range cells are silently clipped (no-op). This is the primitive
+ * used by the character-set-in-bitmap-mode rendering path; Fonts for
+ * DRAWTEXT will use a separate helper when that lands. */
+void gfx_video_bitmap_stamp_glyph(GfxVideoState *s,
+                                  int col, int row,
+                                  uint8_t screencode,
+                                  int solid_bg);
+
 #endif /* GFX_VIDEO_H */
 

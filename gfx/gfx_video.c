@@ -375,6 +375,51 @@ void gfx_bitmap_set_pixel(GfxVideoState *s, int x, int y, int on)
     }
 }
 
+void gfx_video_bitmap_clear(GfxVideoState *s)
+{
+    if (!s) return;
+    memset(s->bitmap, 0, sizeof(s->bitmap));
+}
+
+/* Character-set-in-bitmap-mode glyph stamper.
+ *
+ * Each glyph in s->chars[] is 8 bytes, one byte per pixel row, MSB = left
+ * pixel (matches the C64 / PET chargen layout). The bitmap is row-major at
+ * 40 bytes per row, so cell (col, row) maps to bitmap byte offset
+ *   ((row * 8 + glyph_row) * 40) + col
+ * i.e. each of the 8 glyph rows lands in a single cell-aligned byte.
+ *
+ * This is deliberately byte-aligned only — character-set rendering is
+ * always on 8-pixel column boundaries. Fonts / DRAWTEXT will need a
+ * different (shifted) stamper.
+ */
+void gfx_video_bitmap_stamp_glyph(GfxVideoState *s,
+                                  int col, int row,
+                                  uint8_t screencode,
+                                  int solid_bg)
+{
+    const uint8_t *glyph;
+    int glyph_row;
+
+    if (!s) return;
+    if (col < 0 || col >= 40) return;
+    if (row < 0 || row >= 25) return;
+
+    glyph = &s->chars[(unsigned)screencode * 8u];
+
+    for (glyph_row = 0; glyph_row < 8; glyph_row++) {
+        unsigned pixel_y = (unsigned)row * 8u + (unsigned)glyph_row;
+        unsigned byte_off = pixel_y * (GFX_BITMAP_WIDTH / 8u) + (unsigned)col;
+        uint8_t bits = glyph[glyph_row];
+        if (byte_off >= GFX_BITMAP_BYTES) continue;
+        if (solid_bg) {
+            s->bitmap[byte_off] = bits;
+        } else {
+            s->bitmap[byte_off] |= bits;
+        }
+    }
+}
+
 void gfx_bitmap_line(GfxVideoState *s, int x0, int y0, int x1, int y1, int on)
 {
     int dx, dy, sx, sy, err, e2;

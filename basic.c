@@ -1808,8 +1808,16 @@ static void gfx_newline(void)
 static void gfx_clear_screen(void)
 {
     if (!gfx_vs) return;
-    memset(gfx_vs->screen, 32, GFX_TEXT_SIZE);
-    memset(gfx_vs->color, gfx_fg, GFX_COLOR_SIZE);
+    if (gfx_vs->screen_mode == GFX_SCREEN_BITMAP) {
+        /* CHR$(147) in bitmap mode clears the visible plane, which is the
+         * bitmap — the text plane is not rendered in SCREEN 1. See
+         * docs/bitmap-text-plan.md. Cursor state is still reset so the
+         * next PRINT starts at cell (0, 0). */
+        gfx_video_bitmap_clear(gfx_vs);
+    } else {
+        memset(gfx_vs->screen, 32, GFX_TEXT_SIZE);
+        memset(gfx_vs->color, gfx_fg, GFX_COLOR_SIZE);
+    }
     gfx_x = 0;
     gfx_y = 0;
     print_col = 0;
@@ -4176,7 +4184,7 @@ static void statement_bitmapclear(char **p)
         runtime_error_hint("BITMAPCLEAR requires basic-gfx or canvas WASM", NULL);
         return;
     }
-    memset(gfx_vs->bitmap, 0, sizeof(gfx_vs->bitmap));
+    gfx_video_bitmap_clear(gfx_vs);
 #else
     runtime_error_hint("BITMAPCLEAR requires basic-gfx (graphics build)",
                          "Terminal build has no bitmap; use basic-gfx or canvas WASM.");
