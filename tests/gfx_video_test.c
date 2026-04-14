@@ -131,6 +131,82 @@ int main(void)
         assert(gfx_video_set_memory_bases(&t, 64000u, GFX_COLOR_BASE, GFX_CHAR_BASE, GFX_KEY_BASE, GFX_BITMAP_BASE) == -1);
     }
 
+    /* C64-style memory multiplexing: in the default layout, the bitmap region
+     * ($2000-$3F3F, 8000 bytes) overlaps the character RAM region ($3000-$37FF,
+     * 2048 bytes). On real hardware, VIC-II uses the same RAM either as bitmap
+     * pixels or as character glyphs depending on screen mode — the mode chooses
+     * the interpretation, not the address. gfx_poke / gfx_peek must mirror that
+     * by consulting screen_mode for any address inside the overlap. */
+    {
+        GfxVideoState m;
+        unsigned x, y;
+        unsigned overlap_lo, overlap_hi;
+        uint16_t addr;
+
+        gfx_video_init(&m);
+        overlap_lo = (unsigned)GFX_CHAR_BASE;                 /* $3000 */
+        overlap_hi = (unsigned)GFX_CHAR_BASE + GFX_CHAR_SIZE; /* $3800 */
+
+        /* TEXT mode (default after init): chars region wins for the overlap.
+         * This is the existing behaviour and must not regress. */
+        assert(m.screen_mode == GFX_SCREEN_TEXT);
+        gfx_poke(&m, (uint16_t)overlap_lo, 0xAB);
+        assert(m.chars[0] == 0xAB);
+        assert(m.bitmap[overlap_lo - GFX_BITMAP_BASE] == 0);
+        assert(gfx_peek(&m, (uint16_t)overlap_lo) == 0xAB);
+
+        /* BITMAP mode: same address must now land in the bitmap, not chars.
+         * Wipe both planes first so we can attribute writes unambiguously. */
+        memset(m.chars, 0, sizeof(m.chars));
+        memset(m.bitmap, 0, sizeof(m.bitmap));
+        m.screen_mode = GFX_SCREEN_BITMAP;
+        gfx_poke(&m, (uint16_t)overlap_lo, 0xCD);
+        assert(m.bitmap[overlap_lo - GFX_BITMAP_BASE] == 0xCD);
+        assert(m.chars[0] == 0);
+        assert(gfx_peek(&m, (uint16_t)overlap_lo) == 0xCD);
+
+        /* BITMAP mode, full-range coverage: clearing the entire 8000-byte
+         * bitmap via POKE (i.e. what BASIC's MEMSET does) must wipe every
+         * pixel, including those whose backing bytes fall inside the
+         * overlap window. With the current bug, bytes $3000-$37FF land
+         * in chars instead of bitmap, leaving roughly rows 102-167
+         * undisturbed. */
+        for (x = 0; x < GFX_BITMAP_WIDTH; x++) {
+            gfx_bitmap_set_pixel(&m, (int)x, 0, 1);
+            gfx_bitmap_set_pixel(&m, (int)x, GFX_BITMAP_HEIGHT - 1, 1);
+        }
+        for (y = 0; y < GFX_BITMAP_HEIGHT; y++) {
+            gfx_bitmap_set_pixel(&m, 0, (int)y, 1);
+            gfx_bitmap_set_pixel(&m, GFX_BITMAP_WIDTH - 1, (int)y, 1);
+        }
+        /* Pollute the entire 8000-byte bitmap range so we know the clear works. */
+        for (addr = GFX_BITMAP_BASE; addr < GFX_BITMAP_BASE + GFX_BITMAP_BYTES; addr++) {
+            gfx_poke(&m, addr, 0xFF);
+        }
+        for (x = 0; x < GFX_BITMAP_WIDTH; x++) {
+            for (y = 0; y < GFX_BITMAP_HEIGHT; y++) {
+                assert(gfx_bitmap_get_pixel(&m, x, y) == 1);
+            }
+        }
+        /* Now zero the bitmap byte-by-byte and confirm every pixel is off. */
+        for (addr = GFX_BITMAP_BASE; addr < GFX_BITMAP_BASE + GFX_BITMAP_BYTES; addr++) {
+            gfx_poke(&m, addr, 0x00);
+        }
+        for (x = 0; x < GFX_BITMAP_WIDTH; x++) {
+            for (y = 0; y < GFX_BITMAP_HEIGHT; y++) {
+                assert(gfx_bitmap_get_pixel(&m, x, y) == 0);
+            }
+        }
+
+        /* Returning to TEXT mode restores chars-wins priority. */
+        m.screen_mode = GFX_SCREEN_TEXT;
+        memset(m.chars, 0, sizeof(m.chars));
+        gfx_poke(&m, (uint16_t)(overlap_lo + 1), 0x42);
+        assert(m.chars[1] == 0x42);
+        assert(gfx_peek(&m, (uint16_t)(overlap_lo + 1)) == 0x42);
+        (void)overlap_hi; /* upper bound is informational */
+    }
+
     printf("gfx_video_test OK\n");
     return 0;
 }

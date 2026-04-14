@@ -212,45 +212,63 @@ static uint8_t peek_keys(const GfxVideoState *s, uint16_t addr)
     return 0;
 }
 
+/* True if addr is inside [base, base+size). */
+static int addr_in(uint16_t addr, uint16_t base, uint16_t size)
+{
+    return addr >= base && (uint16_t)(addr - base) < size;
+}
+
 /* gfx_peek — virtualised PEEK for the gfx address space.
  *
  * !! WARNING: RESOLUTION ORDER IS INTENTIONAL — SEE FILE HEADER !!
  *
- * The keyboard region (0xDC00–0xDCFF) overlaps colour RAM (0xD800–0xDFCF).
- * Keyboard MUST be checked first so PEEK(56320+n) returns key_state[n],
- * not whatever colour is stored at that cell.
+ * Two overlap rules apply:
  *
- * If you ever see PEEK(56320+n) returning 14 instead of 0/1, the most
- * likely cause is that this check order was changed. Fix: ensure the
- * mem_key block is tested BEFORE the mem_color block, as it is below.
+ *  1. The keyboard region (0xDC00–0xDCFF) overlaps colour RAM (0xD800–0xDFCF).
+ *     Keyboard MUST be checked first so PEEK(56320+n) returns key_state[n],
+ *     not whatever colour is stored at that cell. If you ever see
+ *     PEEK(56320+n) returning 14 instead of 0/1, the most likely cause is
+ *     that this check order was changed. Fix: ensure the mem_key block is
+ *     tested BEFORE the mem_color block, as it is below.
+ *
+ *  2. The hi-res bitmap region ($2000–$3F3F by default) overlaps the
+ *     character RAM region ($3000–$37FF) in the C64-style memory layout.
+ *     This faithfully mirrors VIC-II hardware where the same RAM is
+ *     interpreted as bitmap pixels OR character glyphs depending on the
+ *     current screen mode (the chip's mode chooses the interpretation,
+ *     not the address). Therefore for any address inside the overlap,
+ *     dispatch is keyed on screen_mode: bitmap wins in GFX_SCREEN_BITMAP,
+ *     chars wins in GFX_SCREEN_TEXT.
  */
 uint8_t gfx_peek(const GfxVideoState *s, uint16_t addr)
 {
+    int in_chars, in_bitmap;
+
     if (!s) return 0;
 
     /* 1. Text screen RAM (highest priority — not overlapped by anything). */
-    if (addr >= s->mem_text && addr < s->mem_text + GFX_TEXT_SIZE)
+    if (addr_in(addr, s->mem_text, GFX_TEXT_SIZE))
         return peek_text(s, addr);
 
-    /* 2. KEYBOARD — must come before colour RAM (see file-level comment).
-     *    GFX_KEY_BASE (0xDC00) is inside the colour window [0xD800, 0xDFD0).
-     *    Checking keyboard first ensures PEEK(56320+n) always returns the
-     *    live key state rather than the colour byte at the aliased address.
-     *    DO NOT swap this check with the colour check below. */
-    if (addr >= s->mem_key && addr < s->mem_key + GFX_KEY_SIZE)
+    /* 2. KEYBOARD — must come before colour RAM (see file-level comment). */
+    if (addr_in(addr, s->mem_key, GFX_KEY_SIZE))
         return peek_keys(s, addr);
 
     /* 3. Colour RAM — checked after keyboard to avoid the address alias. */
-    if (addr >= s->mem_color && addr < s->mem_color + GFX_COLOR_SIZE)
+    if (addr_in(addr, s->mem_color, GFX_COLOR_SIZE))
         return peek_color(s, addr);
 
-    /* 4. Character ROM / UDGs. */
-    if (addr >= s->mem_char && addr < s->mem_char + GFX_CHAR_SIZE)
+    /* 4 + 5. Character RAM and hi-res bitmap. Disambiguate via screen_mode
+     *        when an address falls inside the bitmap/chars overlap. */
+    in_chars  = addr_in(addr, s->mem_char,   GFX_CHAR_SIZE);
+    in_bitmap = addr_in(addr, s->mem_bitmap, GFX_BITMAP_BYTES);
+    if (in_chars && in_bitmap) {
+        if (s->screen_mode == GFX_SCREEN_BITMAP)
+            return peek_bitmap(s, addr);
         return peek_chars(s, addr);
-
-    /* 5. Hi-res bitmap. */
-    if (addr >= s->mem_bitmap && addr < s->mem_bitmap + GFX_BITMAP_BYTES)
-        return peek_bitmap(s, addr);
+    }
+    if (in_chars)  return peek_chars(s, addr);
+    if (in_bitmap) return peek_bitmap(s, addr);
 
     /* Everything else currently undefined: read as 0. */
     return 0;
@@ -288,25 +306,38 @@ static void poke_bitmap(GfxVideoState *s, uint16_t addr, uint8_t value)
     }
 }
 
+/* gfx_poke — virtualised POKE. See the gfx_peek comment above for the
+ * two overlap rules (keyboard-vs-colour, and bitmap-vs-chars under
+ * screen_mode). gfx_poke must mirror gfx_peek's dispatch exactly so a
+ * write/read round-trip always lands in the same backing store. */
 void gfx_poke(GfxVideoState *s, uint16_t addr, uint8_t value)
 {
+    int in_chars, in_bitmap;
+
     if (!s) return;
-    if (addr >= s->mem_text && addr < s->mem_text + GFX_TEXT_SIZE) {
+
+    if (addr_in(addr, s->mem_text, GFX_TEXT_SIZE)) {
         poke_text(s, addr, value);
         return;
     }
-    if (addr >= s->mem_color && addr < s->mem_color + GFX_COLOR_SIZE) {
+    /* Keyboard region is read-only via gfx_peek; writes to that range fall
+     * through to colour RAM as before (no poke_keys handler). */
+    if (addr_in(addr, s->mem_color, GFX_COLOR_SIZE)) {
         poke_color(s, addr, value);
         return;
     }
-    if (addr >= s->mem_char && addr < s->mem_char + GFX_CHAR_SIZE) {
-        poke_chars(s, addr, value);
+
+    in_chars  = addr_in(addr, s->mem_char,   GFX_CHAR_SIZE);
+    in_bitmap = addr_in(addr, s->mem_bitmap, GFX_BITMAP_BYTES);
+    if (in_chars && in_bitmap) {
+        if (s->screen_mode == GFX_SCREEN_BITMAP)
+            poke_bitmap(s, addr, value);
+        else
+            poke_chars(s, addr, value);
         return;
     }
-    if (addr >= s->mem_bitmap && addr < s->mem_bitmap + GFX_BITMAP_BYTES) {
-        poke_bitmap(s, addr, value);
-        return;
-    }
+    if (in_chars)  { poke_chars(s, addr, value);  return; }
+    if (in_bitmap) { poke_bitmap(s, addr, value); return; }
     /* All other addresses are ignored for now. */
 }
 
