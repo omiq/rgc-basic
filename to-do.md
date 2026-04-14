@@ -204,3 +204,21 @@ Low-urgency cleanups noted during the April 2026 parser/CI hardening pass. None 
   * `350 IF ZONE <> LASTZONE THEN SETMOUSECURSOR ZONE : LASTZONE = ZONE`
   Verify with the native demo (raylib) before landing — line 300 also touches WARPSHOW which was a later addition.
 
+---
+
+## Text in bitmap mode + pixel-space `DRAWTEXT`
+
+Planned post-1.6.3. Full design in **`docs/bitmap-text-plan.md`**. Summary:
+
+* **Part 1 — `PRINT` / `LOCATE` / `TEXTAT` / `COLOR` / `BACKGROUND` / `CHR$(147)` work in `SCREEN 1`.** Same keyword, glyph-stamp into `bitmap[]` via the existing PET 8×8 chargen. C64-faithful. Programs that PRINT a HUD become portable across modes. Cursor and per-cell colour RAM are no-ops in bitmap mode (1bpp plane); scrolling uses `memmove` on the bitmap plane.
+
+* **Part 2 — new `DRAWTEXT x, y, text$ [, fg [, bg [, font_slot]]]`.** Pixel-space placement, per-call fg/bg (bg = -1 transparent), optional font slot. Modern escape hatch alongside the C64-compat `PRINT`.
+
+* **`LOADFONT slot, "path.bin"` / `UNLOADFONT slot`** (MVP: raw 2KB chargen). Slot 0 is always the built-in PET chargen.
+
+* **Intermediate: offline converter tool `tools/pngfont2rgc`.** Turns a 128×128 PNG glyph sheet (16×16 grid of 8×8 cells) into the raw 2KB format `LOADFONT` consumes. Keeps the interpreter's font loader tiny while letting users bring any bitmap font — edit in Aseprite/GIMP/Photoshop, export, convert, load. TTF rendering inside the interpreter stays a far-future item.
+
+* **Implementation sequence** (six small test-first steps): helper + `CHR$(147)` clear → `PRINT`/`TEXTAT` in bitmap mode → scrolling → `DRAWTEXT` with built-in font → `LOADFONT` raw chargen → canvas WASM Playwright parity.
+
+* **Open questions** in the doc: PETSCII/Unicode normalisation parity, 80-col mode interaction, cursor rendering in bitmap mode.
+
