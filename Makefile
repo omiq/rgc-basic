@@ -115,12 +115,37 @@ wasm-canvas-charset-test: basic-wasm-canvas
 wasm-tutorial-test: basic-wasm-modular
 	python3 tests/wasm_tutorial_embed_test.py
 
+# Run the full native test suite locally — mirrors the .github/workflows/ci.yml
+# Unix steps so devs can verify before pushing. Builds basic + gfx_video_test,
+# runs the C unit test, the shell wrappers, and the headless .bas suite using
+# the same skip list as CI. WASM/Playwright tests are not included here; run
+# `make wasm-test wasm-canvas-test wasm-tutorial-test` separately for those.
+check: $(TARGET)$(EXE) gfx_video_test
+	@echo "==> C unit tests"
+	./gfx_video_test$(EXE)
+	@echo "==> shell-wrapped .bas tests"
+	sh tests/get_test.sh
+	sh tests/trek_test.sh >/dev/null
+	sh tests/then_compound_test.sh
+	@echo "==> headless .bas suite"
+	@set -e; for t in tests/*.bas; do \
+	    case "`basename $$t`" in \
+	      codes-replaced.bas|locate.bas|get_input_loop.bas|get_while_test.bas|kbuffer.bas|border_option_test.bas|gfx_title_test.bas) \
+	        echo "skip (interactive): $$t"; continue ;; \
+	      meta_include_dup_line.bas|meta_include_dup_label.bas|meta_include_circular_a.bas|meta_include_circular_b.bas) \
+	        echo "skip (negative): $$t"; continue ;; \
+	    esac; \
+	    echo "run: $$t"; \
+	    ./$(TARGET)$(EXE) -petscii $$t >/dev/null; \
+	  done
+	@echo "==> all checks passed"
+
 clean:
 	$(RM) $(TARGET)$(EXE) gfx_video_test$(EXE) gfx-demo$(EXE) basic-gfx$(EXE)
 	$(RM) web/basic.js web/basic.wasm web/basic.wasm.map 2>/dev/null || true
 	$(RM) web/basic-canvas.js web/basic-canvas.wasm web/basic-canvas.wasm.map 2>/dev/null || true
 	$(RM) web/basic-modular.js web/basic-modular.wasm web/basic-modular.wasm.map 2>/dev/null || true
 
-.PHONY: all clean gfx_video_test gfx-demo basic-gfx basic-wasm basic-wasm-modular basic-wasm-canvas wasm-test wasm-canvas-test verify-canvas-wasm wasm-canvas-charset-test wasm-tutorial-test
+.PHONY: all clean check gfx_video_test gfx-demo basic-gfx basic-wasm basic-wasm-modular basic-wasm-canvas wasm-test wasm-canvas-test verify-canvas-wasm wasm-canvas-charset-test wasm-tutorial-test
 
 # End of Makefile
