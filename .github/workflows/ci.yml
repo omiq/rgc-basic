@@ -78,51 +78,11 @@ jobs:
             make basic-gfx
           fi
 
-      - name: Build & run C unit tests (Unix)
+      - name: Run full test suite (Unix)
         if: runner.os != 'Windows'
         run: |
           set -e
-          make gfx_video_test
-          ./gfx_video_test
-
-      - name: Run GET tests (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          set -e
-          sh tests/get_test.sh
-
-      - name: Run trek demo (piped)
-        if: runner.os != 'Windows'
-        run: |
-          set -e
-          sh tests/trek_test.sh >/dev/null
-
-      - name: Run THEN-compound parser regression
-        if: runner.os != 'Windows'
-        run: |
-          set -e
-          sh tests/then_compound_test.sh
-
-      - name: Run tests (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          set -e
-          for t in tests/*.bas; do
-            # Skip interactive tests that require keyboard input.
-            # Skip meta tests that are expected to fail (negative tests).
-            case "$(basename "$t")" in
-              codes-replaced.bas|locate.bas|get_input_loop.bas|get_while_test.bas|kbuffer.bas|border_option_test.bas|gfx_title_test.bas)
-                echo "Skipping interactive/GET/GFX-only test $t"
-                continue
-                ;;
-              meta_include_dup_line.bas|meta_include_dup_label.bas|meta_include_circular_a.bas|meta_include_circular_b.bas)
-                echo "Skipping expected-fail meta test $t"
-                continue
-                ;;
-            esac
-            echo "Running $t"
-            ./basic -petscii "$t" >/dev/null
-          done
+          make check
 
       - name: Setup MSYS2 (Windows, for raylib)
         if: runner.os == 'Windows' && matrix.build_gfx
@@ -157,27 +117,12 @@ jobs:
       # GET tests skipped on Windows: basic.exe uses _kbhit/_getch (console only),
       # not stdin; piped input never reaches the program, so tests would hang.
 
-      - name: Run tests (Windows)
+      - name: Run .bas suite (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
           set -e
-          for t in tests/*.bas; do
-            # Skip interactive tests that require keyboard input.
-            # Skip meta tests that are expected to fail (negative tests).
-            case "$(basename "$t")" in
-              codes-replaced.bas|locate.bas|get_input_loop.bas|get_while_test.bas|kbuffer.bas|border_option_test.bas|gfx_title_test.bas)
-                echo "Skipping interactive/GET/GFX-only test $t"
-                continue
-                ;;
-              meta_include_dup_line.bas|meta_include_dup_label.bas|meta_include_circular_a.bas|meta_include_circular_b.bas)
-                echo "Skipping expected-fail meta test $t"
-                continue
-                ;;
-            esac
-            echo "Running $t"
-            ./basic.exe -petscii "$t" >/dev/null
-          done
+          sh tests/run_bas_suite.sh ./basic.exe
 
       - name: Package artifact (Unix)
         if: runner.os != 'Windows'
