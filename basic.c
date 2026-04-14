@@ -2453,6 +2453,7 @@ static void statement_loadsprite(char **p);
 static void statement_drawsprite(char **p);
 static void statement_spritevisible(char **p);
 static void statement_spritemodulate(char **p);
+static void statement_bitmapclear(char **p);
 static void statement_mouseset(char **p);
 static void statement_mousecursor(char **p);
 static void statement_mousehide(char **p);
@@ -2765,7 +2766,7 @@ static char *dupstr_local(const char *s)
 
 /* Reserved words: identifiers that cannot be used as variable or label names. */
 static const char *const reserved_words[] = {
-    "AND", "ARG", "ARGC", "ASC", "BACKGROUND", "CHR", "CLOSE", "CLR", "COLOR",
+    "AND", "ARG", "ARGC", "ASC", "BACKGROUND", "BITMAPCLEAR", "CHR", "CLOSE", "CLR", "COLOR",
     "COLOUR", "COS", "CURSOR", "DATA", "DEC", "DEF", "DIM", "DOWN", "END", "FUNCTION",
     "ELSE", "ENV", "EVAL", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
     "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LINE", "LOAD", "LOADSPRITE", "LOCATE", "LOG",
@@ -4522,6 +4523,25 @@ static void statement_spritemodulate(char **p)
         return;
     }
     gfx_sprite_set_modulate(slot, alpha, r, g, b, (float)sx, (float)sy);
+}
+
+/* BITMAPCLEAR — wipe the entire 320x200 1bpp bitmap to background.
+ * Bypasses gfx_poke() because the default memory layout has the character RAM
+ * region ($3000-$37FF) overlapping the bitmap range ($2000-$3F3F), so a
+ * MEMSET-from-BASIC over the bitmap would skip a band in the middle. */
+static void statement_bitmapclear(char **p)
+{
+    (void)p;
+#ifdef GFX_VIDEO
+    if (!gfx_vs) {
+        runtime_error_hint("BITMAPCLEAR requires basic-gfx or canvas WASM", NULL);
+        return;
+    }
+    memset(gfx_vs->bitmap, 0, sizeof(gfx_vs->bitmap));
+#else
+    runtime_error_hint("BITMAPCLEAR requires basic-gfx (graphics build)",
+                         "Terminal build has no bitmap; use basic-gfx or canvas WASM.");
+#endif
 }
 
 /* MOUSESET x, y — warp pointer in framebuffer pixel coordinates. */
@@ -10184,6 +10204,11 @@ static void execute_statement(char **p)
     if (c == 'B' && starts_with_kw(*p, "BACKGROUND")) {
         *p += 10;
         statement_background(p);
+        return;
+    }
+    if (c == 'B' && starts_with_kw(*p, "BITMAPCLEAR")) {
+        *p += 11;
+        statement_bitmapclear(p);
         return;
     }
     if (c == 'S' && starts_with_kw(*p, "SCREEN")) {
