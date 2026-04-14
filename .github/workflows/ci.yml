@@ -97,6 +97,12 @@ jobs:
           set -e
           sh tests/trek_test.sh >/dev/null
 
+      - name: Run THEN-compound parser regression
+        if: runner.os != 'Windows'
+        run: |
+          set -e
+          sh tests/then_compound_test.sh
+
       - name: Run tests (Unix)
         if: runner.os != 'Windows'
         run: |

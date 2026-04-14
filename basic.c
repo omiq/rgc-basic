@@ -9875,24 +9875,27 @@ static void execute_statement(char **p)
             return;
         }
         if (starts_with_kw(*p, "POKE")) {
+            struct value v_addr, v_val;
             *p += 4;
+            /* Parse args identically in both builds so the parser pointer
+             * lands cleanly on ':' or end-of-line. The terminal build then
+             * discards them; previously it did *p += strlen(*p), which ate
+             * any trailing ': stmt' on the line — see tests/then_compound_test.bas. */
+            v_addr = eval_expr(p);
+            ensure_num(&v_addr);
+            skip_spaces(p);
+            if (**p == ',') (*p)++;
+            v_val = eval_expr(p);
+            ensure_num(&v_val);
 #ifdef GFX_VIDEO
-            {
-                struct value v_addr, v_val;
-                v_addr = eval_expr(p);
-                ensure_num(&v_addr);
-                skip_spaces(p);
-                if (**p == ',') (*p)++;
-                v_val = eval_expr(p);
-                ensure_num(&v_val);
-                if (gfx_vs) {
-                    gfx_poke(gfx_vs,
-                             (uint16_t)((int)v_addr.num & 0xFFFF),
-                             (uint8_t)((int)v_val.num & 0xFF));
-                }
+            if (gfx_vs) {
+                gfx_poke(gfx_vs,
+                         (uint16_t)((int)v_addr.num & 0xFFFF),
+                         (uint8_t)((int)v_val.num & 0xFF));
             }
 #else
-            *p += strlen(*p);
+            (void)v_addr;
+            (void)v_val;
 #endif
             return;
         }
