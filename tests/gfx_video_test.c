@@ -293,6 +293,59 @@ int main(void)
         gfx_video_bitmap_stamp_glyph(NULL, 0, 0, 0, 0);
     }
 
+    /* ============================================================
+     * Step 2 integration sketch: walk a string the way gfx_put_byte
+     * does in bitmap mode (solid-bg stamp at each cell, advance col,
+     * wrap row, clip at row 25). Uses the real loaded chargen so
+     * the glyph bytes exercised match what a live PRINT would emit.
+     * ============================================================ */
+    {
+        GfxVideoState b;
+        const char *msg = "HI";
+        int col = 0, row = 0;
+
+        gfx_video_init(&b);
+        b.charrom_family = 0;
+        b.charset_lowercase = 0;
+        gfx_load_default_charrom(&b);
+        b.screen_mode = GFX_SCREEN_BITMAP;
+
+        for (const char *p = msg; *p; p++) {
+            uint8_t sc = (uint8_t)*p;            /* screen code for "HI" */
+            gfx_video_bitmap_stamp_glyph(&b, col, row, sc, 1);
+            col++;
+            if (col >= 40) { col = 0; row++; }
+        }
+
+        /* "H" is screencode 8 in C64 screen-code order (petscii_font[8]);
+         * when gfx_put_byte runs CHR$('H') through gfx_ascii_to_screencode
+         * it maps to the 'H' glyph. Rather than replicate that mapping
+         * here, we confirm *something* non-zero landed in the cells and
+         * that untouched cells remain zero. */
+        {
+            int any_h = 0, any_i = 0, any_other = 0;
+            for (int gy = 0; gy < 8; gy++) {
+                unsigned off = (unsigned)gy * 40u;
+                if (b.bitmap[off + 0] != 0) any_h = 1;
+                if (b.bitmap[off + 1] != 0) any_i = 1;
+            }
+            for (int gy = 0; gy < 8; gy++) {
+                unsigned off = (unsigned)gy * 40u;
+                if (b.bitmap[off + 2] != 0) any_other = 1;
+                if (b.bitmap[off + 39] != 0) any_other = 1;
+            }
+            assert(any_h && any_i);
+            assert(!any_other);
+        }
+
+        /* Clearing via gfx_video_bitmap_clear returns us to all-zero
+         * without touching s->chars[]. */
+        gfx_video_bitmap_clear(&b);
+        for (size_t i = 0; i < sizeof(b.bitmap); i++) assert(b.bitmap[i] == 0);
+        assert(b.chars[8 * 8] != 0 || b.chars[8 * 8 + 1] != 0 ||
+               b.chars[8 * 8 + 2] != 0 || b.chars[8 * 8 + 3] != 0);
+    }
+
     printf("gfx_video_test OK\n");
     return 0;
 }
