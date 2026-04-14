@@ -50,6 +50,7 @@ cd web && python3 -m http.server 8080
 - **PRINT** line breaks: the demo inserts **`<br>`** for newline characters in `Module.print` so `PRINT` without a trailing `;` advances to the next line in the panel.
 - **Pause** / **Resume** / **Stop**: same **`Module.wasmPaused`** / **`Module.wasmStopRequested`** semantics as **`canvas.html`** (cooperative; checked each statement in the main loop and during waits).
 - **GET** / **INKEY$**: click the output panel so it is focused, then type. Keys are sent with **`wasm_push_key`** (byte). While the interpreter waits for a key, **`Module.wasmWaitingKey`** is `1` (green outline in the demo).
+- **Host `EXEC$` / `SYSTEM` demo:** **`host-exec-example.html`** — small page showing **`Module.rgcHostExec`** with echo, uppercase, exit code, and async **Promise** (see **`docs/wasm-host-exec.md`**).
 - **SYSTEM** / **EXEC$**: no shell — unless the page sets **`Module.rgcHostExec`** (or **`Module.onRgcExec`**), **`SYSTEM`** returns **`-1`** and **`EXEC$`** returns **`""`**. With a hook, the host implements IDE tools, compilers, etc. See **`docs/wasm-host-exec.md`**.
 - **OPEN/PRINT#/INPUT#** work via Emscripten's virtual filesystem. Use paths like `"out.txt"` (writes to virtual FS).
 - **Upload to VFS** / **Download from VFS** (`vfs-helpers.js`): put files from your machine into MEMFS or save a file from the VFS (e.g. after `PRINT#`). Same helpers load in tutorial embeds by default.

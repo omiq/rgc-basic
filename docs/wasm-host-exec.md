@@ -59,6 +59,10 @@ Keep payloads bounded; BASIC strings are limited by **`#OPTION MAXSTR`** / defau
 
 Each **`Module`** instance is separate. Assign **`instance.rgcHostExec = …`** on the object returned by **`createBasicModular({ … })`**, not only on **`window.Module`** (unless you merge references the same way your loader already does).
 
+## Standalone demo page
+
+**`web/host-exec-example.html`** — minimal page (no VFS UI) that defines **`Module.rgcHostExec`** with demo verbs **`demo:echo:`**, **`demo:uppercase:`**, **`demo:exit:`**, **`demo:async:`**. Serve from **`web/`** after **`make basic-wasm`**, e.g. **`cd web && python3 -m http.server 8765`**, then open **`http://127.0.0.1:8765/host-exec-example.html`**.
+
 ## Playwright / CI smoke
 
 **`web/index.html`** defines a minimal hook that responds to the sentinel command:

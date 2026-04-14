@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>RGC-BASIC — WASM host EXEC$ / SYSTEM example</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 1.5em auto; padding: 0 1em; line-height: 1.45; }
+    h1 { font-size: 1.2em; }
+    textarea { width: 100%; height: 220px; font-family: ui-monospace, monospace; font-size: 13px; box-sizing: border-box; }
+    #out {
+      background: #1e1e1e; color: #d4d4d4; padding: 1em; min-height: 140px; white-space: pre-wrap;
+      font-family: ui-monospace, monospace; font-size: 13px; border-radius: 6px; margin-top: 0.75em;
+    }
+    .hint { font-size: 0.88em; color: #555; margin: 0.5em 0 1em; }
+    button { font-size: 1em; padding: 0.4em 1em; margin-right: 0.5em; }
+    code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <h1>WASM <code>EXEC$</code> / <code>SYSTEM</code> — host hook demo</h1>
+  <p class="hint">
+    This page defines <code>Module.rgcHostExec</code> before loading <code>basic.js</code>.
+    The BASIC program calls <code>EXEC$</code> / <code>SYSTEM</code> with strings like <code>demo:echo …</code>;
+    only JavaScript <em>you</em> write runs (see <a href="../docs/wasm-host-exec.md">docs/wasm-host-exec.md</a>).
+    Serve this file from the <code>web/</code> directory (same origin as <code>basic.js</code> / <code>basic.wasm</code>), e.g.
+    <code>python3 -m http.server 8765</code> in <code>web/</code>, then open <code>http://127.0.0.1:8765/host-exec-example.html</code>.
+    Build first: <code>make basic-wasm</code>.
+  </p>
+
+  <textarea id="program">10 PRINT "{clr}=== Host EXEC$ demo ==="
+20 R$ = EXEC$("demo:echo:Hello from BASIC")
+30 PRINT "echo -> "; R$
+40 R2$ = EXEC$("demo:uppercase:mixed Case")
+50 PRINT "upper -> "; R2$
+60 N = SYSTEM("demo:exit:42")
+70 PRINT "SYSTEM exit -> "; N
+80 PRINT "async (Promise)..."
+90 R3$ = EXEC$("demo:async:")
+100 PRINT "async -> "; R3$
+110 END
+</textarea>
+  <p>
+    <button id="run" disabled>Run</button>
+  </p>
+  <div id="out" tabindex="0"></div>
+
+  <script>
+(function () {
+  var out = document.getElementById('out');
+  var runBtn = document.getElementById('run');
+  var programEl = document.getElementById('program');
+
+  function append(t) {
+    out.textContent = (out.textContent || '') + t;
+  }
+
+  /**
+   * Host API: BASIC calls EXEC$(cmd$) / SYSTEM(cmd$) with cmd$ you define.
+   * Return { stdout, exitCode } or a Promise that resolves to that shape.
+   */
+  function rgcHostExec(cmd) {
+    /* demo:verb:payload — payload may contain ':' */
+    if (cmd.slice(0, 5) !== 'demo:') {
+      return { stdout: 'unknown:' + cmd, exitCode: 1 };
+    }
+    var rest = cmd.slice(5);
+    var i = rest.indexOf(':');
+    if (i < 0) {
+      return { stdout: 'bad-format', exitCode: 1 };
+    }
+    var verb = rest.slice(0, i);
+    var payload = rest.slice(i + 1);
+
+    if (verb === 'echo') {
+      return { stdout: payload, exitCode: 0 };
+    }
+    if (verb === 'uppercase') {
+      return { stdout: payload.toUpperCase(), exitCode: 0 };
+    }
+    if (verb === 'exit') {
+      var code = parseInt(payload, 10);
+      if (isNaN(code)) code = 1;
+      return { stdout: '', exitCode: code };
+    }
+    if (verb === 'async') {
+      return new Promise(function (resolve) {
+        setTimeout(function () {
+          resolve({ stdout: 'resolved-after-50ms', exitCode: 0 });
+        }, 50);
+      });
+    }
+
+    return { stdout: 'unknown-verb:' + verb, exitCode: 1 };
+  }
+
+  var Module = {
+    rgcHostExec: rgcHostExec,
+    print: function (t) { append(String(t)); },
+    printErr: function (t) { append(String(t)); },
+    onRuntimeInitialized: function () {
+      runBtn.disabled = false;
+      runBtn.onclick = function () {
+        out.textContent = '';
+        var rc = Module.ccall('basic_apply_arg_string', 'number', ['string'], ['-petscii -charset upper -palette ansi -columns 40']);
+        if (rc !== 0) {
+          append('Invalid flags.\n');
+          return;
+        }
+        Module.FS.writeFile('/program.bas', programEl.value);
+        runBtn.disabled = true;
+        Module.ccall('basic_load_and_run', null, ['string'], ['/program.bas'], { async: true })
+          .catch(function (e) {
+            append('\nError: ' + (e && e.message ? e.message : e));
+          })
+          .finally(function () {
+            runBtn.disabled = false;
+          });
+      };
+    }
+  };
+
+  window.Module = Module;
+})();
+  </script>
+  <script src="basic.js"></script>
+</body>
+</html>
