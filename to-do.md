@@ -189,3 +189,18 @@
 
 - **Browser / WASM** — `make basic-wasm` / `make basic-wasm-canvas`; `web/index.html` and `web/canvas.html`; Asyncify; virtual FS; Playwright smoke tests; CI via emsdk; Pause/Resume/Stop; paired JS+WASM cache-bust on canvas page. See `README.md`, `web/README.md`, `AGENTS.md`.
 
+---
+
+## Engineering / tooling follow-ups (optional)
+
+Low-urgency cleanups noted during the April 2026 parser/CI hardening pass. None block features; bank them for a quiet afternoon.
+
+* **Broader non-gfx statement fallback audit.** Only `statement_poke`'s terminal-build fallback was buggy (eating `: stmt` via `*p += strlen(*p)`); fixed in the commit adding `tests/then_compound_test.bas`. PSET/SCREEN/etc. raise runtime errors instead, which is the correct shape. Worth a second pass over every `#ifdef GFX_VIDEO` … `#else` block in `basic.c` to confirm none of the gfx-only statements *silently* swallow the rest of the line on terminal builds — the pattern is easy to miss and only bites with `IF cond THEN <stmt> : <stmt>`.
+
+* **Sprite / sound statement body audit.** Separate from the `*p += N` keyword-skip audit (all 68 sites passed). Statements like `LOADSPRITE`, `DRAWSPRITE`, `SPRITEVISIBLE`, `SPRITEFRAME`, `LOADSOUND`, `PLAYSOUND` etc. have non-gfx-build fallbacks that should also parse-and-discard their args (same fix shape as POKE) so they compose cleanly inside `IF … THEN … : …`. Low risk but easy to forget until a user hits it.
+
+* **Mouse-demo Step 3 revisit.** `examples/gfx_mouse_demo.bas` line 300 / 350 were rewritten to use GOSUB while the THEN+comma-args bug was still live. Now that it's fixed, those could fold back to inline form:
+  * `300 IF ISMOUSEBUTTONDOWN(0) AND ISMOUSEBUTTONDOWN(1) THEN MOUSESET 160, 100 : WARPSHOW = 6`
+  * `350 IF ZONE <> LASTZONE THEN SETMOUSECURSOR ZONE : LASTZONE = ZONE`
+  Verify with the native demo (raylib) before landing — line 300 also touches WARPSHOW which was a later addition.
+
