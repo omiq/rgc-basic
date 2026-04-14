@@ -49,6 +49,8 @@
 370 LOCATE 24, 1
 380 PRINT "X=";MX;" Y=";MY;" L=";ISMOUSEBUTTONDOWN(0);
 385 PRINT " R=";ISMOUSEBUTTONDOWN(1);" M=";ISMOUSEBUTTONDOWN(2);"    ";
+387 REM crosshair marker at the BASIC-reported pointer (visible after MOUSESET warp)
+388 PSET MX, MY
 
 390 SLEEP 1
 400 GOTO 210
@@ -71,8 +73,7 @@
 860 RETURN
 
 900 REM ---- clear drawing area, preserve banner ----
-905 REM 8192 = $2000 bitmap base; 8000 = 320*200/8 bytes
-910 MEMSET 8192, 8000, 0
+910 BITMAPCLEAR
 915 PRINT CHR$(147);
 920 GOSUB 800
 930 RETURN
