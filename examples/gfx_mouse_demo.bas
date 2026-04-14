@@ -20,6 +20,7 @@
 
 100 GOSUB 800:                         REM draw banner + legend
 110 HIDDEN = 0
+115 WARPSHOW = 0
 120 LASTZONE = -1
 130 KEYBASE = 56320
 
@@ -49,14 +50,20 @@
 370 LOCATE 24, 1
 380 PRINT "X=";MX;" Y=";MY;" L=";ISMOUSEBUTTONDOWN(0);
 385 PRINT " R=";ISMOUSEBUTTONDOWN(1);" M=";ISMOUSEBUTTONDOWN(2);"    ";
-387 REM crosshair marker at the BASIC-reported pointer (visible after MOUSESET warp)
-388 PSET MX, MY
+387 REM marker dot only while warp counter is active (visualises MOUSESET)
+388 IF WARPSHOW > 0 THEN GOSUB 600
 
 390 SLEEP 1
 400 GOTO 210
 
+600 REM ---- draw warp-marker dot and decrement counter ----
+610 PSET MX, MY
+620 WARPSHOW = WARPSHOW - 1
+630 RETURN
+
 700 REM ---- warp pointer to centre ----
 710 MOUSESET 160, 100
+715 WARPSHOW = 6
 720 RETURN
 
 750 REM ---- apply cursor shape for current zone ----
