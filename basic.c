@@ -1799,8 +1799,16 @@ static void gfx_newline(void)
     gfx_x = 0;
     gfx_y++;
     if (gfx_y >= GFX_ROWS) {
-        gfx_scroll_up();
-        gfx_y = GFX_ROWS - 1;
+        /* Bitmap mode: silent clip — step-2 scope. Pixel-level scrolling
+         * of bitmap[] is step 3 of docs/bitmap-text-plan.md. Until then,
+         * the last row keeps overwriting itself, which matches the
+         * spec's "documented silent clip" behaviour. */
+        if (gfx_vs && gfx_vs->screen_mode == GFX_SCREEN_BITMAP) {
+            gfx_y = GFX_ROWS - 1;
+        } else {
+            gfx_scroll_up();
+            gfx_y = GFX_ROWS - 1;
+        }
     }
     print_col = gfx_x;
 }
@@ -2015,10 +2023,25 @@ static void gfx_put_byte(unsigned char b)
     if (gfx_y < 0) gfx_y = 0;
     if (gfx_y >= GFX_ROWS) gfx_y = GFX_ROWS - 1;
 
-    idx = gfx_y * gfx_cols() + gfx_x;
-    if (idx >= 0 && idx < (int)GFX_TEXT_SIZE) {
-        gfx_vs->screen[idx] = sc;
-        gfx_vs->color[idx]  = (uint8_t)(gfx_fg & 0x0F);
+    if (gfx_vs->screen_mode == GFX_SCREEN_BITMAP) {
+        /* Bitmap-mode path: stamp the 8x8 glyph from the active character
+         * set (s->chars[sc*8]) into bitmap[] at cell (gfx_x, gfx_y).
+         * Per docs/bitmap-text-plan.md, the text plane is not updated in
+         * bitmap mode — the bitmap is the visible plane. Solid paper so
+         * over-prints don't OR together into unreadable mush.
+         *
+         * Only the character-set 40-column path is wired here. If the
+         * program requested 80-col before entering SCREEN 1, we still
+         * stamp at 8-pixel columns 0..39 (spec: 80-col is text-mode only). */
+        int cell_col = gfx_x;
+        if (cell_col >= 40) cell_col = 39;
+        gfx_video_bitmap_stamp_glyph(gfx_vs, cell_col, gfx_y, sc, 1);
+    } else {
+        idx = gfx_y * gfx_cols() + gfx_x;
+        if (idx >= 0 && idx < (int)GFX_TEXT_SIZE) {
+            gfx_vs->screen[idx] = sc;
+            gfx_vs->color[idx]  = (uint8_t)(gfx_fg & 0x0F);
+        }
     }
 
     gfx_x++;
