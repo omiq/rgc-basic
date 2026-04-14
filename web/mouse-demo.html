@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RGC-BASIC — Mouse demo</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 1rem; max-width: 760px; color: #222; }
+    h1 { margin: 0 0 0.25em; }
+    .lede { color: #555; margin: 0 0 1em; }
+    .legend { background: #f4f6f8; border: 1px solid #d0d7de; border-radius: 6px; padding: 0.75em 1em; margin: 0 0 1em; }
+    .legend dt { font-weight: 600; color: #0550ae; float: left; clear: left; width: 9em; }
+    .legend dd { margin: 0 0 0.35em 9em; }
+    .controls { margin: 0.5em 0; display: flex; gap: 0.5em; align-items: center; flex-wrap: wrap; }
+    button { padding: 0.4em 1em; font-size: 1em; border-radius: 4px; border: 1px solid #d0d7de; background: #fff; cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: default; }
+    #canvasWrap { margin: 0.75em 0; border: 2px solid #333; display: inline-block; background: #000; }
+    canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; cursor: crosshair; }
+    canvas:focus { outline: 2px solid #4a9eff; }
+    #log { padding: 0.5em; background: #111; color: #f55; font-family: monospace; white-space: pre-wrap; min-height: 1.5em; display: none; border-radius: 4px; }
+    #log.has-content { display: block; }
+    details { margin-top: 1em; }
+    details pre { background: #0d1117; color: #c9d1d9; padding: 1em; border-radius: 6px; overflow-x: auto; font-size: 0.85em; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <h1>RGC-BASIC — Mouse demo</h1>
+  <p class="lede">New mouse API in the canvas WASM build: <code>GETMOUSEX()</code>, <code>GETMOUSEY()</code>,
+    <code>ISMOUSEBUTTONPRESSED/DOWN/RELEASED/UP(n)</code>, <code>MOUSESET x, y</code>, <code>SETMOUSECURSOR n</code>,
+    <code>HIDECURSOR</code>, <code>SHOWCURSOR</code>. This page auto-runs <code>examples/gfx_mouse_demo.bas</code>.</p>
+
+  <dl class="legend">
+    <dt>Left button</dt>    <dd>paint pixels with <code>PSET GETMOUSEX(), GETMOUSEY()</code> while held</dd>
+    <dt>Right button</dt>   <dd>clear the drawing area</dd>
+    <dt>Middle button</dt>  <dd>toggle cursor visibility (<code>HIDECURSOR</code> / <code>SHOWCURSOR</code>)</dd>
+    <dt>Left + Right</dt>   <dd>warp pointer to centre (<code>MOUSESET 160, 100</code>)</dd>
+    <dt>Vertical zone</dt>  <dd>cursor shape auto-changes via <code>SETMOUSECURSOR</code> (pointer / crosshair / default)</dd>
+  </dl>
+
+  <div class="controls">
+    <button type="button" id="run" disabled>Run</button>
+    <button type="button" id="stop" disabled>Stop</button>
+    <span id="status" style="color:#666; font-size:0.9em">Loading WASM…</span>
+  </div>
+
+  <div id="canvasWrap">
+    <canvas id="screen" width="320" height="200" tabindex="0"></canvas>
+  </div>
+
+  <div id="log"></div>
+
+  <details>
+    <summary>Show BASIC source</summary>
+    <pre id="src">(loading…)</pre>
+  </details>
+
+  <script src="vfs-helpers.js"></script>
+  <script>
+(function () {
+  'use strict';
+
+  var canvas  = document.getElementById('screen');
+  var ctx     = canvas.getContext('2d', { alpha: false });
+  var runBtn  = document.getElementById('run');
+  var stopBtn = document.getElementById('stop');
+  var status  = document.getElementById('status');
+  var logEl   = document.getElementById('log');
+  var srcEl   = document.getElementById('src');
+
+  var img = ctx.createImageData(320, 200);
+  var wasmRunPending = false;
+  var lastRgbaVer = 0;
+  var programText = '';
+
+  /* One cache-bust id shared by basic-canvas.js and basic-canvas.wasm. */
+  var canvasAssetCb = String(Date.now());
+
+  function numPtr(p) {
+    if (p == null) return 0;
+    if (typeof p === 'bigint') return Number(p);
+    return Number(p);
+  }
+  function logErr(msg) {
+    logEl.textContent = msg || '';
+    logEl.classList.toggle('has-content', !!(msg && msg.length));
+  }
+
+  /* Draw a "Loading…" splash so the canvas isn't a black rectangle at boot. */
+  function drawLoading() {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#7ee787';
+    ctx.font = 'bold 18px ui-monospace, Menlo, Consolas, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Loading\u2026', canvas.width / 2, canvas.height / 2);
+  }
+  drawLoading();
+
+  /* ---- RGBA blit (same as canvas.html, simplified — no border, no C64 palette swap) ---- */
+  var C64_BORDER = [0, 0, 0];
+  function wasmMemoryBuffer() {
+    var M = window.Module;
+    if (!M) return null;
+    if (M.wasmMemory && M.wasmMemory.buffer) return M.wasmMemory.buffer;
+    if (M.HEAPU8 && M.HEAPU8.buffer) return M.HEAPU8.buffer;
+    return null;
+  }
+  function copyRgbaFromWasm() {
+    var M = Module;
+    if (!M || !M._wasm_gfx_rgba_ptr) return false;
+    var ptr = numPtr(M._wasm_gfx_rgba_ptr());
+    var w = M.wasmGfxFbW || 320;
+    var h = M.wasmGfxFbH || 200;
+    var need = w * h * 4;
+    var buf = wasmMemoryBuffer();
+    var u8 = null;
+    if (buf && ptr >= 0 && ptr + need <= buf.byteLength) {
+      try { u8 = new Uint8Array(buf, ptr, need); } catch (e) { u8 = null; }
+    }
+    if (!u8 && M.HEAPU8 && ptr + need <= M.HEAPU8.length) {
+      u8 = M.HEAPU8.subarray(ptr, ptr + need);
+    }
+    if (!u8) return false;
+    var borderPx = (typeof M.wasmGfxBorderPx === 'number' && M.wasmGfxBorderPx > 0) ? (M.wasmGfxBorderPx | 0) : 0;
+    var cw = w + 2 * borderPx;
+    var ch = h + 2 * borderPx;
+    if (canvas.width !== cw || canvas.height !== ch) {
+      canvas.width = cw; canvas.height = ch; img = null;
+    }
+    ctx.fillStyle = 'rgb(' + C64_BORDER[0] + ',' + C64_BORDER[1] + ',' + C64_BORDER[2] + ')';
+    ctx.fillRect(0, 0, cw, ch);
+    if (!img || img.width !== w || img.height !== h) img = ctx.createImageData(w, h);
+    img.data.set(u8);
+    ctx.putImageData(img, borderPx, borderPx);
+    return true;
+  }
+
+  /* ---- Frame loop: pulls mouse into WASM, then blits framebuffer. ---- */
+  function frame() {
+    requestAnimationFrame(frame);
+    if (!wasmRunPending) return;
+    var M = Module;
+    if (!M || !M._wasm_gfx_rgba_version_read) return;
+    if (typeof M.rgcPollMouseForWasm === 'function') M.rgcPollMouseForWasm();
+    var ver = numPtr(M._wasm_gfx_rgba_version_read());
+    if (ver !== lastRgbaVer) { lastRgbaVer = ver; copyRgbaFromWasm(); }
+  }
+  requestAnimationFrame(frame);
+
+  /* ---- Module setup (before basic-canvas.js loads). ---- */
+  var Module = {
+    locateFile: function (p) {
+      if (p.endsWith('.wasm')) return 'basic-canvas.wasm?cb=' + encodeURIComponent(canvasAssetCb);
+      return p;
+    },
+    printErr: function (t) {
+      var s = String(t);
+      logEl.textContent = logEl.classList.contains('has-content')
+        ? logEl.textContent + '\n' + s : s;
+      logEl.classList.add('has-content');
+    },
+    onAbort: function (what) {
+      logErr('WASM aborted: ' + (what || 'unknown'));
+      wasmRunPending = false;
+      runBtn.disabled = false;
+      stopBtn.disabled = true;
+    },
+    onRuntimeInitialized: function () {
+      status.textContent = 'Ready — click Run.';
+      runBtn.disabled = false;
+
+      /* ---- Mouse → wasm_mouse_js_frame (feature under demo) ----
+       * Canvas.html has the canonical implementation; this is a minimal copy.
+       * Browser tracks {clientX, clientY, buttons} on window listeners; each
+       * rAF we convert to framebuffer pixel coords and push into WASM. */
+      (function setupCanvasMouse() {
+        var RAYLIB_TO_CSS = ['auto', 'default', 'text', 'wait', 'crosshair', 'pointer',
+          'nwse-resize', 'nesw-resize', 'ew-resize', 'ns-resize', 'move', 'not-allowed', 'progress'];
+        Module._rgcMouseWarpHold = 0;
+        Module._rgcMouseWarpX = 0;
+        Module._rgcMouseWarpY = 0;
+        Module._rgcMouseCursorHidden = false;
+
+        /* Called by wasm side of MOUSESET — pin the reported coord for 4 frames
+         * so the live pointer position doesn't immediately overwrite it. */
+        Module.rgcMouseWarp = function (cx, cy) {
+          Module._rgcMouseWarpX = cx | 0;
+          Module._rgcMouseWarpY = cy | 0;
+          Module._rgcMouseWarpHold = 4;
+        };
+        /* Called by wasm side of SETMOUSECURSOR. */
+        Module.rgcMouseSetCursor = function (code) {
+          if (Module._rgcMouseCursorHidden) return;
+          var c = code | 0;
+          var css = (c >= 0 && c < RAYLIB_TO_CSS.length) ? RAYLIB_TO_CSS[c] : 'default';
+          canvas.style.cursor = css;
+        };
+        Module.rgcMouseHideCursor = function () {
+          Module._rgcMouseCursorHidden = true;
+          canvas.style.cursor = 'none';
+        };
+        Module.rgcMouseShowCursor = function () {
+          Module._rgcMouseCursorHidden = false;
+          canvas.style.cursor = 'crosshair';
+        };
+
+        /* Per-frame: map pointer -> framebuffer coords, push buttons into WASM. */
+        Module.rgcPollMouseForWasm = function () {
+          if (!Module._wasm_mouse_js_frame) return;
+          var fbW = (typeof Module.wasmGfxFbW === 'number' && Module.wasmGfxFbW > 0) ? (Module.wasmGfxFbW | 0) : 320;
+          var fbH = (typeof Module.wasmGfxFbH === 'number' && Module.wasmGfxFbH > 0) ? (Module.wasmGfxFbH | 0) : 200;
+          var borderPx = (typeof Module.wasmGfxBorderPx === 'number' && Module.wasmGfxBorderPx > 0) ? (Module.wasmGfxBorderPx | 0) : 0;
+          var mx, my;
+          if (Module._rgcMouseWarpHold > 0) {
+            Module._rgcMouseWarpHold--;
+            mx = Module._rgcMouseWarpX;
+            my = Module._rgcMouseWarpY;
+          } else {
+            var rect = canvas.getBoundingClientRect();
+            var scaleX = canvas.width > 0 ? (canvas.width / rect.width) : 1;
+            var scaleY = canvas.height > 0 ? (canvas.height / rect.height) : 1;
+            var px = (lastX - rect.left) * scaleX;
+            var py = (lastY - rect.top) * scaleY;
+            mx = Math.floor(px - borderPx + 1e-6);
+            my = Math.floor(py - borderPx + 1e-6);
+          }
+          if (mx < 0) mx = 0; if (my < 0) my = 0;
+          if (mx > fbW - 1) mx = fbW - 1;
+          if (my > fbH - 1) my = fbH - 1;
+          var bl = lastBtns & 1 ? 1 : 0;
+          var br = lastBtns & 2 ? 1 : 0;
+          var bm = lastBtns & 4 ? 1 : 0;
+          Module.ccall('wasm_mouse_js_frame', null,
+            ['number', 'number', 'number', 'number', 'number', 'number', 'number'],
+            [mx, my, bl, br, bm, fbW, fbH]);
+        };
+
+        var lastX = 0, lastY = 0, lastBtns = 0;
+        window.addEventListener('mousemove', function (ev) { lastX = ev.clientX; lastY = ev.clientY; }, true);
+        window.addEventListener('mousedown', function (ev) {
+          lastX = ev.clientX; lastY = ev.clientY;
+          if (ev.button === 0) lastBtns |= 1;
+          else if (ev.button === 2) lastBtns |= 2;
+          else if (ev.button === 1) lastBtns |= 4;
+        }, true);
+        window.addEventListener('mouseup', function (ev) {
+          lastX = ev.clientX; lastY = ev.clientY;
+          if (ev.button === 0) lastBtns &= ~1;
+          else if (ev.button === 2) lastBtns &= ~2;
+          else if (ev.button === 1) lastBtns &= ~4;
+        }, true);
+        window.addEventListener('blur', function () { lastBtns = 0; });
+        /* Suppress the right-click context menu on the canvas so RIGHT button
+         * reaches the BASIC program (otherwise the browser eats it). */
+        canvas.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
+      })();
+
+      runBtn.onclick = function () {
+        logErr('');
+        wasmRunPending = true;
+        lastRgbaVer = -1;
+        runBtn.disabled = true;
+        stopBtn.disabled = false;
+        Module.wasmStopRequested = 0;
+        Module.FS.writeFile('/program.bas', programText);
+        Module.ccall('basic_apply_arg_string', 'number', ['string'], ['-petscii']);
+        canvas.focus();
+        Module.ccall('basic_load_and_run_gfx', null, ['string'], ['/program.bas'], { async: true })
+          .catch(function (e) { logErr(String(e && e.message ? e.message : e)); })
+          .finally(function () {
+            wasmRunPending = false;
+            runBtn.disabled = false;
+            stopBtn.disabled = true;
+            copyRgbaFromWasm();
+          });
+      };
+      stopBtn.onclick = function () { Module.wasmStopRequested = 1; };
+    }
+  };
+  Module.canvasAssetCb = canvasAssetCb;
+  window.Module = Module;
+
+  /* ---- Fetch the BASIC program, show it, then load the WASM. ---- */
+  fetch('../examples/gfx_mouse_demo.bas', { cache: 'no-store' })
+    .then(function (r) { return r.ok ? r.text() : Promise.reject(new Error('fetch ' + r.status)); })
+    .then(function (src) { programText = src; srcEl.textContent = src; })
+    .catch(function (e) {
+      programText = '10 PRINT "CANNOT LOAD gfx_mouse_demo.bas"\n20 END\n';
+      srcEl.textContent = programText + '\n// ' + e.message;
+    })
+    .finally(function () {
+      var s = document.createElement('script');
+      s.src = 'basic-canvas.js?cb=' + encodeURIComponent(canvasAssetCb);
+      s.async = false;
+      document.body.appendChild(s);
+    });
+})();
+  </script>
+</body>
+</html>

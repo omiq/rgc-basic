@@ -364,6 +364,9 @@
       // so a running embed can't stomp on another embed's canvas.
       if (!isActive()) return;
       if (!wasmRunPending || !Module || !Module._wasm_gfx_rgba_version_read) return;
+      if (typeof Module.rgcPollMouseForWasm === 'function') {
+        Module.rgcPollMouseForWasm();
+      }
       var ver = numPtr(Module._wasm_gfx_rgba_version_read());
       if (ver !== lastRgbaVer) {
         lastRgbaVer = ver;
@@ -515,6 +518,87 @@
           }
         });
       }
+
+      /* Mouse → wasm_mouse_js_frame (same contract as web/canvas.html). */
+      (function setupGfxEmbedMouse() {
+        var RAYLIB_TO_CSS = ['auto', 'default', 'text', 'wait', 'crosshair', 'pointer', 'nwse-resize',
+          'nesw-resize', 'ew-resize', 'ns-resize', 'move', 'not-allowed', 'progress'];
+        var lastMouseClientX = 0;
+        var lastMouseClientY = 0;
+        var lastMouseButtons = 0;
+        Module._rgcMouseWarpHold = 0;
+        Module._rgcMouseWarpX = 0;
+        Module._rgcMouseWarpY = 0;
+        Module._rgcMouseCursorHidden = false;
+        Module.rgcMouseWarp = function (cx, cy) {
+          Module._rgcMouseWarpX = cx | 0;
+          Module._rgcMouseWarpY = cy | 0;
+          Module._rgcMouseWarpHold = 4;
+        };
+        Module.rgcMouseSetCursor = function (code) {
+          if (Module._rgcMouseCursorHidden) return;
+          var c = code | 0;
+          var css = (c >= 0 && c < RAYLIB_TO_CSS.length) ? RAYLIB_TO_CSS[c] : 'default';
+          canvas.style.cursor = css;
+        };
+        Module.rgcMouseHideCursor = function () {
+          Module._rgcMouseCursorHidden = true;
+          canvas.style.cursor = 'none';
+        };
+        Module.rgcMouseShowCursor = function () {
+          Module._rgcMouseCursorHidden = false;
+          canvas.style.cursor = 'text';
+        };
+        Module.rgcPollMouseForWasm = function () {
+          if (!Module._wasm_mouse_js_frame) return;
+          var fbW = (typeof Module.wasmGfxFbW === 'number' && Module.wasmGfxFbW > 0) ? (Module.wasmGfxFbW | 0) : 320;
+          var fbH = (typeof Module.wasmGfxFbH === 'number' && Module.wasmGfxFbH > 0) ? (Module.wasmGfxFbH | 0) : 200;
+          var borderPx = (typeof Module.wasmGfxBorderPx === 'number' && Module.wasmGfxBorderPx > 0) ? (Module.wasmGfxBorderPx | 0) : 0;
+          var mx, my, bl, br, bm;
+          if (Module._rgcMouseWarpHold > 0) {
+            Module._rgcMouseWarpHold--;
+            mx = Module._rgcMouseWarpX;
+            my = Module._rgcMouseWarpY;
+          } else {
+            var rect = canvas.getBoundingClientRect();
+            var scaleX = canvas.width > 0 ? (canvas.width / rect.width) : 1;
+            var scaleY = canvas.height > 0 ? (canvas.height / rect.height) : 1;
+            var px = (lastMouseClientX - rect.left) * scaleX;
+            var py = (lastMouseClientY - rect.top) * scaleY;
+            mx = Math.floor(px - borderPx + 1e-6);
+            my = Math.floor(py - borderPx + 1e-6);
+          }
+          if (mx < 0) mx = 0;
+          if (my < 0) my = 0;
+          if (mx > fbW - 1) mx = fbW - 1;
+          if (my > fbH - 1) my = fbH - 1;
+          bl = lastMouseButtons & 1 ? 1 : 0;
+          br = lastMouseButtons & 2 ? 1 : 0;
+          bm = lastMouseButtons & 4 ? 1 : 0;
+          Module.ccall('wasm_mouse_js_frame', null,
+            ['number', 'number', 'number', 'number', 'number', 'number', 'number'],
+            [mx, my, bl, br, bm, fbW, fbH]);
+        };
+        window.addEventListener('mousemove', function (ev) {
+          lastMouseClientX = ev.clientX;
+          lastMouseClientY = ev.clientY;
+        }, true);
+        window.addEventListener('mousedown', function (ev) {
+          lastMouseClientX = ev.clientX;
+          lastMouseClientY = ev.clientY;
+          if (ev.button === 0) lastMouseButtons |= 1;
+          else if (ev.button === 2) lastMouseButtons |= 2;
+          else if (ev.button === 1) lastMouseButtons |= 4;
+        }, true);
+        window.addEventListener('mouseup', function (ev) {
+          lastMouseClientX = ev.clientX;
+          lastMouseClientY = ev.clientY;
+          if (ev.button === 0) lastMouseButtons &= ~1;
+          else if (ev.button === 2) lastMouseButtons &= ~2;
+          else if (ev.button === 1) lastMouseButtons &= ~4;
+        }, true);
+        window.addEventListener('blur', function () { lastMouseButtons = 0; });
+      })();
 
       function wasmGfxKeyIndex(ev) {
         var k = ev.key;

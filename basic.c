@@ -6936,7 +6936,10 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "SPRITEW") || starts_with_kw(*p, "SPRITEH") ||
             starts_with_kw(*p, "SPRITECOLLIDE") || starts_with_kw(*p, "SPRITETILES") || starts_with_kw(*p, "SPRITEFRAME") ||
             starts_with_kw(*p, "SCROLLX") || starts_with_kw(*p, "SCROLLY") ||
-            starts_with_kw(*p, "JOY") || starts_with_kw(*p, "JOYSTICK") || starts_with_kw(*p, "JOYAXIS")) {
+            starts_with_kw(*p, "JOY") || starts_with_kw(*p, "JOYSTICK") || starts_with_kw(*p, "JOYAXIS") ||
+            starts_with_kw(*p, "GETMOUSEX") || starts_with_kw(*p, "GETMOUSEY") ||
+            starts_with_kw(*p, "ISMOUSEBUTTONPRESSED") || starts_with_kw(*p, "ISMOUSEBUTTONDOWN") ||
+            starts_with_kw(*p, "ISMOUSEBUTTONRELEASED") || starts_with_kw(*p, "ISMOUSEBUTTONUP")) {
             char namebuf[32];
             char *q;
             q = *p;
