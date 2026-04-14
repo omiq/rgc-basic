@@ -346,6 +346,64 @@ int main(void)
                b.chars[8 * 8 + 2] != 0 || b.chars[8 * 8 + 3] != 0);
     }
 
+    /* ============================================================
+     * Step 3: gfx_video_bitmap_scroll_up_cell. Shift bitmap up 8
+     * pixel rows; bottom 8 rows cleared; text plane untouched.
+     * ============================================================ */
+    {
+        GfxVideoState b;
+        const unsigned row_bytes = GFX_BITMAP_WIDTH / 8u;
+
+        gfx_video_init(&b);
+        b.screen_mode = GFX_SCREEN_BITMAP;
+
+        /* Paint each of the 200 pixel rows with a unique byte so we can
+         * tell which row survived. Using (y & 0xFF) means rows 0 and 256
+         * would alias, but height is 200 so every row value is unique. */
+        for (unsigned y = 0; y < GFX_BITMAP_HEIGHT; y++) {
+            memset(&b.bitmap[y * row_bytes], (int)(y & 0xFFu), row_bytes);
+        }
+
+        /* Put known content on the text plane to confirm the scroll
+         * leaves it alone. */
+        memset(b.screen, 'Z', sizeof(b.screen));
+
+        gfx_video_bitmap_scroll_up_cell(&b);
+
+        /* Rows 0..191 now carry the content of former rows 8..199. */
+        for (unsigned y = 0; y < GFX_BITMAP_HEIGHT - 8u; y++) {
+            uint8_t expected = (uint8_t)((y + 8u) & 0xFFu);
+            for (unsigned x = 0; x < row_bytes; x++) {
+                assert(b.bitmap[y * row_bytes + x] == expected);
+            }
+        }
+        /* Rows 192..199 (the bottom cell) are zeroed. */
+        for (unsigned y = GFX_BITMAP_HEIGHT - 8u; y < GFX_BITMAP_HEIGHT; y++) {
+            for (unsigned x = 0; x < row_bytes; x++) {
+                assert(b.bitmap[y * row_bytes + x] == 0);
+            }
+        }
+        /* Text plane untouched. */
+        for (size_t i = 0; i < sizeof(b.screen); i++) {
+            assert(b.screen[i] == 'Z');
+        }
+
+        /* Repeated scrolls compose: after two more scrolls, rows 0..175
+         * should hold former rows 24..199. */
+        gfx_video_bitmap_scroll_up_cell(&b);
+        gfx_video_bitmap_scroll_up_cell(&b);
+        for (unsigned y = 0; y < GFX_BITMAP_HEIGHT - 24u; y++) {
+            uint8_t expected = (uint8_t)((y + 24u) & 0xFFu);
+            assert(b.bitmap[y * row_bytes] == expected);
+        }
+        for (unsigned y = GFX_BITMAP_HEIGHT - 24u; y < GFX_BITMAP_HEIGHT; y++) {
+            assert(b.bitmap[y * row_bytes] == 0);
+        }
+
+        /* NULL tolerant. */
+        gfx_video_bitmap_scroll_up_cell(NULL);
+    }
+
     printf("gfx_video_test OK\n");
     return 0;
 }
