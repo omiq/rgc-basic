@@ -4164,6 +4164,25 @@ static void statement_screencodes(char **p)
                          "SCREENCODES ON prints raw screen codes in gfx mode.");
 }
 
+/* BITMAPCLEAR — wipe the entire 320x200 1bpp bitmap to background.
+ * Bypasses gfx_poke() because the default memory layout has the character RAM
+ * region ($3000-$37FF) overlapping the bitmap range ($2000-$3F3F), so a
+ * MEMSET-from-BASIC over the bitmap would skip a band in the middle. */
+static void statement_bitmapclear(char **p)
+{
+    (void)p;
+#ifdef GFX_VIDEO
+    if (!gfx_vs) {
+        runtime_error_hint("BITMAPCLEAR requires basic-gfx or canvas WASM", NULL);
+        return;
+    }
+    memset(gfx_vs->bitmap, 0, sizeof(gfx_vs->bitmap));
+#else
+    runtime_error_hint("BITMAPCLEAR requires basic-gfx (graphics build)",
+                         "Terminal build has no bitmap; use basic-gfx or canvas WASM.");
+#endif
+}
+
 #ifdef GFX_VIDEO
 static int path_ends_with_png(const char *path)
 {
@@ -4525,24 +4544,7 @@ static void statement_spritemodulate(char **p)
     gfx_sprite_set_modulate(slot, alpha, r, g, b, (float)sx, (float)sy);
 }
 
-/* BITMAPCLEAR — wipe the entire 320x200 1bpp bitmap to background.
- * Bypasses gfx_poke() because the default memory layout has the character RAM
- * region ($3000-$37FF) overlapping the bitmap range ($2000-$3F3F), so a
- * MEMSET-from-BASIC over the bitmap would skip a band in the middle. */
-static void statement_bitmapclear(char **p)
-{
-    (void)p;
-#ifdef GFX_VIDEO
-    if (!gfx_vs) {
-        runtime_error_hint("BITMAPCLEAR requires basic-gfx or canvas WASM", NULL);
-        return;
-    }
-    memset(gfx_vs->bitmap, 0, sizeof(gfx_vs->bitmap));
-#else
-    runtime_error_hint("BITMAPCLEAR requires basic-gfx (graphics build)",
-                         "Terminal build has no bitmap; use basic-gfx or canvas WASM.");
-#endif
-}
+
 
 /* MOUSESET x, y — warp pointer in framebuffer pixel coordinates. */
 static void statement_mouseset(char **p)
