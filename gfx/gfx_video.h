@@ -150,5 +150,12 @@ void gfx_video_bitmap_stamp_glyph(GfxVideoState *s,
                                   uint8_t screencode,
                                   int solid_bg);
 
+/* Scroll the bitmap plane up by one character cell (8 pixel rows).
+ * The top 8 pixel rows are discarded; the bottom 8 pixel rows are
+ * cleared to zero. Used by PRINT-in-bitmap-mode when a newline
+ * would advance past row 24. Pure memmove, no overlap with text
+ * plane or chars[]. */
+void gfx_video_bitmap_scroll_up_cell(GfxVideoState *s);
+
 #endif /* GFX_VIDEO_H */
 

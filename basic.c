@@ -1799,16 +1799,15 @@ static void gfx_newline(void)
     gfx_x = 0;
     gfx_y++;
     if (gfx_y >= GFX_ROWS) {
-        /* Bitmap mode: silent clip — step-2 scope. Pixel-level scrolling
-         * of bitmap[] is step 3 of docs/bitmap-text-plan.md. Until then,
-         * the last row keeps overwriting itself, which matches the
-         * spec's "documented silent clip" behaviour. */
+        /* Bitmap mode: scroll the bitmap plane up by one character cell
+         * (8 pixel rows). Text plane is not touched (not visible in
+         * SCREEN 1). See step 3 of docs/bitmap-text-plan.md. */
         if (gfx_vs && gfx_vs->screen_mode == GFX_SCREEN_BITMAP) {
-            gfx_y = GFX_ROWS - 1;
+            gfx_video_bitmap_scroll_up_cell(gfx_vs);
         } else {
             gfx_scroll_up();
-            gfx_y = GFX_ROWS - 1;
         }
+        gfx_y = GFX_ROWS - 1;
     }
     print_col = gfx_x;
 }

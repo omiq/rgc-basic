@@ -420,6 +420,25 @@ void gfx_video_bitmap_stamp_glyph(GfxVideoState *s,
     }
 }
 
+/* Scroll the 1bpp bitmap up by one character cell (8 pixel rows).
+ *
+ * The bitmap is 320x200, row-major, 40 bytes per row. One character
+ * cell = 8 pixel rows = 8 * 40 = 320 bytes. The top 320 bytes roll
+ * off; the remaining (200 - 8) * 40 = 7680 bytes shift up; the
+ * bottom 320 bytes are cleared. memmove is safe for overlapping
+ * source/dest. */
+void gfx_video_bitmap_scroll_up_cell(GfxVideoState *s)
+{
+    const size_t row_bytes  = GFX_BITMAP_WIDTH / 8u;   /* 40 */
+    const size_t cell_rows  = 8u;
+    const size_t cell_bytes = cell_rows * row_bytes;   /* 320 */
+    const size_t keep_bytes = GFX_BITMAP_BYTES - cell_bytes; /* 7680 */
+
+    if (!s) return;
+    memmove(&s->bitmap[0], &s->bitmap[cell_bytes], keep_bytes);
+    memset(&s->bitmap[keep_bytes], 0, cell_bytes);
+}
+
 void gfx_bitmap_line(GfxVideoState *s, int x0, int y0, int x1, int y1, int on)
 {
     int dx, dy, sx, sy, err, e2;
