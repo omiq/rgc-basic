@@ -422,10 +422,18 @@ Resolved by the character-set / Font split:
   (documented); a future revision can XOR-stamp the cursor glyph on
   blink cadence if anyone asks.
 
-Still open:
+Resolved:
 
-- **Wide columns (80-col mode).** 80×25 uses 4×8 glyphs today in
-  bitmap-rendered text? Or does 80-col only apply in text mode?
-  Character-set scope only — `DRAWTEXT` is pixel-space and
-  unaffected. Confirm by reading `gfx_canvas.c`'s cell dimensions
-  before implementing step 2.
+- **Wide columns (80-col mode).** 80-col is a text-mode feature
+  only. The character-set rendering path in bitmap mode is always
+  40×25 at 8×8 glyphs. `COLS` reads as 40 inside `SCREEN 1`
+  regardless of any prior 80-col request; `LOCATE`/`TEXTAT` beyond
+  column 39 clip the same way any other out-of-bounds cell
+  coordinate does, no runtime error. Programs that want dense /
+  narrower text in bitmap mode use `DRAWTEXT` with a narrower
+  Font (e.g. a 4×8 or 8×16 slim Font loaded into slot 1) — that's
+  exactly what the Font system is for. Keeps the character-set
+  stamper to a single 8×8, 40-column code path with no branches on
+  column mode.
+
+All open questions closed. Ready to implement.
