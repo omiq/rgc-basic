@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **Mouse (basic-gfx + canvas WASM):** **`GETMOUSEX()`** / **`GETMOUSEY()`** in framebuffer pixel space (**0** … **width−1** / **height−1**). **`IsMouseButtonPressed(n)`** / **`IsMouseButtonDown(n)`** / **`IsMouseButtonReleased(n)`** / **`IsMouseButtonUp(n)`** — **n** = **0** left, **1** right, **2** middle (Raylib-compatible). **`MOUSESET x, y`** warps the pointer (native Raylib; WASM: **`Module.rgcMouseWarp`** in **`web/canvas.html`** and **`gfx-embed-mount.js`**). **`SETMOUSECURSOR code`** (Raylib **`MouseCursor`** enum; WASM maps to CSS **`cursor`**). **`HIDECURSOR`** / **`SHOWCURSOR`**. **`gfx/gfx_mouse.c`**; **`Makefile`**: **`gfx_mouse.c`** in **`GFX_BIN_SRCS`** and canvas WASM link; **`EXPORTED_FUNCTIONS`**: **`_wasm_mouse_js_frame`**. **`wasm_browser_canvas_test.py`**: asserts **`_wasm_mouse_js_frame`** is exported.
+
 - **WordPress plugin — RGC-BASIC GFX embed block:** **`wordpress/rgc-basic-tutorial-block`** registers **`rgc-basic/gfx-embed`** (`block-gfx.json`): canvas WASM via **`gfx-embed-mount.js`** + **`frontend-gfx-init.js`**, **`basic-canvas.js`** / **`basic-canvas.wasm`** from the same WASM base URL as the terminal block; inspector options for code, controls, fullscreen, poster image, interpreter flags. **`copy-web-assets.sh`** copies canvas WASM when present. **`docs/wordpress-canvas-embed.md`** documents **Option 4**.
 
 - **`JSON$` object/array values:** Fixed **`json_skip_value`** so **`}`** / **`]`** after the last property/element is consumed (parser previously stopped one delimiter short for nested objects/arrays). **`JSON$(json$, path)`** returns the **raw JSON text** for object and array values (truncated to max string length). Regression: **`tests/json_test.bas`**, **`tests/json_object_value_test.bas`**.
