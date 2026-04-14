@@ -102,8 +102,13 @@ Use the **mangled** export name **`_basic_load_and_run_gfx_argline`** (Emscripte
 3. **Focus** the canvas for **`INKEY$`** / **`GET`** if the tool uses them.
 4. On **Stop** / **new file**, use **`wasmStopRequested`** / existing canvas controls before launching another tool.
 
+## Host `EXEC$` / `SYSTEM` (IDE tools, editors, compilers)
+
+For actions that are not HTTP or MEMFS alone (e.g. uppercase selection, search/replace in the editor buffer, “run compiler”), implement **`Module.rgcHostExec`** on the same **`Module`** instance as the WASM build. **`EXEC$`** receives the string you define (e.g. **`ide:uppercase`**); your handler runs in JS and returns **`{ stdout, exitCode }`**. Works in **terminal** and **canvas** Asyncify builds. Full contract: **`docs/wasm-host-exec.md`**.
+
 ## Related
 
+- **`docs/wasm-host-exec.md`** — **`EXEC$` / `SYSTEM`** host hook (testing checklist).
 - **`docs/http-vfs-assets.md`** — **`HTTPFETCH`**, binary **`OPEN`**, **`PUTBYTE`/`GETBYTE`**.
 - **`docs/tutorial-embedding.md`**, **`web/vfs-helpers.js`** — VFS upload patterns.
 - **`web/canvas.html`** — **`basic_load_and_run_gfx`**, pause/stop hooks.

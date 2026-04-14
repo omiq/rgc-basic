@@ -133,6 +133,57 @@ EM_ASYNC_JS(int, wasm_js_http_fetch_to_file_async, (const char *url, const char 
   }
   return 0;
 });
+
+/*
+ * Host hook for EXEC$ / SYSTEM (browser only). Calls Module.rgcHostExec(cmd) or
+ * Module.onRgcExec(cmd) if function; otherwise EXEC$ -> "" and SYSTEM -> -1.
+ * Asyncify: host may await; see Makefile ASYNCIFY_IMPORTS.
+ */
+EM_ASYNC_JS(int, wasm_js_host_exec_async, (const char *cmd_utf8, char *out, int out_cap, int *exit_code_out, int want_stdout), {
+  var cmd = UTF8ToString(cmd_utf8);
+  var exitVal = -1;
+  var stdoutStr = '';
+  try {
+    var M = typeof Module !== 'undefined' ? Module : null;
+    var fn = M && (typeof M['rgcHostExec'] === 'function' ? M['rgcHostExec']
+      : (typeof M['onRgcExec'] === 'function' ? M['onRgcExec'] : null));
+    if (!fn) {
+      if (exit_code_out) {
+        HEAP32[exit_code_out >> 2] = -1;
+      }
+      if (want_stdout && out && out_cap > 0) {
+        HEAPU8[out] = 0;
+      }
+      return 0;
+    }
+    var r = fn(cmd);
+    if (r && typeof r.then === 'function') {
+      r = await r;
+    }
+    if (r === undefined || r === null) {
+      exitVal = (M && typeof M['rgcHostExecLastExit'] === 'number') ? (M['rgcHostExecLastExit'] | 0) : 0;
+      stdoutStr = '';
+    } else if (typeof r === 'object' && r && ('stdout' in r || 'exitCode' in r)) {
+      stdoutStr = (r['stdout'] !== undefined && r['stdout'] !== null) ? String(r['stdout']) : '';
+      exitVal = (typeof r['exitCode'] === 'number') ? (r['exitCode'] | 0)
+        : ((M && typeof M['rgcHostExecLastExit'] === 'number') ? (M['rgcHostExecLastExit'] | 0) : 0);
+    } else {
+      stdoutStr = String(r);
+      exitVal = (M && typeof M['rgcHostExecLastExit'] === 'number') ? (M['rgcHostExecLastExit'] | 0) : 0;
+    }
+  } catch (e) {
+    exitVal = (typeof Module !== 'undefined' && typeof Module['rgcHostExecLastExit'] === 'number')
+      ? (Module['rgcHostExecLastExit'] | 0) : -1;
+    stdoutStr = '';
+  }
+  if (exit_code_out) {
+    HEAP32[exit_code_out >> 2] = exitVal;
+  }
+  if (want_stdout && out && out_cap > 0) {
+    stringToUTF8(stdoutStr, out, out_cap);
+  }
+  return 0;
+});
 #endif
 
 #if (defined(__unix__) || defined(__linux__) || defined(__APPLE__) || defined(__MACH__)) && !defined(__EMSCRIPTEN__)
@@ -2256,8 +2307,18 @@ static char **script_argv = NULL;        /* argv entries after script path */
 static int do_system(const char *cmd)
 {
 #ifdef __EMSCRIPTEN__
-    (void)cmd;
-    return -1;  /* Not available in browser */
+    static char wasm_host_exec_dummy[8];
+    int exitv = -1;
+    if (!cmd || !cmd[0]) {
+        return -1;
+    }
+#if defined(GFX_VIDEO)
+    wasm_gfx_refresh_js();
+#endif
+    BEFORE_CSTDIO();
+    emscripten_sleep(0);
+    wasm_js_host_exec_async(cmd, wasm_host_exec_dummy, (int)sizeof(wasm_host_exec_dummy), &exitv, 0);
+    return exitv;
 #elif defined(_WIN32)
     return system(cmd);  /* MSVC: runs via cmd.exe */
 #else
@@ -2269,9 +2330,28 @@ static int do_system(const char *cmd)
 static void do_exec(const char *cmd, char *out, size_t out_size)
 {
 #ifdef __EMSCRIPTEN__
-    (void)cmd;
-    if (out_size > 0) out[0] = '\0';
-    return;  /* Not available in browser */
+    int exitv = -1;
+    if (out_size == 0) {
+        return;
+    }
+    out[0] = '\0';
+    if (!cmd || !cmd[0]) {
+        return;
+    }
+#if defined(GFX_VIDEO)
+    wasm_gfx_refresh_js();
+#endif
+    BEFORE_CSTDIO();
+    emscripten_sleep(0);
+    wasm_js_host_exec_async(cmd, out, (int)out_size, &exitv, 1);
+    (void)exitv; /* SYSTEM uses exit code; EXEC$ returns stdout only */
+    /* Match native popen: trim trailing CR/LF from stdout */
+    {
+        size_t n = strlen(out);
+        while (n > 0 && (out[n - 1] == '\n' || out[n - 1] == '\r')) {
+            out[--n] = '\0';
+        }
+    }
 #else
     FILE *fp;
     size_t n;

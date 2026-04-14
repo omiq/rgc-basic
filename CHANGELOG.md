@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- **WASM `EXEC$` / `SYSTEM` host hook:** **`Module.rgcHostExec(cmd)`** (or **`Module.onRgcExec`**) — **`EM_ASYNC_JS`** **`wasm_js_host_exec_async`**; return **`{ stdout, exitCode }`**, a string, or a **Promise**. **`EXEC$`** trims trailing CR/LF like native **`popen`**. Flush before call (GFX **`wasm_gfx_refresh_js`** / terminal **`BEFORE_CSTDIO`** + **`emscripten_sleep(0)`**). **`Makefile`**: **`ASYNCIFY_IMPORTS`** includes **`__asyncjs__wasm_js_host_exec_async`**. Doc: **`docs/wasm-host-exec.md`**; demo hook + sentinel in **`web/index.html`**; Playwright: **`tests/wasm_browser_test.py`**.
+
 - **WordPress plugin 1.2.7:** **`registerBlockType`** in **`block-editor.js`** and **`gfx-block-editor.js`** now sets **`apiVersion: 3`** explicitly. WordPress **6.9** iframe editor treats blocks registered as API **1** as legacy and **omits them from the block inserter** (console: `rgc-basic/gfx-embed` deprecated); this fixes **“No results”** when searching **gfx**.
 
 - **`copy-web-assets.sh`:** After copying WASM/JS, syncs **`build/`** from **`$REPO`** when the plugin folder is **not** already inside that repo (e.g. copy plugin to Desktop then run with path to rgc-basic). If the script is run **from** `wordpress/rgc-basic-tutorial-block` inside the checkout, **`build/`** source and destination are the same — skip **`cp`** to avoid **`identical (not copied)`** errors.
