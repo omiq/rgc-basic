@@ -2448,12 +2448,12 @@ static void statement_background(char **p);
 static void statement_screencodes(char **p);
 static void statement_pset(char **p, int preset);
 static void statement_line(char **p);
+static void statement_bitmapclear(char **p);
 #ifdef GFX_VIDEO
 static void statement_loadsprite(char **p);
 static void statement_drawsprite(char **p);
 static void statement_spritevisible(char **p);
 static void statement_spritemodulate(char **p);
-static void statement_bitmapclear(char **p);
 static void statement_mouseset(char **p);
 static void statement_mousecursor(char **p);
 static void statement_mousehide(char **p);
