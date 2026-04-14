@@ -206,6 +206,18 @@ Low-urgency cleanups noted during the April 2026 parser/CI hardening pass. None 
 
 ---
 
+## Mouse-over-sprite hit test + `SPRITEAT` + drag-and-drop
+
+Full design in **`docs/mouse-over-sprite-plan.md`**. Summary: today a BASIC-level `MOUSEOVER(sx, sy, sw, sh)` helper (documented in the README) covers the bounding-box case using `GETMOUSEX/Y` + `SPRITEW/H`. An engine-level API earns its keep for three cases BASIC can't do cleanly:
+
+* **`ISMOUSEOVERSPRITE(slot)`** — hit-test against the slot's last-drawn rect; engine remembers the position so programs don't have to. Optional `ISMOUSEOVERSPRITE(slot, 1)` samples the PNG's alpha channel for pixel-perfect round-button / irregular-shape hit testing.
+* **`SPRITEAT(x, y)`** — returns the topmost visible slot whose rect contains the point, or `-1`. Useful for "click to select from a pile" in RTS unit stacks or inventory.
+* **Consistency with `SCROLL` and `SPRITECOLLIDE`** — hit test respects `SCROLLX()/SCROLLY()` so sprite positions stay in world space while mouse coords are screen space, matching how `SPRITECOLLIDE` already works.
+
+Implementation sequence in the plan doc: (1) per-slot `last_x/y/w/h` cache updated at `DRAWSPRITE`/`DRAWSPRITETILE` enqueue time, (2) `ISMOUSEOVERSPRITE` bounding-rect mode + keyword wiring + RTS-button demo, (3) pixel-perfect mode, (4) `SPRITEAT` iteration with z-sort, (5) drag-and-drop example (pure BASIC on top of the new API), (6) canvas WASM parity.
+
+Open questions in the doc: alpha cutoff threshold, source-rect vs destination-rect sampling for scaled sprites, last-draw persistence across non-drawn frames, rotation/transform future-proofing.
+
 ## Text in bitmap mode + pixel-space `DRAWTEXT`
 
 Full design in **`docs/bitmap-text-plan.md`**. Split into two halves: character-set rendering in bitmap mode (done), and the new Font / `DRAWTEXT` system (outstanding).
