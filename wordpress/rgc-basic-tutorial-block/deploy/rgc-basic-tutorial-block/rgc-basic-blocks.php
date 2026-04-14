@@ -87,10 +87,21 @@ function rgc_basic_tutorial_register_assets() {
 		true
 	);
 
+	// Shared BASIC syntax highlighter used by both the tutorial and gfx embeds.
+	wp_register_script(
+		'rgc-basic-highlight',
+		RGC_BASIC_TUTORIAL_BLOCK_URL . 'assets/js/basic-highlight.js',
+		array(),
+		file_exists( RGC_BASIC_TUTORIAL_BLOCK_DIR . 'assets/js/basic-highlight.js' )
+			? (string) filemtime( RGC_BASIC_TUTORIAL_BLOCK_DIR . 'assets/js/basic-highlight.js' )
+			: RGC_BASIC_TUTORIAL_BLOCK_VERSION,
+		true
+	);
+
 	wp_register_script(
 		'rgc-basic-tutorial-embed',
 		RGC_BASIC_TUTORIAL_BLOCK_URL . 'assets/js/tutorial-embed.js',
-		array( 'rgc-basic-vfs-helpers' ),
+		array( 'rgc-basic-vfs-helpers', 'rgc-basic-highlight' ),
 		file_exists( RGC_BASIC_TUTORIAL_BLOCK_DIR . 'assets/js/tutorial-embed.js' )
 			? (string) filemtime( RGC_BASIC_TUTORIAL_BLOCK_DIR . 'assets/js/tutorial-embed.js' )
 			: RGC_BASIC_TUTORIAL_BLOCK_VERSION,
@@ -110,7 +121,7 @@ function rgc_basic_tutorial_register_assets() {
 	wp_register_script(
 		'rgc-basic-gfx-embed-mount',
 		RGC_BASIC_TUTORIAL_BLOCK_URL . 'assets/js/gfx-embed-mount.js',
-		array( 'rgc-basic-vfs-helpers' ),
+		array( 'rgc-basic-vfs-helpers', 'rgc-basic-highlight' ),
 		file_exists( RGC_BASIC_TUTORIAL_BLOCK_DIR . 'assets/js/gfx-embed-mount.js' )
 			? (string) filemtime( RGC_BASIC_TUTORIAL_BLOCK_DIR . 'assets/js/gfx-embed-mount.js' )
 			: RGC_BASIC_TUTORIAL_BLOCK_VERSION,

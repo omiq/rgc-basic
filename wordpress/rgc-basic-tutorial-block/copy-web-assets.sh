@@ -3,11 +3,18 @@
 # optionally assemble a clean FTP-ready staging folder.
 #
 # Usage (from plugin directory):
-#   ./copy-web-assets.sh [/path/to/rgc-basic/repo] [--deploy [DIR]]
+#   ./copy-web-assets.sh [/path/to/rgc-basic/repo] [--deploy [DIR]] [--upload]
 #
 # With --deploy (optional DIR, default: ./deploy/rgc-basic-tutorial-block) the
 # script mirrors the plugin into DIR containing ONLY the files the server
 # needs. Upload DIR to wp-content/plugins/rgc-basic-tutorial-block/ via FTP.
+#
+# With --upload (implies --deploy) the deploy folder contents are pushed via
+# scp to the Siteground host. Override via env vars:
+#   RGC_SSH_USER  (default: u1562-xtlviwl6bhzb)
+#   RGC_SSH_HOST  (default: gcam1228.siteground.biz)
+#   RGC_SSH_PORT  (default: 18765)   # Siteground non-standard SSH port
+#   RGC_SSH_PATH  (default: /home/u1562-xtlviwl6bhzb/www/retrogamecoders.com/public_html/wp-content/plugins/rgc-basic-tutorial-block)
 #
 # Files kept in deploy:
 #   rgc-basic-blocks.php
@@ -25,10 +32,11 @@ set -e
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
-# Parse positional REPO and optional --deploy [DIR].
+# Parse positional REPO and optional --deploy [DIR] / --upload.
 REPO=""
 DEPLOY=""
 DEPLOY_DIR=""
+UPLOAD=""
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--deploy)
@@ -42,6 +50,10 @@ while [ $# -gt 0 ]; do
 		--deploy=*)
 			DEPLOY=1
 			DEPLOY_DIR="${1#--deploy=}"
+			;;
+		--upload)
+			UPLOAD=1
+			DEPLOY=1
 			;;
 		-h|--help)
 			sed -n '2,19p' "$0"
@@ -219,4 +231,43 @@ if [ -n "$DEPLOY" ]; then
 	echo ""
 	echo "File tree:"
 	( cd "$DEPLOY_DIR" && find . -type f | sort | sed 's|^\./|  |' )
+fi
+
+# ---------------------------------------------------------------------------
+# Optional: scp the deploy folder contents up to the Siteground host.
+# ---------------------------------------------------------------------------
+if [ -n "$UPLOAD" ]; then
+	SSH_USER="${RGC_SSH_USER:-u1562-xtlviwl6bhzb}"
+	SSH_HOST="${RGC_SSH_HOST:-gcam1228.siteground.biz}"
+	SSH_PORT="${RGC_SSH_PORT:-18765}"
+	SSH_PATH="${RGC_SSH_PATH:-/home/u1562-xtlviwl6bhzb/www/retrogamecoders.com/public_html/wp-content/plugins/rgc-basic-tutorial-block}"
+
+	if [ ! -d "$DEPLOY_DIR" ]; then
+		echo "error: deploy dir $DEPLOY_DIR missing — cannot upload" >&2
+		exit 4
+	fi
+
+	echo ""
+	echo "Uploading $DEPLOY_DIR/ -> $SSH_USER@$SSH_HOST:$SSH_PATH (port $SSH_PORT)"
+
+	# Default to scp — Siteground's shared-hosting rsync hits memory limits
+	# ("error allocating core memory buffers"). Set RGC_USE_RSYNC=1 to override.
+	if [ -n "${RGC_USE_RSYNC:-}" ] && command -v rsync >/dev/null 2>&1; then
+		rsync -az \
+			--exclude '.DS_Store' --exclude '*.map' --exclude '*.bak' --exclude '*~' \
+			-e "ssh -p $SSH_PORT" \
+			"$DEPLOY_DIR"/ \
+			"$SSH_USER@$SSH_HOST:$SSH_PATH"/
+	else
+		# scp -O uses the legacy scp protocol (avoids SFTP memory overhead on
+		# shared hosting). It rejects the "/." contents-copy trick, so cd into
+		# the deploy dir and let the shell glob its contents.
+		(
+			cd "$DEPLOY_DIR" && \
+			scp -P "$SSH_PORT" -O -r -- * \
+				"$SSH_USER@$SSH_HOST:$SSH_PATH"/
+		)
+	fi
+
+	echo "Upload complete."
 fi

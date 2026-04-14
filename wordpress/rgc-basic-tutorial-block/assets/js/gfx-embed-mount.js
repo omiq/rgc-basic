@@ -269,6 +269,24 @@
       logEl.style.display = msg && String(msg).length ? 'block' : 'none';
     }
 
+    /**
+     * Paint a "Loading..." splash on the canvas so the user has visual
+     * feedback between clicking Run and the first WASM frame appearing.
+     * The rAF loop (frame()) will overwrite this as soon as the program
+     * starts producing output.
+     */
+    function drawLoadingSplash() {
+      try {
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#7ee787';
+        ctx.font = 'bold 18px ui-monospace, Menlo, Consolas, monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Loading\u2026', canvas.width / 2, canvas.height / 2);
+      } catch (e) { /* non-fatal */ }
+    }
+
     function wasmMemoryBuffer() {
       var M = window.Module;
       if (!M) return null;
@@ -585,6 +603,9 @@
         posterLayer.style.display = 'none';
       }
       app.hidden = false;
+      // Paint the loading splash immediately so the canvas isn't a blank
+      // black rectangle while the WASM runtime is being fetched / compiled.
+      drawLoadingSplash();
       return initModule().then(function () {
         // Runtime is ready and handlers are wired — now clicking Run actually runs.
         runBtn.click();
@@ -599,6 +620,7 @@
     });
 
     if (!deferLoad || !posterUrl) {
+      drawLoadingSplash();
       initModule().then(function () {
         if (posterUrl) {
           posterLayer.style.display = 'none';

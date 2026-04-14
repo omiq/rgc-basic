@@ -229,6 +229,12 @@
     ta.style.fontSize = '13px';
     if (showEditor) {
       container.appendChild(ta);
+      // Wrap the textarea with the shared syntax-highlighting overlay
+      // (assets/js/basic-highlight.js in the WordPress plugin). Silent
+      // no-op if that script isn't loaded on this page.
+      if (global.RgcBasicHighlight && typeof global.RgcBasicHighlight.attach === 'function') {
+        try { global.RgcBasicHighlight.attach(ta); } catch (e) { /* fall back to plain textarea */ }
+      }
     }
 
     var toolbar = document.createElement('div');
