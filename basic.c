@@ -9928,7 +9928,7 @@ static void execute_statement(char **p)
     if (c == 'M') {
 #ifdef GFX_VIDEO
         if (starts_with_kw(*p, "MOUSESET")) {
-            *p += 7;
+            *p += 8;
             statement_mouseset(p);
             return;
         }
