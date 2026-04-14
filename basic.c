@@ -235,6 +235,7 @@ static int http_fetch_to_file_impl(const char *url, const char *path, const char
 #include "gfx_video.h"
 #include "gfx_charrom.h"
 #include "gfx_gamepad.h"
+#include "gfx_mouse.h"
 #include "basic_api.h"
 #if defined(__EMSCRIPTEN__)
 #include "gfx_canvas.h"
@@ -2372,6 +2373,10 @@ static void statement_loadsprite(char **p);
 static void statement_drawsprite(char **p);
 static void statement_spritevisible(char **p);
 static void statement_spritemodulate(char **p);
+static void statement_mouseset(char **p);
+static void statement_mousecursor(char **p);
+static void statement_mousehide(char **p);
+static void statement_mouseshow(char **p);
 #endif
 static void statement_unloadsprite(char **p);  /* basic-gfx only; terminal errors */
 static void statement_else(char **p);
@@ -2444,7 +2449,13 @@ enum func_code {
     FN_SCROLLY = 52,
     FN_HTTP = 53,
     FN_HTTPSTATUS = 54,
-    FN_HTTPFETCH = 55
+    FN_HTTPFETCH = 55,
+    FN_GETMOUSEX = 56,
+    FN_GETMOUSEY = 57,
+    FN_ISMOUSEBUTTONPRESSED = 58,
+    FN_ISMOUSEBUTTONDOWN = 59,
+    FN_ISMOUSEBUTTONRELEASED = 60,
+    FN_ISMOUSEBUTTONUP = 61
 };
 
 /* Report an error and halt further execution.
@@ -3530,6 +3541,24 @@ static int function_lookup(const char *name, int len)
             name[4] == 'X' && name[5] == 'I' && name[6] == 'S') return FN_JOYAXIS;
         return FN_NONE;
     case 'I':
+        if (len == 20 && name[0] == 'I' && name[1] == 'S' && name[2] == 'M' && name[3] == 'O' && name[4] == 'U' &&
+            name[5] == 'S' && name[6] == 'E' && name[7] == 'B' && name[8] == 'U' && name[9] == 'T' && name[10] == 'T' &&
+            name[11] == 'O' && name[12] == 'N' && name[13] == 'P' && name[14] == 'R' && name[15] == 'E' &&
+            name[16] == 'S' && name[17] == 'S' && name[18] == 'E' && name[19] == 'D')
+            return FN_ISMOUSEBUTTONPRESSED;
+        if (len == 17 && name[0] == 'I' && name[1] == 'S' && name[2] == 'M' && name[3] == 'O' && name[4] == 'U' &&
+            name[5] == 'S' && name[6] == 'E' && name[7] == 'B' && name[8] == 'U' && name[9] == 'T' && name[10] == 'T' &&
+            name[11] == 'O' && name[12] == 'N' && name[13] == 'D' && name[14] == 'O' && name[15] == 'W' && name[16] == 'N')
+            return FN_ISMOUSEBUTTONDOWN;
+        if (len == 21 && name[0] == 'I' && name[1] == 'S' && name[2] == 'M' && name[3] == 'O' && name[4] == 'U' &&
+            name[5] == 'S' && name[6] == 'E' && name[7] == 'B' && name[8] == 'U' && name[9] == 'T' && name[10] == 'T' &&
+            name[11] == 'O' && name[12] == 'N' && name[13] == 'R' && name[14] == 'E' && name[15] == 'L' &&
+            name[16] == 'E' && name[17] == 'A' && name[18] == 'S' && name[19] == 'E' && name[20] == 'D')
+            return FN_ISMOUSEBUTTONRELEASED;
+        if (len == 15 && name[0] == 'I' && name[1] == 'S' && name[2] == 'M' && name[3] == 'O' && name[4] == 'U' &&
+            name[5] == 'S' && name[6] == 'E' && name[7] == 'B' && name[8] == 'U' && name[9] == 'T' && name[10] == 'T' &&
+            name[11] == 'O' && name[12] == 'N' && name[13] == 'U' && name[14] == 'P')
+            return FN_ISMOUSEBUTTONUP;
         if (len == 3 && name[0] == 'I' && name[1] == 'N' && name[2] == 'T') return FN_INT;
         if (len == 5 && name[0] == 'I' && name[1] == 'N' && name[2] == 'S' && name[3] == 'T' && name[4] == 'R') return FN_INSTR;
         if (len == 7 && name[0] == 'I' && name[1] == 'N' && name[2] == 'D' && name[3] == 'E' && name[4] == 'X' && name[5] == 'O' && name[6] == 'F') return FN_INDEXOF;
@@ -3613,6 +3642,14 @@ static int function_lookup(const char *name, int len)
         if ((len == 5 && name[0] == 'F' && name[1] == 'I' && name[2] == 'E' && name[3] == 'L' && name[4] == 'D') ||
             (len == 6 && name[0] == 'F' && name[1] == 'I' && name[2] == 'E' && name[3] == 'L' && name[4] == 'D' && name[5] == '$'))
             return FN_FIELD;
+        return FN_NONE;
+    case 'G':
+        if (len == 9 && name[0] == 'G' && name[1] == 'E' && name[2] == 'T' && name[3] == 'M' && name[4] == 'O' &&
+            name[5] == 'U' && name[6] == 'S' && name[7] == 'E' && name[8] == 'X')
+            return FN_GETMOUSEX;
+        if (len == 9 && name[0] == 'G' && name[1] == 'E' && name[2] == 'T' && name[3] == 'M' && name[4] == 'O' &&
+            name[5] == 'U' && name[6] == 'S' && name[7] == 'E' && name[8] == 'Y')
+            return FN_GETMOUSEY;
         return FN_NONE;
     default:
         return FN_NONE;
@@ -4405,6 +4442,63 @@ static void statement_spritemodulate(char **p)
         return;
     }
     gfx_sprite_set_modulate(slot, alpha, r, g, b, (float)sx, (float)sy);
+}
+
+/* MOUSESET x, y — warp pointer in framebuffer pixel coordinates. */
+static void statement_mouseset(char **p)
+{
+    struct value vx, vy;
+    skip_spaces(p);
+    vx = eval_expr(p);
+    ensure_num(&vx);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("MOUSESET expects x, y", "Example: MOUSESET 160, 100");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    vy = eval_expr(p);
+    ensure_num(&vy);
+    if (!gfx_vs) {
+        runtime_error_hint("MOUSESET requires basic-gfx or canvas WASM", NULL);
+        return;
+    }
+    gfx_mouse_set_position((int)vx.num, (int)vy.num);
+}
+
+/* SETMOUSECURSOR n — Raylib cursor enum (0=default, 4=I-beam, …). WASM: host maps to CSS. */
+static void statement_mousecursor(char **p)
+{
+    struct value v;
+    skip_spaces(p);
+    v = eval_expr(p);
+    ensure_num(&v);
+    if (!gfx_vs) {
+        runtime_error_hint("SETMOUSECURSOR requires basic-gfx or canvas WASM", NULL);
+        return;
+    }
+    gfx_mouse_set_cursor_shape((int)v.num);
+}
+
+static void statement_mousehide(char **p)
+{
+    (void)p;
+    if (!gfx_vs) {
+        runtime_error_hint("HIDECURSOR requires basic-gfx or canvas WASM", NULL);
+        return;
+    }
+    gfx_mouse_hide_cursor();
+}
+
+static void statement_mouseshow(char **p)
+{
+    (void)p;
+    if (!gfx_vs) {
+        runtime_error_hint("SHOWCURSOR requires basic-gfx or canvas WASM", NULL);
+        return;
+    }
+    gfx_mouse_show_cursor();
 }
 #endif /* GFX_VIDEO */
 
@@ -5269,6 +5363,47 @@ static struct value eval_function(const char *name, char **p)
         ax = (int)vb.num;
         return make_num((double)gfx_gamepad_axis_scaled(port, ax));
 #endif
+    }
+    if (code == FN_GETMOUSEX || code == FN_GETMOUSEY) {
+        if (**p != ')') {
+            runtime_error_hint("Missing ')'", "GETMOUSEX() and GETMOUSEY() take no arguments.");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        if (gfx_vs) {
+            return make_num((double)(code == FN_GETMOUSEX ? gfx_mouse_x() : gfx_mouse_y()));
+        }
+        return make_num(0.0);
+    }
+    if (code == FN_ISMOUSEBUTTONPRESSED || code == FN_ISMOUSEBUTTONDOWN ||
+        code == FN_ISMOUSEBUTTONRELEASED || code == FN_ISMOUSEBUTTONUP) {
+        struct value vb;
+        int btn, r;
+        skip_spaces(p);
+        vb = eval_expr(p);
+        ensure_num(&vb);
+        btn = (int)vb.num;
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("Missing ')'", "Mouse button functions take one argument: button index (0=left, 1=right, 2=middle).");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        if (!gfx_vs) {
+            return make_num(0.0);
+        }
+        if (code == FN_ISMOUSEBUTTONPRESSED) {
+            r = gfx_mouse_button_pressed(btn);
+        } else if (code == FN_ISMOUSEBUTTONDOWN) {
+            r = gfx_mouse_button_down(btn);
+        } else if (code == FN_ISMOUSEBUTTONRELEASED) {
+            r = gfx_mouse_button_released(btn);
+        } else {
+            r = gfx_mouse_button_up(btn);
+        }
+        return make_num((double)r);
     }
 #endif
     if (code == FN_PLATFORM) {
@@ -9693,6 +9828,13 @@ static void execute_statement(char **p)
         }
     }
     if (c == 'M') {
+#ifdef GFX_VIDEO
+        if (starts_with_kw(*p, "MOUSESET")) {
+            *p += 7;
+            statement_mouseset(p);
+            return;
+        }
+#endif
         if (starts_with_kw(*p, "MEMSET")) {
             *p += 6;
             statement_memset(p);
@@ -9818,6 +9960,16 @@ static void execute_statement(char **p)
     }
     if (c == 'S') {
 #ifdef GFX_VIDEO
+        if (starts_with_kw(*p, "SETMOUSECURSOR")) {
+            *p += 14;
+            statement_mousecursor(p);
+            return;
+        }
+        if (starts_with_kw(*p, "SHOWCURSOR")) {
+            *p += 10;
+            statement_mouseshow(p);
+            return;
+        }
         if (starts_with_kw(*p, "SPRITEVISIBLE")) {
             *p += 13;
             statement_spritevisible(p);
@@ -9899,6 +10051,15 @@ static void execute_statement(char **p)
         halted = 1;
         *p += strlen(*p);
         return;
+    }
+    if (c == 'H') {
+#ifdef GFX_VIDEO
+        if (starts_with_kw(*p, "HIDECURSOR")) {
+            *p += 10;
+            statement_mousehide(p);
+            return;
+        }
+#endif
     }
     if (c == 'C') {
         if (starts_with_kw(*p, "CLR")) {
@@ -10857,9 +11018,11 @@ void basic_run(const char *script_path_arg, int nargs, char **args)
 int basic_halted(void) { return halted; }
 
 #ifdef GFX_VIDEO
-void basic_set_video(GfxVideoState *vs) {
+void basic_set_video(GfxVideoState *vs)
+{
     gfx_vs = vs;
     if (vs) {
+        gfx_mouse_init();
         vs->cols = (print_width >= 80) ? 80 : 40;
         vs->bitmap_fg = gfx_fg;
         vs->charrom_family = (uint8_t)(charrom_family_opt ? 1 : 0);

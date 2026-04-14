@@ -82,6 +82,13 @@ def main() -> int:
             page = browser.new_page(viewport={"width": 1100, "height": 900})
             page.goto(url, wait_until="networkidle", timeout=120000)
             page.wait_for_function("() => !document.getElementById('run').disabled", timeout=120000)
+            if page.evaluate(
+                "() => !(window.Module && typeof Module._wasm_mouse_js_frame === 'function')"
+            ):
+                browser.close()
+                raise RuntimeError(
+                    "Module._wasm_mouse_js_frame missing; rebuild with make basic-wasm-canvas"
+                )
 
             before = _canvas_top_left_rgba(page)
 

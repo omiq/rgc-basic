@@ -11,6 +11,7 @@
 
 #include "raylib.h"
 #include "gfx_video.h"
+#include "gfx_mouse.h"
 #include "../petscii.h"
 #include <string.h>
 #include <stdio.h>
@@ -1147,6 +1148,21 @@ int main(int argc, char **argv)
             render_text_screen(&vs, target);
         }
         gfx_sprite_composite(&vs, target, nat_w, nat_h);
+
+        {
+            int border = basic_get_gfx_border();
+            float dx = (float)border;
+            float dy = (float)border;
+            float dw = (float)(win_w - 2 * border);
+            float dh = (float)(win_h - 2 * border);
+            if (dw < 1) {
+                dw = 1;
+            }
+            if (dh < 1) {
+                dh = 1;
+            }
+            gfx_mouse_raylib_poll(nat_w, nat_h, dx, dy, dx + dw, dy + dh);
+        }
 
         BeginDrawing();
         {
