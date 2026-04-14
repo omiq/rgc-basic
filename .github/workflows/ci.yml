@@ -78,6 +78,13 @@ jobs:
             make basic-gfx
           fi
 
+      - name: Build & run C unit tests (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          set -e
+          make gfx_video_test
+          ./gfx_video_test
+
       - name: Run GET tests (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -132,6 +139,14 @@ jobs:
           if [ "${{ matrix.build_gfx }}" = "true" ]; then
             mingw32-make basic-gfx
           fi
+
+      - name: Build & run C unit tests (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -e
+          mingw32-make gfx_video_test
+          ./gfx_video_test.exe
 
       # GET tests skipped on Windows: basic.exe uses _kbhit/_getch (console only),
       # not stdin; piped input never reaches the program, so tests would hang.
