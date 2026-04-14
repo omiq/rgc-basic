@@ -353,6 +353,8 @@ Releases include **basic-gfx** — a full graphical version of the interpreter b
 - `SCREEN 1` — 320×200 1bpp display; `SCREEN 0` — back to 40×25 text. `COLOR` / `BACKGROUND` set pen and paper in bitmap mode.
 - `PSET x,y` / `PRESET x,y` — set/clear one pixel (coordinates clipped to the bitmap).
 - `LINE x1,y1 TO x2,y2` — Bresenham line (same clipping).
+- `BITMAPCLEAR` — clear the 320×200 bitmap plane to background without touching text/colour RAM.
+- **Text in bitmap mode** — `PRINT`, `TEXTAT`, `LOCATE`, and `CHR$(147)` (clear) now work in `SCREEN 1`: glyphs from the active 8×8 character set are stamped into the bitmap plane at character-cell positions, so HUDs, score lines, and menus render exactly as they would in `SCREEN 0`. `CHR$(147)` clears the bitmap plane; `PRINT` past row 25 scrolls the bitmap up by one cell (8 pixel rows). Character-set rendering in bitmap mode is always 40×25 (80-col is text-mode only). Pixel-space text with per-call fg/bg and custom Fonts (`DRAWTEXT`, `LOADFONT`) is planned next — see `docs/bitmap-text-plan.md`.
 - Example: `./basic-gfx examples/gfx_bitmap_demo.bas`
 
 **Keyboard polling (basic-gfx)**:
