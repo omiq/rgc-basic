@@ -11765,6 +11765,7 @@ static void wasm_gfx_set_video(void)
     memset(wasm_gfx_state.color, 14, GFX_COLOR_SIZE);
     basic_set_video(&wasm_gfx_state);
     wasm_gfx_refresh_js();
+#endif
 }
 
 EMSCRIPTEN_KEEPALIVE void basic_load_and_run_gfx(const char *path)
