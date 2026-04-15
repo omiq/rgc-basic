@@ -471,9 +471,7 @@ def main() -> int:
                 "20 COLOR 1\n"
                 "30 BACKGROUND 6\n"
                 "40 PSET 0,0\n"
-                "42 PRINT \"BEFORE=\";PEEK(8192)\n"
                 "50 SLEEP 30\n"
-                "55 PRINT \"AFTER=\";PEEK(8192)\n"
                 "60 END\n",
             )
             _click_run(page)
@@ -490,22 +488,12 @@ def main() -> int:
                   return M.ccall('wasm_gfx_bitmap_pixel_at', 'number', ['number','number'], [0, 0]);
                 }"""
             )
-            diag = page.evaluate(
-                """() => {
-                  const M = window.Module;
-                  if (!M || !M._wasm_gfx_diag_bitmap0) return -1;
-                  return M.ccall('wasm_gfx_diag_bitmap0', 'number', [], []);
-                }"""
-            )
             if bmp_bit != 1:
                 dbg_log = page.text_content("#log") or ""
                 browser.close()
-                # diag encodes: high byte = wasm_gfx_state.bitmap[0], low byte = gfx_vs==&wasm_gfx_state
                 raise RuntimeError(
                     f"bitmap mode: PSET 0,0 did not set bitmap bit at (0,0); "
-                    f"wasm_gfx_bitmap_pixel_at(0,0)={bmp_bit!r}; "
-                    f"diag(bitmap0_raw=0x{(diag>>8)&0xff:02x} gfx_vs_match={(diag&1)!r})={diag!r}; "
-                    f"log={dbg_log!r}"
+                    f"wasm_gfx_bitmap_pixel_at(0,0)={bmp_bit!r}; log={dbg_log!r}"
                 )
             # Canvas pixel: rAF may not have fired yet; poll briefly.
             deadline2 = time.time() + 3.0
