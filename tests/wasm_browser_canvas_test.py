@@ -31,10 +31,16 @@ def _serve_web() -> tuple[socketserver.TCPServer, int]:
 
 def _click_run(page) -> None:
     """Dispatch Run without Playwright actionability (rAF can keep layout 'unstable').
-    Also clears #log so debug output from previous runs doesn't pollute log checks."""
+    Also clears #log so debug output from previous runs doesn't pollute log checks.
+    Calls wasm_gfx_init_video_for_run synchronously before the async run so Asyncify
+    rewind never re-executes GFX init (canvas.html does this too, but belt-and-suspenders)."""
     page.evaluate("""
         var l = document.getElementById('log');
         if (l) { l.textContent = ''; l.classList.remove('has-content'); }
+        var M = window.Module;
+        if (M && M._wasm_gfx_init_video_for_run) {
+            M.ccall('wasm_gfx_init_video_for_run', null, [], []);
+        }
         document.getElementById('run').click();
     """)
 
@@ -497,7 +503,7 @@ def main() -> int:
                 )
                 if bmp_bit != 1:
                     dbg_log = page.text_content("#log") or ""
-                    con = [m for m in console_msgs if any(k in m for k in ("PSET","SLEEP","bitmap","gfx_video_init"))]
+                    con = [m for m in console_msgs if any(k in m for k in ("PSET","SLEEP","bitmap","gfx_video_init","basic_load_and_run","wasm_gfx_set_video"))]
                     browser.close()
                     raise RuntimeError(
                         f"bitmap mode ({bmp_label}): PSET 0,0 did not set bitmap bit at (0,0); "
