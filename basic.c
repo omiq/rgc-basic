@@ -11751,16 +11751,12 @@ EMSCRIPTEN_KEEPALIVE uint8_t *wasm_gfx_key_state_ptr(void)
     return gfx_vs->key_state;
 }
 
-/* noinline: Asyncify instruments basic_load_and_run_gfx (it transitively calls
- * emscripten_sleep). During Asyncify rewind, the instrumented caller replays its
- * body and skips over already-completed call sites. If wasm_gfx_set_video were
- * inlined into basic_load_and_run_gfx, its code (gfx_video_init / memset bitmap)
- * would be part of that body and could be re-executed during rewind, clearing the
- * bitmap after PSET runs. Marking noinline ensures Asyncify sees a distinct call
- * site it can correctly skip on rewind. */
 __attribute__((noinline))
 static void wasm_gfx_set_video(void)
 {
+#ifdef GFX_VIDEO
+    fprintf(stderr, "wasm_gfx_set_video called\n");
+#endif
     wasm_gfx_ti_epoch_ms = emscripten_get_now();
     gfx_sprite_shutdown();
     gfx_video_init(&wasm_gfx_state);

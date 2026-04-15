@@ -133,6 +133,7 @@ void gfx_video_advance_ticks60(GfxVideoState *s, uint32_t delta_ticks)
 void gfx_video_init(GfxVideoState *s)
 {
     if (!s) return;
+    fprintf(stderr, "gfx_video_init called ptr=%p\n", (void*)s);
     memset(s, 0, sizeof(*s));
     s->mem_text = GFX_TEXT_BASE;
     s->mem_color = GFX_COLOR_BASE;
@@ -378,6 +379,7 @@ void gfx_bitmap_set_pixel(GfxVideoState *s, int x, int y, int on)
 void gfx_video_bitmap_clear(GfxVideoState *s)
 {
     if (!s) return;
+    fprintf(stderr, "gfx_video_bitmap_clear called ptr=%p\n", (void*)s);
     memset(s->bitmap, 0, sizeof(s->bitmap));
 }
 
