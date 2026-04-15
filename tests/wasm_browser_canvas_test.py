@@ -483,8 +483,14 @@ def main() -> int:
                     f"bitmap mode: PSET 0,0 did not set bitmap bit at (0,0); "
                     f"wasm_gfx_bitmap_pixel_at(0,0)={bmp_bit!r}"
                 )
-            # Now check the canvas pixel (rendered by wasm_gfx_refresh_js at end-of-run).
-            bmp_px = _canvas_top_left_rgba(page)
+            # Canvas pixel: rAF may not have fired yet; poll briefly.
+            deadline2 = time.time() + 3.0
+            bmp_px = (0, 0, 0, 255)
+            while time.time() < deadline2:
+                bmp_px = _canvas_top_left_rgba(page)
+                if list(bmp_px[:3]) == [255, 255, 255]:
+                    break
+                time.sleep(0.05)
             if list(bmp_px[:3]) != [255, 255, 255]:
                 browser.close()
                 raise RuntimeError(
