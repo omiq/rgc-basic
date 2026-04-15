@@ -478,10 +478,11 @@ def main() -> int:
                 }"""
             )
             if bmp_bit != 1:
+                dbg_log = page.text_content("#log") or ""
                 browser.close()
                 raise RuntimeError(
                     f"bitmap mode: PSET 0,0 did not set bitmap bit at (0,0); "
-                    f"wasm_gfx_bitmap_pixel_at(0,0)={bmp_bit!r}"
+                    f"wasm_gfx_bitmap_pixel_at(0,0)={bmp_bit!r}; log={dbg_log!r}"
                 )
             # Canvas pixel: rAF may not have fired yet; poll briefly.
             deadline2 = time.time() + 3.0
