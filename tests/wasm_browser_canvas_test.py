@@ -85,6 +85,8 @@ def main() -> int:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page(viewport={"width": 1100, "height": 900})
+            console_msgs: list[str] = []
+            page.on("console", lambda msg: console_msgs.append(f"{msg.type}: {msg.text}"))
             page.goto(url, wait_until="networkidle", timeout=120000)
             page.wait_for_function("() => !document.getElementById('run').disabled", timeout=120000)
             if page.evaluate(
@@ -495,10 +497,12 @@ def main() -> int:
                 )
                 if bmp_bit != 1:
                     dbg_log = page.text_content("#log") or ""
+                    con = [m for m in console_msgs if any(k in m for k in ("PSET","SLEEP","bitmap","gfx_video_init"))]
                     browser.close()
                     raise RuntimeError(
                         f"bitmap mode ({bmp_label}): PSET 0,0 did not set bitmap bit at (0,0); "
-                        f"wasm_gfx_bitmap_pixel_at(0,0)={bmp_bit!r}; log={dbg_log!r}"
+                        f"wasm_gfx_bitmap_pixel_at(0,0)={bmp_bit!r}; log={dbg_log!r}; "
+                        f"console={con!r}"
                     )
             # Both variants passed — now check canvas pixel for the with-sleep run.
             page.wait_for_function(
