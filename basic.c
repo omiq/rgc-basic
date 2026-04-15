@@ -3926,6 +3926,8 @@ static void statement_sleep(char **p)
 #endif
     do_sleep_ticks(v.num);
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+    if (gfx_vs) fprintf(stderr, "SLEEP_DBG after sleep: bitmap[0]=0x%02x screen_mode=%d\n",
+        (unsigned)gfx_vs->bitmap[0], (int)gfx_vs->screen_mode);
     wasm_gfx_refresh_js();
 #endif
 }
@@ -11782,6 +11784,10 @@ EMSCRIPTEN_KEEPALIVE void basic_load_and_run_gfx(const char *path)
     load_program(path);
     wasm_gfx_set_video();
     run_program(path, 0, NULL);
+#ifdef GFX_VIDEO
+    if (gfx_vs) fprintf(stderr, "RUN_DONE_DBG: bitmap[0]=0x%02x screen_mode=%d bitmap_fg=%d\n",
+        (unsigned)gfx_vs->bitmap[0], (int)gfx_vs->screen_mode, (int)gfx_vs->bitmap_fg);
+#endif
     wasm_gfx_refresh_js();
     EM_ASM({ if (typeof Module !== 'undefined') { Module['wasmGfxRunDone'] = 1; } });
 }
