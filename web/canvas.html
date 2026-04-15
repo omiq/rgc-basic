@@ -482,10 +482,6 @@
           canvasDbg('--- stacks before RUN ---');
           Module.canvasDebugDumpStacks();
         }
-        /* Init GFX synchronously (non-Asyncify) so Asyncify rewind never re-executes it. */
-        if (Module._wasm_gfx_init_video_for_run) {
-          Module.ccall('wasm_gfx_init_video_for_run', null, [], []);
-        }
         Module.ccall('basic_load_and_run_gfx', null, ['string'], ['/program.bas'], { async: true })
           .catch(function(e) { logErr(String(e && e.message ? e.message : e)); })
           .finally(function() {

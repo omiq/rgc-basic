@@ -31,16 +31,10 @@ def _serve_web() -> tuple[socketserver.TCPServer, int]:
 
 def _click_run(page) -> None:
     """Dispatch Run without Playwright actionability (rAF can keep layout 'unstable').
-    Also clears #log so debug output from previous runs doesn't pollute log checks.
-    Calls wasm_gfx_init_video_for_run synchronously before the async run so Asyncify
-    rewind never re-executes GFX init (canvas.html does this too, but belt-and-suspenders)."""
+    Also clears #log so debug output from previous runs doesn't pollute log checks."""
     page.evaluate("""
         var l = document.getElementById('log');
         if (l) { l.textContent = ''; l.classList.remove('has-content'); }
-        var M = window.Module;
-        if (M && M._wasm_gfx_init_video_for_run) {
-            M.ccall('wasm_gfx_init_video_for_run', null, [], []);
-        }
         document.getElementById('run').click();
     """)
 
@@ -481,35 +475,39 @@ def main() -> int:
                 "60 END\n",
             )
             _click_run(page)
-            # Poll bitmap bit during SLEEP — captures peak value before any post-run clearing.
-            bmp_bit_peak = 0
-            deadline_bmp = time.time() + 5.0
-            while time.time() < deadline_bmp:
-                v = page.evaluate(
-                    """() => {
-                      const M = window.Module;
-                      if (!M || !M._wasm_gfx_bitmap_pixel_at) return -1;
-                      return M.ccall('wasm_gfx_bitmap_pixel_at', 'number', ['number','number'], [0, 0]);
-                    }"""
-                )
-                if v == 1:
-                    bmp_bit_peak = 1
-                    break
-                time.sleep(0.05)
             # Wait for the program to finish (SLEEP 30 = ~500 ms, then END).
             page.wait_for_function(
                 "() => (window.Module && Module.wasmGfxRunDone === 1)",
                 timeout=30000,
             )
-            # Peak value (sampled during SLEEP) is the authoritative PSET check:
-            # wasm_gfx_init_video_for_run re-zeros the bitmap on the next run, so the
-            # bit may be 0 by the time we read it after wasmGfxRunDone.
-            if bmp_bit_peak != 1:
+            # Check raw bitmap bit first — tells us whether PSET actually set the pixel.
+            bmp_bit = page.evaluate(
+                """() => {
+                  const M = window.Module;
+                  if (!M || !M._wasm_gfx_bitmap_pixel_at) return -1;
+                  return M.ccall('wasm_gfx_bitmap_pixel_at', 'number', ['number','number'], [0, 0]);
+                }"""
+            )
+            if bmp_bit != 1:
                 dbg_log = page.text_content("#log") or ""
                 browser.close()
                 raise RuntimeError(
-                    f"bitmap mode: PSET 0,0 did not set bitmap bit at (0,0) during SLEEP; "
-                    f"peak={bmp_bit_peak!r}; log={dbg_log!r}"
+                    f"bitmap mode: PSET 0,0 did not set bitmap bit at (0,0); "
+                    f"wasm_gfx_bitmap_pixel_at(0,0)={bmp_bit!r}; log={dbg_log!r}"
+                )
+            # Canvas pixel: rAF may not have fired yet; poll briefly.
+            deadline2 = time.time() + 3.0
+            bmp_px = (0, 0, 0, 255)
+            while time.time() < deadline2:
+                bmp_px = _canvas_top_left_rgba(page)
+                if list(bmp_px[:3]) == [255, 255, 255]:
+                    break
+                time.sleep(0.05)
+            if list(bmp_px[:3]) != [255, 255, 255]:
+                browser.close()
+                raise RuntimeError(
+                    f"bitmap mode: bit set but canvas pixel wrong at (0,0), got {bmp_px!r} "
+                    f"(expected white [255,255,255]); bitmap_fg or render issue"
                 )
             log_bm = page.text_content("#log") or ""
             if log_bm.strip():
