@@ -471,7 +471,12 @@ def main() -> int:
                 "20 COLOR 1\n"
                 "30 BACKGROUND 6\n"
                 "40 PSET 0,0\n"
+                # After PSET, snapshot bitmap[0] (GFX bitmap base $2000=8192) into
+                # screen[0] ($0400=1024) so we can read it via screencode_at after run.
+                # Also store it before and after SLEEP to detect when clearing happens.
+                "42 POKE 1024, PEEK(8192)\n"
                 "50 SLEEP 30\n"
+                "55 POKE 1025, PEEK(8192)\n"
                 "60 END\n",
             )
             _click_run(page)
@@ -479,6 +484,21 @@ def main() -> int:
             page.wait_for_function(
                 "() => (window.Module && Module.wasmGfxRunDone === 1)",
                 timeout=30000,
+            )
+            # Read screen[0] (bitmap[0] before sleep) and screen[1] (bitmap[0] after sleep)
+            sc_before_sleep = page.evaluate(
+                """() => {
+                  const M = window.Module;
+                  if (!M || !M._wasm_gfx_screen_screencode_at) return -999;
+                  return M.ccall('wasm_gfx_screen_screencode_at', 'number', ['number','number'], [0, 0]);
+                }"""
+            )
+            sc_after_sleep = page.evaluate(
+                """() => {
+                  const M = window.Module;
+                  if (!M || !M._wasm_gfx_screen_screencode_at) return -999;
+                  return M.ccall('wasm_gfx_screen_screencode_at', 'number', ['number','number'], [1, 0]);
+                }"""
             )
             # Check raw bitmap bit first — tells us whether PSET actually set the pixel.
             bmp_bit = page.evaluate(
@@ -493,7 +513,9 @@ def main() -> int:
                 browser.close()
                 raise RuntimeError(
                     f"bitmap mode: PSET 0,0 did not set bitmap bit at (0,0); "
-                    f"wasm_gfx_bitmap_pixel_at(0,0)={bmp_bit!r}; log={dbg_log!r}"
+                    f"wasm_gfx_bitmap_pixel_at(0,0)={bmp_bit!r}; "
+                    f"bitmap[0]_before_sleep={sc_before_sleep!r} "
+                    f"bitmap[0]_after_sleep={sc_after_sleep!r}; log={dbg_log!r}"
                 )
             # Canvas pixel: rAF may not have fired yet; poll briefly.
             deadline2 = time.time() + 3.0
