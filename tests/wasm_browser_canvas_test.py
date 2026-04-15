@@ -501,19 +501,15 @@ def main() -> int:
                 "() => (window.Module && Module.wasmGfxRunDone === 1)",
                 timeout=30000,
             )
-            bmp_bit = page.evaluate(
-                """() => {
-                  const M = window.Module;
-                  if (!M || !M._wasm_gfx_bitmap_pixel_at) return -1;
-                  return M.ccall('wasm_gfx_bitmap_pixel_at', 'number', ['number','number'], [0, 0]);
-                }"""
-            )
-            if bmp_bit != 1:
+            # Peak value (sampled during SLEEP) is the authoritative PSET check:
+            # wasm_gfx_init_video_for_run re-zeros the bitmap on the next run, so the
+            # bit may be 0 by the time we read it after wasmGfxRunDone.
+            if bmp_bit_peak != 1:
                 dbg_log = page.text_content("#log") or ""
                 browser.close()
                 raise RuntimeError(
-                    f"bitmap mode: PSET 0,0 did not set bitmap bit at (0,0); "
-                    f"wasm_gfx_bitmap_pixel_at(0,0)={bmp_bit!r} peak={bmp_bit_peak!r}; log={dbg_log!r}"
+                    f"bitmap mode: PSET 0,0 did not set bitmap bit at (0,0) during SLEEP; "
+                    f"peak={bmp_bit_peak!r}; log={dbg_log!r}"
                 )
             # Canvas pixel: rAF may not have fired yet; poll briefly.
             deadline2 = time.time() + 3.0
