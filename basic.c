@@ -1285,6 +1285,20 @@ static int data_line_start_index[MAX_DATA_LINES];
 static FILE *open_files[256];   /* 1-based; [0] unused; NULL = closed */
 static void set_io_status(int st);
 
+/* BUFFER type — RAM-disk files for large payloads (HTTP responses, JSON, etc.)
+ * A BUFFER is a slot that owns a path under /tmp/ (or equivalent). The payload
+ * lives in a real file (MEMFS on canvas WASM, real /tmp on native), so existing
+ * OPEN/INPUT#/GET#/LINE INPUT# verbs can stream through it chunk-by-chunk
+ * without bumping against MAX_STR_LEN. See docs/buffer-type-plan.md. */
+#define MAX_BUFFERS 16
+#define BUFFER_PATH_MAX 64
+typedef struct {
+    int  in_use;
+    char path[BUFFER_PATH_MAX];
+} rgc_buffer_slot;
+static rgc_buffer_slot g_buffers[MAX_BUFFERS];
+static unsigned g_buffer_next_id = 0;
+
 static int current_line = 0;
 static char *statement_pos = NULL;
 static volatile int halted = 0;
@@ -2479,6 +2493,10 @@ static void statement_screencodes(char **p);
 static void statement_pset(char **p, int preset);
 static void statement_line(char **p);
 static void statement_bitmapclear(char **p);
+static void statement_cls(char **p);
+static void statement_buffernew(char **p);
+static void statement_bufferfetch(char **p);
+static void statement_bufferfree(char **p);
 #ifdef GFX_VIDEO
 static void statement_loadsprite(char **p);
 static void statement_drawsprite(char **p);
@@ -2566,7 +2584,10 @@ enum func_code {
     FN_ISMOUSEBUTTONPRESSED = 58,
     FN_ISMOUSEBUTTONDOWN = 59,
     FN_ISMOUSEBUTTONRELEASED = 60,
-    FN_ISMOUSEBUTTONUP = 61
+    FN_ISMOUSEBUTTONUP = 61,
+    FN_ISMOUSEOVERSPRITE = 62,
+    FN_BUFFERLEN = 63,
+    FN_BUFFERPATH = 64
 };
 
 /* Report an error and halt further execution.
@@ -2796,7 +2817,7 @@ static char *dupstr_local(const char *s)
 
 /* Reserved words: identifiers that cannot be used as variable or label names. */
 static const char *const reserved_words[] = {
-    "AND", "ARG", "ARGC", "ASC", "BACKGROUND", "BITMAPCLEAR", "CHR", "CLOSE", "CLR", "COLOR",
+    "AND", "ARG", "ARGC", "ASC", "BACKGROUND", "BITMAPCLEAR", "BUFFERFETCH", "BUFFERFREE", "BUFFERLEN", "BUFFERNEW", "BUFFERPATH", "CHR", "CLOSE", "CLR", "CLS", "COLOR",
     "COLOUR", "COS", "CURSOR", "DATA", "DEC", "DEF", "DIM", "DOWN", "END", "FUNCTION",
     "ELSE", "ENV", "EVAL", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
     "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LINE", "LOAD", "LOADSPRITE", "LOCATE", "LOG",
@@ -3622,6 +3643,17 @@ static int function_lookup(const char *name, int len)
         if (len == 7 && name[0] == 'S' && name[1] == 'C' && name[2] == 'R' && name[3] == 'O' &&
             name[4] == 'L' && name[5] == 'L' && name[6] == 'Y') return FN_SCROLLY;
         return FN_NONE;
+    case 'B':
+        if (len == 9 && name[0] == 'B' && name[1] == 'U' && name[2] == 'F' && name[3] == 'F' &&
+            name[4] == 'E' && name[5] == 'R' && name[6] == 'L' && name[7] == 'E' && name[8] == 'N')
+            return FN_BUFFERLEN;
+        if ((len == 10 && name[0] == 'B' && name[1] == 'U' && name[2] == 'F' && name[3] == 'F' &&
+             name[4] == 'E' && name[5] == 'R' && name[6] == 'P' && name[7] == 'A' && name[8] == 'T' && name[9] == 'H') ||
+            (len == 11 && name[0] == 'B' && name[1] == 'U' && name[2] == 'F' && name[3] == 'F' &&
+             name[4] == 'E' && name[5] == 'R' && name[6] == 'P' && name[7] == 'A' && name[8] == 'T' &&
+             name[9] == 'H' && name[10] == '$'))
+            return FN_BUFFERPATH;
+        return FN_NONE;
     case 'C':
         if ((len == 3 && name[0] == 'C' && name[1] == 'H' && name[2] == 'R') ||
             (len == 4 && name[0] == 'C' && name[1] == 'H' && name[2] == 'R' && name[3] == '$')) return FN_CHR;
@@ -3670,6 +3702,10 @@ static int function_lookup(const char *name, int len)
             name[5] == 'S' && name[6] == 'E' && name[7] == 'B' && name[8] == 'U' && name[9] == 'T' && name[10] == 'T' &&
             name[11] == 'O' && name[12] == 'N' && name[13] == 'U' && name[14] == 'P')
             return FN_ISMOUSEBUTTONUP;
+        if (len == 17 && name[0] == 'I' && name[1] == 'S' && name[2] == 'M' && name[3] == 'O' && name[4] == 'U' &&
+            name[5] == 'S' && name[6] == 'E' && name[7] == 'O' && name[8] == 'V' && name[9] == 'E' && name[10] == 'R' &&
+            name[11] == 'S' && name[12] == 'P' && name[13] == 'R' && name[14] == 'I' && name[15] == 'T' && name[16] == 'E')
+            return FN_ISMOUSEOVERSPRITE;
         if (len == 3 && name[0] == 'I' && name[1] == 'N' && name[2] == 'T') return FN_INT;
         if (len == 5 && name[0] == 'I' && name[1] == 'N' && name[2] == 'S' && name[3] == 'T' && name[4] == 'R') return FN_INSTR;
         if (len == 7 && name[0] == 'I' && name[1] == 'N' && name[2] == 'D' && name[3] == 'E' && name[4] == 'X' && name[5] == 'O' && name[6] == 'F') return FN_INDEXOF;
@@ -4211,6 +4247,178 @@ static void statement_bitmapclear(char **p)
     runtime_error_hint("BITMAPCLEAR requires basic-gfx (graphics build)",
                          "Terminal build has no bitmap; use basic-gfx or canvas WASM.");
 #endif
+}
+
+/* CLS — dialect-neutral clear-screen alias for PRINT CHR$(147);
+ * Works in terminal (ANSI clear + home) and in basic-gfx / canvas WASM
+ * (delegates to gfx_clear_screen, which respects SCREEN mode). */
+static void statement_cls(char **p)
+{
+    (void)p;
+#ifdef GFX_VIDEO
+    if (gfx_vs) {
+        gfx_clear_screen();
+        return;
+    }
+#endif
+    OUTS("\033[2J\033[H");
+}
+
+/* ---- BUFFER slot helpers (see docs/buffer-type-plan.md) ---------------- */
+
+/* Pick a directory for buffer files. /tmp on Unix/WASM-MEMFS; probe TMP/TEMP
+ * on Windows; fall back to "." so nothing explodes. */
+static const char *rgc_buffer_tmpdir(void)
+{
+    const char *t;
+#if defined(_WIN32)
+    t = getenv("TEMP");
+    if (t && *t) return t;
+    t = getenv("TMP");
+    if (t && *t) return t;
+    return ".";
+#else
+    t = getenv("TMPDIR");
+    if (t && *t) return t;
+    return "/tmp";
+#endif
+}
+
+static void rgc_buffer_build_path(char *out, size_t out_sz, unsigned id)
+{
+    snprintf(out, out_sz, "%s/rgcbuf_%04u", rgc_buffer_tmpdir(), id);
+}
+
+/* Delete a slot's backing file and mark the slot free. Idempotent. */
+static void rgc_buffer_unlink_slot(int slot)
+{
+    if (slot < 0 || slot >= MAX_BUFFERS) return;
+    if (!g_buffers[slot].in_use) return;
+    if (g_buffers[slot].path[0] != '\0') {
+        remove(g_buffers[slot].path);
+    }
+    g_buffers[slot].in_use = 0;
+    g_buffers[slot].path[0] = '\0';
+}
+
+/* Called at program-end cleanup to avoid leaking temp files on native. */
+static void rgc_buffer_free_all(void)
+{
+    int i;
+    for (i = 0; i < MAX_BUFFERS; i++) {
+        rgc_buffer_unlink_slot(i);
+    }
+}
+
+/* BUFFERNEW slot — allocate the given slot, create an empty backing file. */
+static void statement_buffernew(char **p)
+{
+    struct value v;
+    int slot;
+    FILE *fp;
+    skip_spaces(p);
+    v = eval_expr(p);
+    ensure_num(&v);
+    slot = (int)v.num;
+    skip_spaces(p);
+    if (slot < 0 || slot >= MAX_BUFFERS) {
+        runtime_error_hint("BUFFERNEW slot out of range",
+                             "Valid slots are 0..15.");
+        return;
+    }
+    /* Idempotent replace: wipe any prior occupant. */
+    if (g_buffers[slot].in_use) {
+        rgc_buffer_unlink_slot(slot);
+    }
+    rgc_buffer_build_path(g_buffers[slot].path, sizeof(g_buffers[slot].path),
+                          g_buffer_next_id++);
+    fp = fopen(g_buffers[slot].path, "wb");
+    if (!fp) {
+        runtime_error_hint("BUFFERNEW: cannot create backing file",
+                             "Check that the temp directory is writable.");
+        g_buffers[slot].path[0] = '\0';
+        return;
+    }
+    fclose(fp);
+    g_buffers[slot].in_use = 1;
+}
+
+/* BUFFERFETCH slot, url$ [, method$ [, body$]] — HTTP into the slot's path. */
+static void statement_bufferfetch(char **p)
+{
+    struct value vslot, vurl, vmeth, vbody;
+    int slot;
+    const char *meth = NULL;
+    const char *bod = NULL;
+    int blen = 0;
+    int st = 0;
+    int rc;
+    skip_spaces(p);
+    vslot = eval_expr(p);
+    ensure_num(&vslot);
+    slot = (int)vslot.num;
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("BUFFERFETCH expects slot, url$ [, method$ [, body$]]",
+                             "Example: BUFFERFETCH 0, \"https://api.example.com/data\"");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    vurl = eval_expr(p);
+    ensure_str(&vurl);
+    skip_spaces(p);
+    if (**p == ',') {
+        (*p)++;
+        skip_spaces(p);
+        vmeth = eval_expr(p);
+        ensure_str(&vmeth);
+        meth = vmeth.str;
+        skip_spaces(p);
+        if (**p == ',') {
+            (*p)++;
+            skip_spaces(p);
+            vbody = eval_expr(p);
+            ensure_str(&vbody);
+            bod = vbody.str;
+            blen = (int)strlen(bod);
+        }
+    }
+    skip_spaces(p);
+    if (slot < 0 || slot >= MAX_BUFFERS || !g_buffers[slot].in_use) {
+        runtime_error_hint("BUFFERFETCH: slot not allocated",
+                             "Use BUFFERNEW slot before BUFFERFETCH.");
+        return;
+    }
+#if defined(__EMSCRIPTEN__)
+#if defined(GFX_VIDEO)
+    wasm_gfx_refresh_js();
+#else
+    BEFORE_CSTDIO();
+#endif
+    emscripten_sleep(0);
+#endif
+    rc = http_fetch_to_file_impl(vurl.str, g_buffers[slot].path, meth, bod, blen, &st);
+    http_last_status = st;
+    (void)rc;
+}
+
+/* BUFFERFREE slot — unlink backing file, release slot. Idempotent. */
+static void statement_bufferfree(char **p)
+{
+    struct value v;
+    int slot;
+    skip_spaces(p);
+    v = eval_expr(p);
+    ensure_num(&v);
+    slot = (int)v.num;
+    skip_spaces(p);
+    if (slot < 0 || slot >= MAX_BUFFERS) {
+        runtime_error_hint("BUFFERFREE slot out of range",
+                             "Valid slots are 0..15.");
+        return;
+    }
+    rgc_buffer_unlink_slot(slot);
 }
 
 #ifdef GFX_VIDEO
@@ -5552,7 +5760,75 @@ static struct value eval_function(const char *name, char **p)
         }
         return make_num((double)r);
     }
+    if (code == FN_ISMOUSEOVERSPRITE) {
+        struct value vs_arg;
+        int slot;
+        skip_spaces(p);
+        vs_arg = eval_expr(p);
+        ensure_num(&vs_arg);
+        slot = (int)vs_arg.num;
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("Missing ')'", "ISMOUSEOVERSPRITE takes one argument: the sprite slot.");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        if (!gfx_vs) {
+            return make_num(0.0);
+        }
+        return make_num((double)gfx_sprite_is_mouse_over(slot));
+    }
 #endif
+    if (code == FN_BUFFERLEN) {
+        struct value vs_arg;
+        int slot;
+        FILE *fp;
+        long sz = 0;
+        skip_spaces(p);
+        vs_arg = eval_expr(p);
+        ensure_num(&vs_arg);
+        slot = (int)vs_arg.num;
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("Missing ')'", "BUFFERLEN takes one argument: the buffer slot.");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        if (slot < 0 || slot >= MAX_BUFFERS || !g_buffers[slot].in_use) {
+            return make_num(0.0);
+        }
+        fp = fopen(g_buffers[slot].path, "rb");
+        if (!fp) {
+            return make_num(0.0);
+        }
+        if (fseek(fp, 0, SEEK_END) == 0) {
+            sz = ftell(fp);
+            if (sz < 0) sz = 0;
+        }
+        fclose(fp);
+        return make_num((double)sz);
+    }
+    if (code == FN_BUFFERPATH) {
+        struct value vs_arg;
+        int slot;
+        skip_spaces(p);
+        vs_arg = eval_expr(p);
+        ensure_num(&vs_arg);
+        slot = (int)vs_arg.num;
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("Missing ')'", "BUFFERPATH$ takes one argument: the buffer slot.");
+            return make_str("");
+        }
+        (*p)++;
+        skip_spaces(p);
+        if (slot < 0 || slot >= MAX_BUFFERS || !g_buffers[slot].in_use) {
+            return make_str("");
+        }
+        return make_str(g_buffers[slot].path);
+    }
     if (code == FN_PLATFORM) {
         if (**p != ')') {
             runtime_error_hint("PLATFORM$ takes no arguments", "Use PLATFORM$() with empty parentheses.");
@@ -6991,7 +7267,9 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "JOY") || starts_with_kw(*p, "JOYSTICK") || starts_with_kw(*p, "JOYAXIS") ||
             starts_with_kw(*p, "GETMOUSEX") || starts_with_kw(*p, "GETMOUSEY") ||
             starts_with_kw(*p, "ISMOUSEBUTTONPRESSED") || starts_with_kw(*p, "ISMOUSEBUTTONDOWN") ||
-            starts_with_kw(*p, "ISMOUSEBUTTONRELEASED") || starts_with_kw(*p, "ISMOUSEBUTTONUP")) {
+            starts_with_kw(*p, "ISMOUSEBUTTONRELEASED") || starts_with_kw(*p, "ISMOUSEBUTTONUP") ||
+            starts_with_kw(*p, "ISMOUSEOVERSPRITE") ||
+            starts_with_kw(*p, "BUFFERLEN") || starts_with_kw(*p, "BUFFERPATH")) {
             char namebuf[32];
             char *q;
             q = *p;
@@ -8591,6 +8869,9 @@ static void statement_open(char **p)
     if (**p == ',') {
         (*p)++;
         skip_spaces(p);
+        /* Accept either a bare quoted literal (legacy fast path) or any
+         * string-valued expression. The expression form lets callers pass
+         * BUFFERPATH$(slot), a variable, or a concatenation. */
         if (**p == '"') {
             (*p)++;
             size_t i = 0;
@@ -8598,6 +8879,15 @@ static void statement_open(char **p)
                 fname[i++] = *(*p)++;
             fname[i] = '\0';
             if (**p == '"') (*p)++;
+        } else if (**p && **p != ':' && **p != '\n' && **p != '\0') {
+            struct value vpath = eval_expr(p);
+            ensure_str(&vpath);
+            {
+                size_t n = strlen(vpath.str);
+                if (n >= sizeof(fname)) n = sizeof(fname) - 1;
+                memcpy(fname, vpath.str, n);
+                fname[n] = '\0';
+            }
         }
     }
     if (open_files[lfn]) {
@@ -9122,6 +9412,20 @@ static void skip_if_block_to_target(char **p, int want_else)
                     if (*r == '\"') { r++; while (*r && *r != '\"') r++; if (*r) r++; continue; }
                     if (*r == '(') { int pn = 1; r++; while (pn && *r) { if (*r == '(') pn++; else if (*r == ')') pn--; r++; } continue; }
                     r++;
+                }
+                pos = r;
+                continue;
+            }
+            if (starts_with_kw(q, "ENDIF")) {
+                char *r = q + 5;
+                skip_spaces(&r);
+                nesting--;
+                if (nesting == 0) {
+                    current_line = line;
+                    statement_pos = r;
+                    *p = r;
+                    if_depth--;
+                    return;
                 }
                 pos = r;
                 continue;
@@ -10176,6 +10480,11 @@ static void execute_statement(char **p)
             statement_else(p);
             return;
         }
+        if (starts_with_kw(*p, "ENDIF")) {
+            *p += 5;
+            statement_end_if(p);
+            return;
+        }
         if (starts_with_kw(*p, "END")) {
             char *q = *p + 3;
             skip_spaces(&q);
@@ -10215,6 +10524,11 @@ static void execute_statement(char **p)
 #endif
     }
     if (c == 'C') {
+        if (starts_with_kw(*p, "CLS")) {
+            *p += 3;
+            statement_cls(p);
+            return;
+        }
         if (starts_with_kw(*p, "CLR")) {
             *p += 3;
             statement_clr(p);
@@ -10244,6 +10558,23 @@ static void execute_statement(char **p)
     if (c == 'B' && starts_with_kw(*p, "BITMAPCLEAR")) {
         *p += 11;
         statement_bitmapclear(p);
+        return;
+    }
+    /* BUFFERFETCH must come before BUFFERFREE because starts_with_kw matches
+     * on word boundary — order here is for human readability, not correctness. */
+    if (c == 'B' && starts_with_kw(*p, "BUFFERNEW")) {
+        *p += 9;
+        statement_buffernew(p);
+        return;
+    }
+    if (c == 'B' && starts_with_kw(*p, "BUFFERFETCH")) {
+        *p += 11;
+        statement_bufferfetch(p);
+        return;
+    }
+    if (c == 'B' && starts_with_kw(*p, "BUFFERFREE")) {
+        *p += 10;
+        statement_bufferfree(p);
         return;
     }
     if (c == 'S' && starts_with_kw(*p, "SCREEN")) {
@@ -11003,6 +11334,8 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
             }
         }
     }
+    /* Release BUFFER slots: unlink backing files so /tmp doesn't leak. */
+    rgc_buffer_free_all();
 }
 
 /* ── Public API for gfx builds ──────────────────────────────────── */

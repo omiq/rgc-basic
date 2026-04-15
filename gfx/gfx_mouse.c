@@ -58,11 +58,19 @@ static void gfx_mouse_apply_poll(int32_t mx, int32_t my, const uint8_t *new_down
     }
     g_mx = mx;
     g_my = my;
+    /* Sticky latches: OR-in every edge seen since the last BASIC read.
+     * BASIC read (gfx_mouse_button_pressed / _released) consumes the latch.
+     * Prevents a click being lost when multiple host polls happen between
+     * two BASIC iterations (canvas WASM rAF poll vs BASIC DO...LOOP cadence). */
     for (i = 0; i < GFX_MOUSE_BTN_COUNT; i++) {
         uint8_t prev = g_btn_cur[i];
         uint8_t d = (new_down && i < GFX_MOUSE_BTN_COUNT) ? (new_down[i] ? 1u : 0u) : 0u;
-        g_press_latch[i] = (uint8_t)(d && !prev);
-        g_release_latch[i] = (uint8_t)(!d && prev);
+        if (d && !prev) {
+            g_press_latch[i] = 1u;
+        }
+        if (!d && prev) {
+            g_release_latch[i] = 1u;
+        }
         g_btn_cur[i] = d;
     }
 }
@@ -79,10 +87,13 @@ int gfx_mouse_y(void)
 
 int gfx_mouse_button_pressed(int button)
 {
+    int v;
     if (button < 0 || button >= GFX_MOUSE_BTN_COUNT) {
         return 0;
     }
-    return g_press_latch[button] ? 1 : 0;
+    v = g_press_latch[button] ? 1 : 0;
+    g_press_latch[button] = 0u; /* consume: one observed edge per click */
+    return v;
 }
 
 int gfx_mouse_button_down(int button)
@@ -95,10 +106,13 @@ int gfx_mouse_button_down(int button)
 
 int gfx_mouse_button_released(int button)
 {
+    int v;
     if (button < 0 || button >= GFX_MOUSE_BTN_COUNT) {
         return 0;
     }
-    return g_release_latch[button] ? 1 : 0;
+    v = g_release_latch[button] ? 1 : 0;
+    g_release_latch[button] = 0u; /* consume: one observed edge per release */
+    return v;
 }
 
 int gfx_mouse_button_up(int button)

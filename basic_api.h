@@ -83,6 +83,15 @@ int gfx_sprite_slot_width(int slot);
 int gfx_sprite_slot_height(int slot);
 /* Axis-aligned bounding box overlap of last DRAWSPRITE rects (basic-gfx / canvas). */
 int gfx_sprite_slots_overlap_aabb(int slot_a, int slot_b);
+
+/* Mouse-over hit test against the slot's last enqueued DRAWSPRITE rect.
+ * Returns 1 if GETMOUSEX/Y are inside [x, x+w) × [y, y+h) and the slot has
+ * been drawn at least once since LOADSPRITE. 0 otherwise. Bounding-rect
+ * only (MVP); pixel-perfect follow-up is planned (see
+ * docs/mouse-over-sprite-plan.md). The position cache is updated on the
+ * interpreter thread inside gfx_sprite_enqueue_draw, so the result reflects
+ * the most recent DRAWSPRITE without waiting for the render thread. */
+int gfx_sprite_is_mouse_over(int slot);
 #endif
 
 #endif /* BASIC_API_H */
