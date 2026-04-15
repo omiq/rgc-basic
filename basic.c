@@ -11754,9 +11754,6 @@ EMSCRIPTEN_KEEPALIVE uint8_t *wasm_gfx_key_state_ptr(void)
 __attribute__((noinline))
 static void wasm_gfx_set_video(void)
 {
-#ifdef GFX_VIDEO
-    fprintf(stderr, "wasm_gfx_set_video called\n");
-#endif
     wasm_gfx_ti_epoch_ms = emscripten_get_now();
     gfx_sprite_shutdown();
     gfx_video_init(&wasm_gfx_state);
@@ -11769,11 +11766,17 @@ static void wasm_gfx_set_video(void)
     wasm_gfx_refresh_js();
 }
 
+/* Synchronous (non-Asyncify) video init — call this from JS before the async ccall to
+ * basic_load_and_run_gfx so that Asyncify's rewind never re-executes the GFX init. */
+EMSCRIPTEN_KEEPALIVE void wasm_gfx_init_video_for_run(void)
+{
+    wasm_gfx_set_video();
+}
+
 EMSCRIPTEN_KEEPALIVE void basic_load_and_run_gfx(const char *path)
 {
     EM_ASM({ if (typeof Module !== 'undefined') { Module['wasmGfxRunDone'] = 0; } });
     load_program(path);
-    wasm_gfx_set_video();
     run_program(path, 0, NULL);
     wasm_gfx_refresh_js();
     EM_ASM({ if (typeof Module !== 'undefined') { Module['wasmGfxRunDone'] = 1; } });
@@ -11862,7 +11865,8 @@ EMSCRIPTEN_KEEPALIVE int basic_load_and_run_gfx_argline(const char *argline)
     bas_path = argv[0];
     EM_ASM({ if (typeof Module !== 'undefined') { Module['wasmGfxRunDone'] = 0; } });
     load_program(bas_path);
-    wasm_gfx_set_video();
+    /* wasm_gfx_set_video() is called by the JS caller (wasm_gfx_init_video_for_run) synchronously
+     * before this async ccall, so Asyncify rewind does not re-execute the GFX init. */
     if (argc == 1) {
         run_program(bas_path, 0, NULL);
     } else {

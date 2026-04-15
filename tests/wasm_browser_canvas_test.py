@@ -95,6 +95,12 @@ def main() -> int:
                     "Module._wasm_mouse_js_frame missing; rebuild with make basic-wasm-canvas"
                 )
 
+            # Clear any debug/init output that fired during WASM startup before tests begin.
+            page.evaluate("""
+                var l = document.getElementById('log');
+                if (l) { l.textContent = ''; l.classList.remove('has-content'); }
+            """)
+
             before = _canvas_top_left_rgba(page)
 
             # Long loop + SLEEP: canvas must refresh (top-left pixel changes from idle frame).
