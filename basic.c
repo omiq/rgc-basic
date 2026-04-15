@@ -3926,8 +3926,6 @@ static void statement_sleep(char **p)
 #endif
     do_sleep_ticks(v.num);
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
-    if (gfx_vs) fprintf(stderr, "SLEEP_DBG after sleep: bitmap[0]=0x%02x screen_mode=%d\n",
-        (unsigned)gfx_vs->bitmap[0], (int)gfx_vs->screen_mode);
     wasm_gfx_refresh_js();
 #endif
 }
@@ -4078,18 +4076,7 @@ static void statement_pset(char **p, int preset)
     }
     xi = (int)vx.num;
     yi = (int)vy.num;
-#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
-    fprintf(stderr, "PSET_DBG: xi=%d yi=%d preset=%d gfx_vs=%p screen_mode=%d bitmap[0]=0x%02x\n",
-        xi, yi, preset, (void*)gfx_vs,
-        gfx_vs ? (int)gfx_vs->screen_mode : -1,
-        gfx_vs ? (unsigned)gfx_vs->bitmap[0] : 0u);
-#endif
     gfx_bitmap_set_pixel(gfx_vs, xi, yi, preset ? 0 : 1);
-#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
-    fprintf(stderr, "PSET_DBG after: bitmap[0]=0x%02x bitmap_fg=%d\n",
-        gfx_vs ? (unsigned)gfx_vs->bitmap[0] : 0u,
-        gfx_vs ? (int)gfx_vs->bitmap_fg : -1);
-#endif
 #endif
 }
 
@@ -11764,6 +11751,14 @@ EMSCRIPTEN_KEEPALIVE uint8_t *wasm_gfx_key_state_ptr(void)
     return gfx_vs->key_state;
 }
 
+/* noinline: Asyncify instruments basic_load_and_run_gfx (it transitively calls
+ * emscripten_sleep). During Asyncify rewind, the instrumented caller replays its
+ * body and skips over already-completed call sites. If wasm_gfx_set_video were
+ * inlined into basic_load_and_run_gfx, its code (gfx_video_init / memset bitmap)
+ * would be part of that body and could be re-executed during rewind, clearing the
+ * bitmap after PSET runs. Marking noinline ensures Asyncify sees a distinct call
+ * site it can correctly skip on rewind. */
+__attribute__((noinline))
 static void wasm_gfx_set_video(void)
 {
     wasm_gfx_ti_epoch_ms = emscripten_get_now();
@@ -11784,10 +11779,6 @@ EMSCRIPTEN_KEEPALIVE void basic_load_and_run_gfx(const char *path)
     load_program(path);
     wasm_gfx_set_video();
     run_program(path, 0, NULL);
-#ifdef GFX_VIDEO
-    if (gfx_vs) fprintf(stderr, "RUN_DONE_DBG: bitmap[0]=0x%02x screen_mode=%d bitmap_fg=%d\n",
-        (unsigned)gfx_vs->bitmap[0], (int)gfx_vs->screen_mode, (int)gfx_vs->bitmap_fg);
-#endif
     wasm_gfx_refresh_js();
     EM_ASM({ if (typeof Module !== 'undefined') { Module['wasmGfxRunDone'] = 1; } });
 }
