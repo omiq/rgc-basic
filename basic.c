@@ -3844,11 +3844,15 @@ static void do_sleep_ticks(double ticks)
     if (ms < 1) {
         ms = 1;
     }
+#ifdef GFX_VIDEO
     EM_ASM_({ console.log('SLEEP before emscripten_sleep bitmap[0]=', $0); },
         gfx_vs ? (int)gfx_vs->bitmap[0] : -1);
+#endif
     emscripten_sleep(ms);
+#ifdef GFX_VIDEO
     EM_ASM_({ console.log('SLEEP after emscripten_sleep bitmap[0]=', $0); },
         gfx_vs ? (int)gfx_vs->bitmap[0] : -1);
+#endif
 }
 #elif defined(_WIN32)
 /* Windows: sleep using Sleep() in milliseconds derived from 60Hz ticks. */
