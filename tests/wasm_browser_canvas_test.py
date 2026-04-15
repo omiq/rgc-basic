@@ -481,12 +481,26 @@ def main() -> int:
                 "60 END\n",
             )
             _click_run(page)
+            # Poll bitmap bit during SLEEP — captures peak value before any post-run clearing.
+            bmp_bit_peak = 0
+            deadline_bmp = time.time() + 5.0
+            while time.time() < deadline_bmp:
+                v = page.evaluate(
+                    """() => {
+                      const M = window.Module;
+                      if (!M || !M._wasm_gfx_bitmap_pixel_at) return -1;
+                      return M.ccall('wasm_gfx_bitmap_pixel_at', 'number', ['number','number'], [0, 0]);
+                    }"""
+                )
+                if v == 1:
+                    bmp_bit_peak = 1
+                    break
+                time.sleep(0.05)
             # Wait for the program to finish (SLEEP 30 = ~500 ms, then END).
             page.wait_for_function(
                 "() => (window.Module && Module.wasmGfxRunDone === 1)",
                 timeout=30000,
             )
-            # Check raw bitmap bit — tells us whether PSET actually set the pixel.
             bmp_bit = page.evaluate(
                 """() => {
                   const M = window.Module;
@@ -499,7 +513,7 @@ def main() -> int:
                 browser.close()
                 raise RuntimeError(
                     f"bitmap mode: PSET 0,0 did not set bitmap bit at (0,0); "
-                    f"wasm_gfx_bitmap_pixel_at(0,0)={bmp_bit!r}; log={dbg_log!r}"
+                    f"wasm_gfx_bitmap_pixel_at(0,0)={bmp_bit!r} peak={bmp_bit_peak!r}; log={dbg_log!r}"
                 )
             # Canvas pixel: rAF may not have fired yet; poll briefly.
             deadline2 = time.time() + 3.0
