@@ -438,6 +438,9 @@
         Module.ccall('wasm_gfx_key_state_clear', null, [], []);
       }
       canvas.focus();
+      if (Module._wasm_gfx_init_video_for_run) {
+        Module.ccall('wasm_gfx_init_video_for_run', null, [], []);
+      }
       var runP = Module.ccall('basic_load_and_run_gfx', null, ['string'], ['/program.bas'], { async: true })
         .catch(function (e) {
           logErr(String(e && e.message ? e.message : e));
