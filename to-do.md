@@ -206,6 +206,22 @@ Low-urgency cleanups noted during the April 2026 parser/CI hardening pass. None 
 
 ---
 
+## BUFFER type — large-data companion to strings
+
+Full design in **`docs/buffer-type-plan.md`**. `HTTP$` / `JSON$` silently cap at `MAX_STR_LEN` (4 KB) because every `struct value` carries an inline `char str[MAX_STR_LEN]`. Raising the cap grows every stack frame — non-starter. Instead: a BUFFER is a RAM-disk file. `BUFFERNEW B` allocates a slot and creates `/tmp/rgcbuf_NNNN`; `BUFFERFETCH B, url$` HTTPs into it; `BUFFERPATH$(B)` returns the path so programs use existing `OPEN`/`LINE INPUT #`/`GET #`/`CLOSE` verbs to stream through it. Canvas WASM gets this for free via Emscripten's MEMFS (already on; `HTTPFETCH` already writes there). Native uses real `/tmp`. Zero changes to `open_files[]`, `struct value`, or any existing file-I/O verb — BUFFER rides on top.
+
+**Rollout:**
+
+* **Step 1 — core slot table + `BUFFERNEW`/`BUFFERFETCH`/`BUFFERFREE`/`BUFFERLEN`/`BUFFERPATH$`.** Users fetch big blobs, read chunk-by-chunk with existing verbs. Unblocks `bins.bas` style demos. Regression tests: `tests/buffer_basic_test.bas`, `tests/buffer_slots_test.bas`.
+
+* **Step 2 — `JSONFILE$(path$, jpath$)`.** One function; reuses existing `json_extract_path` against file bytes. Eliminates the "slurp 50 KB into a 4 KB string" anti-pattern.
+
+* **Step 3 — `RESTORE FILE path$` / `RESTORE BUFFER slot`.** Retargets DATA/READ to scan a file/buffer. Bigger change — second `data_items` source or streaming tokenizer. Not urgent.
+
+**Open questions in the doc:** Windows `/tmp` path, MAX_BUFFERS ceiling (16 vs 64), whether `BUFFERFETCH` should accept `file://` URLs to subsume a future `BUFFERLOAD`.
+
+---
+
 ## Mouse-over-sprite hit test + `SPRITEAT` + drag-and-drop
 
 Full design in **`docs/mouse-over-sprite-plan.md`**. Summary: today a BASIC-level `MOUSEOVER(sx, sy, sw, sh)` helper (documented in the README) covers the bounding-box case using `GETMOUSEX/Y` + `SPRITEW/H`. An engine-level API earns its keep for three cases BASIC can't do cleanly:
@@ -215,6 +231,12 @@ Full design in **`docs/mouse-over-sprite-plan.md`**. Summary: today a BASIC-leve
 * **Consistency with `SCROLL` and `SPRITECOLLIDE`** — hit test respects `SCROLLX()/SCROLLY()` so sprite positions stay in world space while mouse coords are screen space, matching how `SPRITECOLLIDE` already works.
 
 Implementation sequence in the plan doc: (1) per-slot `last_x/y/w/h` cache updated at `DRAWSPRITE`/`DRAWSPRITETILE` enqueue time, (2) `ISMOUSEOVERSPRITE` bounding-rect mode + keyword wiring + RTS-button demo, (3) pixel-perfect mode, (4) `SPRITEAT` iteration with z-sort, (5) drag-and-drop example (pure BASIC on top of the new API), (6) canvas WASM parity.
+
+**Shipped (unreleased):**
+
+* ~**Steps 1 + 2 + 6 — per-slot position cache + `ISMOUSEOVERSPRITE(slot)` bounding-rect hit test, native and canvas WASM.**~ `g_sprite_draw_pos[]` written on the interpreter thread inside `gfx_sprite_enqueue_draw` (so it doesn't race the worker-thread consumer); sw/sh ≤ 0 resolved via `gfx_sprite_effective_source_rect` for SPRITEFRAME / tilemap slots; `UNLOADSPRITE` clears the entry. `basic.c`: `FN_ISMOUSEOVERSPRITE = 62`, name lookup, `eval_factor` dispatch, `starts_with_kw` allow-list. Example: `examples/ismouseoversprite_demo.bas`.
+
+**Still outstanding:** pixel-perfect mode (step 3), `SPRITEAT` (step 4), drag-and-drop example (step 5), SCROLL-space consistency, rotation/scale pivot handling.
 
 Open questions in the doc: alpha cutoff threshold, source-rect vs destination-rect sampling for scaled sprites, last-draw persistence across non-drawn frames, rotation/transform future-proofing.
 

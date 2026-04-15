@@ -84,6 +84,19 @@ static GfxSpriteSlot g_sprite_slots[GFX_SPRITE_MAX_SLOTS];
 static GfxSpriteCmd g_sprite_q[GFX_SPRITE_Q_CAP];
 static int g_sprite_q_count;
 
+/* Interpreter-thread-local cache of the last DRAWSPRITE per slot.
+ * Written in gfx_sprite_enqueue_draw (interpreter thread); read in
+ * gfx_sprite_is_mouse_over (interpreter thread). No mutex needed.
+ * Exists so ISMOUSEOVERSPRITE can hit-test against where the program
+ * just asked to draw, without racing the GPU consumer thread that
+ * updates g_sprite_slots[].draw_active/x/y. */
+typedef struct {
+    int   has_draw;       /* 0 until first enqueue, cleared on unload  */
+    float x, y;           /* last-enqueued top-left in world pixels    */
+    int   w, h;           /* effective drawn w,h (post tile/crop)      */
+} GfxSpriteDrawPos;
+static GfxSpriteDrawPos g_sprite_draw_pos[GFX_SPRITE_MAX_SLOTS];
+
 static void gfx_sprite_wait_gpu_op(uint64_t seq)
 {
     if (seq == 0) {
@@ -196,6 +209,8 @@ void gfx_sprite_enqueue_unload(int slot)
     seq = g_sprite_gpu_issue_seq;
     pthread_mutex_unlock(&g_sprite_mutex);
     gfx_sprite_wait_gpu_op(seq);
+    /* Invalidate hit-test cache so ISMOUSEOVERSPRITE returns 0 after UNLOAD. */
+    memset(&g_sprite_draw_pos[slot], 0, sizeof(g_sprite_draw_pos[slot]));
 }
 
 void gfx_sprite_enqueue_visible(int slot, int on)
@@ -228,6 +243,48 @@ void gfx_sprite_enqueue_draw(int slot, float x, float y, int z, int sx, int sy, 
     c.sw = sw;
     c.sh = sh;
     (void)sprite_q_push(&c);
+
+    /* Mirror position into interpreter-thread cache for ISMOUSEOVERSPRITE.
+     * sw/sh <= 0 means "use the slot's full sub-texture from (sx,sy)"; we
+     * fall back to gfx_sprite_effective_source_rect to resolve that to a
+     * real size (grabs mutex internally, so don't hold any lock here). */
+    {
+        int rw = sw, rh = sh;
+        if (rw <= 0 || rh <= 0) {
+            int tsx, tsy, tsw, tsh;
+            tsx = sx; tsy = sy; tsw = rw; tsh = rh;
+            if (gfx_sprite_effective_source_rect(slot, &tsx, &tsy, &tsw, &tsh) == 0) {
+                if (rw <= 0) rw = tsw;
+                if (rh <= 0) rh = tsh;
+            }
+        }
+        g_sprite_draw_pos[slot].x = x;
+        g_sprite_draw_pos[slot].y = y;
+        g_sprite_draw_pos[slot].w = rw > 0 ? rw : 0;
+        g_sprite_draw_pos[slot].h = rh > 0 ? rh : 0;
+        g_sprite_draw_pos[slot].has_draw = (rw > 0 && rh > 0) ? 1 : 0;
+    }
+}
+
+int gfx_sprite_is_mouse_over(int slot)
+{
+    GfxSpriteDrawPos *d;
+    int mx, my;
+    int x, y, w, h;
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) {
+        return 0;
+    }
+    d = &g_sprite_draw_pos[slot];
+    if (!d->has_draw || d->w <= 0 || d->h <= 0) {
+        return 0;
+    }
+    mx = gfx_mouse_x();
+    my = gfx_mouse_y();
+    x = (int)d->x;
+    y = (int)d->y;
+    w = d->w;
+    h = d->h;
+    return (mx >= x && mx < x + w && my >= y && my < y + h) ? 1 : 0;
 }
 
 void gfx_sprite_set_modulate(int slot, int alpha, int r, int g, int b, float scale_x, float scale_y)

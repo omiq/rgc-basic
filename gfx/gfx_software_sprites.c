@@ -4,6 +4,8 @@
 
 #include "gfx_software_sprites.h"
 #include "gfx_video.h"
+#include "gfx_mouse.h"
+#include "../basic_api.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -65,6 +67,15 @@ static char g_sprite_base_dir[GFX_SPRITE_PATH_MAX];
 static GfxSpriteSlot g_sprite_slots[GFX_SPRITE_MAX_SLOTS];
 static GfxSpriteCmd g_sprite_q[GFX_SPRITE_Q_CAP];
 static int g_sprite_q_count;
+
+/* Interpreter-thread hit-test cache. Mirrors gfx_raylib.c. See
+ * docs/mouse-over-sprite-plan.md for rationale. */
+typedef struct {
+    int   has_draw;
+    float x, y;
+    int   w, h;
+} GfxSpriteDrawPos;
+static GfxSpriteDrawPos g_sprite_draw_pos[GFX_SPRITE_MAX_SLOTS];
 
 static int sprite_q_push(const GfxSpriteCmd *c)
 {
@@ -135,6 +146,8 @@ void gfx_sprite_enqueue_unload(int slot)
     c.kind = GFX_SQ_UNLOAD;
     c.slot = slot;
     (void)sprite_q_push(&c);
+    /* Invalidate hit-test cache (see gfx_raylib.c). */
+    memset(&g_sprite_draw_pos[slot], 0, sizeof(g_sprite_draw_pos[slot]));
 }
 
 void gfx_sprite_enqueue_visible(int slot, int on)
@@ -167,6 +180,45 @@ void gfx_sprite_enqueue_draw(int slot, float x, float y, int z, int sx, int sy, 
     c.sw = sw;
     c.sh = sh;
     (void)sprite_q_push(&c);
+
+    /* Hit-test cache (see gfx_raylib.c for rationale). */
+    {
+        int rw = sw, rh = sh;
+        if (rw <= 0 || rh <= 0) {
+            int tsx, tsy, tsw, tsh;
+            tsx = sx; tsy = sy; tsw = rw; tsh = rh;
+            if (gfx_sprite_effective_source_rect(slot, &tsx, &tsy, &tsw, &tsh) == 0) {
+                if (rw <= 0) rw = tsw;
+                if (rh <= 0) rh = tsh;
+            }
+        }
+        g_sprite_draw_pos[slot].x = x;
+        g_sprite_draw_pos[slot].y = y;
+        g_sprite_draw_pos[slot].w = rw > 0 ? rw : 0;
+        g_sprite_draw_pos[slot].h = rh > 0 ? rh : 0;
+        g_sprite_draw_pos[slot].has_draw = (rw > 0 && rh > 0) ? 1 : 0;
+    }
+}
+
+int gfx_sprite_is_mouse_over(int slot)
+{
+    GfxSpriteDrawPos *d;
+    int mx, my;
+    int x, y, w, h;
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) {
+        return 0;
+    }
+    d = &g_sprite_draw_pos[slot];
+    if (!d->has_draw || d->w <= 0 || d->h <= 0) {
+        return 0;
+    }
+    mx = gfx_mouse_x();
+    my = gfx_mouse_y();
+    x = (int)d->x;
+    y = (int)d->y;
+    w = d->w;
+    h = d->h;
+    return (mx >= x && mx < x + w && my >= y && my < y + h) ? 1 : 0;
 }
 
 void gfx_sprite_set_modulate(int slot, int alpha, int r, int g, int b, float scale_x, float scale_y)
