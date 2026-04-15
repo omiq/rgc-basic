@@ -465,6 +465,46 @@ def main() -> int:
                 "() => !document.getElementById('run').disabled",
                 timeout=60000,
             )
+            # Two variants: with and without SLEEP, to isolate whether Asyncify is involved.
+            for bmp_prog, bmp_label in [
+                (
+                    "10 SCREEN 1\n20 COLOR 1\n30 BACKGROUND 6\n40 PSET 0,0\n50 END\n",
+                    "no-sleep",
+                ),
+                (
+                    "10 SCREEN 1\n20 COLOR 1\n30 BACKGROUND 6\n40 PSET 0,0\n50 SLEEP 30\n60 END\n",
+                    "with-sleep",
+                ),
+            ]:
+                page.wait_for_function(
+                    "() => !document.getElementById('run').disabled",
+                    timeout=60000,
+                )
+                page.fill("#program", bmp_prog)
+                _click_run(page)
+                page.wait_for_function(
+                    "() => (window.Module && Module.wasmGfxRunDone === 1)",
+                    timeout=30000,
+                )
+                bmp_bit = page.evaluate(
+                    """() => {
+                      const M = window.Module;
+                      if (!M || !M._wasm_gfx_bitmap_pixel_at) return -1;
+                      return M.ccall('wasm_gfx_bitmap_pixel_at', 'number', ['number','number'], [0, 0]);
+                    }"""
+                )
+                if bmp_bit != 1:
+                    dbg_log = page.text_content("#log") or ""
+                    browser.close()
+                    raise RuntimeError(
+                        f"bitmap mode ({bmp_label}): PSET 0,0 did not set bitmap bit at (0,0); "
+                        f"wasm_gfx_bitmap_pixel_at(0,0)={bmp_bit!r}; log={dbg_log!r}"
+                    )
+            # Both variants passed — now check canvas pixel for the with-sleep run.
+            page.wait_for_function(
+                "() => !document.getElementById('run').disabled",
+                timeout=60000,
+            )
             page.fill(
                 "#program",
                 "10 SCREEN 1\n"
@@ -475,26 +515,10 @@ def main() -> int:
                 "60 END\n",
             )
             _click_run(page)
-            # Wait for the program to finish (SLEEP 30 = ~500 ms, then END).
             page.wait_for_function(
                 "() => (window.Module && Module.wasmGfxRunDone === 1)",
                 timeout=30000,
             )
-            # Check raw bitmap bit first — tells us whether PSET actually set the pixel.
-            bmp_bit = page.evaluate(
-                """() => {
-                  const M = window.Module;
-                  if (!M || !M._wasm_gfx_bitmap_pixel_at) return -1;
-                  return M.ccall('wasm_gfx_bitmap_pixel_at', 'number', ['number','number'], [0, 0]);
-                }"""
-            )
-            if bmp_bit != 1:
-                dbg_log = page.text_content("#log") or ""
-                browser.close()
-                raise RuntimeError(
-                    f"bitmap mode: PSET 0,0 did not set bitmap bit at (0,0); "
-                    f"wasm_gfx_bitmap_pixel_at(0,0)={bmp_bit!r}; log={dbg_log!r}"
-                )
             # Canvas pixel: rAF may not have fired yet; poll briefly.
             deadline2 = time.time() + 3.0
             bmp_px = (0, 0, 0, 255)
