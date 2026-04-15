@@ -30,8 +30,13 @@ def _serve_web() -> tuple[socketserver.TCPServer, int]:
 
 
 def _click_run(page) -> None:
-    """Dispatch Run without Playwright actionability (rAF can keep layout 'unstable')."""
-    page.evaluate("document.getElementById('run').click()")
+    """Dispatch Run without Playwright actionability (rAF can keep layout 'unstable').
+    Also clears #log so debug output from previous runs doesn't pollute log checks."""
+    page.evaluate("""
+        var l = document.getElementById('log');
+        if (l) { l.textContent = ''; l.classList.remove('has-content'); }
+        document.getElementById('run').click();
+    """)
 
 
 def _canvas_top_left_rgba(page) -> tuple[int, int, int, int]:
