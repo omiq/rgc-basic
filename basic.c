@@ -11755,8 +11755,6 @@ __attribute__((noinline))
 static void wasm_gfx_set_video(void)
 {
 #ifdef GFX_VIDEO
-    fprintf(stderr, "wasm_gfx_set_video called\n");
-#endif
     wasm_gfx_ti_epoch_ms = emscripten_get_now();
     gfx_sprite_shutdown();
     gfx_video_init(&wasm_gfx_state);
