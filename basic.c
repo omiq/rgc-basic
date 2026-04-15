@@ -9776,6 +9776,23 @@ static void statement_do(char **p)
         runtime_error_hint("DO nesting too deep", "Reduce nested DO/LOOP blocks.");
         return;
     }
+    /* DO WHILE cond — pre-test variant: push position BEFORE the WHILE keyword
+     * so that on loop-back we re-evaluate the condition each iteration. */
+    if (starts_with_kw(*p, "WHILE")) {
+        char *while_kw = *p;   /* save position of WHILE for loop-back */
+        *p += 5;
+        skip_spaces(p);
+        do_stack[do_top].line_index = current_line;
+        do_stack[do_top].position = while_kw;  /* re-test from here on each LOOP */
+        do_top++;
+        if (!eval_condition(p)) {
+            /* condition false on entry — skip to after matching LOOP */
+            do_top--;
+            skip_do_to_after_loop(p);
+        }
+        return;
+    }
+    /* Plain DO — post-test (exit via LOOP UNTIL or EXIT) */
     do_stack[do_top].line_index = current_line;
     do_stack[do_top].position = *p;
     do_top++;
@@ -9817,6 +9834,20 @@ static void statement_loop(char **p)
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
         wasm_maybe_yield_loop();
 #endif
+        /* DO WHILE re-test: if the saved position is at WHILE, evaluate the
+         * condition now.  Exit the loop if it has become false. */
+        if (starts_with_kw(*p, "WHILE")) {
+            char *q = *p + 5;
+            skip_spaces(&q);
+            if (!eval_condition(&q)) {
+                do_top--;
+                skip_do_to_after_loop(p);
+            } else {
+                /* condition still true — advance past WHILE cond to loop body */
+                *p = q;
+                statement_pos = q;
+            }
+        }
     }
 }
 
