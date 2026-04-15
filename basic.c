@@ -3844,15 +3844,7 @@ static void do_sleep_ticks(double ticks)
     if (ms < 1) {
         ms = 1;
     }
-#ifdef GFX_VIDEO
-    EM_ASM_({ console.log('SLEEP before emscripten_sleep bitmap[0]=', $0); },
-        gfx_vs ? (int)gfx_vs->bitmap[0] : -1);
-#endif
     emscripten_sleep(ms);
-#ifdef GFX_VIDEO
-    EM_ASM_({ console.log('SLEEP after emscripten_sleep bitmap[0]=', $0); },
-        gfx_vs ? (int)gfx_vs->bitmap[0] : -1);
-#endif
 }
 #elif defined(_WIN32)
 /* Windows: sleep using Sleep() in milliseconds derived from 60Hz ticks. */
@@ -4085,10 +4077,6 @@ static void statement_pset(char **p, int preset)
     xi = (int)vx.num;
     yi = (int)vy.num;
     gfx_bitmap_set_pixel(gfx_vs, xi, yi, preset ? 0 : 1);
-#if defined(__EMSCRIPTEN__)
-    EM_ASM_({ console.log('PSET', $0, $1, 'bitmap[0]=', $2); },
-        xi, yi, (int)gfx_vs->bitmap[0]);
-#endif
 #endif
 }
 
@@ -11767,7 +11755,6 @@ EMSCRIPTEN_KEEPALIVE uint8_t *wasm_gfx_key_state_ptr(void)
 __attribute__((noinline))
 static void wasm_gfx_set_video(void)
 {
-    EM_ASM({ console.log('wasm_gfx_set_video called'); });
     wasm_gfx_ti_epoch_ms = emscripten_get_now();
     gfx_sprite_shutdown();
     gfx_video_init(&wasm_gfx_state);
@@ -11790,17 +11777,9 @@ EMSCRIPTEN_KEEPALIVE void wasm_gfx_init_video_for_run(void)
 EMSCRIPTEN_KEEPALIVE void basic_load_and_run_gfx(const char *path)
 {
     EM_ASM({ if (typeof Module !== 'undefined') { Module['wasmGfxRunDone'] = 0; } });
-#ifdef GFX_VIDEO
-    EM_ASM_({ console.log('basic_load_and_run_gfx gfx_vs=', $0, 'bitmap[0]=', $1); },
-        (int)(gfx_vs != NULL), gfx_vs ? (int)gfx_vs->bitmap[0] : -1);
-#endif
     load_program(path);
     run_program(path, 0, NULL);
     wasm_gfx_refresh_js();
-#ifdef GFX_VIDEO
-    EM_ASM_({ console.log('basic_load_and_run_gfx DONE bitmap[0]=', $0); },
-        gfx_vs ? (int)gfx_vs->bitmap[0] : -1);
-#endif
     EM_ASM({ if (typeof Module !== 'undefined') { Module['wasmGfxRunDone'] = 1; } });
 }
 
