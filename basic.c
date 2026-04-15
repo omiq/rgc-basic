@@ -2829,6 +2829,11 @@ static const char *const reserved_words[] = {
     "DRAWSPRITE", "DRAWSPRITETILE", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
     "DO", "LOOP", "UNTIL", "EXIT",
     "GETBYTE",
+    /* Named colour constants (C64 palette 0-15) and boolean/math constants */
+    "BLACK", "WHITE", "RED", "CYAN", "PURPLE", "GREEN", "BLUE", "YELLOW",
+    "ORANGE", "BROWN", "PINK", "DARKGRAY", "DARKGREY", "MEDGRAY", "MEDGREY",
+    "LIGHTGREEN", "LIGHTBLUE", "LIGHTGRAY", "LIGHTGREY",
+    "TRUE", "FALSE", "PI",
     NULL
 };
 
@@ -7244,6 +7249,28 @@ static struct value eval_factor(char **p)
                 }
             }
         }
+    /* Named numeric constants: colour names (C64 palette 0-15), TRUE/FALSE, PI */
+    {
+        static const struct { const char *name; double val; } kconst[] = {
+            {"BLACK",      0}, {"WHITE",     1}, {"RED",        2}, {"CYAN",       3},
+            {"PURPLE",     4}, {"GREEN",      5}, {"BLUE",       6}, {"YELLOW",     7},
+            {"ORANGE",     8}, {"BROWN",      9}, {"PINK",      10},
+            {"DARKGRAY",  11}, {"DARKGREY",  11},
+            {"MEDGRAY",   12}, {"MEDGREY",   12},
+            {"LIGHTGREEN",13}, {"LIGHTBLUE", 14},
+            {"LIGHTGRAY", 15}, {"LIGHTGREY", 15},
+            {"TRUE",       1}, {"FALSE",      0},
+            {"PI",   3.14159265358979323846},
+            {NULL, 0}
+        };
+        int ki;
+        for (ki = 0; kconst[ki].name; ki++) {
+            if (starts_with_kw(*p, kconst[ki].name)) {
+                *p += strlen(kconst[ki].name);
+                return make_num(kconst[ki].val);
+            }
+        }
+    }
     /* Function call? */
     if (starts_with_kw(*p, "SIN") || starts_with_kw(*p, "COS") || starts_with_kw(*p, "TAN") ||
             starts_with_kw(*p, "ABS") || starts_with_kw(*p, "INT") || starts_with_kw(*p, "SQR") ||
