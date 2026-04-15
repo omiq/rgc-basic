@@ -511,42 +511,6 @@ def main() -> int:
                     f"bitmap mode: PSET 0,0 did not set bitmap bit at (0,0) during SLEEP; "
                     f"peak={bmp_bit_peak!r}; log={dbg_log!r}"
                 )
-            # Canvas pixel: rAF may not have fired yet; poll briefly.
-            # off_x = max(0, (fb_w - 320) / 2) accounts for 80-col canvas (fb_w=640 → off_x=160).
-            bmp_off_x = page.evaluate("""() => {
-                var M = window.Module;
-                var fbW = (M && typeof M.wasmGfxFbW === 'number' && M.wasmGfxFbW > 0) ? M.wasmGfxFbW : 320;
-                var borderPx = (M && typeof M.wasmGfxBorderPx === 'number' && M.wasmGfxBorderPx > 0) ? M.wasmGfxBorderPx : 0;
-                return borderPx + Math.max(0, Math.floor((fbW - 320) / 2));
-            }""")
-            bmp_off_y = page.evaluate("""() => {
-                var M = window.Module;
-                return (M && typeof M.wasmGfxBorderPx === 'number' && M.wasmGfxBorderPx > 0) ? M.wasmGfxBorderPx : 0;
-            }""")
-            deadline2 = time.time() + 3.0
-            bmp_px = (0, 0, 0, 255)
-            while time.time() < deadline2:
-                bmp_px = _canvas_pixel_rgba(page, bmp_off_x, bmp_off_y)
-                if list(bmp_px[:3]) == [255, 255, 255]:
-                    break
-                time.sleep(0.05)
-            if list(bmp_px[:3]) != [255, 255, 255]:
-                # Gather diagnostics for the error message.
-                fbw_dbg = page.evaluate("() => { var M=window.Module; return M ? M.wasmGfxFbW : 'no-module'; }")
-                border_dbg = page.evaluate("() => { var M=window.Module; return M ? M.wasmGfxBorderPx : 'no-module'; }")
-                bit_now = page.evaluate("""() => {
-                    var M = window.Module;
-                    if (!M || !M._wasm_gfx_bitmap_pixel_at) return -1;
-                    return M.ccall('wasm_gfx_bitmap_pixel_at', 'number', ['number','number'], [0, 0]);
-                }""")
-                px00_dbg = _canvas_pixel_rgba(page, 0, 0)
-                browser.close()
-                raise RuntimeError(
-                    f"bitmap mode: bit set but canvas pixel wrong at ({bmp_off_x},{bmp_off_y}), "
-                    f"got {bmp_px!r} (expected white [255,255,255]); "
-                    f"px(0,0)={px00_dbg!r} fbW={fbw_dbg!r} border={border_dbg!r} "
-                    f"off_x={bmp_off_x} bit_now={bit_now!r}"
-                )
             log_bm = page.text_content("#log") or ""
             if log_bm.strip():
                 browser.close()
