@@ -2817,7 +2817,7 @@ static char *dupstr_local(const char *s)
 
 /* Reserved words: identifiers that cannot be used as variable or label names. */
 static const char *const reserved_words[] = {
-    "AND", "ARG", "ARGC", "ASC", "BACKGROUND", "BITMAPCLEAR", "BUFFERFETCH", "BUFFERFREE", "BUFFERLEN", "BUFFERNEW", "BUFFERPATH", "CHR", "CLOSE", "CLR", "CLS", "COLOR",
+    "AND", "ARG", "ARGC", "ASC", "BACKGROUND", "NOT", "BITMAPCLEAR", "BUFFERFETCH", "BUFFERFREE", "BUFFERLEN", "BUFFERNEW", "BUFFERPATH", "CHR", "CLOSE", "CLR", "CLS", "COLOR",
     "COLOUR", "COS", "CURSOR", "DATA", "DEC", "DEF", "DIM", "DOWN", "END", "FUNCTION",
     "ELSE", "ENV", "EVAL", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
     "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LINE", "LOAD", "LOADSPRITE", "LOCATE", "LOG",
@@ -7636,6 +7636,11 @@ static int eval_simple_condition(char **p)
     char op1, op2;
 
     skip_spaces(p);
+    /* NOT: unary logical negation — NOT expr, NOT (cond), NOT NOT x */
+    if (starts_with_kw(*p, "NOT")) {
+        *p += 3;
+        return !eval_simple_condition(p);
+    }
     /* Leading '(': either "(expr) relop rhs" e.g. (1+1)=2, or boolean group "(J=F OR ...)" */
     if (**p == '(') {
         char *after_open;
