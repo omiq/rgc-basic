@@ -11706,6 +11706,15 @@ EMSCRIPTEN_KEEPALIVE int wasm_gfx_bitmap_pixel_at(int x, int y)
     return gfx_bitmap_get_pixel(gfx_vs, (unsigned)x, (unsigned)y);
 }
 
+/* Diagnostic: return raw bitmap[0] byte from wasm_gfx_state directly (bypasses gfx_vs).
+ * Also encodes gfx_vs==&wasm_gfx_state check: returns value*256 + (match?1:0).
+ * e.g. 0x8001 means bitmap[0]=0x80 and gfx_vs points to wasm_gfx_state. */
+EMSCRIPTEN_KEEPALIVE int wasm_gfx_diag_bitmap0(void)
+{
+    int match = (gfx_vs == &wasm_gfx_state) ? 1 : 0;
+    return ((int)(wasm_gfx_state.bitmap[0]) << 8) | match;
+}
+
 /* Test hook: screen RAM screencode at text column / row (for canvas WASM TAB, etc.). */
 EMSCRIPTEN_KEEPALIVE int wasm_gfx_screen_screencode_at(int col, int row)
 {
