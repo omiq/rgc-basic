@@ -464,17 +464,33 @@ def main() -> int:
                 "60 END\n",
             )
             _click_run(page)
-            time.sleep(0.6)
+            # Wait for the program to finish (SLEEP 30 = ~500 ms, then END).
+            page.wait_for_function(
+                "() => (window.Module && Module.wasmGfxRunDone === 1)",
+                timeout=30000,
+            )
+            # Check raw bitmap bit first — tells us whether PSET actually set the pixel.
+            bmp_bit = page.evaluate(
+                """() => {
+                  const M = window.Module;
+                  if (!M || !M._wasm_gfx_bitmap_pixel_at) return -1;
+                  return M.ccall('wasm_gfx_bitmap_pixel_at', 'number', ['number','number'], [0, 0]);
+                }"""
+            )
+            if bmp_bit != 1:
+                browser.close()
+                raise RuntimeError(
+                    f"bitmap mode: PSET 0,0 did not set bitmap bit at (0,0); "
+                    f"wasm_gfx_bitmap_pixel_at(0,0)={bmp_bit!r}"
+                )
+            # Now check the canvas pixel (rendered by wasm_gfx_refresh_js at end-of-run).
             bmp_px = _canvas_top_left_rgba(page)
             if list(bmp_px[:3]) != [255, 255, 255]:
                 browser.close()
                 raise RuntimeError(
-                    f"bitmap mode: expected white pixel at (0,0), got {bmp_px!r}"
+                    f"bitmap mode: bit set but canvas pixel wrong at (0,0), got {bmp_px!r} "
+                    f"(expected white [255,255,255]); bitmap_fg or render issue"
                 )
-            page.wait_for_function(
-                "() => (window.Module && Module.wasmGfxRunDone === 1)",
-                timeout=120000,
-            )
             log_bm = page.text_content("#log") or ""
             if log_bm.strip():
                 browser.close()
