@@ -206,8 +206,8 @@ jobs:
           sudo apt-get install -y python3 git
           git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$GITHUB_WORKSPACE/emsdk"
           cd "$GITHUB_WORKSPACE/emsdk"
-          ./emsdk install 5.0.4
-          ./emsdk activate 5.0.4
+          ./emsdk install latest
+          ./emsdk activate latest
 
       - name: Build WASM
         run: |
