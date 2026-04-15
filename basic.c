@@ -4076,7 +4076,18 @@ static void statement_pset(char **p, int preset)
     }
     xi = (int)vx.num;
     yi = (int)vy.num;
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+    fprintf(stderr, "PSET_DBG: xi=%d yi=%d preset=%d gfx_vs=%p screen_mode=%d bitmap[0]=0x%02x\n",
+        xi, yi, preset, (void*)gfx_vs,
+        gfx_vs ? (int)gfx_vs->screen_mode : -1,
+        gfx_vs ? (unsigned)gfx_vs->bitmap[0] : 0u);
+#endif
     gfx_bitmap_set_pixel(gfx_vs, xi, yi, preset ? 0 : 1);
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+    fprintf(stderr, "PSET_DBG after: bitmap[0]=0x%02x bitmap_fg=%d\n",
+        gfx_vs ? (unsigned)gfx_vs->bitmap[0] : 0u,
+        gfx_vs ? (int)gfx_vs->bitmap_fg : -1);
+#endif
 #endif
 }
 
