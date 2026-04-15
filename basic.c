@@ -11790,9 +11790,17 @@ EMSCRIPTEN_KEEPALIVE void wasm_gfx_init_video_for_run(void)
 EMSCRIPTEN_KEEPALIVE void basic_load_and_run_gfx(const char *path)
 {
     EM_ASM({ if (typeof Module !== 'undefined') { Module['wasmGfxRunDone'] = 0; } });
+#ifdef GFX_VIDEO
+    EM_ASM_({ console.log('basic_load_and_run_gfx gfx_vs=', $0, 'bitmap[0]=', $1); },
+        (int)(gfx_vs != NULL), gfx_vs ? (int)gfx_vs->bitmap[0] : -1);
+#endif
     load_program(path);
     run_program(path, 0, NULL);
     wasm_gfx_refresh_js();
+#ifdef GFX_VIDEO
+    EM_ASM_({ console.log('basic_load_and_run_gfx DONE bitmap[0]=', $0); },
+        gfx_vs ? (int)gfx_vs->bitmap[0] : -1);
+#endif
     EM_ASM({ if (typeof Module !== 'undefined') { Module['wasmGfxRunDone'] = 1; } });
 }
 
