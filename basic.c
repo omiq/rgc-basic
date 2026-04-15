@@ -11698,6 +11698,14 @@ EMSCRIPTEN_KEEPALIVE uint32_t wasm_gfx_rgba_version_read(void)
     return wasm_gfx_rgba_version;
 }
 
+/* Test hook: read 1bpp bitmap pixel (for CI bitmap render verification). */
+EMSCRIPTEN_KEEPALIVE int wasm_gfx_bitmap_pixel_at(int x, int y)
+{
+    if (!gfx_vs) return -1;
+    if (x < 0 || y < 0 || x >= (int)GFX_BITMAP_WIDTH || y >= (int)GFX_BITMAP_HEIGHT) return -1;
+    return gfx_bitmap_get_pixel(gfx_vs, (unsigned)x, (unsigned)y);
+}
+
 /* Test hook: screen RAM screencode at text column / row (for canvas WASM TAB, etc.). */
 EMSCRIPTEN_KEEPALIVE int wasm_gfx_screen_screencode_at(int col, int row)
 {
