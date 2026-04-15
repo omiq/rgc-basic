@@ -3844,7 +3844,11 @@ static void do_sleep_ticks(double ticks)
     if (ms < 1) {
         ms = 1;
     }
+    EM_ASM_({ console.log('SLEEP before emscripten_sleep bitmap[0]=', $0); },
+        gfx_vs ? (int)gfx_vs->bitmap[0] : -1);
     emscripten_sleep(ms);
+    EM_ASM_({ console.log('SLEEP after emscripten_sleep bitmap[0]=', $0); },
+        gfx_vs ? (int)gfx_vs->bitmap[0] : -1);
 }
 #elif defined(_WIN32)
 /* Windows: sleep using Sleep() in milliseconds derived from 60Hz ticks. */
@@ -4077,6 +4081,10 @@ static void statement_pset(char **p, int preset)
     xi = (int)vx.num;
     yi = (int)vy.num;
     gfx_bitmap_set_pixel(gfx_vs, xi, yi, preset ? 0 : 1);
+#if defined(__EMSCRIPTEN__)
+    EM_ASM_({ console.log('PSET', $0, $1, 'bitmap[0]=', $2); },
+        xi, yi, (int)gfx_vs->bitmap[0]);
+#endif
 #endif
 }
 
@@ -11755,6 +11763,7 @@ EMSCRIPTEN_KEEPALIVE uint8_t *wasm_gfx_key_state_ptr(void)
 __attribute__((noinline))
 static void wasm_gfx_set_video(void)
 {
+    EM_ASM({ console.log('wasm_gfx_set_video called'); });
     wasm_gfx_ti_epoch_ms = emscripten_get_now();
     gfx_sprite_shutdown();
     gfx_video_init(&wasm_gfx_state);
