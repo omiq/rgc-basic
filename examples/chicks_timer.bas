@@ -1,6 +1,7 @@
 REM chicks_timer.bas
-REM 64 chicks, each with a unique hue baked in at startup via SPRITEMODIFY+SPRITECOPY.
-REM Motion driven by TIMER — no per-frame modulate, all sprites go via Canvas2D fast path.
+REM 64 chicks, each with unique hue + random size set at startup.
+REM Colour baked via SPRITEMODIFY+SPRITECOPY, size set via SPRITEMODIFY scale.
+REM No per-frame modulate — all sprites go via Canvas2D fast path.
 REM Best practice: bake colour with SPRITEMODIFY before SPRITECOPY for best performance.
 
 REM --- constants ---
@@ -12,7 +13,7 @@ DIM cy(NCHICKS)    REM y position
 DIM cvx(NCHICKS)   REM x velocity
 DIM cvy(NCHICKS)   REM y velocity
 
-REM --- load and clone with baked hue ---
+REM --- load and clone with baked hue + random scale ---
 LOADSPRITE 0, "chick.png"
 FOR S = 0 TO NCHICKS
   REM spread hue evenly across 360 degrees, bake into each slot
@@ -22,9 +23,12 @@ FOR S = 0 TO NCHICKS
   b = INT(127 + 127 * SIN((ph + 240) * 0.01745))
   SPRITEMODIFY 0, 255, r, g, b
   SPRITECOPY 0, S
+  REM random scale 0.5 to 1.5, set after copy (not baked, used at draw time)
+  sc = 0.5 + RND(1)
+  SPRITEMODIFY S, 255, 255, 255, 255, sc
 NEXT S
 
-REM restore slot 0 modulate to white so original is intact
+REM restore slot 0 to default
 SPRITEMODIFY 0, 255, 255, 255, 255
 
 REM --- randomise starting positions and velocities ---
