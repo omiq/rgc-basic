@@ -724,11 +724,16 @@ static void gfx_sprite_process_queue(void)
             pthread_mutex_unlock(&g_sprite_mutex);
             break;
         case GFX_SQ_COPY: {
-            /* Clone src GPU texture into dst slot (independent Texture2D). */
+            /* Clone src GPU texture into dst slot (independent Texture2D).
+             * If source has colour modulate applied, bake it into the pixel
+             * data before uploading so dst has clean mods (255,255,255,255).
+             * Best practice: apply SPRITEMODIFY before SPRITECOPY for
+             * best performance — baked copies skip per-draw tint arithmetic. */
             Texture2D new_tex;
             Image img;
             GfxSpriteSlot src_snap;
             int dst = c->slot2;
+            int bake;
             pthread_mutex_lock(&g_sprite_mutex);
             if (!g_sprite_slots[c->slot].loaded) {
                 pthread_mutex_unlock(&g_sprite_mutex);
@@ -737,8 +742,19 @@ static void gfx_sprite_process_queue(void)
             src_snap = g_sprite_slots[c->slot]; /* snapshot under lock */
             pthread_mutex_unlock(&g_sprite_mutex);
 
-            /* GetTextureData downloads pixels to CPU; LoadTextureFromImage uploads fresh copy */
+            bake = (src_snap.mod_r != 255 || src_snap.mod_g != 255 ||
+                    src_snap.mod_b != 255 || src_snap.mod_a != 255);
+
+            /* Download pixels, optionally tint, then upload fresh texture */
             img = LoadImageFromTexture(src_snap.tex);
+            if (bake) {
+                Color tint;
+                tint.r = (unsigned char)src_snap.mod_r;
+                tint.g = (unsigned char)src_snap.mod_g;
+                tint.b = (unsigned char)src_snap.mod_b;
+                tint.a = (unsigned char)src_snap.mod_a;
+                ImageColorTint(&img, tint);
+            }
             new_tex = LoadTextureFromImage(img);
             UnloadImage(img);
             if (new_tex.id == 0) break;
@@ -751,6 +767,13 @@ static void gfx_sprite_process_queue(void)
             g_sprite_slots[dst]          = src_snap;
             g_sprite_slots[dst].tex      = new_tex;
             g_sprite_slots[dst].draw_active = 0;
+            if (bake) {
+                g_sprite_slots[dst].mod_r = 255;
+                g_sprite_slots[dst].mod_g = 255;
+                g_sprite_slots[dst].mod_b = 255;
+                g_sprite_slots[dst].mod_a = 255;
+                g_sprite_slots[dst].mod_explicit = 0;
+            }
             memset(&g_sprite_draw_pos[dst], 0, sizeof(g_sprite_draw_pos[dst]));
             pthread_mutex_unlock(&g_sprite_mutex);
             break;
