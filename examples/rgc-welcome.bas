@@ -10,12 +10,14 @@ CY=0
 MAX_MSG=2
 
 
-LOADSPRITE 0, "sky.png"
-SPRITEMODULATE 0, 35, 255, 255, 255, 0.5
-SPRITECOPY 0,0
-SPRITECOPY 0,2
+REM Bake sky tint via a spare slot (SPRITECOPY src!=dst for best compat)
+LOADSPRITE 6, "sky.png"
+SPRITEMODULATE 6, 35, 255, 255, 255, 0.5
+SPRITECOPY 6, 0
+SPRITECOPY 6, 2
+UNLOADSPRITE 6
 LOADSPRITE 1, "clouds.png"
-SPRITECOPY 1,3
+SPRITECOPY 1, 3
 
 
 
@@ -71,15 +73,15 @@ End Function
 
 Function CLOUD_MOVE()
 
-  REM Sky layer (slow) — two sprites wrapping at 320px
+  REM Sky layer (slow) — negative z draws behind text
   SX = CX MOD 320
-  DRAWSPRITE 0, SX, CY, 0
-  DRAWSPRITE 2, SX - 320, CY, 0
+  DRAWSPRITE 0, SX, CY, -2
+  DRAWSPRITE 2, SX - 320, CY, -2
 
-  REM Cloud layer (1.5x faster) — two sprites wrapping independently
+  REM Cloud layer (1.5x faster) — also behind text
   FX = INT(CX * 1.5) MOD 640
-  DRAWSPRITE 1, FX, CY, 1
-  DRAWSPRITE 3, FX - 640, CY, 1
+  DRAWSPRITE 1, FX, CY, -1
+  DRAWSPRITE 3, FX - 640, CY, -1
 
   CX = CX + 1
 
