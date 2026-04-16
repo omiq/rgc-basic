@@ -188,6 +188,7 @@ EM_ASYNC_JS(int, wasm_js_host_exec_async, (const char *cmd_utf8, char *out, int 
 
 #if (defined(__unix__) || defined(__linux__) || defined(__APPLE__) || defined(__MACH__)) && !defined(__EMSCRIPTEN__)
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 /* Native: curl -o path -w "%{http_code}" writes body to file and status digits to stdout. */
