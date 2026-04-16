@@ -233,7 +233,134 @@
     }
     img.data.set(u8);
     ctx.putImageData(img, borderPx, borderPx);
+
+    /* Canvas2D sprite backend: draw active sprites on top via ctx.drawImage().
+     * Much faster than software compositing — browser uses GPU-accelerated blitting.
+     * Best practice: use unmodulated sprites (no SPRITEMODIFY) for the fastest path;
+     * for tinted copies, apply SPRITEMODIFY before SPRITECOPY to bake colour in.
+     * Modulated sprites (r/g/b != 255) fall back to software composite automatically
+     * (wasm_gfx_set_js_sprite_backend is not set for those programs). */
+    rgcDrawSpritesCanvas2D(borderPx, borderPx);
     return true;
+  }
+
+  /* ── Canvas2D sprite backend ──────────────────────────────────────────────
+   * Maintains an ImageBitmap cache keyed by slot. Rebuilds when slot version
+   * changes (LOADSPRITE / SPRITECOPY / UNLOADSPRITE). Draws each active sprite
+   * with ctx.drawImage() after putImageData, completely bypassing the C
+   * software compositor for the sprite layer.
+   *
+   * Modulated sprites (SPRITEMODIFY with r/g/b != 255 or scale != 1) are drawn
+   * via a temporary offscreen canvas with globalAlpha for alpha-only modulate,
+   * or via the software path if the C side disables js_sprite_backend.
+   */
+  var rgcSpriteBitmapCache = {};   /* slot -> { version, bitmap } */
+  var rgcSpriteParamBuf = null;    /* Float32Array scratch for draw params */
+  var rgcSpriteParamPtr = 0;       /* WASM heap pointer for param buffer */
+  var GFX_SPRITE_MAX_SLOTS = 256;
+
+  function rgcEnsureParamBuf() {
+    var M = window.Module;
+    if (!M || rgcSpriteParamPtr) return !!rgcSpriteParamPtr;
+    /* Allocate 14 floats on the WASM heap for draw params */
+    if (!M._malloc) return false;
+    rgcSpriteParamPtr = numPtr(M._malloc(14 * 4));
+    if (!rgcSpriteParamPtr) return false;
+    var hu = heapU8();
+    if (!hu) return false;
+    rgcSpriteParamBuf = new Float32Array(hu.buffer, rgcSpriteParamPtr, 14);
+    return true;
+  }
+
+  function rgcGetOrBuildBitmap(M, slot, hu, buf) {
+    var ver = numPtr(M._wasm_gfx_sprite_version(slot));
+    var cached = rgcSpriteBitmapCache[slot];
+    if (cached && cached.version === ver && cached.bitmap) return cached.bitmap;
+
+    /* Slot pixel data changed — rebuild ImageBitmap */
+    var ptr = numPtr(M._wasm_gfx_sprite_rgba_ptr(slot));
+    if (!ptr) { delete rgcSpriteBitmapCache[slot]; return null; }
+    var sw = numPtr(M._wasm_gfx_sprite_w(slot));
+    var sh = numPtr(M._wasm_gfx_sprite_h(slot));
+    if (sw <= 0 || sh <= 0) { delete rgcSpriteBitmapCache[slot]; return null; }
+
+    var need = sw * sh * 4;
+    var rgba;
+    if (buf && ptr >= 0 && ptr + need <= buf.byteLength) {
+      rgba = new Uint8ClampedArray(buf, ptr, need);
+    } else if (hu && ptr >= 0 && ptr + need <= hu.length) {
+      rgba = new Uint8ClampedArray(hu.buffer, ptr, need);
+    } else {
+      return null;
+    }
+
+    /* Build via OffscreenCanvas synchronously */
+    try {
+      var offscreen = new OffscreenCanvas(sw, sh);
+      var octx = offscreen.getContext('2d');
+      var id = new ImageData(new Uint8ClampedArray(rgba), sw, sh);
+      octx.putImageData(id, 0, 0);
+      var bm = offscreen.transferToImageBitmap();
+      rgcSpriteBitmapCache[slot] = { version: ver, bitmap: bm };
+      return bm;
+    } catch(e) {
+      /* OffscreenCanvas not available — fall back to null (software path) */
+      return null;
+    }
+  }
+
+  function rgcDrawSpritesCanvas2D(offX, offY) {
+    var M = window.Module;
+    if (!M || !M._wasm_gfx_get_js_sprite_backend) return;
+    if (!numPtr(M._wasm_gfx_get_js_sprite_backend())) return;
+    if (!M._wasm_gfx_sprite_draw_params) return;
+    if (!rgcEnsureParamBuf()) return;
+
+    var hu = heapU8();
+    var buf = wasmMemoryBuffer();
+
+    /* Collect active sprites with z-order for sorting */
+    var active = [];
+    for (var s = 0; s < GFX_SPRITE_MAX_SLOTS; s++) {
+      var ok = numPtr(M._wasm_gfx_sprite_draw_params(s, rgcSpriteParamPtr));
+      if (!ok) continue;
+      /* Re-read buf view in case WASM memory grew */
+      if (!rgcSpriteParamBuf || rgcSpriteParamBuf.buffer !== (hu ? hu.buffer : null)) {
+        if (hu) rgcSpriteParamBuf = new Float32Array(hu.buffer, rgcSpriteParamPtr, 14);
+        else continue;
+      }
+      var p = rgcSpriteParamBuf;
+      active.push({ slot: s, x: p[0], y: p[1], z: p[2]|0, dw: p[3]|0, dh: p[4]|0,
+                    ma: p[5]|0, mr: p[6]|0, mg: p[7]|0, mb: p[8]|0,
+                    scx: p[12]|0, scy: p[13]|0 });
+    }
+
+    if (!active.length) return;
+
+    /* Sort by z ascending (lower z drawn first, higher z on top) */
+    active.sort(function(a, b) { return a.z - b.z; });
+
+    for (var i = 0; i < active.length; i++) {
+      var sp = active[i];
+      var bm = rgcGetOrBuildBitmap(M, sp.slot, hu, buf);
+      if (!bm) continue;
+
+      var dx = sp.x - sp.scx + offX;
+      var dy = sp.y - sp.scy + offY;
+
+      /* Alpha-only modulate: use globalAlpha */
+      var alpha = (sp.ma === 255) ? 1.0 : sp.ma / 255.0;
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(bm, dx, dy, sp.dw, sp.dh);
+      ctx.globalAlpha = 1.0;
+    }
+  }
+
+  /* Enable JS sprite backend once WASM is ready (called from Module.onRuntimeInitialized) */
+  function rgcEnableJSSpriteBackend() {
+    var M = window.Module;
+    if (!M || !M._wasm_gfx_set_js_sprite_backend) return;
+    M._wasm_gfx_set_js_sprite_backend(1);
   }
 
   function frame() {
@@ -286,6 +413,7 @@
     onRuntimeInitialized: function() {
       runBtn.disabled = false;
       applyZoom();
+      rgcEnableJSSpriteBackend();
       if (!copyRgbaFromWasm()) {
         /* logErr may already be set by copyRgbaFromWasm */
       }

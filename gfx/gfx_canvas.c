@@ -160,5 +160,18 @@ void gfx_canvas_render_full_frame(const GfxVideoState *s, uint8_t *rgba, size_t 
         render_text_layer(s, rgba, fb_w, fb_h);
     }
 
+    /* Skip software sprite composite when JS Canvas2D backend is active. */
+#if defined(__EMSCRIPTEN__)
+    {
+        extern int wasm_gfx_js_sprite_backend;
+        if (!wasm_gfx_js_sprite_backend) {
+            gfx_canvas_sprite_composite_rgba(s, rgba, fb_w, fb_h);
+        } else {
+            /* Still need to drain the command queue so slot state stays current. */
+            gfx_sprite_process_queue();
+        }
+    }
+#else
     gfx_canvas_sprite_composite_rgba(s, rgba, fb_w, fb_h);
+#endif
 }
