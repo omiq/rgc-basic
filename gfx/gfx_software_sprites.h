@@ -25,5 +25,7 @@ int gfx_sprite_slot_draw_params(int slot,
     float *out_sx, float *out_sy);
 unsigned int gfx_sprite_slot_version(int slot);
 void gfx_sprite_slot_bump_version(int slot);
+int  gfx_sprite_js_backend_active(void);
+void gfx_sprite_set_js_backend(int enable);
 
 #endif
