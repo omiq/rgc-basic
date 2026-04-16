@@ -154,12 +154,18 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
     - `SYSTEM(cmd$)`** — runs a shell command (e.g. `SYSTEM("ls -l")`), waits for it to finish, and returns its exit status (0 = success).
     - `EXEC$(cmd$)` — runs a shell command and returns its standard output as a string (up to 255 characters; trailing newline trimmed). Use for scripting (e.g. `U$ = EXEC$("whoami")`).
     - **Browser WASM:** there is no shell. If the embed defines **`Module.rgcHostExec`** (or **`Module.onRgcExec`**) as a function, **`EXEC$`** / **`SYSTEM`** invoke it with the command string; the host returns stdout and/or exit code (see **`docs/wasm-host-exec.md`**). If no hook is set, **`EXEC$`** is **`""`** and **`SYSTEM`** is **`-1`**. Async **`Promise`** return values are supported (Asyncify).
-    - **Browser WASM only**: `HTTP$(url$ [, method$ [, body$]])` — `fetch` the URL; returns response body as a string. `HTTP(url$)` without `$` is the same call. `HTTPSTATUS()` — last HTTP status from `HTTP$` / `HTTPFETCH` (0 if the request failed). Outside the Emscripten build, `HTTP$` returns `""` (use `EXEC$` with `curl` on native). APIs must allow **CORS** from your page origin. See `examples/http_time_london.bas`.
+    - **`HTTP$(url$ [, method$ [, body$]])`** — fetch a URL and return the response body as a string. `HTTP(url$)` without `$` is identical. `HTTPSTATUS()` returns the last HTTP status code (0 on network error). **Browser WASM**: uses the browser `fetch` API; APIs must allow **CORS** from your page origin. **Mac/Linux terminal**: shells out to `curl` (must be on `PATH`); prints a clear message if curl is not found. **Windows / other**: not supported (prints a message). See `examples/http_time_london.bas`.
     - **`HTTPFETCH(url$, path$ [, method$ [, body$]])`** — **browser WASM**: downloads the response body to a **MEMFS path** (binary-safe; avoids `MAXSTR`). Returns the HTTP status code; use `HTTPSTATUS()` for the same value. **Unix native**: if `curl` is on `PATH`, writes to `path$` and returns the status (GET only). Otherwise returns `0`.
 
 ### Additional/Non-Standard BASIC Commands
 
 - `SLEEP`: pause execution for a number of 60 Hz “ticks” (e.g., `SLEEP 60` ≈ 1 second).
+- **Periodic timers** — cooperative callbacks fired between statements:
+  - `TIMER id, interval_ms, FuncName` — register (or replace) timer `id` (1–12). `FuncName` must be a zero-argument `FUNCTION`/`END FUNCTION` block. Minimum interval 16 ms.
+  - `TIMER STOP id` — disable without removing.
+  - `TIMER ON id` — re-enable a stopped timer.
+  - `TIMER CLEAR id` — remove entirely.
+  - Timers are reset at the start of each run. Re-entrancy is skipped (not queued). Works in terminal, basic-gfx, and WASM builds. See `examples/timer_demo.bas` and `examples/timer_clock.bas`.
 - `LOCATE` and `TEXTAT`: screen cursor positioning and absolute text placement (see below).
 - `CURSOR ON` / `CURSOR OFF`: show or hide the terminal cursor using ANSI escape codes (`ESC[?25h` / `ESC[?25l`).
 - `COLOR n` / `COLOUR n`: set the text **foreground** colour using a C64-style palette index `0–15`, mapped to ANSI SGR colours (approximate CBM palette).
