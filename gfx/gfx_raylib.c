@@ -699,6 +699,12 @@ static void gfx_sprite_process_queue(void)
                     g_sprite_slots[c->slot].mod_sx = pmsx;
                     g_sprite_slots[c->slot].mod_sy = pmsy;
                     g_sprite_slots[c->slot].mod_explicit = 1;
+                    if (getenv("RGC_SPRITE_TRACE")) {
+                        fprintf(stderr,
+                            "[LOAD_DONE] slot=%d preserve_mod=1 mod_a=%d rgb=(%d,%d,%d) "
+                            "scale=(%.2f,%.2f)\n",
+                            c->slot, pma, pmr, pmg, pmb, pmsx, pmsy);
+                    }
                 } else {
                     g_sprite_slots[c->slot].mod_a = 255;
                     g_sprite_slots[c->slot].mod_r = 255;
@@ -802,14 +808,15 @@ static void gfx_sprite_process_queue(void)
             if (g_sprite_slots[dst].loaded) {
                 UnloadTexture(g_sprite_slots[dst].tex);
             }
-            /* Preserve any mods/scale explicitly set on dst by SPRITEMODIFY
-             * after the copy was enqueued (interpreter runs ahead of render). */
-            float dst_sx = g_sprite_slots[dst].mod_sx;
-            float dst_sy = g_sprite_slots[dst].mod_sy;
-            int   dst_sx_set = (dst_sx != 1.0f || dst_sy != 1.0f);
+            /* Preserve any mods/scale explicitly set on dst by SPRITEMODULATE
+             * after the copy was enqueued (interpreter runs ahead of render).
+             * Use mod_explicit flag — 0 (uninitialized) scale is a valid value
+             * and must NOT be treated as "explicitly set". */
             /* For self-copy (src==dst), don't preserve dst mods — they ARE the
              * source mods that we just baked into the pixels. */
             int   dst_mod_explicit = (dst != c->slot) ? g_sprite_slots[dst].mod_explicit : 0;
+            float dst_sx = g_sprite_slots[dst].mod_sx;
+            float dst_sy = g_sprite_slots[dst].mod_sy;
             int   dst_ma = g_sprite_slots[dst].mod_a;
             int   dst_mr = g_sprite_slots[dst].mod_r;
             int   dst_mg = g_sprite_slots[dst].mod_g;
@@ -817,8 +824,9 @@ static void gfx_sprite_process_queue(void)
             g_sprite_slots[dst]          = src_snap;
             g_sprite_slots[dst].tex      = new_tex;
             g_sprite_slots[dst].draw_active = 0;
-            /* Scale priority: dst explicit > cmd snapshot (src at enqueue time) > src_snap */
-            if (dst_sx_set) {
+            /* Scale priority: dst explicit (SPRITEMODULATE ran on dst) > cmd
+             * snapshot (captured from src at enqueue time). */
+            if (dst_mod_explicit) {
                 g_sprite_slots[dst].mod_sx = dst_sx;
                 g_sprite_slots[dst].mod_sy = dst_sy;
             } else {
@@ -844,6 +852,14 @@ static void gfx_sprite_process_queue(void)
                 }
             }
             memset(&g_sprite_draw_pos[dst], 0, sizeof(g_sprite_draw_pos[dst]));
+            if (getenv("RGC_SPRITE_TRACE")) {
+                fprintf(stderr,
+                    "[COPY_DONE] src=%d dst=%d bake=%d src_snap.mod_a=%d c->mod_a=%d "
+                    "dst.mod_a=%d dst.mod_explicit=%d dst.visible=%d dst.loaded=%d\n",
+                    c->slot, dst, bake, src_snap.mod_a, c->mod_a,
+                    g_sprite_slots[dst].mod_a, g_sprite_slots[dst].mod_explicit,
+                    g_sprite_slots[dst].visible, g_sprite_slots[dst].loaded);
+            }
             pthread_mutex_unlock(&g_sprite_mutex);
             break;
         }
@@ -987,6 +1003,14 @@ static void gfx_sprite_composite_range(const GfxVideoState *vs, RenderTexture2D 
             sw * d->mod_sx,
             sh * d->mod_sy
         };
+        if (getenv("RGC_SPRITE_TRACE")) {
+            fprintf(stderr,
+                "[COMP] slot=%d tex.id=%u tex.fmt=%d src=(%.0f,%.0f,%.0f,%.0f) "
+                "dest=(%.0f,%.0f,%.0f,%.0f) tint=(%d,%d,%d,%d)\n",
+                s, t.id, t.format, sx, sy, sw, sh,
+                dest.x, dest.y, dest.width, dest.height,
+                d->mod_r, d->mod_g, d->mod_b, d->mod_a);
+        }
         DrawTexturePro(
             t,
             src,
