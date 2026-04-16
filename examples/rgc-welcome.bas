@@ -1,0 +1,53 @@
+#OPTION CHARSET PET-LOWER
+BACKGROUND 1
+
+S = 0
+X = 0
+Y = 50
+M = 0
+MAX_MSG=2
+
+LOADSPRITE S, "rgc-logo-large.png"
+LOADSPRITE S+1, "rgc-logo-large.png"
+
+SPRITEMODULATE S, 255, 255, 255, 255, 0.40
+SPRITEMODULATE S+1, 35, 0, 0, 0, 0.40
+
+DRAWSPRITE S, (RND(-1)*320)-32, (RND(-1)*200)-32
+DRAWSPRITE S+1, SPRITEX(S)+4, SPRITEY(S)+4
+
+TIMER 1,100,MOV
+TIMER 2,1000,MSG
+
+DIM MSGLINE$(4)
+MSGLINE$(0)="Welcome"
+MSGLINE$(1)="to the"
+MSGLINE$(2)="Retro Game Coders IDE!"
+
+
+DO
+ 
+ REM Sleep delays even the timers?
+ SLEEP 100
+ 
+ 
+LOOP
+
+Function MOV()
+
+  DRAWSPRITE S,  INT(32 * SIN(X / 3.14)), Y
+  DRAWSPRITE S+1, INT(32 * SIN(X / 3.14))+3, Y+3
+  X=X+1
+  IF X > 320 THEN X=0
+
+End Function
+
+Function MSG()
+
+ REST_OF_LINE=40-LEN(MSGLINE$(M))
+ PRINT "{HOME}";STRING(REST_OF_LINE/2,32);MSGLINE$(M);STRING(REST_OF_LINE/2,32)
+ M=M+1
+ IF M>MAX_MSG THEN M=0
+ 
+End Function
+
