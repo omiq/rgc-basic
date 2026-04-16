@@ -12069,16 +12069,14 @@ EMSCRIPTEN_KEEPALIVE uint32_t wasm_gfx_rgba_version_read(void)
 
 /* Canvas2D sprite backend: when JS sets this to 1 it handles sprite blitting
  * via ctx.drawImage(); the software compositor skips the sprite layer. */
-static int wasm_gfx_js_sprite_backend = 0;
-
 EMSCRIPTEN_KEEPALIVE void wasm_gfx_set_js_sprite_backend(int enable)
 {
-    wasm_gfx_js_sprite_backend = enable;
+    gfx_sprite_set_js_backend(enable);
 }
 
 EMSCRIPTEN_KEEPALIVE int wasm_gfx_get_js_sprite_backend(void)
 {
-    return wasm_gfx_js_sprite_backend;
+    return gfx_sprite_js_backend_active();
 }
 
 /* Sprite slot accessors for Canvas2D JS backend. */

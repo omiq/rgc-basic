@@ -70,6 +70,11 @@ static GfxSpriteSlot g_sprite_slots[GFX_SPRITE_MAX_SLOTS];
 static GfxSpriteCmd g_sprite_q[GFX_SPRITE_Q_CAP];
 static int g_sprite_q_count;
 
+/* Set to 1 by JS Canvas2D backend to skip software sprite compositing. */
+static int g_js_sprite_backend = 0;
+int gfx_sprite_js_backend_active(void) { return g_js_sprite_backend; }
+void gfx_sprite_set_js_backend(int enable) { g_js_sprite_backend = enable; }
+
 /* Interpreter-thread hit-test cache. Mirrors gfx_raylib.c. See
  * docs/mouse-over-sprite-plan.md for rationale. */
 typedef struct {
