@@ -12,7 +12,7 @@ MAX_MSG=2
 
 REM Bake sky tint via a spare slot (SPRITECOPY src!=dst for best compat)
 LOADSPRITE 6, "sky.png"
-SPRITEMODULATE 6, 255, 255, 255, 255, 0.5
+SPRITEMODULATE 6, 35, 255, 255, 255, 0.5
 SPRITECOPY 6, 0
 SPRITECOPY 6, 2
 UNLOADSPRITE 6
