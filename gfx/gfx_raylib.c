@@ -764,8 +764,10 @@ static void gfx_sprite_process_queue(void)
                 break;
             }
             src_snap = g_sprite_slots[c->slot]; /* snapshot under lock */
-            fprintf(stderr, "[COPY] src=%d dst=%d path=%s c->mod_sx=%.2f src_snap.mod_sx=%.2f mod_a=%d\n",
-                c->slot, dst, src_snap.src_path, c->mod_sx, src_snap.mod_sx, c->mod_a);
+            if (getenv("RGC_SPRITE_TRACE")) {
+                fprintf(stderr, "[COPY] src=%d dst=%d path=%s c->mod_sx=%.2f src_snap.mod_sx=%.2f mod_a=%d\n",
+                    c->slot, dst, src_snap.src_path, c->mod_sx, src_snap.mod_sx, c->mod_a);
+            }
             pthread_mutex_unlock(&g_sprite_mutex);
 
             /* Only bake RGB — alpha is applied at draw time, not baked */
@@ -866,8 +868,10 @@ static void gfx_sprite_process_queue(void)
         case GFX_SQ_DRAW:
             pthread_mutex_lock(&g_sprite_mutex);
             if (c->slot >= 0 && c->slot < GFX_SPRITE_MAX_SLOTS) {
-                if (c->slot <= 3) fprintf(stderr, "[DRAW] slot=%d x=%.0f y=%.0f z=%d loaded=%d\n",
-                    c->slot, c->x, c->y, c->z, g_sprite_slots[c->slot].loaded);
+                if (c->slot <= 3 && getenv("RGC_SPRITE_TRACE")) {
+                    fprintf(stderr, "[DRAW] slot=%d x=%.0f y=%.0f z=%d loaded=%d\n",
+                        c->slot, c->x, c->y, c->z, g_sprite_slots[c->slot].loaded);
+                }
                 g_sprite_slots[c->slot].draw_active = 1;
                 g_sprite_slots[c->slot].draw_x = c->x;
                 g_sprite_slots[c->slot].draw_y = c->y;
