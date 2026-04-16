@@ -793,6 +793,52 @@ void gfx_canvas_sprite_composite_rgba(const GfxVideoState *s, uint8_t *rgba, int
             continue;
         }
 
+        /* Fast-path: no scaling, skip bilinear interpolation */
+        if (dw == iw && dh == ih) {
+            for (dy = 0; dy < dh; dy++) {
+                int dst_y = y0 + dy;
+                int src_y = src_y0 + dy;
+                size_t src_row_off;
+                if (dst_y < 0 || dst_y >= fb_h) {
+                    continue;
+                }
+                src_row_off = ((size_t)src_y * (size_t)sl->w + (size_t)src_x0) * 4u;
+                for (dx = 0; dx < dw; dx++) {
+                    int dst_x = x0 + dx;
+                    unsigned pr, pg, pb, pa, inv;
+                    size_t soff, doff;
+                    if (dst_x < 0 || dst_x >= fb_w) {
+                        continue;
+                    }
+                    soff = src_row_off + (size_t)dx * 4u;
+                    pa = (unsigned)sl->rgba[soff + 3];
+                    pa = (pa * (unsigned)ma + 127) / 255;
+                    if (pa == 0) {
+                        continue;
+                    }
+                    pr = (unsigned)sl->rgba[soff + 0];
+                    pg = (unsigned)sl->rgba[soff + 1];
+                    pb = (unsigned)sl->rgba[soff + 2];
+                    pr = (pr * (unsigned)mr + 127) / 255;
+                    pg = (pg * (unsigned)mg + 127) / 255;
+                    pb = (pb * (unsigned)mb + 127) / 255;
+                    doff = ((size_t)dst_y * (size_t)fb_w + (size_t)dst_x) * 4u;
+                    if (pa == 255) {
+                        rgba[doff + 0] = (unsigned char)pr;
+                        rgba[doff + 1] = (unsigned char)pg;
+                        rgba[doff + 2] = (unsigned char)pb;
+                        rgba[doff + 3] = 0xFF;
+                    } else {
+                        inv = (unsigned)(255 - pa);
+                        rgba[doff + 0] = (unsigned char)((pr * pa + rgba[doff + 0] * inv + 127) / 255);
+                        rgba[doff + 1] = (unsigned char)((pg * pa + rgba[doff + 1] * inv + 127) / 255);
+                        rgba[doff + 2] = (unsigned char)((pb * pa + rgba[doff + 2] * inv + 127) / 255);
+                        rgba[doff + 3] = 0xFF;
+                    }
+                }
+            }
+        } else {
+        /* Scaled path: full bilinear interpolation */
         for (dy = 0; dy < dh; dy++) {
             float v = ((float)dy + 0.5f) / (float)dh;
             float src_yf = (float)src_y0 + v * (float)ih - 0.5f;
@@ -887,5 +933,6 @@ void gfx_canvas_sprite_composite_rgba(const GfxVideoState *s, uint8_t *rgba, int
                 }
             }
         }
+        } /* end scaled path */
     }
 }
