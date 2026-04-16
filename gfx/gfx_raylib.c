@@ -797,12 +797,16 @@ static void gfx_sprite_process_queue(void)
             if (g_sprite_slots[dst].loaded) {
                 UnloadTexture(g_sprite_slots[dst].tex);
             }
+            /* Preserve any scale already set on dst by SPRITEMODIFY after enqueue */
+            float dst_sx = g_sprite_slots[dst].mod_sx;
+            float dst_sy = g_sprite_slots[dst].mod_sy;
+            int   dst_sx_set = (dst_sx != 1.0f || dst_sy != 1.0f);
             g_sprite_slots[dst]          = src_snap;
             g_sprite_slots[dst].tex      = new_tex;
             g_sprite_slots[dst].draw_active = 0;
-            /* Apply scale from cmd; reset colour mods since they're baked in */
-            g_sprite_slots[dst].mod_sx = c->mod_sx > 0.0f ? c->mod_sx : 1.0f;
-            g_sprite_slots[dst].mod_sy = c->mod_sy > 0.0f ? c->mod_sy : 1.0f;
+            /* Use dst scale if explicitly set, else fall back to 1.0 */
+            g_sprite_slots[dst].mod_sx = dst_sx_set ? dst_sx : 1.0f;
+            g_sprite_slots[dst].mod_sy = dst_sx_set ? dst_sy : 1.0f;
             if (bake) {
                 g_sprite_slots[dst].mod_r = 255;
                 g_sprite_slots[dst].mod_g = 255;

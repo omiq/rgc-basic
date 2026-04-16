@@ -4021,7 +4021,13 @@ static void wasm_maybe_yield_loop(void)
     emscripten_sleep(0);
 }
 
-/* Browser: use emscripten_sleep to yield to event loop. */
+/* Browser: use emscripten_sleep to yield to event loop.
+ * Slices into <=16ms chunks so timers_dispatch() fires during long sleeps. */
+/* WASM sleep deadline — set by do_sleep_ticks, checked in statement_sleep.
+ * The main run loop dispatches timers between statements as normal; SLEEP just
+ * keeps re-executing (via sleep_statement_pos) until the deadline passes. */
+static double wasm_sleep_deadline_ms = 0.0;
+
 static void do_sleep_ticks(double ticks)
 {
     int ms;
@@ -4035,11 +4041,10 @@ static void do_sleep_ticks(double ticks)
     }
     if (ticks <= 0.0) return;
     ms = (int)(ticks * (1000.0 / 60.0) + 0.5);
-    /* Asyncify needs a real sleep; rounding to 0 would busy-spin (e.g. fractional ticks). */
-    if (ms < 1) {
-        ms = 1;
-    }
-    emscripten_sleep(ms);
+    if (ms < 1) ms = 1;
+    wasm_sleep_deadline_ms = timer_get_wall_ms() + ms;
+    /* Yield once; main loop will re-run this statement until deadline */
+    emscripten_sleep(4);
 }
 #elif defined(_WIN32)
 /* Windows: sleep using Sleep() in milliseconds derived from 60Hz ticks. */
@@ -4070,16 +4075,18 @@ static void do_sleep_ticks(double ticks)
     }
     sec = (unsigned int)(usec / 1000000L);
     usec = usec % 1000000L;
-    /* Use select() for sub-second delay if available */
+    /* Slice into 16ms chunks so timers_dispatch() fires during long sleeps */
     {
         struct timeval tv;
-        if (sec > 0) {
-            sleep(sec);
-        }
-        if (usec > 0) {
-            tv.tv_sec = 0;
-            tv.tv_usec = usec;
+        long total_usec = (long)sec * 1000000L + usec;
+        long chunk_usec = 16000L; /* 16ms */
+        while (total_usec > 0 && !halted) {
+            long slice = total_usec > chunk_usec ? chunk_usec : total_usec;
+            tv.tv_sec  = 0;
+            tv.tv_usec = slice;
             select(0, (fd_set *)0, (fd_set *)0, (fd_set *)0, &tv);
+            total_usec -= slice;
+            timers_dispatch();
         }
     }
 }
@@ -4117,12 +4124,17 @@ static void statement_sleep(char **p)
     }
     ensure_num(&v);
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
-    wasm_gfx_refresh_js();
+    /* WASM GFX: avoid blocking emscripten_sleep which prevents timers firing.
+     * Instead set deadline and yield with emscripten_sleep(0) in a tight loop.
+     * The main run loop calls timers_dispatch() after every statement — those
+     * fire normally between each yield here since we never nest invoke_udf. */
+    {
+        int ms = (int)(v.num * (1000.0 / 60.0) + 0.5);
+        wasm_sleep_deadline_ms = timer_get_wall_ms() + (ms < 1 ? 1 : ms);
+        return; /* main loop spins on wasm_sleep_deadline_ms */
+    }
 #endif
     do_sleep_ticks(v.num);
-#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
-    wasm_gfx_refresh_js();
-#endif
 }
 
 static void statement_cursor(char **p)
@@ -11715,6 +11727,19 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
             continue;
         }
         statement_pos = p;
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+        /* Non-blocking SLEEP: if deadline is active, skip statement execution,
+         * dispatch timers, yield, and loop until deadline passes. */
+        if (wasm_sleep_deadline_ms > 0.0) {
+            if (timer_get_wall_ms() < wasm_sleep_deadline_ms) {
+                timers_dispatch();
+                wasm_gfx_refresh_js();
+                emscripten_sleep(4);
+                continue; /* don't advance statement_pos */
+            }
+            wasm_sleep_deadline_ms = 0.0; /* deadline expired, proceed */
+        }
+#endif
         execute_statement(&statement_pos);
         timers_dispatch();
 #if defined(__EMSCRIPTEN__)
