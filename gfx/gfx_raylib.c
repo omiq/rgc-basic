@@ -61,6 +61,8 @@ typedef struct {
     float draw_x, draw_y;
     int draw_z;
     int draw_sx, draw_sy, draw_sw, draw_sh;
+    /* Full path to source PNG — kept so SPRITECOPY can reload+tint from disk. */
+    char src_path[GFX_SPRITE_PATH_MAX];
 } GfxSpriteSlot;
 
 typedef struct {
@@ -658,6 +660,9 @@ static void gfx_sprite_process_queue(void)
                 g_sprite_slots[c->slot].loaded = 1;
                 g_sprite_slots[c->slot].visible = 1;
                 g_sprite_slots[c->slot].draw_active = 0;
+                strncpy(g_sprite_slots[c->slot].src_path, full,
+                        GFX_SPRITE_PATH_MAX - 1);
+                g_sprite_slots[c->slot].src_path[GFX_SPRITE_PATH_MAX - 1] = '\0';
                 g_sprite_slots[c->slot].tile_w = tw;
                 g_sprite_slots[c->slot].tile_h = th;
                 g_sprite_slots[c->slot].tiles_x = 0;
@@ -745,10 +750,14 @@ static void gfx_sprite_process_queue(void)
             bake = (src_snap.mod_r != 255 || src_snap.mod_g != 255 ||
                     src_snap.mod_b != 255 || src_snap.mod_a != 255);
 
-            /* Download pixels, optionally tint, then upload fresh texture.
-             * Manual per-pixel multiply avoids ImageColorTint() version dependency. */
-            img = LoadImageFromTexture(src_snap.tex);
-            if (bake) {
+            /* Load from disk (CPU-side), optionally tint pixels, upload to GPU.
+             * Avoids GPU readback and ImageColorTint() version dependency. */
+            if (bake && src_snap.src_path[0] != '\0') {
+                img = LoadImage(src_snap.src_path);
+            } else {
+                img = LoadImageFromTexture(src_snap.tex);
+            }
+            if (bake && img.data) {
                 /* Convert to RGBA32 for direct pixel access */
                 ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
                 if (img.data) {
