@@ -753,14 +753,17 @@ static void gfx_sprite_process_queue(void)
             int bake;
             pthread_mutex_lock(&g_sprite_mutex);
             if (!g_sprite_slots[c->slot].loaded) {
+                fprintf(stderr, "[COPY] src slot %d NOT loaded — aborting\n", c->slot);
                 pthread_mutex_unlock(&g_sprite_mutex);
                 break;
             }
             src_snap = g_sprite_slots[c->slot]; /* snapshot under lock */
+            fprintf(stderr, "[COPY] src=%d dst=%d path=%s c->mod_sx=%.2f src_snap.mod_sx=%.2f mod_a=%d\n",
+                c->slot, dst, src_snap.src_path, c->mod_sx, src_snap.mod_sx, c->mod_a);
             pthread_mutex_unlock(&g_sprite_mutex);
 
-            bake = (c->mod_r != 255 || c->mod_g != 255 ||
-                    c->mod_b != 255 || c->mod_a != 255);
+            /* Only bake RGB — alpha is applied at draw time, not baked */
+            bake = (c->mod_r != 255 || c->mod_g != 255 || c->mod_b != 255);
 
             /* Load from disk (CPU-side), optionally tint pixels, upload to GPU.
              * Avoids GPU readback and ImageColorTint() version dependency. */
@@ -771,23 +774,23 @@ static void gfx_sprite_process_queue(void)
             } else {
                 img = LoadImageFromTexture(src_snap.tex);
             }
-            if (bake && img.data) {
-                /* Convert to RGBA32 for direct pixel access */
+            /* Always ensure RGBA so alpha blending works correctly */
+            if (img.data) {
                 ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
-                if (img.data) {
-                    unsigned char *px = (unsigned char *)img.data;
-                    int npix = img.width * img.height;
-                    int i;
-                    unsigned mr = (unsigned)c->mod_r;
-                    unsigned mg = (unsigned)c->mod_g;
-                    unsigned mb = (unsigned)c->mod_b;
-                    unsigned ma = (unsigned)c->mod_a;
-                    for (i = 0; i < npix; i++) {
-                        px[i*4+0] = (unsigned char)((px[i*4+0] * mr + 127) / 255);
-                        px[i*4+1] = (unsigned char)((px[i*4+1] * mg + 127) / 255);
-                        px[i*4+2] = (unsigned char)((px[i*4+2] * mb + 127) / 255);
-                        px[i*4+3] = (unsigned char)((px[i*4+3] * ma + 127) / 255);
-                    }
+            }
+            if (bake && img.data) {
+                unsigned char *px = (unsigned char *)img.data;
+                int npix = img.width * img.height;
+                int i;
+                unsigned mr = (unsigned)c->mod_r;
+                unsigned mg = (unsigned)c->mod_g;
+                unsigned mb = (unsigned)c->mod_b;
+                for (i = 0; i < npix; i++) {
+                    px[i*4+0] = (unsigned char)((px[i*4+0] * mr + 127) / 255);
+                    px[i*4+1] = (unsigned char)((px[i*4+1] * mg + 127) / 255);
+                    px[i*4+2] = (unsigned char)((px[i*4+2] * mb + 127) / 255);
+                    /* Don't bake alpha — preserve original transparency.
+                     * Alpha mod is applied at draw time via DrawTexturePro tint. */
                 }
             }
             new_tex = LoadTextureFromImage(img);
@@ -814,9 +817,15 @@ static void gfx_sprite_process_queue(void)
             g_sprite_slots[dst]          = src_snap;
             g_sprite_slots[dst].tex      = new_tex;
             g_sprite_slots[dst].draw_active = 0;
-            /* Use dst scale if explicitly set, else fall back to 1.0 */
-            g_sprite_slots[dst].mod_sx = dst_sx_set ? dst_sx : 1.0f;
-            g_sprite_slots[dst].mod_sy = dst_sx_set ? dst_sy : 1.0f;
+            /* Scale priority: dst explicit > cmd snapshot (src at enqueue time) > src_snap */
+            if (dst_sx_set) {
+                g_sprite_slots[dst].mod_sx = dst_sx;
+                g_sprite_slots[dst].mod_sy = dst_sy;
+            } else {
+                /* Use scale captured at enqueue time — src slot may be unloaded by now */
+                g_sprite_slots[dst].mod_sx = c->mod_sx;
+                g_sprite_slots[dst].mod_sy = c->mod_sy;
+            }
             if (bake) {
                 /* Pixels are baked — reset mods unless dst got new ones */
                 if (dst_mod_explicit) {
@@ -829,7 +838,8 @@ static void gfx_sprite_process_queue(void)
                     g_sprite_slots[dst].mod_r = 255;
                     g_sprite_slots[dst].mod_g = 255;
                     g_sprite_slots[dst].mod_b = 255;
-                    g_sprite_slots[dst].mod_a = 255;
+                    /* Keep alpha mod for draw-time — it wasn't baked */
+                    g_sprite_slots[dst].mod_a = c->mod_a;
                     g_sprite_slots[dst].mod_explicit = 0;
                 }
             }
@@ -840,6 +850,8 @@ static void gfx_sprite_process_queue(void)
         case GFX_SQ_DRAW:
             pthread_mutex_lock(&g_sprite_mutex);
             if (c->slot >= 0 && c->slot < GFX_SPRITE_MAX_SLOTS) {
+                if (c->slot <= 3) fprintf(stderr, "[DRAW] slot=%d x=%.0f y=%.0f z=%d loaded=%d\n",
+                    c->slot, c->x, c->y, c->z, g_sprite_slots[c->slot].loaded);
                 g_sprite_slots[c->slot].draw_active = 1;
                 g_sprite_slots[c->slot].draw_x = c->x;
                 g_sprite_slots[c->slot].draw_y = c->y;
@@ -1336,15 +1348,14 @@ int main(int argc, char **argv)
             }
         }
 
-        /* Background sprites (z < 0) draw behind text */
-        gfx_sprite_composite_range(&vs, target, nat_w, nat_h, -32768, -1, 1);
         if (vs.screen_mode == GFX_SCREEN_BITMAP) {
             render_bitmap_screen(&vs, target, nat_w);
         } else {
             render_text_screen(&vs, target);
         }
-        /* Foreground sprites (z >= 0) draw on top of text */
-        gfx_sprite_composite_range(&vs, target, nat_w, nat_h, 0, 32767, 0);
+        /* All sprites draw on top (z-sorted among themselves).
+         * Negative z = behind positive z, but all are above text. */
+        gfx_sprite_composite_range(&vs, target, nat_w, nat_h, -32768, 32767, 1);
 
         {
             int border = basic_get_gfx_border();

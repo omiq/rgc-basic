@@ -12,7 +12,7 @@ MAX_MSG=2
 
 REM Bake sky tint via a spare slot (SPRITECOPY src!=dst for best compat)
 LOADSPRITE 6, "sky.png"
-SPRITEMODULATE 6, 35, 255, 255, 255, 0.5
+SPRITEMODULATE 6, 255, 255, 255, 255, 0.5
 SPRITECOPY 6, 0
 SPRITECOPY 6, 2
 UNLOADSPRITE 6
@@ -54,8 +54,8 @@ LOOP
 
 Function MOV()
 
-  DRAWSPRITE S,  INT(32 * SIN(X / 3.14)), Y
-  DRAWSPRITE S+1, INT(32 * SIN(X / 3.14))+3, Y+3
+  DRAWSPRITE S,  INT(32 * SIN(X / 3.14)), Y, 1
+  DRAWSPRITE S+1, INT(32 * SIN(X / 3.14))+3, Y+3, 0
   X=X+1
   IF X > 628 THEN X=0
 
@@ -73,12 +73,12 @@ End Function
 
 Function CLOUD_MOVE()
 
-  REM Sky layer (slow) — negative z draws behind text
+  REM Sky layer (slow) — two sprites wrapping at 320px
   SX = CX MOD 320
   DRAWSPRITE 0, SX, CY, -2
   DRAWSPRITE 2, SX - 320, CY, -2
 
-  REM Cloud layer (1.5x faster) — also behind text
+  REM Cloud layer (1.5x faster) — two sprites wrapping independently
   FX = INT(CX * 1.5) MOD 640
   DRAWSPRITE 1, FX, CY, -1
   DRAWSPRITE 3, FX - 640, CY, -1
