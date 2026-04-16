@@ -563,6 +563,7 @@ void gfx_sprite_process_queue(void)
                 sl->loaded = 1;
                 sl->visible = 1;
                 sl->draw_active = 0;
+                gfx_sprite_slot_bump_version(c->slot);
                 sl->tile_w = tw;
                 sl->tile_h = th;
                 if (tw > 0 && th > 0 && w >= tw && h >= th) {
@@ -624,17 +625,36 @@ void gfx_sprite_process_queue(void)
             sl->mod_sx = 1.0f;
             sl->mod_sy = 1.0f;
             sl->mod_explicit = 0;
+            gfx_sprite_slot_bump_version(c->slot);
             break;
         }
         case GFX_SQ_COPY: {
-            /* Clone src slot pixel data into dst slot (independent allocation). */
+            /* Clone src slot pixel data into dst slot (independent allocation).
+             * Best practice for performance: if the source has colour modulate
+             * applied (SPRITEMODIFY/SPRITEMODULATE), bake it into the destination
+             * pixels and reset dst mods to 255. This allows the Canvas2D fast-path
+             * to draw the copy without needing per-channel multiply at composite time. */
             GfxSpriteSlot *src = &g_sprite_slots[c->slot];
             GfxSpriteSlot *dst = &g_sprite_slots[c->slot2];
             unsigned char *new_rgba = NULL;
+            size_t npix, i;
+            int bake = (src->mod_r != 255 || src->mod_g != 255 ||
+                        src->mod_b != 255 || src->mod_a != 255);
             if (!src->loaded || !src->rgba || src->w <= 0 || src->h <= 0) break;
-            new_rgba = (unsigned char *)malloc((size_t)src->w * (size_t)src->h * 4u);
+            npix = (size_t)src->w * (size_t)src->h * 4u;
+            new_rgba = (unsigned char *)malloc(npix);
             if (!new_rgba) break;
-            memcpy(new_rgba, src->rgba, (size_t)src->w * (size_t)src->h * 4u);
+            if (bake) {
+                /* Pre-multiply modulate into pixel data so dst is pure RGBA. */
+                for (i = 0; i < npix; i += 4) {
+                    new_rgba[i+0] = (unsigned char)((src->rgba[i+0] * (unsigned)src->mod_r + 127) / 255);
+                    new_rgba[i+1] = (unsigned char)((src->rgba[i+1] * (unsigned)src->mod_g + 127) / 255);
+                    new_rgba[i+2] = (unsigned char)((src->rgba[i+2] * (unsigned)src->mod_b + 127) / 255);
+                    new_rgba[i+3] = (unsigned char)((src->rgba[i+3] * (unsigned)src->mod_a + 127) / 255);
+                }
+            } else {
+                memcpy(new_rgba, src->rgba, npix);
+            }
             /* Free existing dst if loaded */
             if (dst->loaded && dst->rgba) {
                 free(dst->rgba);
@@ -643,7 +663,14 @@ void gfx_sprite_process_queue(void)
             *dst = *src;           /* copy all scalar fields */
             dst->rgba = new_rgba;  /* replace with independent buffer */
             dst->draw_active = 0;  /* new slot has no draw position yet */
+            if (bake) {
+                /* Reset dst mods — colour is baked into pixels */
+                dst->mod_r = 255; dst->mod_g = 255;
+                dst->mod_b = 255; dst->mod_a = 255;
+                dst->mod_explicit = 0;
+            }
             memset(&g_sprite_draw_pos[c->slot2], 0, sizeof(g_sprite_draw_pos[c->slot2]));
+            gfx_sprite_slot_bump_version(c->slot2);
             break;
         }
         case GFX_SQ_DRAW: {
@@ -979,4 +1006,82 @@ void gfx_canvas_sprite_composite_rgba(const GfxVideoState *s, uint8_t *rgba, int
         }
         } /* end scaled path */
     }
+}
+
+/* ── JS Canvas2D sprite accessor API ───────────────────────────────────────
+ * These let the JS layer query slot state so it can draw sprites via
+ * ctx.drawImage() instead of the software compositor.  Only used in the
+ * WASM canvas build; compiled out elsewhere via #ifdef guards in basic.c.
+ */
+
+/* Returns the RGBA pixel data pointer for slot (NULL if not loaded). */
+unsigned char *gfx_sprite_slot_rgba_ptr(int slot)
+{
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) return NULL;
+    if (!g_sprite_slots[slot].loaded) return NULL;
+    return g_sprite_slots[slot].rgba;
+}
+
+/* Returns slot dimensions; 0 if not loaded. */
+int gfx_sprite_slot_w(int slot)
+{
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) return 0;
+    return g_sprite_slots[slot].w;
+}
+int gfx_sprite_slot_h(int slot)
+{
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) return 0;
+    return g_sprite_slots[slot].h;
+}
+
+/* Returns 1 if slot is loaded and draw_active. */
+int gfx_sprite_slot_draw_active(int slot)
+{
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) return 0;
+    GfxSpriteSlot *sl = &g_sprite_slots[slot];
+    return (sl->loaded && sl->visible && sl->draw_active) ? 1 : 0;
+}
+
+/* Fills draw params for slot. Returns 0 on success, -1 if not active. */
+int gfx_sprite_slot_draw_params(int slot,
+    float *out_x, float *out_y, int *out_z,
+    int *out_dw, int *out_dh,
+    int *out_ma, int *out_mr, int *out_mg, int *out_mb,
+    float *out_sx, float *out_sy)
+{
+    GfxSpriteSlot *sl;
+    float sw, sh;
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) return -1;
+    sl = &g_sprite_slots[slot];
+    if (!sl->loaded || !sl->visible || !sl->draw_active) return -1;
+    sw = (sl->draw_sw > 0) ? (float)sl->draw_sw : (float)(sl->w - sl->draw_sx);
+    sh = (sl->draw_sh > 0) ? (float)sl->draw_sh : (float)(sl->h - sl->draw_sy);
+    *out_x  = sl->draw_x;
+    *out_y  = sl->draw_y;
+    *out_z  = sl->draw_z;
+    *out_dw = (int)(sw * sl->mod_sx + 0.5f);
+    *out_dh = (int)(sh * sl->mod_sy + 0.5f);
+    *out_ma = sl->mod_a;
+    *out_mr = sl->mod_r;
+    *out_mg = sl->mod_g;
+    *out_mb = sl->mod_b;
+    *out_sx = sl->mod_sx;
+    *out_sy = sl->mod_sy;
+    return 0;
+}
+
+/* Version counter incremented whenever slot RGBA data changes (load/copy/unload).
+ * JS uses this to know when to rebuild its ImageBitmap cache for a slot. */
+static unsigned int g_sprite_slot_version[GFX_SPRITE_MAX_SLOTS];
+
+unsigned int gfx_sprite_slot_version(int slot)
+{
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) return 0;
+    return g_sprite_slot_version[slot];
+}
+
+void gfx_sprite_slot_bump_version(int slot)
+{
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) return;
+    g_sprite_slot_version[slot]++;
 }

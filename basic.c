@@ -3018,7 +3018,7 @@ static const char *const reserved_words[] = {
     "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LINE", "LOAD", "LOADSPRITE", "LOCATE", "LOG",
     "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET",     "PRINT", "PUTBYTE",
     "XOR",
-    "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITECOPY", "SPRITEFRAME", "SPRITEMODULATE", "SPRITETILES", "SPRITEVISIBLE",
+    "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITECOPY", "SPRITEFRAME", "SPRITEMODIFY", "SPRITEMODULATE", "SPRITETILES", "SPRITEVISIBLE",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
     "DRAWSPRITE", "DRAWSPRITETILE", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
@@ -10852,7 +10852,12 @@ static void execute_statement(char **p)
             return;
         }
         if (starts_with_kw(*p, "SPRITEMODULATE")) {
-            *p += 15;
+            *p += 14;
+            statement_spritemodulate(p);
+            return;
+        }
+        if (starts_with_kw(*p, "SPRITEMODIFY")) {
+            *p += 12;
             statement_spritemodulate(p);
             return;
         }
@@ -12060,6 +12065,71 @@ EMSCRIPTEN_KEEPALIVE uint8_t *wasm_gfx_rgba_ptr(void)
 EMSCRIPTEN_KEEPALIVE uint32_t wasm_gfx_rgba_version_read(void)
 {
     return wasm_gfx_rgba_version;
+}
+
+/* Canvas2D sprite backend: when JS sets this to 1 it handles sprite blitting
+ * via ctx.drawImage(); the software compositor skips the sprite layer. */
+static int wasm_gfx_js_sprite_backend = 0;
+
+EMSCRIPTEN_KEEPALIVE void wasm_gfx_set_js_sprite_backend(int enable)
+{
+    wasm_gfx_js_sprite_backend = enable;
+}
+
+EMSCRIPTEN_KEEPALIVE int wasm_gfx_get_js_sprite_backend(void)
+{
+    return wasm_gfx_js_sprite_backend;
+}
+
+/* Sprite slot accessors for Canvas2D JS backend. */
+EMSCRIPTEN_KEEPALIVE unsigned char *wasm_gfx_sprite_rgba_ptr(int slot)
+{
+    return gfx_sprite_slot_rgba_ptr(slot);
+}
+
+EMSCRIPTEN_KEEPALIVE int wasm_gfx_sprite_w(int slot)
+{
+    return gfx_sprite_slot_w(slot);
+}
+
+EMSCRIPTEN_KEEPALIVE int wasm_gfx_sprite_h(int slot)
+{
+    return gfx_sprite_slot_h(slot);
+}
+
+EMSCRIPTEN_KEEPALIVE unsigned int wasm_gfx_sprite_version(int slot)
+{
+    return gfx_sprite_slot_version(slot);
+}
+
+/* Returns packed draw params as a flat float array written to out_buf (14 floats):
+ * [x, y, z, dw, dh, ma, mr, mg, mb, mod_sx, mod_sy, draw_active, scroll_x, scroll_y]
+ * Returns 1 if active, 0 if not. */
+EMSCRIPTEN_KEEPALIVE int wasm_gfx_sprite_draw_params(int slot, float *out_buf)
+{
+    float x, y, sx, sy;
+    int z, dw, dh, ma, mr, mg, mb;
+    if (!out_buf) return 0;
+    if (gfx_sprite_slot_draw_params(slot, &x, &y, &z, &dw, &dh,
+                                     &ma, &mr, &mg, &mb, &sx, &sy) != 0) {
+        out_buf[11] = 0.0f;
+        return 0;
+    }
+    out_buf[0]  = x;
+    out_buf[1]  = y;
+    out_buf[2]  = (float)z;
+    out_buf[3]  = (float)dw;
+    out_buf[4]  = (float)dh;
+    out_buf[5]  = (float)ma;
+    out_buf[6]  = (float)mr;
+    out_buf[7]  = (float)mg;
+    out_buf[8]  = (float)mb;
+    out_buf[9]  = sx;
+    out_buf[10] = sy;
+    out_buf[11] = 1.0f;
+    out_buf[12] = gfx_vs ? gfx_vs->scroll_x : 0.0f;
+    out_buf[13] = gfx_vs ? gfx_vs->scroll_y : 0.0f;
+    return 1;
 }
 
 /* Test hook: read 1bpp bitmap pixel (for CI bitmap render verification). */
