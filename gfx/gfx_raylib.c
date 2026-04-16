@@ -762,12 +762,6 @@ static void gfx_sprite_process_queue(void)
             bake = (c->mod_r != 255 || c->mod_g != 255 ||
                     c->mod_b != 255 || c->mod_a != 255);
 
-            printf("SPRITECOPY slot=%d->%d bake=%d mod=(%d,%d,%d,%d) scale=(%.2f,%.2f) path=%s\n",
-                   c->slot, dst, bake,
-                   c->mod_r, c->mod_g, c->mod_b, c->mod_a,
-                   c->mod_sx, c->mod_sy, src_snap.src_path);
-            fflush(stdout);
-
             /* Load from disk (CPU-side), optionally tint pixels, upload to GPU.
              * Avoids GPU readback and ImageColorTint() version dependency. */
             if (bake && src_snap.src_path[0] != '\0') {
