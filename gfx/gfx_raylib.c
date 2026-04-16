@@ -42,6 +42,9 @@ typedef struct {
     int z;
     int sx, sy, sw, sh;
     int tile_w, tile_h; /* LOADSPRITE tilemap: >0 = grid cell size */
+    /* COPY: mod values snapshotted at enqueue time */
+    int mod_a, mod_r, mod_g, mod_b;
+    float mod_sx, mod_sy;
 } GfxSpriteCmd;
 
 typedef struct {
@@ -240,6 +243,15 @@ void gfx_sprite_enqueue_copy(int src_slot, int dst_slot)
     c.kind  = GFX_SQ_COPY;
     c.slot  = src_slot;
     c.slot2 = dst_slot;
+    /* Snapshot mod values now (interpreter thread) so render thread sees them */
+    pthread_mutex_lock(&g_sprite_mutex);
+    c.mod_a  = g_sprite_slots[src_slot].mod_a;
+    c.mod_r  = g_sprite_slots[src_slot].mod_r;
+    c.mod_g  = g_sprite_slots[src_slot].mod_g;
+    c.mod_b  = g_sprite_slots[src_slot].mod_b;
+    c.mod_sx = g_sprite_slots[src_slot].mod_sx;
+    c.mod_sy = g_sprite_slots[src_slot].mod_sy;
+    pthread_mutex_unlock(&g_sprite_mutex);
     (void)sprite_q_push(&c);
 }
 
@@ -747,13 +759,13 @@ static void gfx_sprite_process_queue(void)
             src_snap = g_sprite_slots[c->slot]; /* snapshot under lock */
             pthread_mutex_unlock(&g_sprite_mutex);
 
-            bake = (src_snap.mod_r != 255 || src_snap.mod_g != 255 ||
-                    src_snap.mod_b != 255 || src_snap.mod_a != 255);
+            bake = (c->mod_r != 255 || c->mod_g != 255 ||
+                    c->mod_b != 255 || c->mod_a != 255);
 
             printf("SPRITECOPY slot=%d->%d bake=%d mod=(%d,%d,%d,%d) scale=(%.2f,%.2f) path=%s\n",
                    c->slot, dst, bake,
-                   src_snap.mod_r, src_snap.mod_g, src_snap.mod_b, src_snap.mod_a,
-                   src_snap.mod_sx, src_snap.mod_sy, src_snap.src_path);
+                   c->mod_r, c->mod_g, c->mod_b, c->mod_a,
+                   c->mod_sx, c->mod_sy, src_snap.src_path);
             fflush(stdout);
 
             /* Load from disk (CPU-side), optionally tint pixels, upload to GPU.
@@ -770,10 +782,10 @@ static void gfx_sprite_process_queue(void)
                     unsigned char *px = (unsigned char *)img.data;
                     int npix = img.width * img.height;
                     int i;
-                    unsigned mr = (unsigned)src_snap.mod_r;
-                    unsigned mg = (unsigned)src_snap.mod_g;
-                    unsigned mb = (unsigned)src_snap.mod_b;
-                    unsigned ma = (unsigned)src_snap.mod_a;
+                    unsigned mr = (unsigned)c->mod_r;
+                    unsigned mg = (unsigned)c->mod_g;
+                    unsigned mb = (unsigned)c->mod_b;
+                    unsigned ma = (unsigned)c->mod_a;
                     for (i = 0; i < npix; i++) {
                         px[i*4+0] = (unsigned char)((px[i*4+0] * mr + 127) / 255);
                         px[i*4+1] = (unsigned char)((px[i*4+1] * mg + 127) / 255);
@@ -794,6 +806,9 @@ static void gfx_sprite_process_queue(void)
             g_sprite_slots[dst]          = src_snap;
             g_sprite_slots[dst].tex      = new_tex;
             g_sprite_slots[dst].draw_active = 0;
+            /* Apply scale from cmd; reset colour mods since they're baked in */
+            g_sprite_slots[dst].mod_sx = c->mod_sx > 0.0f ? c->mod_sx : 1.0f;
+            g_sprite_slots[dst].mod_sy = c->mod_sy > 0.0f ? c->mod_sy : 1.0f;
             if (bake) {
                 g_sprite_slots[dst].mod_r = 255;
                 g_sprite_slots[dst].mod_g = 255;
