@@ -175,7 +175,7 @@ void gfx_sprite_enqueue_copy(int src_slot, int dst_slot)
     GfxSpriteCmd c;
     if (src_slot < 0 || src_slot >= GFX_SPRITE_MAX_SLOTS) return;
     if (dst_slot < 0 || dst_slot >= GFX_SPRITE_MAX_SLOTS) return;
-    if (src_slot == dst_slot) return;
+    if (src_slot == dst_slot) return; /* use a spare slot to bake in-place */
     memset(&c, 0, sizeof(c));
     c.kind  = GFX_SQ_COPY;
     c.slot  = src_slot;

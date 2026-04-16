@@ -238,7 +238,7 @@ void gfx_sprite_enqueue_copy(int src_slot, int dst_slot)
     GfxSpriteCmd c;
     if (src_slot < 0 || src_slot >= GFX_SPRITE_MAX_SLOTS) return;
     if (dst_slot < 0 || dst_slot >= GFX_SPRITE_MAX_SLOTS) return;
-    if (src_slot == dst_slot) return;
+    if (src_slot == dst_slot) return; /* use a spare slot to bake in-place */
     memset(&c, 0, sizeof(c));
     c.kind  = GFX_SQ_COPY;
     c.slot  = src_slot;
@@ -764,7 +764,9 @@ static void gfx_sprite_process_queue(void)
 
             /* Load from disk (CPU-side), optionally tint pixels, upload to GPU.
              * Avoids GPU readback and ImageColorTint() version dependency. */
-            if (bake && src_snap.src_path[0] != '\0') {
+            /* Always load from disk when path is available — LoadImageFromTexture
+             * can lose palette-based alpha on GPU readback. */
+            if (src_snap.src_path[0] != '\0') {
                 img = LoadImage(src_snap.src_path);
             } else {
                 img = LoadImageFromTexture(src_snap.tex);
@@ -797,10 +799,18 @@ static void gfx_sprite_process_queue(void)
             if (g_sprite_slots[dst].loaded) {
                 UnloadTexture(g_sprite_slots[dst].tex);
             }
-            /* Preserve any scale already set on dst by SPRITEMODIFY after enqueue */
+            /* Preserve any mods/scale explicitly set on dst by SPRITEMODIFY
+             * after the copy was enqueued (interpreter runs ahead of render). */
             float dst_sx = g_sprite_slots[dst].mod_sx;
             float dst_sy = g_sprite_slots[dst].mod_sy;
             int   dst_sx_set = (dst_sx != 1.0f || dst_sy != 1.0f);
+            /* For self-copy (src==dst), don't preserve dst mods — they ARE the
+             * source mods that we just baked into the pixels. */
+            int   dst_mod_explicit = (dst != c->slot) ? g_sprite_slots[dst].mod_explicit : 0;
+            int   dst_ma = g_sprite_slots[dst].mod_a;
+            int   dst_mr = g_sprite_slots[dst].mod_r;
+            int   dst_mg = g_sprite_slots[dst].mod_g;
+            int   dst_mb = g_sprite_slots[dst].mod_b;
             g_sprite_slots[dst]          = src_snap;
             g_sprite_slots[dst].tex      = new_tex;
             g_sprite_slots[dst].draw_active = 0;
@@ -808,11 +818,20 @@ static void gfx_sprite_process_queue(void)
             g_sprite_slots[dst].mod_sx = dst_sx_set ? dst_sx : 1.0f;
             g_sprite_slots[dst].mod_sy = dst_sx_set ? dst_sy : 1.0f;
             if (bake) {
-                g_sprite_slots[dst].mod_r = 255;
-                g_sprite_slots[dst].mod_g = 255;
-                g_sprite_slots[dst].mod_b = 255;
-                g_sprite_slots[dst].mod_a = 255;
-                g_sprite_slots[dst].mod_explicit = 0;
+                /* Pixels are baked — reset mods unless dst got new ones */
+                if (dst_mod_explicit) {
+                    g_sprite_slots[dst].mod_a = dst_ma;
+                    g_sprite_slots[dst].mod_r = dst_mr;
+                    g_sprite_slots[dst].mod_g = dst_mg;
+                    g_sprite_slots[dst].mod_b = dst_mb;
+                    g_sprite_slots[dst].mod_explicit = 1;
+                } else {
+                    g_sprite_slots[dst].mod_r = 255;
+                    g_sprite_slots[dst].mod_g = 255;
+                    g_sprite_slots[dst].mod_b = 255;
+                    g_sprite_slots[dst].mod_a = 255;
+                    g_sprite_slots[dst].mod_explicit = 0;
+                }
             }
             memset(&g_sprite_draw_pos[dst], 0, sizeof(g_sprite_draw_pos[dst]));
             pthread_mutex_unlock(&g_sprite_mutex);
@@ -859,7 +878,11 @@ static void gfx_sprite_shutdown(void)
     pthread_mutex_unlock(&g_sprite_mutex);
 }
 
-static void gfx_sprite_composite(const GfxVideoState *vs, RenderTexture2D target, int nat_w, int nat_h)
+/* z_min/z_max filter which sprites to draw (inclusive).
+ * Pass INT_MIN/INT_MAX to draw all. */
+static void gfx_sprite_composite_range(const GfxVideoState *vs, RenderTexture2D target,
+                                        int nat_w, int nat_h, int z_min, int z_max,
+                                        int process_queue)
 {
     GfxSpriteDraw draws[GFX_SPRITE_MAX_SLOTS];
     int nd = 0;
@@ -871,12 +894,16 @@ static void gfx_sprite_composite(const GfxVideoState *vs, RenderTexture2D target
         scy = (float)vs->scroll_y;
     }
 
-    gfx_sprite_process_queue();
+    if (process_queue)
+        gfx_sprite_process_queue();
 
     pthread_mutex_lock(&g_sprite_mutex);
     for (i = 0; i < GFX_SPRITE_MAX_SLOTS; i++) {
         if (!g_sprite_slots[i].loaded || !g_sprite_slots[i].visible ||
             !g_sprite_slots[i].draw_active) {
+            continue;
+        }
+        if (g_sprite_slots[i].draw_z < z_min || g_sprite_slots[i].draw_z > z_max) {
             continue;
         }
         if (nd >= GFX_SPRITE_MAX_SLOTS) {
@@ -1309,12 +1336,15 @@ int main(int argc, char **argv)
             }
         }
 
+        /* Background sprites (z < 0) draw behind text */
+        gfx_sprite_composite_range(&vs, target, nat_w, nat_h, -32768, -1, 1);
         if (vs.screen_mode == GFX_SCREEN_BITMAP) {
             render_bitmap_screen(&vs, target, nat_w);
         } else {
             render_text_screen(&vs, target);
         }
-        gfx_sprite_composite(&vs, target, nat_w, nat_h);
+        /* Foreground sprites (z >= 0) draw on top of text */
+        gfx_sprite_composite_range(&vs, target, nat_w, nat_h, 0, 32767, 0);
 
         {
             int border = basic_get_gfx_border();
