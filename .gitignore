@@ -73,7 +73,7 @@ CHARS.DAT
 # Local Emscripten SDK (optional: clone here and source emsdk/emsdk_env.sh)
 emsdk/
 
-# Web/WASM build artifacts
+# Web/WASM build artifacts (web/ prefix)
 web/basic.js
 web/basic.wasm
 web/basic.wasm.map
@@ -83,6 +83,26 @@ web/basic-canvas.wasm.map
 web/basic-modular.js
 web/basic-modular.wasm
 web/basic-modular.wasm.map
+
+# Artifacts copied to submodule root by 8bitworkshop sync-rgc-basic.sh
+basic-canvas.js
+basic-canvas.wasm
+basic-modular.js
+basic-modular.wasm
+basic.js
+basic.wasm
+asset-cb.txt
+canvas.html
+gfx_canvas_demo.png
+host-exec-example.html
+index.html
+mouse-demo.html
+tutorial-embed.js
+tutorial-example.html
+tutorial-gfx-features.html
+tutorial.html
+vfs-helpers.js
+wasm_httpfetch_test.bin
 
 # WordPress plugin: copy from `web/` with wordpress/rgc-basic-tutorial-block/copy-web-assets.sh
 wordpress/rgc-basic-tutorial-block/assets/wasm/*

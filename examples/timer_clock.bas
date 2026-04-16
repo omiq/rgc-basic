@@ -50,10 +50,11 @@ END FUNCTION
 
 TIMER 1, 1000, TickClock
 
+DO
 REM --- main loop: count to 30, one step per second ---
 n = 0
 WHILE n < 30
-  SLEEP 60
+  SLEEP 30
   n = n + 1
   LOCATE 11, 2
   PRINT STR(INT(n)) + "/30  "
@@ -61,4 +62,5 @@ WEND
 
 TIMER CLEAR 1
 LOCATE 0, 4
-PRINT "Done."
+LOOP
+

@@ -251,6 +251,105 @@ static int native_http_fetch_to_file(const char *url, const char *path, const ch
     *status_out = http_code;
     return (http_code > 0) ? 0 : -1;
 }
+
+/*
+ * Native HTTP$ implementation: fetch URL body into a caller-supplied buffer.
+ * Uses two pipes: body_pipe captures stdout (response body), code_pipe captures
+ * the -w "%{http_code}" status line written to a second fd via shell redirection.
+ * Simpler approach: write body to a temp file, status to stdout (same as fetch_to_file).
+ * Returns 0 on success, -1 on error. Sets *status_out and fills out[0..out_cap-1].
+ * If curl is not found (exit 127), prints a diagnostic and returns -1.
+ */
+static int native_http_fetch_to_str(const char *url, char *out, size_t out_cap, int *status_out)
+{
+    pid_t pid;
+    int body_pipe[2];   /* child stdout → response body */
+    int code_pipe[2];   /* child stderr redirect → status code via -w */
+    int st;
+    char codebuf[32];
+    size_t cpos = 0, bpos = 0;
+    ssize_t n;
+    int http_code = 0;
+    int curl_not_found = 0;
+
+    if (!url || !url[0] || !out || out_cap == 0 || !status_out) {
+        if (status_out) *status_out = 0;
+        return -1;
+    }
+    out[0] = '\0';
+    *status_out = 0;
+
+    if (pipe(body_pipe) != 0) return -1;
+    if (pipe(code_pipe) != 0) { close(body_pipe[0]); close(body_pipe[1]); return -1; }
+
+    pid = fork();
+    if (pid < 0) {
+        close(body_pipe[0]); close(body_pipe[1]);
+        close(code_pipe[0]); close(code_pipe[1]);
+        return -1;
+    }
+    if (pid == 0) {
+        /* Child: body → stdout pipe, status code → code pipe via fd 3 */
+        dup2(body_pipe[1], STDOUT_FILENO);
+        dup2(code_pipe[1], 3);
+        close(body_pipe[0]); close(body_pipe[1]);
+        close(code_pipe[0]); close(code_pipe[1]);
+        /* Redirect stderr to /dev/null to keep output clean */
+        int devnull = open("/dev/null", 1 /* O_WRONLY */);
+        if (devnull >= 0) dup2(devnull, STDERR_FILENO);
+        execlp("curl", "curl", "-sS", "-L", "--write-out", "%{http_code}", "--output", "-",
+               "--stderr", "/dev/null", url, (char *)NULL);
+        _exit(127);
+    }
+
+    /* Parent: close write ends */
+    close(body_pipe[1]);
+    close(code_pipe[1]);
+
+    /*
+     * curl --write-out goes to stdout AFTER body, so body + status are both
+     * on body_pipe. Read everything; last 3 bytes are the status code.
+     */
+    while (bpos < out_cap - 1) {
+        n = read(body_pipe[0], out + bpos, out_cap - 1 - bpos);
+        if (n <= 0) break;
+        bpos += (size_t)n;
+    }
+    /* Drain any overflow silently */
+    { char drain[256]; while (read(body_pipe[0], drain, sizeof(drain)) > 0) {} }
+    close(body_pipe[0]);
+    close(code_pipe[0]);
+
+    waitpid(pid, &st, 0);
+
+    if (WIFEXITED(st) && WEXITSTATUS(st) == 127) {
+        curl_not_found = 1;
+    }
+
+    if (curl_not_found) {
+        printf("HTTP$: curl not found — install curl to use HTTP$ in the terminal build\n");
+        fflush(stdout);
+        out[0] = '\0';
+        *status_out = 0;
+        return -1;
+    }
+
+    /*
+     * The last 3 characters written by curl are the HTTP status digits.
+     * Strip them from the body and parse.
+     */
+    if (bpos >= 3) {
+        cpos = 3;
+        memcpy(codebuf, out + bpos - 3, 3);
+        codebuf[3] = '\0';
+        http_code = (int)atoi(codebuf);
+        if (http_code < 100 || http_code > 999) http_code = 0;
+        bpos -= 3;
+    }
+    out[bpos] = '\0';
+    *status_out = http_code;
+    return (http_code > 0) ? 0 : -1;
+}
 #endif /* unix native */
 
 /* Fetch URL to local path; sets *status_out to HTTP status (0 on failure). Returns 0 if OK, -1 on error. */
@@ -5524,11 +5623,20 @@ static struct value eval_function(const char *name, char **p)
         wasm_http_fetch_emscripten(v_url.str, meth, bod, blen, outbuf, sizeof(outbuf), &st);
         http_last_status = st;
         return make_str(outbuf);
+#elif (defined(__unix__) || defined(__linux__) || defined(__APPLE__) || defined(__MACH__))
+        (void)meth;  /* GET-only for native MVP */
+        (void)bod;
+        (void)blen;
+        native_http_fetch_to_str(v_url.str, outbuf, sizeof(outbuf), &st);
+        http_last_status = st;
+        return make_str(outbuf);
 #else
         (void)meth;
         (void)bod;
         (void)blen;
         http_last_status = 0;
+        printf("HTTP$: not supported on this platform\n");
+        fflush(stdout);
         return make_str("");
 #endif
     }
