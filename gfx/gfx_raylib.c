@@ -745,15 +745,27 @@ static void gfx_sprite_process_queue(void)
             bake = (src_snap.mod_r != 255 || src_snap.mod_g != 255 ||
                     src_snap.mod_b != 255 || src_snap.mod_a != 255);
 
-            /* Download pixels, optionally tint, then upload fresh texture */
+            /* Download pixels, optionally tint, then upload fresh texture.
+             * Manual per-pixel multiply avoids ImageColorTint() version dependency. */
             img = LoadImageFromTexture(src_snap.tex);
             if (bake) {
-                Color tint;
-                tint.r = (unsigned char)src_snap.mod_r;
-                tint.g = (unsigned char)src_snap.mod_g;
-                tint.b = (unsigned char)src_snap.mod_b;
-                tint.a = (unsigned char)src_snap.mod_a;
-                ImageColorTint(&img, tint);
+                /* Convert to RGBA32 for direct pixel access */
+                ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+                if (img.data) {
+                    unsigned char *px = (unsigned char *)img.data;
+                    int npix = img.width * img.height;
+                    int i;
+                    unsigned mr = (unsigned)src_snap.mod_r;
+                    unsigned mg = (unsigned)src_snap.mod_g;
+                    unsigned mb = (unsigned)src_snap.mod_b;
+                    unsigned ma = (unsigned)src_snap.mod_a;
+                    for (i = 0; i < npix; i++) {
+                        px[i*4+0] = (unsigned char)((px[i*4+0] * mr + 127) / 255);
+                        px[i*4+1] = (unsigned char)((px[i*4+1] * mg + 127) / 255);
+                        px[i*4+2] = (unsigned char)((px[i*4+2] * mb + 127) / 255);
+                        px[i*4+3] = (unsigned char)((px[i*4+3] * ma + 127) / 255);
+                    }
+                }
             }
             new_tex = LoadTextureFromImage(img);
             UnloadImage(img);
