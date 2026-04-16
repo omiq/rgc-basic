@@ -2702,6 +2702,7 @@ static void statement_mousehide(char **p);
 static void statement_mouseshow(char **p);
 #endif
 static void statement_unloadsprite(char **p);  /* basic-gfx only; terminal errors */
+static void statement_spritecopy(char **p);    /* basic-gfx only; terminal errors */
 static void statement_else(char **p);
 static void statement_end_if(char **p);
 static void statement_return(char **p);
@@ -3017,7 +3018,7 @@ static const char *const reserved_words[] = {
     "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LINE", "LOAD", "LOADSPRITE", "LOCATE", "LOG",
     "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET",     "PRINT", "PUTBYTE",
     "XOR",
-    "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITEFRAME", "SPRITEMODULATE", "SPRITETILES", "SPRITEVISIBLE",
+    "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITECOPY", "SPRITEFRAME", "SPRITEMODULATE", "SPRITETILES", "SPRITEVISIBLE",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
     "DRAWSPRITE", "DRAWSPRITETILE", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
@@ -5055,6 +5056,34 @@ static void statement_unloadsprite(char **p)
     }
 #endif
     runtime_error_hint("UNLOADSPRITE requires basic-gfx",
+                         "Sprite slots exist only in basic-gfx or canvas WASM.");
+}
+
+/* SPRITECOPY src, dst — clone sprite slot src into dst (basic-gfx / canvas WASM only).
+ * Copies pixel data and metadata; dst becomes independently unloadable. */
+static void statement_spritecopy(char **p)
+{
+    struct value vsrc, vdst;
+    skip_spaces(p);
+    vsrc = eval_expr(p);
+    ensure_num(&vsrc);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("SPRITECOPY expects src, dst",
+                             "Example: SPRITECOPY 0, 1  (clone slot 0 into slot 1)");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    vdst = eval_expr(p);
+    ensure_num(&vdst);
+#ifdef GFX_VIDEO
+    if (gfx_vs) {
+        gfx_sprite_enqueue_copy((int)vsrc.num, (int)vdst.num);
+        return;
+    }
+#endif
+    runtime_error_hint("SPRITECOPY requires basic-gfx",
                          "Sprite slots exist only in basic-gfx or canvas WASM.");
 }
 
@@ -10829,6 +10858,11 @@ static void execute_statement(char **p)
         if (starts_with_kw(*p, "SPRITEFRAME")) {
             *p += 11;
             statement_spriteframe(p);
+            return;
+        }
+        if (starts_with_kw(*p, "SPRITECOPY")) {
+            *p += 10;
+            statement_spritecopy(p);
             return;
         }
 #endif

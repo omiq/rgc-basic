@@ -74,6 +74,7 @@ int gfx_sprite_effective_source_rect(int slot, int *sx, int *sy, int *sw, int *s
 void gfx_sprite_enqueue_load(int slot, const char *path);
 void gfx_sprite_enqueue_unload(int slot);  /* BASIC: UNLOADSPRITE slot */
 void gfx_sprite_enqueue_visible(int slot, int on);
+void gfx_sprite_enqueue_copy(int src_slot, int dst_slot);  /* BASIC: SPRITECOPY src, dst */
 /* sw/sh <= 0 means use full sub-texture from (sx,sy) to bottom-right. */
 void gfx_sprite_enqueue_draw(int slot, float x, float y, int z, int sx, int sy, int sw, int sh);
 /* Per-slot draw tint/scale until next LOADSPRITE/UNLOADSPRITE (basic-gfx / canvas WASM).

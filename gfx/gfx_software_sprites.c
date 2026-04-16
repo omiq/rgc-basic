@@ -22,12 +22,14 @@ typedef enum {
     GFX_SQ_LOAD = 1,
     GFX_SQ_UNLOAD,
     GFX_SQ_DRAW,
-    GFX_SQ_VISIBLE
+    GFX_SQ_VISIBLE,
+    GFX_SQ_COPY
 } GfxSpriteQKind;
 
 typedef struct {
     GfxSpriteQKind kind;
     int slot;
+    int slot2; /* COPY: destination slot */
     char path[GFX_SPRITE_PATH_MAX];
     float x, y;
     int z;
@@ -160,6 +162,19 @@ void gfx_sprite_enqueue_visible(int slot, int on)
     c.kind = GFX_SQ_VISIBLE;
     c.slot = slot;
     c.z = on ? 1 : 0;
+    (void)sprite_q_push(&c);
+}
+
+void gfx_sprite_enqueue_copy(int src_slot, int dst_slot)
+{
+    GfxSpriteCmd c;
+    if (src_slot < 0 || src_slot >= GFX_SPRITE_MAX_SLOTS) return;
+    if (dst_slot < 0 || dst_slot >= GFX_SPRITE_MAX_SLOTS) return;
+    if (src_slot == dst_slot) return;
+    memset(&c, 0, sizeof(c));
+    c.kind  = GFX_SQ_COPY;
+    c.slot  = src_slot;
+    c.slot2 = dst_slot;
     (void)sprite_q_push(&c);
 }
 
@@ -609,6 +624,26 @@ void gfx_sprite_process_queue(void)
             sl->mod_sx = 1.0f;
             sl->mod_sy = 1.0f;
             sl->mod_explicit = 0;
+            break;
+        }
+        case GFX_SQ_COPY: {
+            /* Clone src slot pixel data into dst slot (independent allocation). */
+            GfxSpriteSlot *src = &g_sprite_slots[c->slot];
+            GfxSpriteSlot *dst = &g_sprite_slots[c->slot2];
+            unsigned char *new_rgba = NULL;
+            if (!src->loaded || !src->rgba || src->w <= 0 || src->h <= 0) break;
+            new_rgba = (unsigned char *)malloc((size_t)src->w * (size_t)src->h * 4u);
+            if (!new_rgba) break;
+            memcpy(new_rgba, src->rgba, (size_t)src->w * (size_t)src->h * 4u);
+            /* Free existing dst if loaded */
+            if (dst->loaded && dst->rgba) {
+                free(dst->rgba);
+                dst->rgba = NULL;
+            }
+            *dst = *src;           /* copy all scalar fields */
+            dst->rgba = new_rgba;  /* replace with independent buffer */
+            dst->draw_active = 0;  /* new slot has no draw position yet */
+            memset(&g_sprite_draw_pos[c->slot2], 0, sizeof(g_sprite_draw_pos[c->slot2]));
             break;
         }
         case GFX_SQ_DRAW: {

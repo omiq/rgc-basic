@@ -29,12 +29,14 @@ typedef enum {
     GFX_SQ_LOAD = 1,
     GFX_SQ_UNLOAD,
     GFX_SQ_DRAW,
-    GFX_SQ_VISIBLE
+    GFX_SQ_VISIBLE,
+    GFX_SQ_COPY
 } GfxSpriteQKind;
 
 typedef struct {
     GfxSpriteQKind kind;
     int slot;
+    int slot2; /* COPY: destination slot */
     char path[GFX_SPRITE_PATH_MAX];
     float x, y;
     int z;
@@ -223,6 +225,19 @@ void gfx_sprite_enqueue_visible(int slot, int on)
     c.kind = GFX_SQ_VISIBLE;
     c.slot = slot;
     c.z = on ? 1 : 0;
+    (void)sprite_q_push(&c);
+}
+
+void gfx_sprite_enqueue_copy(int src_slot, int dst_slot)
+{
+    GfxSpriteCmd c;
+    if (src_slot < 0 || src_slot >= GFX_SPRITE_MAX_SLOTS) return;
+    if (dst_slot < 0 || dst_slot >= GFX_SPRITE_MAX_SLOTS) return;
+    if (src_slot == dst_slot) return;
+    memset(&c, 0, sizeof(c));
+    c.kind  = GFX_SQ_COPY;
+    c.slot  = src_slot;
+    c.slot2 = dst_slot;
     (void)sprite_q_push(&c);
 }
 
@@ -708,6 +723,38 @@ static void gfx_sprite_process_queue(void)
             }
             pthread_mutex_unlock(&g_sprite_mutex);
             break;
+        case GFX_SQ_COPY: {
+            /* Clone src GPU texture into dst slot (independent Texture2D). */
+            Texture2D new_tex;
+            Image img;
+            GfxSpriteSlot src_snap;
+            int dst = c->slot2;
+            pthread_mutex_lock(&g_sprite_mutex);
+            if (!g_sprite_slots[c->slot].loaded) {
+                pthread_mutex_unlock(&g_sprite_mutex);
+                break;
+            }
+            src_snap = g_sprite_slots[c->slot]; /* snapshot under lock */
+            pthread_mutex_unlock(&g_sprite_mutex);
+
+            /* GetTextureData downloads pixels to CPU; LoadTextureFromImage uploads fresh copy */
+            img = LoadImageFromTexture(src_snap.tex);
+            new_tex = LoadTextureFromImage(img);
+            UnloadImage(img);
+            if (new_tex.id == 0) break;
+            SetTextureFilter(new_tex, TEXTURE_FILTER_POINT);
+
+            pthread_mutex_lock(&g_sprite_mutex);
+            if (g_sprite_slots[dst].loaded) {
+                UnloadTexture(g_sprite_slots[dst].tex);
+            }
+            g_sprite_slots[dst]          = src_snap;
+            g_sprite_slots[dst].tex      = new_tex;
+            g_sprite_slots[dst].draw_active = 0;
+            memset(&g_sprite_draw_pos[dst], 0, sizeof(g_sprite_draw_pos[dst]));
+            pthread_mutex_unlock(&g_sprite_mutex);
+            break;
+        }
         case GFX_SQ_DRAW:
             pthread_mutex_lock(&g_sprite_mutex);
             if (c->slot >= 0 && c->slot < GFX_SPRITE_MAX_SLOTS) {

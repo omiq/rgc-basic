@@ -8,6 +8,7 @@
 
 void gfx_sprite_process_queue(void);
 void gfx_sprite_shutdown(void);
+void gfx_sprite_enqueue_copy(int src_slot, int dst_slot);
 
 /* Alpha-composite active DRAWSPRITE slots (after text/bitmap layer is in rgba). */
 void gfx_canvas_sprite_composite_rgba(const GfxVideoState *s, uint8_t *rgba, int fb_w, int fb_h);
