@@ -10507,8 +10507,9 @@ static void execute_statement(char **p)
     }
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
     wasm_gfx_stmt_exec_budget++;
-    /* Rare: tight FOR/NEXT (pause/resume test) must advance POKE every few ms when unpaused. */
-    if ((wasm_gfx_stmt_exec_budget & 127u) == 0u) {
+    /* Rare: tight FOR/NEXT (pause/resume test) must advance POKE every few ms when unpaused.
+     * 511 statements between yields keeps Asyncify overhead low for sprite-heavy loops. */
+    if ((wasm_gfx_stmt_exec_budget & 511u) == 0u) {
         wasm_browser_pause_point();
         if (!halted) {
             wasm_gfx_refresh_js();
