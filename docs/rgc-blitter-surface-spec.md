@@ -184,67 +184,64 @@ REM S$ = IMAGEEXPORT$(img, "png")   ' returns empty if too large / fail
 
 **AMOS AMAL** bundled a **mini animation language** tied to **channels** (bobs, sprites, screen offset) so movement could run **in parallel** with your main BASIC logic — a form of **cooperative multitasking** without threads.
 
-RGC-BASIC is **unlikely** to adopt AMAL-style syntax. A more flexible, familiar pattern is **periodic invocation of ordinary BASIC** (subroutine or `FUNCTION`), similar to:
-
-- **Visual Basic `Timer`**: `Interval` in ms, `Enabled`, tick fires → call handler.
-- **“IRQ-light”**: not a hardware interrupt — a **scheduled callback** the runtime dispatches when **safe**.
+RGC-BASIC adopts a more flexible, familiar pattern: **periodic invocation of an ordinary `FUNCTION`**, similar to Visual Basic’s `Timer` control — a scheduled callback the runtime dispatches **cooperatively** at safe points.
 
 That gives the **same practical benefit** as AMAL for cases like **starfields**, **background scrolling**, or **HUD clocks** while **`INPUT` / `INKEY$` / main loop** handle player control — without learning a second language.
 
-### 6.2 Design constraints (must be explicit)
+### 6.2 Design constraints
 
-| Constraint | Rationale |
-|------------|-----------|
-| **Cooperative** | The interpreter is **single-threaded**; there is no preemptive IRQ into arbitrary BASIC mid-statement. |
-| **Safe points** | Timer handlers run only at **defined boundaries**: e.g. **between statements**, **start of each gfx frame**, or when **`SLEEP` / `WAIT`** yields — **TBD** per implementation. |
-| **Re-entrancy** | If the user is inside **`INPUT`**, **`GET`**, or **`SLEEP` (Asyncify)**, the runtime must either **queue** the tick or **defer** until **re-entrant-safe** (same class of problems as **`SPRITEMODULATE` + deferred `LOADSPRITE`** on WASM). |
-| **basic-gfx** | **No** real second POSIX thread calling into the interpreter while Raylib runs; timer = **logical due counter** advanced by the **main loop** or **worker sync**, not `pthread_timer`. |
-| **WASM** | **`setInterval`** in JS can bump a **counter** or **flag** in **`HEAP32`**; WASM **consumes** ticks when safe (mirror **`wasm_gfx_key_state_ptr`** / no **`ccall`** during Asyncify suspend). |
+| Constraint | Detail |
+|------------|--------|
+| **Cooperative** | Single-threaded; no preemptive IRQ mid-statement. Handlers run only between statements or on `SLEEP` / `GET` yields. |
+| **Re-entrancy** | If a timer’s handler is already on the call stack when the timer fires again, the tick is **skipped** (not queued). This avoids stack overflow and keeps behaviour predictable. |
+| **Skip, not queue** | Missed ticks are discarded. The next due time is reset from when the handler *returns*, not when it was scheduled. |
+| **Max timers** | **12** concurrent timers (ids **1–12**). Enough for any realistic use case; keeps the per-statement check cost negligible. |
+| **Minimum interval** | **16 ms** (one ~60 Hz frame). Smaller values are clamped silently. |
+| **All builds** | Timers work in `./basic` (terminal), `basic-gfx` (Raylib), and WASM (canvas). Wall-clock source: `clock()` on POSIX/Windows, `emscripten_get_now()` on WASM. |
+| **Dispatch point** | Between statements in the main interpreter loop (same cadence as the existing yield budget). Also fires on entry to `SLEEP` / `GET` yield loops. |
 
-### 6.3 Proposed surface API (illustrative)
+### 6.3 Surface API
 
-**Option A — GOSUB to a line label (CBM-flavoured):**
+```basic
+‘ Register timer id, interval (ms), handler function name
+TIMER 1, 50, UpdateStars
+TIMER 2, 200, FlashScore
 
+‘ Control
+TIMER STOP 1      ‘ disable (keeps registration, resets due time on re-enable)
+TIMER ON 1        ‘ re-enable a stopped timer
+TIMER CLEAR 1     ‘ remove entirely
+
+DO
+  SLEEP 1
+LOOP
+
+FUNCTION UpdateStars
+  ‘ move star positions each tick
+END FUNCTION
+
+FUNCTION FlashScore
+  ‘ toggle score visibility
+END FUNCTION
 ```
-TIMER 1, 50, GOSUB 500     ' timer id 1, every 50 ms, branch to line 500
-TIMER STOP 1
-TIMER ON 1
-```
 
-**Option B — named procedure (if/when `CALL` / procedure labels align):**
-
-```
-TIMER 1, 50, CALL MoveStarfield
-```
-
-**Option C — polling only (simplest, zero re-entrancy):**
-
-```
-' Runtime sets TIMERDUE(1)=1 when interval elapsed; user clears in handler
-IF TIMERDUE(1) THEN GOSUB 500 : TIMERACK 1
-```
-
-**Units:** **`ms`** (wall) matches **VB**; optional **`JIFFIES`** or **1/60 s** alias for parity with **`TI`** — **open decision**.
-
-**Limits:** Max **N** concurrent timers (small integer ids **1..N**); minimum interval (e.g. **16 ms** clamp) to avoid tight loops.
+**Rules:**
+- Timer ids are integers **1–12**.
+- Interval is in **milliseconds** (minimum 16 ms).
+- Handler must be a `FUNCTION` / `END FUNCTION` block defined in the program; it takes no arguments and its return value is ignored.
+- `TIMER STOP` / `TIMER ON` / `TIMER CLEAR` take only the id as argument.
+- Registering an id that is already active replaces it (new interval + handler).
 
 ### 6.4 Relationship to this spec
 
-- **Blitter / `IMAGE COPY`**: A timer handler can **`IMAGE COPY`** a strip for **parallax**, **scroll** a region, or **nudge** star positions **without** stuffing all logic in the main `DO` loop.
-- **Sprites**: Timer can update **`DRAWSPRITE`** positions or **`SPRITEFRAME`** — same as today’s main loop, just **scheduled**.
-- **Not in Phase 1** for blitter work: timers are **orthogonal**; implement **after** or **in parallel** with **Phase 1 `IMAGE COPY`**, but **document together** so tool authors see the full **STOS/AMOS-like** toolkit.
+- **Blitter / `IMAGE COPY`**: A timer handler can `IMAGE COPY` a strip for parallax, scroll a region, or nudge star positions without stuffing all logic in the main `DO` loop.
+- **Sprites**: Timer can update `DRAWSPRITE` positions or `SPRITEFRAME` — same as today’s main loop, just scheduled.
 
 ### 6.5 Non-goals (v1)
 
-- **Preemptive** real-time guarantees (use native extensions if ever needed).
-- **AMAL** syntax compatibility or **channel** binding to animation strings.
-- **Multiple OS threads** executing BASIC concurrently.
-
-### 6.6 Open decisions
-
-1. **Dispatch point:** per **frame** vs **between every statement** (latter is expensive in WASM).
-2. **Handler form:** **`GOSUB` line** vs **`CALL` name** vs **polling `TIMERDUE`** only.
-3. **GFX-only vs terminal:** Timers may be **no-op** or **error** in **`./basic`** without **`GFX_VIDEO`** — prefer **allowed** with wall-clock on POSIX for **console demos** — **TBD**.
+- Preemptive real-time guarantees.
+- AMAL syntax compatibility or channel binding to animation strings.
+- Multiple OS threads executing BASIC concurrently.
 
 ---
 

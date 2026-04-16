@@ -1255,6 +1255,99 @@ struct udf_call_frame {
 
 static struct udf_call_frame udf_call_stack[MAX_UDF_DEPTH];
 
+/* Forward declarations needed by timer dispatch (defined later in this file). */
+static volatile int halted;
+static int udf_lookup(const char *name, int param_count);
+struct value;  /* incomplete forward — full def follows below */
+static struct value invoke_udf(int func_index, struct value *args, int nargs);
+
+/* -----------------------------------------------------------------------
+ * Periodic timers ("IRQ-light"): TIMER id, ms, FuncName
+ * Cooperative dispatch at safe points in the main loop and sleep loops.
+ * Max 12 concurrent timers, ids 1-12, minimum interval 16 ms.
+ * Re-entrancy: if a handler is already on the call stack, the tick is
+ * skipped (not queued) and the due time is reset from now.
+ * ----------------------------------------------------------------------- */
+#define RGC_TIMER_MAX       12
+#define RGC_TIMER_MIN_MS    16
+
+struct rgc_timer {
+    int      active;                    /* 1 = running, 0 = stopped/empty */
+    int      enabled;                   /* 0 = TIMER STOP'd */
+    int      func_index;                /* index into udf_funcs[], -1 = unset */
+    char     func_name[VAR_NAME_MAX];   /* uppercased name for re-lookup after load */
+    double   interval_ms;
+    double   due_ms;                    /* wall-clock ms when next fire is due */
+    int      running;                   /* re-entrancy guard: 1 while handler executing */
+};
+
+static struct rgc_timer rgc_timers[RGC_TIMER_MAX];
+
+/* Get current wall-clock time in milliseconds. */
+static double timer_get_wall_ms(void)
+{
+#if defined(__EMSCRIPTEN__)
+    return emscripten_get_now();
+#elif defined(_WIN32)
+    return (double)GetTickCount();
+#else
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+        return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1000000.0;
+    }
+    return (double)clock() * 1000.0 / (double)CLOCKS_PER_SEC;
+#endif
+}
+
+/* Re-resolve timer function indices (call after load_program re-builds udf table). */
+static void timers_resolve_funcs(void)
+{
+    int i, fi;
+    for (i = 0; i < RGC_TIMER_MAX; i++) {
+        if (!rgc_timers[i].active || rgc_timers[i].func_name[0] == '\0') continue;
+        fi = udf_lookup(rgc_timers[i].func_name, 0);
+        rgc_timers[i].func_index = fi;  /* -1 if not found (will silently skip) */
+    }
+}
+
+/* Reset all timers — called at start of each run. */
+static void timers_reset(void)
+{
+    int i;
+    for (i = 0; i < RGC_TIMER_MAX; i++) {
+        rgc_timers[i].active   = 0;
+        rgc_timers[i].enabled  = 0;
+        rgc_timers[i].func_index = -1;
+        rgc_timers[i].func_name[0] = '\0';
+        rgc_timers[i].interval_ms = 0.0;
+        rgc_timers[i].due_ms  = 0.0;
+        rgc_timers[i].running = 0;
+    }
+}
+
+/* Dispatch any due timers. Called at safe points in the main loop. */
+static void timers_dispatch(void)
+{
+    int i, fi;
+    double now;
+    struct value no_args[1];
+    if (halted) return;
+    now = timer_get_wall_ms();
+    for (i = 0; i < RGC_TIMER_MAX; i++) {
+        if (!rgc_timers[i].active || !rgc_timers[i].enabled) continue;
+        if (now < rgc_timers[i].due_ms) continue;
+        /* Reset due time before calling handler (skip semantics if re-entrant). */
+        rgc_timers[i].due_ms = now + rgc_timers[i].interval_ms;
+        if (rgc_timers[i].running) continue;  /* re-entrancy guard: skip */
+        fi = rgc_timers[i].func_index;
+        if (fi < 0 || fi >= udf_func_count) continue;  /* function not found */
+        rgc_timers[i].running = 1;
+        invoke_udf(fi, no_args, 0);
+        rgc_timers[i].running = 0;
+        if (halted) return;
+    }
+}
+
 /* User-defined functions created with DEF FN. */
 #define MAX_USER_FUNCS 32
 
@@ -2429,6 +2522,7 @@ static void build_label_table(void);
 static void build_udf_table(void);
 static int find_label_line(const char *name);
 static int udf_lookup(const char *name, int param_count);
+static void statement_timer(char **p);
 static int starts_with_kw(char *p, const char *kw);
 static void skip_spaces(char **p);
 static int parse_number_literal(char **p, double *out);
@@ -2826,7 +2920,7 @@ static const char *const reserved_words[] = {
     "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITEFRAME", "SPRITEMODULATE", "SPRITETILES", "SPRITEVISIBLE",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
-    "DRAWSPRITE", "DRAWSPRITETILE", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
+    "DRAWSPRITE", "DRAWSPRITETILE", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
     "DO", "LOOP", "UNTIL", "EXIT",
     "GETBYTE",
     /* Named colour constants (C64 palette 0-15) and boolean/math constants */
@@ -7972,6 +8066,124 @@ static void statement_textat(char **p)
 }
 
 
+/* TIMER id, interval_ms, FuncName   — register a periodic timer
+ * TIMER STOP id                      — disable (keep registration)
+ * TIMER ON   id                      — re-enable a stopped timer
+ * TIMER CLEAR id                     — remove entirely
+ * ids: 1..RGC_TIMER_MAX, interval: ms (minimum RGC_TIMER_MIN_MS)
+ * handler: a zero-argument FUNCTION / END FUNCTION block
+ */
+static void statement_timer(char **p)
+{
+    struct value vid, vms;
+    int id, fi;
+    double ms;
+    char name[VAR_NAME_MAX];
+    int ni;
+
+    skip_spaces(p);
+
+    /* TIMER STOP / TIMER ON / TIMER CLEAR */
+    if (starts_with_kw(*p, "STOP")) {
+        *p += 4;
+        vid = eval_expr(p);
+        ensure_num(&vid);
+        id = (int)vid.num;
+        if (id < 1 || id > RGC_TIMER_MAX) {
+            runtime_error_hint("TIMER id out of range", "TIMER ids are 1 to 12.");
+            return;
+        }
+        rgc_timers[id - 1].enabled = 0;
+        return;
+    }
+    if (starts_with_kw(*p, "ON")) {
+        *p += 2;
+        vid = eval_expr(p);
+        ensure_num(&vid);
+        id = (int)vid.num;
+        if (id < 1 || id > RGC_TIMER_MAX) {
+            runtime_error_hint("TIMER id out of range", "TIMER ids are 1 to 12.");
+            return;
+        }
+        if (rgc_timers[id - 1].active) {
+            rgc_timers[id - 1].enabled = 1;
+            rgc_timers[id - 1].due_ms  = timer_get_wall_ms() + rgc_timers[id - 1].interval_ms;
+        }
+        return;
+    }
+    if (starts_with_kw(*p, "CLEAR")) {
+        *p += 5;
+        vid = eval_expr(p);
+        ensure_num(&vid);
+        id = (int)vid.num;
+        if (id < 1 || id > RGC_TIMER_MAX) {
+            runtime_error_hint("TIMER id out of range", "TIMER ids are 1 to 12.");
+            return;
+        }
+        rgc_timers[id - 1].active    = 0;
+        rgc_timers[id - 1].enabled   = 0;
+        rgc_timers[id - 1].func_index = -1;
+        rgc_timers[id - 1].func_name[0] = '\0';
+        rgc_timers[id - 1].running   = 0;
+        return;
+    }
+
+    /* TIMER id, interval_ms, FuncName */
+    vid = eval_expr(p);
+    ensure_num(&vid);
+    id = (int)vid.num;
+    if (id < 1 || id > RGC_TIMER_MAX) {
+        runtime_error_hint("TIMER id out of range", "TIMER ids are 1 to 12.");
+        return;
+    }
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("TIMER: expected ',' after id", "Use TIMER id, interval_ms, FuncName.");
+        return;
+    }
+    (*p)++;
+    vms = eval_expr(p);
+    ensure_num(&vms);
+    ms = vms.num;
+    if (ms < RGC_TIMER_MIN_MS) ms = RGC_TIMER_MIN_MS;
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("TIMER: expected ',' after interval", "Use TIMER id, interval_ms, FuncName.");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    /* Read function name (bare identifier, no parentheses) */
+    ni = 0;
+    while ((**p >= 'A' && **p <= 'Z') || (**p >= 'a' && **p <= 'z') ||
+           (**p >= '0' && **p <= '9') || **p == '_') {
+        if (ni < (int)sizeof(name) - 1) {
+            name[ni++] = (char)((**p >= 'a' && **p <= 'z') ? **p - 32 : **p);
+        }
+        (*p)++;
+    }
+    name[ni] = '\0';
+    if (ni == 0) {
+        runtime_error_hint("TIMER: expected function name", "Use TIMER id, interval_ms, FuncName.");
+        return;
+    }
+    fi = udf_lookup(name, 0);
+    if (fi < 0) {
+        runtime_error_hint("TIMER: function not found",
+                           "Handler must be a FUNCTION / END FUNCTION with no parameters.");
+        return;
+    }
+    /* Register (or replace) the timer */
+    strncpy(rgc_timers[id - 1].func_name, name, sizeof(rgc_timers[id - 1].func_name) - 1);
+    rgc_timers[id - 1].func_name[sizeof(rgc_timers[id - 1].func_name) - 1] = '\0';
+    rgc_timers[id - 1].func_index  = fi;
+    rgc_timers[id - 1].interval_ms = ms;
+    rgc_timers[id - 1].due_ms      = timer_get_wall_ms() + ms;
+    rgc_timers[id - 1].active      = 1;
+    rgc_timers[id - 1].enabled     = 1;
+    rgc_timers[id - 1].running     = 0;
+}
+
 static void statement_locate(char **p)
 {
     // Passed as LOCATE x, y
@@ -10376,6 +10588,11 @@ static void execute_statement(char **p)
         statement_textat(p);
         return;
     }
+    if (c == 'T' && starts_with_kw(*p, "TIMER")) {
+        *p += 5;
+        statement_timer(p);
+        return;
+    }
     if (c == 'G' && starts_with_kw(*p, "GET")) {
         *p += 3;
         skip_spaces(p);
@@ -11262,6 +11479,7 @@ static void load_program(const char *path)
     collect_data_from_program();
     build_label_table();
     build_udf_table();
+    timers_resolve_funcs();   /* re-resolve TIMER handler names after UDF table rebuild */
 
 #ifdef GFX_VIDEO
     /* #OPTION columns may run during load after basic_set_video(); keep gfx in sync. */
@@ -11308,6 +11526,7 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
     current_line = 0;
     statement_pos = NULL;
     print_col = 0;
+    timers_reset();
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
     wasm_gfx_put_budget = 0;
     wasm_gfx_stmt_exec_budget = 0;
@@ -11348,6 +11567,7 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
         }
         statement_pos = p;
         execute_statement(&statement_pos);
+        timers_dispatch();
 #if defined(__EMSCRIPTEN__)
         wasm_stmt_budget++;
 #if defined(GFX_VIDEO)
