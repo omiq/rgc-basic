@@ -29,13 +29,14 @@ void gfx_mouse_hide_cursor(void);
 void gfx_mouse_show_cursor(void);
 int gfx_mouse_cursor_hidden(void);
 
-#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO) && !defined(GFX_USE_RAYLIB)
 #include <emscripten.h>
 EMSCRIPTEN_KEEPALIVE void wasm_mouse_js_frame(int mx, int my, int left, int right, int middle, int fb_w, int fb_h);
 #endif
 
-#if defined(GFX_VIDEO) && !defined(__EMSCRIPTEN__)
-/* Called from Raylib main thread each frame before worker reads mouse. */
+#if defined(GFX_VIDEO) && (!defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB))
+/* Called from Raylib main thread each frame before worker reads mouse.
+ * Available in native raylib builds AND raylib-emscripten (WebGL2) WASM builds. */
 void gfx_mouse_raylib_poll(int content_w, int content_h, float win_x0, float win_y0, float win_x1, float win_y1);
 #endif
 

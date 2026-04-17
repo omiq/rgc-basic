@@ -98,6 +98,31 @@ basic-wasm-canvas:
 		-o web/basic-canvas.js basic.c petscii.c gfx/gfx_video.c gfx/gfx_charrom.c gfx/pet_style_64c_data.c gfx/gfx_gamepad.c gfx/gfx_mouse.c gfx/gfx_canvas.c gfx/gfx_software_sprites.c -lm
 	@echo "Built web/basic-canvas.js and web/basic-canvas.wasm"
 
+# Experimental: raylib-emscripten WebGL2 renderer for the WASM build.
+# Produces web/basic-raylib.js + web/basic-raylib.wasm. Depends on a pre-built
+# libraylib.a under third_party/raylib-src/ — run scripts/build-raylib-web.sh
+# once to populate it. See docs/wasm-webgl-migration-plan.md.
+RAYLIB_WEB_SRC = third_party/raylib-src/src
+RAYLIB_WEB_LIB = $(RAYLIB_WEB_SRC)/libraylib.a
+
+$(RAYLIB_WEB_LIB):
+	@echo "raylib-web library missing — run scripts/build-raylib-web.sh"
+	@echo "  e.g. EMSDK=~/emsdk scripts/build-raylib-web.sh"
+	@exit 1
+
+basic-wasm-raylib: $(RAYLIB_WEB_LIB)
+	@mkdir -p web
+	$(EMCC) -w -O2 -s WASM=1 -DGFX_VIDEO -DGFX_USE_RAYLIB -Igfx -I$(RAYLIB_WEB_SRC) \
+		-s USE_GLFW=3 -s FULL_ES2=1 -s ALLOW_MEMORY_GROWTH=1 \
+		-s EXPORTED_FUNCTIONS='["_basic_apply_arg_string","_basic_load_and_run_gfx","_basic_load_and_run_gfx_argline","_wasm_push_key","_wasm_gfx_key_state_set","_wasm_gfx_key_state_clear","_wasm_gfx_key_state_ptr","_wasm_gamepad_buttons_ptr","_wasm_gamepad_axes_ptr","_malloc"]' \
+		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","HEAPU8","HEAP16","wasmMemory","getValue"]' \
+		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
+		-s INITIAL_MEMORY=67108864 \
+		-s STACK_SIZE=524288 \
+		-s ASYNCIFY=1 -s ASYNCIFY_STACK_SIZE=65536 -s ASYNCIFY_IMPORTS='["emscripten_sleep","__asyncjs__wasm_js_http_fetch_async","__asyncjs__wasm_js_http_fetch_to_file_async","__asyncjs__wasm_js_host_exec_async"]' \
+		-o web/basic-raylib.js basic.c petscii.c gfx/gfx_video.c gfx/gfx_charrom.c gfx/pet_style_64c_data.c gfx/gfx_gamepad.c gfx/gfx_mouse.c gfx/gfx_raylib.c gfx/gfx_wasm_raylib_stubs.c $(RAYLIB_WEB_LIB) -lm
+	@echo "Built web/basic-raylib.js and web/basic-raylib.wasm"
+
 # Headless browser smoke test (needs: pip install -r tests/requirements-wasm.txt && playwright install chromium)
 wasm-test: basic-wasm
 	python3 tests/wasm_browser_test.py
@@ -137,6 +162,6 @@ clean:
 	$(RM) web/basic-canvas.js web/basic-canvas.wasm web/basic-canvas.wasm.map 2>/dev/null || true
 	$(RM) web/basic-modular.js web/basic-modular.wasm web/basic-modular.wasm.map 2>/dev/null || true
 
-.PHONY: all clean check gfx_video_test gfx-demo basic-gfx basic-wasm basic-wasm-modular basic-wasm-canvas wasm-test wasm-canvas-test verify-canvas-wasm wasm-canvas-charset-test wasm-tutorial-test
+.PHONY: all clean check gfx_video_test gfx-demo basic-gfx basic-wasm basic-wasm-modular basic-wasm-canvas basic-wasm-raylib wasm-test wasm-canvas-test verify-canvas-wasm wasm-canvas-charset-test wasm-tutorial-test
 
 # End of Makefile

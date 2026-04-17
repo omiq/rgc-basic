@@ -10,7 +10,7 @@ static uint8_t g_press_latch[GFX_MOUSE_BTN_COUNT];
 static uint8_t g_release_latch[GFX_MOUSE_BTN_COUNT];
 static int g_cursor_hidden;
 
-#if !defined(__EMSCRIPTEN__)
+#if !defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB)
 #include "raylib.h"
 /* Last letterboxed draw rect (window pixels) for inverse SetMousePosition. */
 static float g_win_dx, g_win_dy, g_win_dw, g_win_dh;
@@ -25,7 +25,7 @@ void gfx_mouse_init(void)
     g_mx = 0;
     g_my = 0;
     g_cursor_hidden = 0;
-#if !defined(__EMSCRIPTEN__)
+#if !defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB)
     g_win_dx = 0;
     g_win_dy = 0;
     g_win_dw = 320;
@@ -125,7 +125,7 @@ int gfx_mouse_button_up(int button)
 
 void gfx_mouse_set_position(int x, int y)
 {
-#if defined(__EMSCRIPTEN__)
+#if defined(__EMSCRIPTEN__) && !defined(GFX_USE_RAYLIB)
 #include <emscripten.h>
     EM_ASM({
         var mx = $0 | 0;
@@ -169,7 +169,7 @@ void gfx_mouse_set_position(int x, int y)
 
 void gfx_mouse_set_cursor_shape(int cursor)
 {
-#if defined(__EMSCRIPTEN__)
+#if defined(__EMSCRIPTEN__) && !defined(GFX_USE_RAYLIB)
 #include <emscripten.h>
     EM_ASM({
         var c = $0 | 0;
@@ -188,7 +188,7 @@ void gfx_mouse_set_cursor_shape(int cursor)
 void gfx_mouse_hide_cursor(void)
 {
     g_cursor_hidden = 1;
-#if defined(__EMSCRIPTEN__)
+#if defined(__EMSCRIPTEN__) && !defined(GFX_USE_RAYLIB)
 #include <emscripten.h>
     EM_ASM({
         if (typeof Module !== 'undefined' && typeof Module['rgcMouseHideCursor'] === 'function') {
@@ -203,7 +203,7 @@ void gfx_mouse_hide_cursor(void)
 void gfx_mouse_show_cursor(void)
 {
     g_cursor_hidden = 0;
-#if defined(__EMSCRIPTEN__)
+#if defined(__EMSCRIPTEN__) && !defined(GFX_USE_RAYLIB)
 #include <emscripten.h>
     EM_ASM({
         if (typeof Module !== 'undefined' && typeof Module['rgcMouseShowCursor'] === 'function') {
@@ -220,7 +220,7 @@ int gfx_mouse_cursor_hidden(void)
     return g_cursor_hidden ? 1 : 0;
 }
 
-#if defined(__EMSCRIPTEN__)
+#if defined(__EMSCRIPTEN__) && !defined(GFX_USE_RAYLIB)
 #include <emscripten.h>
 
 /* Called from JS each animation frame with content-space coords and button bits. */
