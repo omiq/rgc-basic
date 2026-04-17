@@ -1639,6 +1639,19 @@ void wasm_gfx_refresh_js(void)
     if (!g_wasm_inited) {
         return;
     }
+    /* The interpreter calls this hook from many statement handlers — per
+     * DRAWSPRITE, per TEXTAT, per PSET, etc. Doing a full GL frame each time
+     * collapses WASM perf (0.4 FPS on 120-sprite loops). Rate-limit to 60Hz
+     * so at most one render happens per ~16ms of wall time. State keeps
+     * updating in g_wasm_vs; the next scheduled render shows the latest. */
+    {
+        static double last_render_ms = 0.0;
+        double now_ms = emscripten_get_now();
+        if (now_ms - last_render_ms < 16.0) {
+            return;
+        }
+        last_render_ms = now_ms;
+    }
     if (g_wasm_vs.screen_mode == GFX_SCREEN_BITMAP) {
         render_bitmap_screen(&g_wasm_vs, g_wasm_target, g_wasm_nat_w);
     } else {
