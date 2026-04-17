@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RGC-BASIC — raylib-emscripten (WebGL2) smoke test</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 1rem; max-width: 1040px; }
+    textarea#program { width: 100%; height: 180px; font-family: monospace; }
+    #canvasWrap { margin-top: 0.75rem; border: 2px solid #333; display: inline-block; background: #000; }
+    canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
+    canvas:focus { outline: 2px solid #4a9eff; }
+    #log { margin-top: 0.5rem; padding: 0.5rem; background: #111; color: #f55; font-family: monospace; white-space: pre-wrap; min-height: 1.5em; display: none; }
+    #log.has-content { display: block; }
+  </style>
+</head>
+<body>
+  <h1>RGC-BASIC — raylib-emscripten smoke test</h1>
+  <p style="font-size:0.9em;color:#555">
+    Experimental WebGL2 renderer (same gfx_raylib.c as native basic-gfx).
+    Build: <code>EMSDK=~/emsdk scripts/build-raylib-web.sh &amp;&amp; make basic-wasm-raylib</code>.
+    Serve over <code>http://127.0.0.1:PORT/raylib.html</code>.
+  </p>
+
+  <textarea id="program" spellcheck="false">10 PRINT "HELLO FROM RAYLIB-WASM"
+20 PRINT "GPU-ACCELERATED WEBGL2"
+30 PRINT "SCREEN MODE 0 - 40X25 TEXT"
+40 END
+</textarea>
+
+  <div>
+    <button type="button" id="run">Run</button>
+    <button type="button" id="stop" disabled>Stop</button>
+  </div>
+
+  <div id="canvasWrap">
+    <!-- raylib/GLFW attaches to the element with id="canvas" by default. -->
+    <canvas id="canvas" width="960" height="600" tabindex="0"></canvas>
+  </div>
+
+  <div id="log"></div>
+
+  <script>
+(function() {
+  var canvas = document.getElementById('canvas');
+  var programEl = document.getElementById('program');
+  var runBtn = document.getElementById('run');
+  var stopBtn = document.getElementById('stop');
+  var logEl = document.getElementById('log');
+
+  function logErr(msg) {
+    logEl.textContent = msg;
+    logEl.classList.add('has-content');
+  }
+
+  // raylib-emscripten reads Module.canvas on InitWindow to bind the GL context.
+  window.Module = {
+    canvas: canvas,
+    // Keep WebGL backbuffer so canvas.toBlob() returns non-blank for IDE screenshot.
+    webglContextAttributes: { preserveDrawingBuffer: true },
+    print: function(text) { console.log(text); },
+    printErr: function(text) { console.warn(text); logErr(text); },
+    onRuntimeInitialized: function() {
+      console.log('raylib-wasm runtime ready');
+      runBtn.disabled = false;
+    },
+    // raylib will call this after InitWindow finishes setting up GL + GLFW.
+    onAbort: function(what) { logErr('Abort: ' + what); }
+  };
+
+  runBtn.disabled = true;
+  runBtn.onclick = function() {
+    if (!window.Module || !Module.FS || !Module.ccall) {
+      logErr('Module not ready');
+      return;
+    }
+    try {
+      Module.FS.writeFile('/program.bas', programEl.value);
+    } catch (e) {
+      logErr('FS write failed: ' + e);
+      return;
+    }
+    runBtn.disabled = true;
+    stopBtn.disabled = false;
+    canvas.focus();
+    Module.ccall('basic_load_and_run_gfx', null, ['string'], ['/program.bas'], { async: true })
+      .catch(function(e) { logErr('Run failed: ' + (e && e.message ? e.message : e)); })
+      .finally(function() {
+        runBtn.disabled = false;
+        stopBtn.disabled = true;
+      });
+  };
+
+  stopBtn.onclick = function() {
+    Module.wasmStopRequested = 1;
+  };
+
+  // Keyboard → HEAPU8 key_state, same pattern as canvas.html.
+  // ev.key → C64-ish index (uppercase letters use ASC(upper), arrows use C64 codes).
+  function wasmGfxKeyIndex(ev) {
+    var k = ev.key;
+    if (k === 'Escape') return 27;
+    if (k === 'Enter') return 13;
+    if (k === ' ' || k === 'Spacebar') return 32;
+    if (k === 'ArrowUp') return 145;
+    if (k === 'ArrowDown') return 17;
+    if (k === 'ArrowLeft') return 157;
+    if (k === 'ArrowRight') return 29;
+    if (k === 'Tab') return 9;
+    if (k.length === 1) {
+      var c = k.charCodeAt(0);
+      if (c >= 97 && c <= 122) c -= 32;
+      if ((c >= 65 && c <= 90) || (c >= 48 && c <= 57)) return c;
+    }
+    return -1;
+  }
+  function wasmKeySync(ev, down) {
+    if (!window.Module || !Module._wasm_gfx_key_state_ptr || !Module.HEAPU8) return;
+    var idx = wasmGfxKeyIndex(ev);
+    if (idx < 0 || idx >= 256) return;
+    var base = Module._wasm_gfx_key_state_ptr();
+    if (base) {
+      Module.HEAPU8[base + idx] = down ? 1 : 0;
+    }
+  }
+  canvas.addEventListener('keydown', function(ev) {
+    ev.preventDefault();
+    wasmKeySync(ev, true);
+    if (ev.key && ev.key.length === 1 && Module._wasm_push_key) {
+      Module.ccall('wasm_push_key', null, ['number'], [ev.key.charCodeAt(0) & 0xFF]);
+    } else if (ev.key === 'Enter' && Module._wasm_push_key) {
+      Module.ccall('wasm_push_key', null, ['number'], [13]);
+    }
+  }, true);
+  canvas.addEventListener('keyup', function(ev) { wasmKeySync(ev, false); }, true);
+
+  // Load the emscripten-generated loader.
+  var s = document.createElement('script');
+  s.src = 'basic-raylib.js';
+  s.async = false;
+  s.onerror = function() { logErr('Failed to load basic-raylib.js — run make basic-wasm-raylib first.'); };
+  document.body.appendChild(s);
+})();
+  </script>
+</body>
+</html>
