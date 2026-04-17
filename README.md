@@ -258,6 +258,7 @@ viewing .seq files or pasting output into a fixed-width editor).
 - `-maxstr N`: maximum string length (1–4096); default 4096. Use `-maxstr 255` for C64 compatibility. Can also be set with `#OPTION maxstr 255`. Affects string literals, concatenation, `STRING$`, and related operations.
 - `-columns N`: print width in columns (1–255); default 40. Use `-columns 80` for 80‑column mode. Comma zones scale (10 chars at 40 cols, 20 at 80 cols). Can also be set with `#OPTION columns 80`.
 - `-nowrap`: do not insert newlines at column width; let the terminal handle wrapping. Useful for wide output or paste-into-editor. Can also be set with `#OPTION nowrap`.
+- `-fullscreen` (basic-gfx only): launch in fullscreen, stretching the native framebuffer to the monitor while preserving aspect ratio (letterbox/pillarbox bars fill the rest). Cursor is hidden. Ideal for bartop arcades, Raspberry Pi kiosks, or a game-console feel. Example: `./basic-gfx -fullscreen examples/gfx_game_shell.bas`.
 
 You can also enable a **PETSCII/ANSI mode** that understands common C64 control codes inside strings and `CHR$` output:
 
@@ -346,6 +347,7 @@ Releases include **basic-gfx** — a full graphical version of the interpreter b
 
 - `./basic-gfx examples/gfx_poke_demo.bas`
 - `./basic-gfx examples/gfx_border_demo.bas` — border padding with colour (`#OPTION border 32 cyan`)
+- `./basic-gfx -fullscreen examples/gfx_game_shell.bas` — fullscreen with aspect-preserving letterbox (bartop/arcade/Raspberry Pi friendly)
 - `./basic-gfx examples/gfx_charset_demo.bas`
 - `./basic-gfx examples/gfx_key_demo.bas`
 - `./basic-gfx -petscii examples/gfx_text_demo.bas`
