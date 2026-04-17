@@ -5,7 +5,7 @@
 4 SCREENCODES ON
 5 REM Black background and 40-column wrap to match colaburger art
 6 BACKGROUND 0
-7 OPEN 1,1,0,"examples/colaburger.seq"
+7 OPEN 1,1,0,"colaburger.seq"
 8 L=0
 9 GET#1,C$
 10 IF ST<>0 THEN GOTO 19
