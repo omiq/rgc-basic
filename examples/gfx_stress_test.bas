@@ -63,18 +63,23 @@ NEXT
 
 Report:
 ELAPSED_S = (TI - T0) / 60
-FPS = FRAMES / ELAPSED_S
-REM Hide sprites so the FPS HUD isn't covered by frozen chicks.
+ITERPS    = FRAMES / ELAPSED_S
+DRAWPS    = FRAMES * NDRAWS / ELAPSED_S
+REM Hide sprites so the HUD isn't covered by frozen chicks.
 FOR I = 1 TO NHUES
   SPRITEVISIBLE I, 0
 NEXT
 PRINT CHR$(147)
 PRINT "-------------------------"
-PRINT "FRAMES : "; FRAMES
+PRINT "ITERS  : "; FRAMES
 PRINT "SECONDS: "; ELAPSED_S
-PRINT "FPS    : "; FPS
-PRINT "DRAWS/S: "; FRAMES * NDRAWS / ELAPSED_S
+PRINT "ITERS/S: "; ITERPS
+PRINT "DRAWS/S: "; DRAWPS
 PRINT "-------------------------"
+PRINT "NOTE: display is 60Hz-capped;"
+PRINT "      ITERS/S is interpreter"
+PRINT "      throughput, not vsync."
+PRINT
 PRINT "Press any key."
 FOR W = 0 TO 1 STEP 0
   K$ = INKEY$()
