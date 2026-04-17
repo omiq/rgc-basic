@@ -52,6 +52,10 @@ int basic_get_gfx_border(void);
 void basic_set_gfx_border_color(int idx);
 int basic_get_gfx_border_color(void);
 
+/* Fullscreen: 1 = stretch to monitor with letterbox (preserve aspect). */
+void basic_set_gfx_fullscreen(int on);
+int  basic_get_gfx_fullscreen(void);
+
 /* Directory for relative PNG paths in LOADSPRITE (program file’s folder). */
 void gfx_set_sprite_base_dir(const char *dir);
 

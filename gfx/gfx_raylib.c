@@ -1277,7 +1277,7 @@ int main(int argc, char **argv)
     prog_idx = basic_parse_args(argc, argv);
     if (prog_idx < 0) {
         fprintf(stderr,
-                "Usage: %s [-petscii] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-columns 80] [-memory c64|pet|default] [-gfx-title \"title\"] [-gfx-border N] <program.bas> [args...]\n",
+                "Usage: %s [-petscii] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-columns 80] [-memory c64|pet|default] [-gfx-title \"title\"] [-gfx-border N] [-fullscreen] <program.bas> [args...]\n",
                 argv[0]);
         return 1;
     }
@@ -1311,6 +1311,23 @@ int main(int argc, char **argv)
         }
         SetTargetFPS(60);
         target = LoadRenderTexture(nat_w, nat_h);
+
+        /* -fullscreen: stretch to full monitor, preserve aspect (letterbox).
+         * Target monitor dims become the window; draw-rect computed per frame. */
+        if (basic_get_gfx_fullscreen()) {
+            int mon = GetCurrentMonitor();
+            int mw = GetMonitorWidth(mon);
+            int mh = GetMonitorHeight(mon);
+            if (mw > 0 && mh > 0) {
+                SetWindowSize(mw, mh);
+                win_w = mw;
+                win_h = mh;
+            }
+            if (!IsWindowFullscreen()) {
+                ToggleFullscreen();
+            }
+            HideCursor();
+        }
     }
 
     pthread_create(&tid, NULL, interpreter_thread, &ia);
@@ -1466,44 +1483,56 @@ int main(int argc, char **argv)
          * Negative z = behind positive z, but all are above text. */
         gfx_sprite_composite_range(&vs, target, nat_w, nat_h, -32768, 32767, 1);
 
+        /* Compute destination rect for this frame.
+         * Fullscreen: letterbox — preserve nat_w:nat_h aspect, black/border bars.
+         * Windowed: honour -gfx-border pixel inset. */
         {
-            int border = basic_get_gfx_border();
-            float dx = (float)border;
-            float dy = (float)border;
-            float dw = (float)(win_w - 2 * border);
-            float dh = (float)(win_h - 2 * border);
-            if (dw < 1) {
-                dw = 1;
-            }
-            if (dh < 1) {
-                dh = 1;
-            }
-            gfx_mouse_raylib_poll(nat_w, nat_h, dx, dy, dx + dw, dy + dh);
-        }
+            int fullscreen = basic_get_gfx_fullscreen();
+            int cur_w = fullscreen ? GetScreenWidth()  : win_w;
+            int cur_h = fullscreen ? GetScreenHeight() : win_h;
+            float dx, dy, dw, dh;
 
-        BeginDrawing();
-        {
-            int border = basic_get_gfx_border();
-            if (border > 0) {
-                int bc = basic_get_gfx_border_color();
-                uint8_t ci = (bc >= 0 && bc <= 15) ? (uint8_t)bc : (vs.bg_color & 0x0F);
-                ClearBackground(c64_palette[ci]);
-            }
-            {
-                float dx = (float)border;
-                float dy = (float)border;
-                float dw = (float)(win_w - 2 * border);
-                float dh = (float)(win_h - 2 * border);
+            if (fullscreen) {
+                float nat_ar = (float)nat_w / (float)nat_h;
+                float scr_ar = (float)cur_w / (float)cur_h;
+                if (scr_ar > nat_ar) {
+                    dh = (float)cur_h;
+                    dw = dh * nat_ar;
+                    dx = ((float)cur_w - dw) * 0.5f;
+                    dy = 0.0f;
+                } else {
+                    dw = (float)cur_w;
+                    dh = dw / nat_ar;
+                    dx = 0.0f;
+                    dy = ((float)cur_h - dh) * 0.5f;
+                }
+            } else {
+                int border = basic_get_gfx_border();
+                dx = (float)border;
+                dy = (float)border;
+                dw = (float)(cur_w - 2 * border);
+                dh = (float)(cur_h - 2 * border);
                 if (dw < 1) dw = 1;
                 if (dh < 1) dh = 1;
+            }
+
+            gfx_mouse_raylib_poll(nat_w, nat_h, dx, dy, dx + dw, dy + dh);
+
+            BeginDrawing();
+            {
+                int bc = basic_get_gfx_border_color();
+                uint8_t ci = (bc >= 0 && bc <= 15) ? (uint8_t)bc : (vs.bg_color & 0x0F);
+                if (fullscreen || basic_get_gfx_border() > 0) {
+                    ClearBackground(fullscreen && bc < 0 ? BLACK : c64_palette[ci]);
+                }
                 DrawTexturePro(
                     target.texture,
                     (Rectangle){ 0, 0, (float)nat_w, -(float)nat_h },
                     (Rectangle){ dx, dy, dw, dh },
                     (Vector2){ 0, 0 }, 0.0f, WHITE);
             }
+            EndDrawing();
         }
-        EndDrawing();
     }
 
     /* Flush any pending LOAD/UNLOAD so worker threads never block on cond wait after halt,
