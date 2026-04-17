@@ -138,6 +138,31 @@ Release N+1:
 Release N+2:
 - Remove deprecated aliases.
 
+## Relationship to other specs
+
+- `docs/sprite-features-plan.md` — today's sprite+sheet API
+  (`LOADSPRITE`/`DRAWSPRITETILE`/`SPRITETILES`/`SPRITEFRAME`) and the
+  open "full world tilemap engine" bullet. This doc is the detailed plan
+  for that bullet. The sprite doc should link here once merged.
+- `docs/rgc-blitter-surface-spec.md` — AMOS/STOS-style CPU **`IMAGE COPY`**
+  between bitmap surfaces. Complementary, not redundant:
+  - Blitter path: stamp tiles **once** into an off-screen bitmap, then
+    `IMAGE COPY` the region onto the visible bitmap every frame.
+    Good for static backgrounds; zero per-frame tile overhead.
+  - `DRAWTILEMAP` path (this doc): re-issue the tile grid on the GPU
+    every frame. Good for smooth scrolling, animated tiles, dynamic
+    damage maps. No surface allocation or pre-pass required.
+  - Expect both to ship. Game code picks based on whether the map is
+    static or changing.
+- `docs/screen-modes-plan.md` — tile dims (`cell_w`/`cell_h`) are
+  independent of the current `SCREEN` mode. `DRAWTILEMAP` must work in
+  all bitmap-capable modes; spec's cols/rows are in the tilemap, not in
+  screen character cells.
+- `to-do.md` items 4 (per-layer stack) and 5 (world tile grid storage) —
+  both partially addressed here. Multi-layer stacking is left to a
+  future `DRAWTILEMAP` call per layer (caller-managed z), not an
+  implicit stack.
+
 ## Open questions
 
 1. Should `DRAWTILEMAP` support a per-tile tint/alpha override, or is that
