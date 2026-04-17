@@ -1,49 +1,55 @@
 REM =========================================
 REM   GFX STRESS TEST - shmup-shaped workload
-REM   Many sprites + full-bitmap ops + FPS HUD
+REM   Many draws + full-bitmap ops + FPS HUD
 REM
 REM   Canvas renderer: CPU alpha composite per
 REM   sprite, scales with pixel count.
 REM   Raylib renderer: GPU batches all draws,
-REM   scales with sprite count not pixel count.
+REM   scales with draw count not pixel count.
 REM
 REM   Run in either:
 REM     ./basic-gfx examples/gfx_stress_test.bas
 REM     IDE with ?renderer=raylib
+REM
+REM   Note: gfx engine has 64 sprite slots max,
+REM   so we clone chick.png into NHUES tinted
+REM   slots and draw each many times.
 REM =========================================
 
 REM --- knobs ---
-NSPRITES = 256
+NHUES    = 16
+NDRAWS   = 200
 NSTARS   = 96
 
-REM --- per-sprite arrays ---
-DIM sx(NSPRITES), sy(NSPRITES)
-DIM svx(NSPRITES), svy(NSPRITES)
-DIM sslot(NSPRITES)
+REM --- per-draw state arrays (one entry per visible sprite) ---
+DIM dx(NDRAWS), dy(NDRAWS)
+DIM dvx(NDRAWS), dvy(NDRAWS)
+DIM dslot(NDRAWS)
 
 REM --- parallax star arrays ---
 DIM stx(NSTARS), sty(NSTARS), stsp(NSTARS)
 
-REM --- load one sprite, clone to many slots with tinted colour ---
+REM --- load base sprite, clone to NHUES tinted slots ---
 LOADSPRITE 0, "chick.png"
-FOR I = 0 TO NSPRITES - 1
-  REM Hue spin around the ring
-  PH = I * (360 / NSPRITES)
+FOR I = 0 TO NHUES - 1
+  PH = I * (360 / NHUES)
   R = INT(127 + 127 * SIN(PH * 0.01745))
   G = INT(127 + 127 * SIN((PH + 120) * 0.01745))
   B = INT(127 + 127 * SIN((PH + 240) * 0.01745))
   SPRITEMODIFY 0, 255, R, G, B
   SPRITECOPY 0, I + 1
-  sslot(I) = I + 1
-  sx(I) = RND(1) * 320 - 16
-  sy(I) = RND(1) * 200 - 16
-  svx(I) = (RND(1) - 0.5) * 3
-  svy(I) = (RND(1) - 0.5) * 3
-  SPRITEMODIFY sslot(I), 255, 255, 255, 255
 NEXT
-
-REM Restore slot 0 to white so we don't re-tint on every move
+REM Restore base slot
 SPRITEMODIFY 0, 255, 255, 255, 255
+
+REM --- init NDRAWS sprites, each references one of the NHUES slots ---
+FOR I = 0 TO NDRAWS - 1
+  dslot(I) = 1 + (I MOD NHUES)
+  dx(I) = RND(1) * 320 - 16
+  dy(I) = RND(1) * 200 - 16
+  dvx(I) = (RND(1) - 0.5) * 3
+  dvy(I) = (RND(1) - 0.5) * 3
+NEXT
 
 REM --- init stars for bitmap-layer parallax ---
 FOR I = 0 TO NSTARS - 1
@@ -72,15 +78,15 @@ FOR L = 0 TO 1 STEP 0
     PSET stx(I), sty(I), 1
   NEXT
 
-  REM Sprite update + draw
-  FOR I = 0 TO NSPRITES - 1
-    sx(I) = sx(I) + svx(I)
-    sy(I) = sy(I) + svy(I)
-    IF sx(I) < -32 THEN sx(I) = 320
-    IF sx(I) > 320 THEN sx(I) = -32
-    IF sy(I) < -32 THEN sy(I) = 200
-    IF sy(I) > 200 THEN sy(I) = -32
-    DRAWSPRITE sslot(I), sx(I), sy(I), I
+  REM Sprite update + draw — NDRAWS draw calls per frame
+  FOR I = 0 TO NDRAWS - 1
+    dx(I) = dx(I) + dvx(I)
+    dy(I) = dy(I) + dvy(I)
+    IF dx(I) < -32 THEN dx(I) = 320
+    IF dx(I) > 320 THEN dx(I) = -32
+    IF dy(I) < -32 THEN dy(I) = 200
+    IF dy(I) > 200 THEN dy(I) = -32
+    DRAWSPRITE dslot(I), dx(I), dy(I), I
   NEXT
 
   REM FPS HUD — update once per second
@@ -90,11 +96,12 @@ FOR L = 0 TO 1 STEP 0
     FRAMES = 0
     T0 = TI
   ENDIF
-  TEXTAT 0, 0, "FPS=" + STR$(FPS) + " SPR=" + STR$(NSPRITES)
+  TEXTAT 0, 0, "FPS=" + STR$(FPS) + " DRAWS=" + STR$(NDRAWS)
 
   REM ESC to quit
   K$ = INKEY$()
-  IF K$ = CHR$(27) THEN GOTO 9000
+  IF K$ = CHR$(27) THEN GOTO Done
 NEXT
 
-9000 END
+Done:
+END
