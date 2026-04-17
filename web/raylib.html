@@ -207,6 +207,7 @@
       Module.HEAPU8[base + idx] = down ? 1 : 0;
     }
   }
+  canvas.addEventListener('contextmenu', function(ev) { ev.preventDefault(); });
   canvas.addEventListener('keydown', function(ev) {
     ev.preventDefault();
     wasmKeySync(ev, true);

@@ -46,6 +46,13 @@ fi
 make basic-wasm
 make basic-wasm-modular
 make basic-wasm-canvas
+# Experimental raylib-emscripten build: only when libraylib.a is prebuilt.
+# Run scripts/build-raylib-web.sh once to populate third_party/raylib-src.
+if [ -f third_party/raylib-src/src/libraylib.a ]; then
+  make basic-wasm-raylib
+else
+  echo "pullmake: skipping basic-wasm-raylib (third_party/raylib-src/src/libraylib.a missing; run scripts/build-raylib-web.sh)" >&2
+fi
 # Optional (needs Playwright): make wasm-test && make wasm-canvas-test && make wasm-tutorial-test
 # Or canvas-only gate: sh scripts/verify-canvas-wasm.sh
 cp -r web/*.* ../8bitworkshop/rgc-basic
