@@ -120,7 +120,7 @@ basic-wasm-raylib: $(RAYLIB_WEB_LIB)
 		-s INITIAL_MEMORY=67108864 \
 		-s STACK_SIZE=524288 \
 		-s ASYNCIFY=1 -s ASYNCIFY_STACK_SIZE=65536 -s ASYNCIFY_IMPORTS='["emscripten_sleep","__asyncjs__wasm_js_http_fetch_async","__asyncjs__wasm_js_http_fetch_to_file_async","__asyncjs__wasm_js_host_exec_async"]' \
-		-o web/basic-raylib.js basic.c petscii.c gfx/gfx_video.c gfx/gfx_charrom.c gfx/pet_style_64c_data.c gfx/gfx_gamepad.c gfx/gfx_mouse.c gfx/gfx_raylib.c gfx/gfx_wasm_raylib_stubs.c $(RAYLIB_WEB_LIB) -lm
+		-o web/basic-raylib.js basic.c petscii.c gfx/gfx_video.c gfx/gfx_charrom.c gfx/pet_style_64c_data.c gfx/gfx_gamepad.c gfx/gfx_mouse.c gfx/gfx_raylib.c $(RAYLIB_WEB_LIB) -lm
 	@echo "Built web/basic-raylib.js and web/basic-raylib.wasm"
 
 # Headless browser smoke test (needs: pip install -r tests/requirements-wasm.txt && playwright install chromium)

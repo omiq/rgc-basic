@@ -1263,6 +1263,7 @@ static void keyq_push(GfxVideoState *vs, uint8_t b)
     vs->key_q_tail = next;
 }
 
+#if !defined(__EMSCRIPTEN__)
 int main(int argc, char **argv)
 {
     GfxVideoState vs;
@@ -1555,6 +1556,156 @@ int main(int argc, char **argv)
     pthread_join(tid, NULL);
     return 0;
 }
+#endif /* !__EMSCRIPTEN__ */
+
+/* ══════════════════════════════════════════════════════════════════════
+ *  Emscripten / raylib-wasm entry points.
+ *
+ *  Same renderer source as native, but no pthread, no WindowShouldClose
+ *  loop. Interpreter runs on the main thread via Asyncify; render is driven
+ *  by the existing wasm_gfx_refresh_js() hook that the interpreter already
+ *  calls after each state change.
+ * ══════════════════════════════════════════════════════════════════════ */
+#if defined(__EMSCRIPTEN__) && defined(GFX_USE_RAYLIB)
+
+#include <emscripten.h>
+
+/* basic.c provides these but no public header declares them for the wasm
+ * variant; forward-declare locally to keep this block self-contained. */
+extern void basic_load(const char *path);
+extern void basic_run(const char *path, int nargs, char **args);
+extern int  basic_apply_arg_string(const char *argline);
+
+static GfxVideoState g_wasm_vs;
+static RenderTexture2D g_wasm_target;
+static int g_wasm_inited = 0;
+static int g_wasm_nat_w = NATIVE_W;
+static int g_wasm_nat_h = NATIVE_H;
+
+static void wasm_raylib_init_once(void)
+{
+    int cols;
+    const char *title;
+    if (g_wasm_inited) {
+        return;
+    }
+    gfx_video_init(&g_wasm_vs);
+    g_wasm_vs.charset_lowercase = (uint8_t)(petscii_get_lowercase() ? 1 : 0);
+    g_wasm_vs.charrom_family = (uint8_t)(basic_get_charrom_family() ? 1 : 0);
+    gfx_load_default_charrom(&g_wasm_vs);
+    memset(g_wasm_vs.screen, 32, GFX_TEXT_SIZE);
+    memset(g_wasm_vs.color, 14, GFX_COLOR_SIZE);
+    basic_set_video(&g_wasm_vs);
+
+    cols = g_wasm_vs.cols ? (int)g_wasm_vs.cols : 40;
+    g_wasm_nat_w = cols * CELL_W;
+    g_wasm_nat_h = SCREEN_ROWS * CELL_H;
+
+    SetTraceLogLevel(LOG_WARNING);
+    title = basic_get_gfx_window_title();
+    InitWindow(g_wasm_nat_w * SCALE, g_wasm_nat_h * SCALE, title ? title : "RGC-BASIC GFX");
+    SetTargetFPS(60);
+    g_wasm_target = LoadRenderTexture(g_wasm_nat_w, g_wasm_nat_h);
+    g_wasm_inited = 1;
+}
+
+/* Real implementations — overrides the stubs in gfx_wasm_raylib_stubs.c.
+ * NOTE: when step 3c retires that shim, these become the sole definitions. */
+void wasm_gfx_refresh_js(void)
+{
+    if (!g_wasm_inited) {
+        return;
+    }
+    if (g_wasm_vs.screen_mode == GFX_SCREEN_BITMAP) {
+        render_bitmap_screen(&g_wasm_vs, g_wasm_target, g_wasm_nat_w);
+    } else {
+        render_text_screen(&g_wasm_vs, g_wasm_target);
+    }
+    gfx_sprite_composite_range(&g_wasm_vs, g_wasm_target, g_wasm_nat_w, g_wasm_nat_h, -32768, 32767, 1);
+
+    BeginDrawing();
+    ClearBackground(BLACK);
+    DrawTexturePro(
+        g_wasm_target.texture,
+        (Rectangle){ 0, 0, (float)g_wasm_nat_w, -(float)g_wasm_nat_h },
+        (Rectangle){ 0, 0, (float)(g_wasm_nat_w * SCALE), (float)(g_wasm_nat_h * SCALE) },
+        (Vector2){ 0, 0 }, 0.0f, WHITE);
+    EndDrawing();
+}
+
+void wasm_canvas_sync_charset_from_options(void)
+{
+    if (!g_wasm_inited) {
+        return;
+    }
+    g_wasm_vs.charset_lowercase = (uint8_t)(petscii_get_lowercase() ? 1 : 0);
+    g_wasm_vs.charrom_family = (uint8_t)(basic_get_charrom_family() ? 1 : 0);
+    gfx_load_default_charrom(&g_wasm_vs);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void basic_load_and_run_gfx(const char *path)
+{
+    wasm_raylib_init_once();
+    basic_load(path);
+    basic_run(path, 0, NULL);
+    wasm_gfx_refresh_js();
+}
+
+EMSCRIPTEN_KEEPALIVE
+int basic_load_and_run_gfx_argline(const char *argline)
+{
+    /* Minimal argline handling: apply interpreter flags via the existing
+     * basic_apply_arg_string entry point, then treat the first non-flag
+     * token as the .bas path. For now, forward unmodified — the IDE wraps
+     * "path args..." and the interpreter's arg parser handles the split.
+     * TODO: replicate canvas path's quoted-token splitter if needed. */
+    if (!argline || !*argline) {
+        return -1;
+    }
+    (void)basic_apply_arg_string(argline);
+    /* argline is expected to start with the program path. basic_apply_arg_string
+     * leaves the remaining program+args intact in the argv; for simplicity,
+     * treat the full argline as the program path when it has no spaces. */
+    {
+        const char *p = argline;
+        while (*p == ' ' || *p == '\t') p++;
+        if (!*p) return -1;
+        basic_load(p);
+        basic_run(p, 0, NULL);
+    }
+    wasm_gfx_refresh_js();
+    return 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint8_t *wasm_gfx_key_state_ptr(void)
+{
+    if (!g_wasm_inited) {
+        return NULL;
+    }
+    return g_wasm_vs.key_state;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void wasm_gfx_key_state_set(int idx, int down)
+{
+    if (!g_wasm_inited || idx < 0 || idx >= 256) {
+        return;
+    }
+    g_wasm_vs.key_state[(unsigned)idx] = down ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void wasm_gfx_key_state_clear(void)
+{
+    if (!g_wasm_inited) {
+        return;
+    }
+    memset(g_wasm_vs.key_state, 0, sizeof(g_wasm_vs.key_state));
+}
+
+#endif /* __EMSCRIPTEN__ && GFX_USE_RAYLIB */
 
 /* ══════════════════════════════════════════════════════════════════════
  *  MODE 2: gfx-demo  (GFX_VIDEO not defined)
