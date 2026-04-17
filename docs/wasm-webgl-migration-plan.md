@@ -185,15 +185,15 @@ Default stays `canvas` during parallel period. Flip to `raylib` once parity is v
 
 Both renderers live in the tree during migration. To keep the cost bounded:
 
-### 4.1 Feature freeze on `gfx/gfx_canvas.c`
+### 4.1 Feature freeze on `gfx/gfx_canvas.c` (ACCEPTED 2026-04-17)
 
-From the moment this plan is accepted:
+Policy now in effect:
 
 - **No new BASIC graphics features land in `gfx_canvas.c`.** Any new sprite, bitmap, tile, font, shader, or input feature goes into `gfx_raylib.c` only. Users who want new features must select `?renderer=raylib`.
 - **Bug fixes only** for `gfx_canvas.c`: crashes, incorrect rendering of existing features, security issues, build breakage. Anything that makes already-shipped programs wrong.
 - **No refactors** in `gfx_canvas.c`. Churn there costs test time we'd rather spend on raylib path.
 
-Document this policy in a one-line comment at the top of `gfx/gfx_canvas.c` so contributors know.
+A policy header is committed at the top of `gfx/gfx_canvas.c` itself so contributors hit the rule before editing.
 
 ### 4.2 Parity checklist (tracked in a new `docs/wasm-raylib-parity.md`)
 
@@ -216,7 +216,30 @@ The raylib-emscripten path must match `gfx_canvas.c` feature-by-feature before d
 - [ ] Fullscreen via `-fullscreen` flag (browser Fullscreen API, letterbox)
 - [ ] HTTP VFS asset loading (`docs/http-vfs-assets.md`)
 
-### 4.3 Retirement
+### 4.3 WordPress plugin + web embed surface (must not regress)
+
+Beyond the IDE (`8bitworkshop` fork) there are several *independent* embed paths that also depend on the current canvas runtime. These must be either continuously tested against both renderers or explicitly scoped out of raylib support with a user-visible limitation.
+
+Known embed surfaces in this repo:
+
+| Surface | Files | Contract |
+|---|---|---|
+| WordPress tutorial block | `wordpress/rgc-basic-tutorial-block/assets/js/gfx-embed-mount.js`, `tutorial-embed.js`, `basic-highlight.js`, `vfs-helpers.js` | Loads `basic-canvas.js` into a `<div>` inside a WP page; exposes Run / Stop and a framebuffer canvas. May be embedded in third-party WP sites we don't control. |
+| Tutorial example page | `web/tutorial-example.html`, `web/tutorial-gfx-features.html` | Standalone HTML demonstrating iframe/div embed patterns — doubles as doc + manual regression target. |
+| Host-exec embed | `web/host-exec-example.html` | External page embedding basic-canvas with a host-driven exec harness. |
+| IDE iframe (primary) | `web/canvas.html` via `rgc-basic-iframe.html` | Covered in §2. |
+| Direct canvas page | `web/index.html` | Standalone demo of the canvas build. |
+
+Policy for each surface during migration:
+
+1. **Audit** each page's assumptions about global `window.Module` shape, `Module.canvas`, `basic-canvas.js` URL, and any direct `HEAPU8` / `ccall` usage. Record findings in a follow-up `docs/wasm-embed-audit.md` once scanned.
+2. **Dual-renderer support**: every embed page that today loads `basic-canvas.js` should gain an opt-in `?renderer=raylib` or a `data-renderer="raylib"` attribute that loads the raylib variant instead. Embed consumers who do not opt in keep the current canvas runtime, frozen.
+3. **Continuous testing**: add a smoke test in `tests/wasm_browser_*.py` (or Playwright) for each embed surface that boots the page, runs a canonical `.bas`, and asserts the framebuffer produces a non-blank PNG. Run under both `canvas` and `raylib` variants. Failing either renderer fails CI.
+4. **Versioned URLs**: `src/platform/rgc-basic-asset-cb.gen.ts` already cache-busts `basic-canvas.*`. Extend to `basic-raylib.*`. Publish both bundles to the WordPress plugin release asset pipeline.
+5. **Documented limitations**: if any embed surface is NOT ported to raylib (e.g. because its host page injects framebuffer JS directly), document that in the embed's README with a clear "`?renderer=canvas` only; new graphics features unavailable here" notice, and decide whether to freeze-and-keep or deprecate-and-remove that embed before the final canvas retirement (§4.4).
+6. **WordPress plugin release**: the plugin (`wordpress/rgc-basic-tutorial-block/`) ships its own asset bundle. The migration plan is not complete until a WP plugin release is published that ships the raylib bundle alongside the canvas bundle, and a post-migration release that removes the canvas bundle when §4.4 fires.
+
+### 4.4 Retirement
 
 After the raylib path has been default for ~3 months with no blocking regressions, delete:
 
@@ -263,4 +286,4 @@ Ongoing maintenance drag during parallel period: ~1–2 hr/week assuming freeze 
 - Do we ship `?renderer=raylib` as a user-level preference in the IDE (persisted per user), per-program (`#OPTION renderer raylib` inline), or both?
 - Should `-fullscreen` translate to the browser Fullscreen API in WASM, or continue to be a no-op?
 - Keep `basic-modular.wasm` (the ES module variant) in sync with both renderers, or only raylib?
-- Any third-party embeds (WordPress block, tutorial pages) hard-coded to `basic-canvas.*` URLs? Audit `wordpress/rgc-basic-tutorial-block/` and `web/tutorial-*.html` before default flip.
+- Third-party embeds (WordPress block, tutorial pages, host-exec): covered by §4.3. Audit pending; track in `docs/wasm-embed-audit.md` once started.
