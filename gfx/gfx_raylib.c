@@ -675,7 +675,10 @@ static void gfx_sprite_process_queue(void)
             t = LoadTexture(full);
             pthread_mutex_lock(&g_sprite_mutex);
             if (t.id != 0) {
-                SetTextureFilter(t, TEXTURE_FILTER_POINT);
+                /* Bilinear so PNG sprites scale smoothly (matches Canvas2D
+                 * default imageSmoothingEnabled behaviour). Text/glyph
+                 * render target keeps POINT for crisp pixel-art look. */
+                SetTextureFilter(t, TEXTURE_FILTER_BILINEAR);
                 g_sprite_slots[c->slot].tex = t;
                 g_sprite_slots[c->slot].loaded = 1;
                 g_sprite_slots[c->slot].visible = 1;
@@ -812,7 +815,7 @@ static void gfx_sprite_process_queue(void)
             new_tex = LoadTextureFromImage(img);
             UnloadImage(img);
             if (new_tex.id == 0) break;
-            SetTextureFilter(new_tex, TEXTURE_FILTER_POINT);
+            SetTextureFilter(new_tex, TEXTURE_FILTER_BILINEAR);
 
             pthread_mutex_lock(&g_sprite_mutex);
             if (g_sprite_slots[dst].loaded) {
@@ -1320,6 +1323,8 @@ int main(int argc, char **argv)
         }
         SetTargetFPS(60);
         target = LoadRenderTexture(nat_w, nat_h);
+        /* Nearest-neighbour upscale — retro pixel-art look, no bilinear smear. */
+        SetTextureFilter(target.texture, TEXTURE_FILTER_POINT);
 
         /* -fullscreen: stretch to full monitor, preserve aspect (letterbox).
          * Target monitor dims become the window; draw-rect computed per frame. */
@@ -1611,9 +1616,15 @@ static void wasm_raylib_init_once(void)
 
     SetTraceLogLevel(LOG_WARNING);
     title = basic_get_gfx_window_title();
-    InitWindow(g_wasm_nat_w * SCALE, g_wasm_nat_h * SCALE, title ? title : "RGC-BASIC GFX");
+    /* On the web, the <canvas> element is what gets scaled by CSS to fit the
+     * iframe. Keep GL backing at native pixel resolution so the browser's
+     * image-rendering:pixelated CSS scales crisply to whatever size the iframe
+     * ends up — avoids a two-stage GL upscale → CSS downscale blur. */
+    InitWindow(g_wasm_nat_w, g_wasm_nat_h, title ? title : "RGC-BASIC GFX");
     SetTargetFPS(60);
     g_wasm_target = LoadRenderTexture(g_wasm_nat_w, g_wasm_nat_h);
+    /* Nearest-neighbour upscale — retro pixel-art look, no bilinear smear. */
+    SetTextureFilter(g_wasm_target.texture, TEXTURE_FILTER_POINT);
     g_wasm_inited = 1;
 }
 
