@@ -1616,11 +1616,13 @@ static void wasm_raylib_init_once(void)
 
     SetTraceLogLevel(LOG_WARNING);
     title = basic_get_gfx_window_title();
-    /* On the web, the <canvas> element is what gets scaled by CSS to fit the
-     * iframe. Keep GL backing at native pixel resolution so the browser's
-     * image-rendering:pixelated CSS scales crisply to whatever size the iframe
-     * ends up — avoids a two-stage GL upscale → CSS downscale blur. */
-    InitWindow(g_wasm_nat_w, g_wasm_nat_h, title ? title : "RGC-BASIC GFX");
+    /* GL backing = native * SCALE so -gfx-border pixels are proportional to
+     * the same window size desktop uses (960x600). At native-sized backing the
+     * border (e.g. 32) would eat 10% of the content. Render target stays at
+     * native res; DrawTexturePro upscales with the border inset. CSS then
+     * further scales this 3x canvas to the iframe with image-rendering:
+     * pixelated — still crisp because the GL stage is integer-scaled. */
+    InitWindow(g_wasm_nat_w * SCALE, g_wasm_nat_h * SCALE, title ? title : "RGC-BASIC GFX");
     SetTargetFPS(60);
     g_wasm_target = LoadRenderTexture(g_wasm_nat_w, g_wasm_nat_h);
     /* Nearest-neighbour upscale — retro pixel-art look, no bilinear smear. */
