@@ -36,6 +36,7 @@
     <button type="button" id="presetAnim">Animated demo</button>
     <button type="button" id="presetBoing">Load Boing (sprites)</button>
     <button type="button" id="presetInput">Keyboard+Mouse test</button>
+    <button type="button" id="presetStress">Stress (256 sprites)</button>
     <button type="button" id="fsBtn">Fullscreen</button>
   </div>
 
@@ -128,6 +129,22 @@
       + '90 NEXT\n'
       + '100 END\n';
   };
+  document.getElementById('presetStress').onclick = async function() {
+    // Fetch stress test + chick.png then put .bas in textarea.
+    var assets = ['gfx_stress_test.bas', 'chick.png'];
+    try {
+      for (var i = 0; i < assets.length; i++) {
+        var res = await fetch('/examples/' + assets[i]);
+        if (!res.ok) res = await fetch('../examples/' + assets[i]);
+        if (!res.ok) throw new Error('fetch ' + assets[i] + ' -> ' + res.status);
+        var buf = new Uint8Array(await res.arrayBuffer());
+        try { Module.FS.unlink('/' + assets[i]); } catch (_) {}
+        Module.FS.writeFile('/' + assets[i], buf);
+      }
+      programEl.value = new TextDecoder().decode(Module.FS.readFile('/gfx_stress_test.bas'));
+    } catch (e) { logErr('Stress preload failed: ' + e.message); }
+  };
+
   document.getElementById('presetInput').onclick = function() {
     programEl.value = '10 REM Click canvas first to focus for keys.\n'
       + '20 REM Press WASD = colour-coded squares, move mouse = crosshair.\n'
