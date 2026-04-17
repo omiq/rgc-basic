@@ -5,7 +5,7 @@ REM No per-frame modulate — all sprites go via Canvas2D fast path.
 REM Best practice: bake colour with SPRITEMODIFY before SPRITECOPY for best performance.
 
 REM --- constants ---
-NCHICKS = 63
+NCHICKS = 64
 
 REM --- per-chick state arrays ---
 DIM cx(NCHICKS)    REM x position
@@ -56,5 +56,5 @@ END FUNCTION
 TIMER 1, 50, UpdateChicks
 
 DO
-  SLEEP 1
+  PRINT TI,;
 LOOP
