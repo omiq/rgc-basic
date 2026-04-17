@@ -1075,17 +1075,74 @@ static const Color c64_palette[16] = {
 
 /* ── Renderer (shared by both modes) ──────────────────────────────── */
 
+/* Persistent CPU-side pixel buffer + GPU texture, reused across frames.
+ * Avoid per-pixel DrawPixel() draw calls — fill buffer, UpdateTexture once,
+ * then one DrawTexture into the RenderTexture2D target. */
+static Color   *g_pixbuf      = NULL;
+static int      g_pixbuf_w    = 0;
+static int      g_pixbuf_h    = 0;
+static Texture2D g_pixtex     = { 0 };
+static int      g_pixtex_w    = 0;
+static int      g_pixtex_h    = 0;
+
+static void pixbuf_shutdown(void)
+{
+    if (g_pixtex.id != 0) {
+        UnloadTexture(g_pixtex);
+        g_pixtex = (Texture2D){ 0 };
+    }
+    free(g_pixbuf);
+    g_pixbuf = NULL;
+    g_pixbuf_w = g_pixbuf_h = 0;
+    g_pixtex_w = g_pixtex_h = 0;
+}
+
+static Color *ensure_pixbuf(int w, int h)
+{
+    if (w != g_pixbuf_w || h != g_pixbuf_h || g_pixbuf == NULL) {
+        free(g_pixbuf);
+        g_pixbuf = (Color *)malloc((size_t)w * (size_t)h * sizeof(Color));
+        g_pixbuf_w = w;
+        g_pixbuf_h = h;
+    }
+    if (w != g_pixtex_w || h != g_pixtex_h || g_pixtex.id == 0) {
+        if (g_pixtex.id != 0) {
+            UnloadTexture(g_pixtex);
+        }
+        Image img = {
+            .data    = g_pixbuf,
+            .width   = w,
+            .height  = h,
+            .mipmaps = 1,
+            .format  = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8,
+        };
+        g_pixtex = LoadTextureFromImage(img);
+        g_pixtex_w = w;
+        g_pixtex_h = h;
+    }
+    return g_pixbuf;
+}
+
 static void render_text_screen(const GfxVideoState *s,
                                RenderTexture2D target)
 {
     int row, col, y, x;
     int cols = (s->cols == 40 || s->cols == 80) ? (int)s->cols : 40;
     int fb_w = cols * CELL_W;
+    int fb_h = SCREEN_ROWS * CELL_H;
     int sx = (int)s->scroll_x;
     int sy = (int)s->scroll_y;
+    Color bg_global = c64_palette[s->bg_color & 0x0F];
+    Color *buf = ensure_pixbuf(fb_w, fb_h);
 
-    BeginTextureMode(target);
-    ClearBackground(c64_palette[s->bg_color & 0x0F]);
+    /* Clear with background. */
+    {
+        int total = fb_w * fb_h;
+        int i;
+        for (i = 0; i < total; i++) {
+            buf[i] = bg_global;
+        }
+    }
 
     for (row = 0; row < SCREEN_ROWS; row++) {
         for (col = 0; col < cols; col++) {
@@ -1094,29 +1151,35 @@ static void render_text_screen(const GfxVideoState *s,
             uint8_t ci = s->color[idx] & 0x0F;
             const uint8_t *glyph;
             Color fg = c64_palette[ci];
-            Color bg = c64_palette[s->bg_color & 0x0F];
+            Color bg = bg_global;
             int reversed = (sc & 0x80) ? 1 : 0;
+            int base_px = col * CELL_W - sx;
+            int base_py = row * CELL_H - sy;
 
-            /* Screen RAM holds C64 screen codes 0–255. For reversed (128–255),
-             * screen 65–90 (A–Z) use the uppercase font’s 1–26 glyphs—font_lower
-             * use base glyph and swap fg/bg (font_lower wrong at 208/215). */
             glyph = &s->chars[(uint8_t)(sc & 0x7F) * 8];
 
             for (y = 0; y < CELL_H; y++) {
+                int py = base_py + y;
                 uint8_t bits = glyph[y];
+                if (py < 0 || py >= fb_h) {
+                    continue;
+                }
                 for (x = 0; x < CELL_W; x++) {
-                    int px = col * CELL_W + x - sx;
-                    int py = row * CELL_H + y - sy;
+                    int px = base_px + x;
                     int on = (bits & (0x80 >> x)) ? 1 : 0;
-                    Color c = (on ^ reversed) ? fg : bg;
-                    if (px < 0 || py < 0 || px >= fb_w || py >= SCREEN_ROWS * CELL_H) {
+                    if (px < 0 || px >= fb_w) {
                         continue;
                     }
-                    DrawPixel(px, py, c);
+                    buf[py * fb_w + px] = (on ^ reversed) ? fg : bg;
                 }
             }
         }
     }
+
+    UpdateTexture(g_pixtex, buf);
+    BeginTextureMode(target);
+    ClearBackground(bg_global);
+    DrawTexture(g_pixtex, 0, 0, WHITE);
     EndTextureMode();
 }
 
@@ -1124,30 +1187,48 @@ static void render_text_screen(const GfxVideoState *s,
 static void render_bitmap_screen(const GfxVideoState *s, RenderTexture2D target,
                                  int native_w)
 {
-    int y, x, off_x, px, py;
+    int y, x, off_x;
     int sx = (int)s->scroll_x;
     int sy = (int)s->scroll_y;
     Color fg = c64_palette[s->bitmap_fg & 0x0F];
     Color bg = c64_palette[s->bg_color & 0x0F];
+    int fb_w = native_w;
+    int fb_h = NATIVE_H;
+    Color *buf = ensure_pixbuf(fb_w, fb_h);
 
     off_x = (native_w - (int)GFX_BITMAP_WIDTH) / 2;
     if (off_x < 0) {
         off_x = 0;
     }
 
-    BeginTextureMode(target);
-    ClearBackground(bg);
-    for (y = 0; y < (int)GFX_BITMAP_HEIGHT; y++) {
-        for (x = 0; x < (int)GFX_BITMAP_WIDTH; x++) {
-            int on = gfx_bitmap_get_pixel(s, (unsigned)x, (unsigned)y);
-            px = off_x + x - sx;
-            py = y - sy;
-            if (px < 0 || py < 0 || px >= native_w || py >= NATIVE_H) {
-                continue;
-            }
-            DrawPixel(px, py, on ? fg : bg);
+    /* Clear with background. */
+    {
+        int total = fb_w * fb_h;
+        int i;
+        for (i = 0; i < total; i++) {
+            buf[i] = bg;
         }
     }
+
+    for (y = 0; y < (int)GFX_BITMAP_HEIGHT; y++) {
+        int py = y - sy;
+        if (py < 0 || py >= fb_h) {
+            continue;
+        }
+        for (x = 0; x < (int)GFX_BITMAP_WIDTH; x++) {
+            int on = gfx_bitmap_get_pixel(s, (unsigned)x, (unsigned)y);
+            int px = off_x + x - sx;
+            if (px < 0 || px >= fb_w) {
+                continue;
+            }
+            buf[py * fb_w + px] = on ? fg : bg;
+        }
+    }
+
+    UpdateTexture(g_pixtex, buf);
+    BeginTextureMode(target);
+    ClearBackground(bg);
+    DrawTexture(g_pixtex, 0, 0, WHITE);
     EndTextureMode();
 }
 
@@ -1432,6 +1513,7 @@ int main(int argc, char **argv)
     closed_by_user = WindowShouldClose() && !basic_halted();
 
     gfx_sprite_shutdown();
+    pixbuf_shutdown();
     UnloadRenderTexture(target);
     CloseWindow();
     /* If the user closed the window before the BASIC program ended, don't
@@ -1559,6 +1641,7 @@ int main(void)
         EndDrawing();
     }
 
+    pixbuf_shutdown();
     UnloadRenderTexture(target);
     CloseWindow();
     return 0;

@@ -4047,18 +4047,26 @@ static void do_sleep_ticks(double ticks)
     emscripten_sleep(4);
 }
 #elif defined(_WIN32)
-/* Windows: sleep using Sleep() in milliseconds derived from 60Hz ticks. */
+/* Windows: sleep using Sleep() in milliseconds derived from 60Hz ticks.
+ * Slice into 16ms chunks so timers_dispatch() fires during long sleeps —
+ * mirrors POSIX path so ON TIMER callbacks keep running during SLEEP. */
 static void do_sleep_ticks(double ticks)
 {
-    DWORD ms;
+    long total_ms;
+    const long chunk_ms = 16;
     if (ticks <= 0.0) {
         return;
     }
-    ms = (DWORD)(ticks * (1000.0 / 60.0) + 0.5);
-    if (ms == 0) {
+    total_ms = (long)(ticks * (1000.0 / 60.0) + 0.5);
+    if (total_ms <= 0) {
         return;
     }
-    Sleep(ms);
+    while (total_ms > 0 && !halted) {
+        long slice = total_ms > chunk_ms ? chunk_ms : total_ms;
+        Sleep((DWORD)slice);
+        total_ms -= slice;
+        timers_dispatch();
+    }
 }
 #else
 /* POSIX/Unix: select-based implementation for 60Hz ticks (no usleep dependency). */
