@@ -9,7 +9,7 @@ REM   600 = 10 seconds at 60Hz.
 REM =========================================
 
 NHUES          = 16
-NDRAWS         = 120
+NDRAWS         = 512
 BENCH_JIFFIES  = 600
 
 DIM dx(NDRAWS), dy(NDRAWS)
@@ -64,7 +64,11 @@ NEXT
 Report:
 ELAPSED_S = (TI - T0) / 60
 FPS = FRAMES / ELAPSED_S
-PRINT
+REM Hide sprites so the FPS HUD isn't covered by frozen chicks.
+FOR I = 1 TO NHUES
+  SPRITEVISIBLE I, 0
+NEXT
+PRINT CHR$(147)
 PRINT "-------------------------"
 PRINT "FRAMES : "; FRAMES
 PRINT "SECONDS: "; ELAPSED_S
