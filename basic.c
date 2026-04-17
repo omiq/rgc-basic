@@ -12056,8 +12056,11 @@ int basic_get_gfx_fullscreen(void)
     return gfx_fullscreen;
 }
 
-#if defined(__EMSCRIPTEN__)
-/* Browser canvas: shared video + RGBA framebuffer for JS rAF (Asyncify-safe). */
+#if defined(__EMSCRIPTEN__) && !defined(GFX_USE_RAYLIB)
+/* Browser canvas: shared video + RGBA framebuffer for JS rAF (Asyncify-safe).
+ * This block is the legacy canvas-renderer WASM glue. The raylib-emscripten
+ * build (GFX_USE_RAYLIB + __EMSCRIPTEN__) uses a different main-loop shape
+ * and does not need any of this — see gfx/gfx_raylib.c for that path. */
 #define WASM_GFX_RGBA_BYTES (640u * 200u * 4u)
 static GfxVideoState wasm_gfx_state;
 static uint8_t wasm_gfx_rgba[WASM_GFX_RGBA_BYTES];

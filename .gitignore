@@ -116,3 +116,8 @@ wordpress/rgc-basic-tutorial-block/deploy/
 
 # raylib-web build artefacts (fetched + built by scripts/build-raylib-web.sh, not committed)
 third_party/
+web/basic-raylib.js
+web/basic-raylib.wasm
+web/basic-raylib.wasm.map
+basic-raylib.js
+basic-raylib.wasm
