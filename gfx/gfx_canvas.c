@@ -1,3 +1,21 @@
+/*
+ * FEATURE FREEZE (as of 2026-04-17): this CPU software renderer powers the
+ * current WASM build (basic-canvas.js/.wasm). It is scheduled to be replaced
+ * by the raylib-emscripten WebGL2 path — see docs/wasm-webgl-migration-plan.md.
+ *
+ * Policy while the migration is in progress:
+ *   - BUG FIXES ONLY: crashes, miscompiled rendering of existing features,
+ *     security issues, build breakage.
+ *   - NO new BASIC graphics features here. New sprite / bitmap / text / font
+ *     / input / audio features land in gfx/gfx_raylib.c only.
+ *   - NO refactors or "while I'm here" cleanups.
+ *   - Users who need new features must run under the raylib-emscripten build
+ *     (?renderer=raylib) once that ships.
+ *
+ * Removal target: ~3 months after raylib-emscripten becomes the default web
+ * renderer and is proven stable.
+ */
+
 #include "gfx_canvas.h"
 #include "gfx_charrom.h"
 #include "gfx_software_sprites.h"
