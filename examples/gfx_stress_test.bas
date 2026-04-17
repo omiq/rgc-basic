@@ -1,28 +1,27 @@
 REM =========================================
 REM   GFX STRESS TEST - shmup-shaped workload
-REM   Many sprite draws + FPS HUD
+REM   Runs for BENCH_JIFFIES ticks, then prints
+REM   final FPS. No per-frame HUD — isolates
+REM   raw interpreter + render throughput.
 REM
-REM   BASIC interpreter on WASM is ~50x slower
-REM   than native, so use smaller NDRAWS for
-REM   browser and crank NDRAWS for desktop.
+REM   BENCH_JIFFIES is in 1/60 second units.
+REM   600 = 10 seconds at 60Hz.
 REM =========================================
 
-REM --- knobs (tune for target) ---
-NHUES    = 16
-NDRAWS   = 120
+NHUES          = 16
+NDRAWS         = 120
+BENCH_JIFFIES  = 600
 
-REM --- per-draw state arrays ---
 DIM dx(NDRAWS), dy(NDRAWS)
 DIM dvx(NDRAWS), dvy(NDRAWS)
 DIM dslot(NDRAWS)
 
-REM --- text-mode background keeps FPS HUD visible in 40x25 cells ---
 SCREEN 0
 BACKGROUND 0
 PRINT CHR$(147)
 COLOR 7
+PRINT "Stress test: "; NDRAWS; " sprites for 10s..."
 
-REM --- load base sprite, clone to NHUES tinted slots ---
 LOADSPRITE 0, "chick.png"
 FOR I = 0 TO NHUES - 1
   PH = I * (360 / NHUES)
@@ -32,10 +31,8 @@ FOR I = 0 TO NHUES - 1
   SPRITEMODIFY 0, 255, R, G, B
   SPRITECOPY 0, I + 1
 NEXT
-REM Restore base slot white
 SPRITEMODIFY 0, 255, 255, 255, 255
 
-REM --- init NDRAWS sprites ---
 FOR I = 0 TO NDRAWS - 1
   dslot(I) = 1 + (I MOD NHUES)
   dx(I) = RND(1) * 320 - 16
@@ -44,12 +41,11 @@ FOR I = 0 TO NDRAWS - 1
   dvy(I) = (RND(1) - 0.5) * 4
 NEXT
 
-REM --- main loop: sprites + FPS HUD in text row 0 ---
 T0 = TI
 FRAMES = 0
-FPS = 0
-FOR L = 0 TO 1 STEP 0
 
+REM Fixed-duration hot loop — no TEXTAT inside
+FOR L = 0 TO 1 STEP 0
   FOR I = 0 TO NDRAWS - 1
     dx(I) = dx(I) + dvx(I)
     dy(I) = dy(I) + dvy(I)
@@ -59,17 +55,26 @@ FOR L = 0 TO 1 STEP 0
     IF dy(I) > 200 THEN dy(I) = -32
     DRAWSPRITE dslot(I), dx(I), dy(I), I
   NEXT
-
   FRAMES = FRAMES + 1
-  IF TI - T0 >= 60 THEN
-    FPS = FRAMES
-    FRAMES = 0
-    T0 = TI
-  ENDIF
-  TEXTAT 0, 0, "FPS=" + STR$(FPS) + "  DRAWS=" + STR$(NDRAWS) + "     "
-
+  IF TI - T0 >= BENCH_JIFFIES THEN GOTO Report
   K$ = INKEY$()
-  IF K$ = CHR$(27) THEN GOTO Done
+  IF K$ = CHR$(27) THEN GOTO Report
+NEXT
+
+Report:
+ELAPSED_S = (TI - T0) / 60
+FPS = FRAMES / ELAPSED_S
+PRINT
+PRINT "-------------------------"
+PRINT "FRAMES : "; FRAMES
+PRINT "SECONDS: "; ELAPSED_S
+PRINT "FPS    : "; FPS
+PRINT "DRAWS/S: "; FRAMES * NDRAWS / ELAPSED_S
+PRINT "-------------------------"
+PRINT "Press any key."
+FOR W = 0 TO 1 STEP 0
+  K$ = INKEY$()
+  IF K$ <> "" THEN GOTO Done
 NEXT
 
 Done:

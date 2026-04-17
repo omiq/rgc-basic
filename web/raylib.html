@@ -228,10 +228,16 @@
   canvas.addEventListener('keydown', function(ev) {
     ev.preventDefault();
     wasmKeySync(ev, true);
-    if (ev.key && ev.key.length === 1 && Module._wasm_push_key) {
-      Module.ccall('wasm_push_key', null, ['number'], [ev.key.charCodeAt(0) & 0xFF]);
-    } else if (ev.key === 'Enter' && Module._wasm_push_key) {
-      Module.ccall('wasm_push_key', null, ['number'], [13]);
+    if (Module._wasm_push_key) {
+      if (ev.key === 'Enter') Module.ccall('wasm_push_key', null, ['number'], [13]);
+      else if (ev.key === 'Escape') Module.ccall('wasm_push_key', null, ['number'], [27]);
+      else if (ev.key === 'Tab') Module.ccall('wasm_push_key', null, ['number'], [9]);
+      else if (ev.key === 'Backspace') Module.ccall('wasm_push_key', null, ['number'], [8]);
+      else if (ev.key === 'ArrowUp') Module.ccall('wasm_push_key', null, ['number'], [145]);
+      else if (ev.key === 'ArrowDown') Module.ccall('wasm_push_key', null, ['number'], [17]);
+      else if (ev.key === 'ArrowLeft') Module.ccall('wasm_push_key', null, ['number'], [157]);
+      else if (ev.key === 'ArrowRight') Module.ccall('wasm_push_key', null, ['number'], [29]);
+      else if (ev.key && ev.key.length === 1) Module.ccall('wasm_push_key', null, ['number'], [ev.key.charCodeAt(0) & 0xFF]);
     }
   }, true);
   canvas.addEventListener('keyup', function(ev) { wasmKeySync(ev, false); }, true);
