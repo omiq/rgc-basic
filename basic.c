@@ -4006,9 +4006,30 @@ static int function_lookup(const char *name, int len)
 }
 
 #if defined(__EMSCRIPTEN__)
-/* WHILE/FOR/DO jump back inside one run_program "statement" — yield here too. */
+/* WHILE/FOR/DO jump back inside one run_program "statement" — yield here too.
+ *
+ * Perf: fires on EVERY loop back-edge. Doing a full Asyncify sleep + pause-flag
+ * poll per iteration crushes interpreter throughput in sprite-heavy programs
+ * (120-iteration FOR = 120 Asyncify rewinds/frame = ~1 FPS). Rate-limit the
+ * expensive work (EM_ASM_INT flag polls, emscripten_sleep, refresh) to
+ * every ~16 ms of wall-clock time using a cheap iteration counter + periodic
+ * time check. Stop/pause response within 16 ms is still plenty responsive. */
 static void wasm_maybe_yield_loop(void)
 {
+    static uint32_t yield_counter = 0;
+    static double last_yield_ms = 0.0;
+    yield_counter++;
+    /* Cheap fast-path: most back-edges do nothing. */
+    if ((yield_counter & 63u) != 0u) {
+        return;
+    }
+    {
+        double now_ms = emscripten_get_now();
+        if (now_ms - last_yield_ms < 16.0) {
+            return;
+        }
+        last_yield_ms = now_ms;
+    }
     wasm_browser_pause_point();
     if (halted) {
         return;
