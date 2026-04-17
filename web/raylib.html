@@ -31,6 +31,11 @@
   <div>
     <button type="button" id="run">Run</button>
     <button type="button" id="stop" disabled>Stop</button>
+    <button type="button" id="presetText">Text demo</button>
+    <button type="button" id="presetBitmap">Bitmap demo</button>
+    <button type="button" id="presetAnim">Animated demo</button>
+    <button type="button" id="presetBoing">Load Boing (sprites)</button>
+    <button type="button" id="fsBtn">Fullscreen</button>
   </div>
 
   <div id="canvasWrap">
@@ -93,6 +98,64 @@
 
   stopBtn.onclick = function() {
     Module.wasmStopRequested = 1;
+  };
+
+  document.getElementById('presetText').onclick = function() {
+    programEl.value = '10 PRINT "HELLO FROM RAYLIB-WASM"\n'
+      + '20 PRINT "GPU-ACCELERATED WEBGL2"\n'
+      + '30 PRINT "SCREEN MODE 0 - 40X25 TEXT"\n'
+      + '40 END\n';
+  };
+  document.getElementById('presetBitmap').onclick = function() {
+    programEl.value = '10 SCREEN 1\n'
+      + '20 COLOR 7 : BACKGROUND 6\n'
+      + '30 FOR I = 0 TO 199 STEP 4\n'
+      + '40 LINE 0, I TO 319, 199 - I\n'
+      + '50 NEXT\n'
+      + '60 TEXTAT 10, 12, "BITMAP MODE"\n'
+      + '70 END\n';
+  };
+  document.getElementById('presetAnim').onclick = function() {
+    programEl.value = '10 SCREEN 1\n'
+      + '20 BACKGROUND 0 : COLOR 1\n'
+      + '30 BITMAPCLEAR\n'
+      + '40 FOR I = 0 TO 100\n'
+      + '50 X = 160 + 120 * SIN(I / 10)\n'
+      + '60 Y = 100 + 80 * COS(I / 10)\n'
+      + '70 LINE 160, 100 TO X, Y\n'
+      + '80 SLEEP 1\n'
+      + '90 NEXT\n'
+      + '100 END\n';
+  };
+  document.getElementById('presetBoing').onclick = async function() {
+    // Fetch the .bas and its PNG assets, stash in MEMFS, put .bas in textarea.
+    var assets = ['boing.bas', 'boing_sheet.png', 'boing_shadow.png', 'boing.png'];
+    try {
+      for (var i = 0; i < assets.length; i++) {
+        var url = '/examples/' + assets[i]; // served parallel to web/ by the dev server root
+        var res = await fetch(url);
+        if (!res.ok) {
+          // Try alt path: the server might be rooted at rgc-basic/web/ — fall back to absolute project path
+          res = await fetch('../examples/' + assets[i]);
+        }
+        if (!res.ok) throw new Error('fetch ' + assets[i] + ' -> ' + res.status);
+        var buf = new Uint8Array(await res.arrayBuffer());
+        try { Module.FS.unlink('/' + assets[i]); } catch (_) {}
+        Module.FS.writeFile('/' + assets[i], buf);
+        console.log('preloaded /' + assets[i] + ' (' + buf.length + ' bytes)');
+      }
+      var bas = new TextDecoder().decode(Module.FS.readFile('/boing.bas'));
+      programEl.value = bas;
+    } catch (e) {
+      logErr('Preload failed: ' + e.message + '\nServe from rgc-basic/ root, not web/');
+    }
+  };
+  document.getElementById('fsBtn').onclick = function() {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      canvas.requestFullscreen();
+    }
   };
 
   // Keyboard → HEAPU8 key_state, same pattern as canvas.html.

@@ -109,11 +109,19 @@ static void gfx_sprite_wait_gpu_op(uint64_t seq)
     if (seq == 0) {
         return;
     }
+#if defined(__EMSCRIPTEN__)
+    /* Single-threaded wasm: no separate render thread exists to advance
+     * g_sprite_gpu_done_seq, so pthread_cond_wait would spin forever.
+     * Drain the queue inline — GL context is valid at this point because
+     * wasm_raylib_init_once ran during basic_load_and_run_gfx. */
+    gfx_sprite_process_queue();
+#else
     pthread_mutex_lock(&g_sprite_mutex);
     while (g_sprite_gpu_done_seq < seq) {
         pthread_cond_wait(&g_sprite_gpu_cv, &g_sprite_mutex);
     }
     pthread_mutex_unlock(&g_sprite_mutex);
+#endif
 }
 
 static int sprite_q_push_locked(const GfxSpriteCmd *c)
@@ -1613,6 +1621,10 @@ static void wasm_raylib_init_once(void)
  * NOTE: when step 3c retires that shim, these become the sole definitions. */
 void wasm_gfx_refresh_js(void)
 {
+    int win_w, win_h, border;
+    float dx, dy, dw, dh;
+    Color bg;
+    int bc;
     if (!g_wasm_inited) {
         return;
     }
@@ -1623,12 +1635,27 @@ void wasm_gfx_refresh_js(void)
     }
     gfx_sprite_composite_range(&g_wasm_vs, g_wasm_target, g_wasm_nat_w, g_wasm_nat_h, -32768, 32767, 1);
 
+    win_w = GetScreenWidth();
+    win_h = GetScreenHeight();
+    border = basic_get_gfx_border();
+    dx = (float)border;
+    dy = (float)border;
+    dw = (float)(win_w - 2 * border);
+    dh = (float)(win_h - 2 * border);
+    if (dw < 1.0f) dw = 1.0f;
+    if (dh < 1.0f) dh = 1.0f;
+
+    gfx_mouse_raylib_poll(g_wasm_nat_w, g_wasm_nat_h, dx, dy, dx + dw, dy + dh);
+
+    bc = basic_get_gfx_border_color();
+    bg = (bc >= 0 && bc <= 15) ? c64_palette[bc] : c64_palette[g_wasm_vs.bg_color & 0x0F];
+
     BeginDrawing();
-    ClearBackground(BLACK);
+    ClearBackground(border > 0 ? bg : BLACK);
     DrawTexturePro(
         g_wasm_target.texture,
         (Rectangle){ 0, 0, (float)g_wasm_nat_w, -(float)g_wasm_nat_h },
-        (Rectangle){ 0, 0, (float)(g_wasm_nat_w * SCALE), (float)(g_wasm_nat_h * SCALE) },
+        (Rectangle){ dx, dy, dw, dh },
         (Vector2){ 0, 0 }, 0.0f, WHITE);
     EndDrawing();
 }
