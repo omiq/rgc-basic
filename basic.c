@@ -1929,6 +1929,8 @@ EMSCRIPTEN_KEEPALIVE void wasm_push_key(unsigned int code)
 void basic_set_gfx_window_title(const char *);  /* forward, for #OPTION gfx_title */
 void basic_set_gfx_border(int);                 /* forward, for #OPTION border */
 void basic_set_gfx_border_color(int);           /* forward, for #OPTION border */
+void basic_set_gfx_fullscreen(int);             /* forward, for -fullscreen CLI flag */
+int  basic_get_gfx_fullscreen(void);
 
 /* GFX text output state (mirrors a C64-like 40x25 text screen). */
 #define GFX_ROWS 25
@@ -11925,6 +11927,8 @@ int basic_parse_arg_flags(int argc, char **argv, int start, int expect_program_p
                     return -1;
                 }
             }
+        } else if (strcmp(argv[i], "-fullscreen") == 0 || strcmp(argv[i], "--fullscreen") == 0) {
+            basic_set_gfx_fullscreen(1);
         } else if (strcmp(argv[i], "-memory") == 0 || strcmp(argv[i], "--memory") == 0) {
             const char *preset;
             if (i + 1 >= argc) {
@@ -12038,6 +12042,18 @@ void basic_set_gfx_border_color(int idx)
 int basic_get_gfx_border_color(void)
 {
     return gfx_border_color;
+}
+
+static int gfx_fullscreen = 0;
+
+void basic_set_gfx_fullscreen(int on)
+{
+    gfx_fullscreen = on ? 1 : 0;
+}
+
+int basic_get_gfx_fullscreen(void)
+{
+    return gfx_fullscreen;
 }
 
 #if defined(__EMSCRIPTEN__)
