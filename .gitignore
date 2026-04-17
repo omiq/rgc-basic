@@ -113,3 +113,6 @@ wordpress/rgc-basic-tutorial-block/assets/js/*
 !wordpress/rgc-basic-tutorial-block/assets/js/gfx-embed-mount.js
 # Deploy copy (generated — not source-controlled)
 wordpress/rgc-basic-tutorial-block/deploy/
+
+# raylib-web build artefacts (fetched + built by scripts/build-raylib-web.sh, not committed)
+third_party/
