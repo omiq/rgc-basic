@@ -2795,7 +2795,12 @@ enum func_code {
     FN_SHEETCOLS = 65,
     FN_SHEETROWS = 66,
     FN_SHEETWIDTH = 67,
-    FN_SHEETHEIGHT = 68
+    FN_SHEETHEIGHT = 68,
+    /* Keyboard polling: KEYDOWN (held), KEYUP (inverse), KEYPRESS
+     * (rising edge — returns 1 exactly once per press). */
+    FN_KEYDOWN = 69,
+    FN_KEYUP = 70,
+    FN_KEYPRESS = 71
 };
 
 /* Report an error and halt further execution.
@@ -3906,6 +3911,14 @@ static int function_lookup(const char *name, int len)
             (len == 4 && name[0] == 'C' && name[1] == 'H' && name[2] == 'R' && name[3] == '$')) return FN_CHR;
         if (len == 3 && name[0] == 'C' && name[1] == 'O' && name[2] == 'S') return FN_COS;
         return FN_NONE;
+    case 'K':
+        if (len == 7 && name[0] == 'K' && name[1] == 'E' && name[2] == 'Y' && name[3] == 'D' &&
+            name[4] == 'O' && name[5] == 'W' && name[6] == 'N') return FN_KEYDOWN;
+        if (len == 5 && name[0] == 'K' && name[1] == 'E' && name[2] == 'Y' && name[3] == 'U' &&
+            name[4] == 'P') return FN_KEYUP;
+        if (len == 8 && name[0] == 'K' && name[1] == 'E' && name[2] == 'Y' && name[3] == 'P' &&
+            name[4] == 'R' && name[5] == 'E' && name[6] == 'S' && name[7] == 'S') return FN_KEYPRESS;
+        return FN_NONE;
     case 'T':
         if (len == 3 && name[0] == 'T' && name[1] == 'A' && name[2] == 'N') return FN_TAN;
         if (len == 3 && name[0] == 'T' && name[1] == 'A' && name[2] == 'B') return FN_TAB;
@@ -4724,6 +4737,43 @@ static int path_ends_with_png(const char *path)
             (path[len - 3] == 'p' || path[len - 3] == 'P') &&
             (path[len - 2] == 'n' || path[len - 2] == 'N') &&
             (path[len - 1] == 'g' || path[len - 1] == 'G'));
+}
+
+/* KEYDOWN / KEYUP / KEYPRESS intrinsic helpers.
+ *
+ * `code` is the same key index used by PEEK(GFX_KEY_BASE + code) —
+ * uppercase ASCII for letters ('A'..'Z', 'a'-'z' uppercased by caller),
+ * ASCII digits, and the special-key codes in gfx_video's scheme
+ * (up=145, down=17, left=157, right=29, Enter=13, Esc=27, Space=32,
+ * Tab=9, Backspace=8).
+ *
+ * KEYPRESS implements rising-edge detection via a per-key latch:
+ * returns 1 exactly once per press, then 0 until the key is released
+ * and pressed again. Lets a single BASIC statement react to a press
+ * without debouncing by hand. */
+static uint8_t g_key_press_seen[256];
+
+static int gfx_key_is_down_local(int code)
+{
+    if (code < 0 || code >= 256) return 0;
+    if (!gfx_vs) return 0;
+    return gfx_vs->key_state[code] != 0;
+}
+
+static int gfx_key_pressed_local(int code)
+{
+    int down;
+    if (code < 0 || code >= 256) return 0;
+    if (!gfx_vs) return 0;
+    down = gfx_vs->key_state[code] != 0;
+    if (down && !g_key_press_seen[code]) {
+        g_key_press_seen[code] = 1;
+        return 1;
+    }
+    if (!down) {
+        g_key_press_seen[code] = 0;
+    }
+    return 0;
 }
 
 /* LOADSPRITE slot, "file.png" [, tile_w, tile_h] — optional tile sheet cell size. */
@@ -6086,6 +6136,23 @@ static struct value eval_function(const char *name, char **p)
         runtime_error_hint("SPRITE/SHEET metadata requires basic-gfx or canvas WASM", NULL);
         return make_num(0.0);
     }
+    if (code == FN_KEYDOWN || code == FN_KEYUP || code == FN_KEYPRESS) {
+        struct value v1;
+        skip_spaces(p);
+        v1 = eval_expr(p);
+        (void)v1;
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("Missing ')'", "KEYDOWN/KEYUP/KEYPRESS take one key code argument.");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        /* Terminal build: no key state. Return the safe neutral value so
+         * poll-in-a-loop programs don't halt. KEYUP returns 1 (nothing
+         * is held), KEYDOWN/KEYPRESS return 0. */
+        return make_num(code == FN_KEYUP ? 1.0 : 0.0);
+    }
     if (code == FN_JOY || code == FN_JOYAXIS) {
         struct value v1, v2;
         skip_spaces(p);
@@ -6216,6 +6283,28 @@ static struct value eval_function(const char *name, char **p)
             if (code == FN_SHEETHEIGHT) v = gfx_sprite_slot_sheet_cell_h(slot);
         }
         return make_num((double)v);
+    }
+    if (code == FN_KEYDOWN || code == FN_KEYUP || code == FN_KEYPRESS) {
+        struct value vc;
+        int kc, down;
+        skip_spaces(p);
+        vc = eval_expr(p);
+        ensure_num(&vc);
+        kc = (int)vc.num;
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("Missing ')'",
+                               "KEYDOWN/KEYUP/KEYPRESS take one key code: e.g. KEYDOWN(ASC(\"W\")).");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        if (code == FN_KEYPRESS) {
+            return make_num((double)gfx_key_pressed_local(kc));
+        }
+        down = gfx_key_is_down_local(kc);
+        if (code == FN_KEYUP) down = !down;
+        return make_num((double)down);
     }
     if (code == FN_SPRITEFRAME) {
         struct value vs;
@@ -7869,6 +7958,8 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "ISMOUSEBUTTONRELEASED") || starts_with_kw(*p, "ISMOUSEBUTTONUP") ||
             starts_with_kw(*p, "ISMOUSEOVERSPRITE") ||
             starts_with_kw(*p, "BUFFERLEN") || starts_with_kw(*p, "BUFFERPATH") ||
+            starts_with_kw(*p, "KEYDOWN") || starts_with_kw(*p, "KEYUP") ||
+            starts_with_kw(*p, "KEYPRESS") ||
             starts_with_two_words(*p, "SPRITE", "FRAMES") ||
             starts_with_two_words(*p, "TILE", "COUNT") ||
             starts_with_two_words(*p, "SHEET", "COLS") ||
