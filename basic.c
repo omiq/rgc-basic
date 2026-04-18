@@ -2693,6 +2693,7 @@ static void statement_pset(char **p, int preset);
 static void statement_line(char **p);
 static void statement_rect(char **p);
 static void statement_fillrect(char **p);
+static void statement_drawtext(char **p);
 static void statement_bitmapclear(char **p);
 static void statement_cls(char **p);
 static void statement_buffernew(char **p);
@@ -3042,7 +3043,7 @@ static const char *const reserved_words[] = {
     "FILLRECT",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
-    "DRAWSPRITE", "DRAWSPRITETILE", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
+    "DRAWSPRITE", "DRAWSPRITETILE", "DRAWTEXT", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
     "DO", "LOOP", "UNTIL", "EXIT",
     "GETBYTE",
     /* Named colour constants (C64 palette 0-15) and boolean/math constants */
@@ -4522,6 +4523,52 @@ static void statement_fillrect(char **p)
     if (y0 > y1) { int t = y0; y0 = y1; y1 = t; }
     for (y = y0; y <= y1; y++) {
         gfx_bitmap_line(gfx_vs, x0, y, x1, y, 1);
+    }
+#endif
+}
+
+/* DRAWTEXT x, y, text$
+ *
+ * Stamp a string onto the visible bitmap at arbitrary pixel (x, y),
+ * using the active character-set glyphs. Unlike PRINT / TEXTAT this
+ * skips PETSCII control-code behaviour — it's a pure "stamp these
+ * glyphs at these coordinates" primitive for HUDs and annotations in
+ * bitmap mode. Bytes of text$ are converted via petscii_to_screencode
+ * so `DRAWTEXT 10, 10, "HP: 99"` renders the letters as expected.
+ *
+ * Minimal v1: transparent background (OR), current pen, 8x8 glyphs,
+ * no scale, no Font slot. The full DRAWTEXT spec in
+ * docs/bitmap-text-plan.md adds fg/bg colour + scale + Font slots —
+ * all deferred until the Font system lands. */
+static void statement_drawtext(char **p)
+{
+#ifndef GFX_VIDEO
+    (void)p;
+    runtime_error_hint("DRAWTEXT is only available in basic-gfx",
+                       "DRAWTEXT renders to the bitmap (basic-gfx or canvas WASM).");
+#else
+    struct value vx, vy, vt;
+    int x, y, i;
+    skip_spaces(p);
+    vx = eval_expr(p); ensure_num(&vx);
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("DRAWTEXT expects x, y, text$", NULL); return; }
+    (*p)++; skip_spaces(p);
+    vy = eval_expr(p); ensure_num(&vy);
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("DRAWTEXT expects x, y, text$", NULL); return; }
+    (*p)++; skip_spaces(p);
+    vt = eval_expr(p); ensure_str(&vt);
+    if (!gfx_vs) {
+        runtime_error_hint("DRAWTEXT is only available in basic-gfx",
+                           "Bitmap DRAWTEXT needs basic-gfx or canvas WASM.");
+        return;
+    }
+    x = (int)vx.num;
+    y = (int)vy.num;
+    for (i = 0; vt.str[i] && i < MAX_STR_LEN; i++) {
+        unsigned char sc = petscii_to_screencode((unsigned char)vt.str[i]);
+        gfx_video_bitmap_stamp_glyph_px(gfx_vs, x + i * 8, y, sc);
     }
 #endif
 }
@@ -11507,6 +11554,11 @@ static void execute_statement(char **p)
         if (starts_with_kw(*p, "DRAWSPRITE")) {
             *p += 10;
             statement_drawsprite(p);
+            return;
+        }
+        if (starts_with_kw(*p, "DRAWTEXT")) {
+            *p += 8;
+            statement_drawtext(p);
             return;
         }
 #endif

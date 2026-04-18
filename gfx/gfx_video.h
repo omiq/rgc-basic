@@ -150,6 +150,13 @@ void gfx_video_bitmap_stamp_glyph(GfxVideoState *s,
                                   uint8_t screencode,
                                   int solid_bg);
 
+/* Pixel-space glyph stamp — arbitrary (x, y) in pixel coordinates
+ * rather than character-cell row/col. Transparent background (OR).
+ * Used by the DRAWTEXT statement. */
+void gfx_video_bitmap_stamp_glyph_px(GfxVideoState *s,
+                                     int x, int y,
+                                     uint8_t screencode);
+
 /* Scroll the bitmap plane up by one character cell (8 pixel rows).
  * The top 8 pixel rows are discarded; the bottom 8 pixel rows are
  * cleared to zero. Used by PRINT-in-bitmap-mode when a newline

@@ -393,6 +393,36 @@ void gfx_video_bitmap_clear(GfxVideoState *s)
  * always on 8-pixel column boundaries. Fonts / DRAWTEXT will need a
  * different (shifted) stamper.
  */
+/* Pixel-space glyph stamp — arbitrary (x, y), handling mid-byte x via
+ * two-byte shift per row. Transparent background (OR). Used by
+ * DRAWTEXT. */
+void gfx_video_bitmap_stamp_glyph_px(GfxVideoState *s,
+                                     int x, int y,
+                                     uint8_t screencode)
+{
+    const uint8_t *glyph;
+    int gr;
+    unsigned row_bytes = GFX_BITMAP_WIDTH / 8u;
+    if (!s) return;
+    glyph = &s->chars[(unsigned)screencode * 8u];
+    for (gr = 0; gr < 8; gr++) {
+        int py = y + gr;
+        int byte_left_x = x >> 3;
+        unsigned byte_off;
+        int shift;
+        uint8_t bits = glyph[gr];
+        if (py < 0 || py >= (int)GFX_BITMAP_HEIGHT) continue;
+        byte_off = (unsigned)py * row_bytes + (unsigned)byte_left_x;
+        shift = x & 7;
+        if (byte_left_x >= 0 && (unsigned)byte_left_x < row_bytes) {
+            s->bitmap[byte_off] |= (uint8_t)(bits >> shift);
+        }
+        if (shift != 0 && byte_left_x + 1 >= 0 && (unsigned)(byte_left_x + 1) < row_bytes) {
+            s->bitmap[byte_off + 1] |= (uint8_t)(bits << (8 - shift));
+        }
+    }
+}
+
 void gfx_video_bitmap_stamp_glyph(GfxVideoState *s,
                                   int col, int row,
                                   uint8_t screencode,
