@@ -4845,6 +4845,116 @@ static void statement_drawspritetile(char **p)
     gfx_sprite_enqueue_draw(slot, x, y, z, sx, sy, sw, sh);
 }
 
+/* TILEMAP DRAW slot, x0, y0, cols, rows, map [, z]
+ *
+ * Batched tile grid stamp. `map` is a BASIC 1-D numeric array of length
+ * cols*rows containing 1-based tile indices (0 = transparent, skip).
+ * One interpreter dispatch, one asyncify yield — per-tile work lives in
+ * gfx_draw_tilemap inside gfx_raylib.c / gfx_software_sprites.c. */
+static void statement_tilemap_draw(char **p)
+{
+    struct value v;
+    int slot, cols, rows, z = 0;
+    float x0, y0;
+    char namebuf[VAR_NAME_MAX];
+    int is_string = 0, i;
+    struct var *ar = NULL;
+    int *buf = NULL;
+    int need;
+
+    skip_spaces(p);
+    v = eval_expr(p);
+    ensure_num(&v);
+    slot = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("TILEMAP DRAW expects slot, x0, y0, cols, rows, map [, z]", NULL);
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    v = eval_expr(p);
+    ensure_num(&v);
+    x0 = (float)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("TILEMAP DRAW: missing y0", NULL); return; }
+    (*p)++;
+    skip_spaces(p);
+    v = eval_expr(p);
+    ensure_num(&v);
+    y0 = (float)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("TILEMAP DRAW: missing cols", NULL); return; }
+    (*p)++;
+    skip_spaces(p);
+    v = eval_expr(p);
+    ensure_num(&v);
+    cols = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("TILEMAP DRAW: missing rows", NULL); return; }
+    (*p)++;
+    skip_spaces(p);
+    v = eval_expr(p);
+    ensure_num(&v);
+    rows = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("TILEMAP DRAW: missing map array", NULL); return; }
+    (*p)++;
+    skip_spaces(p);
+    if (!isalpha((unsigned char)**p)) {
+        runtime_error_hint("TILEMAP DRAW expects a DIMmed integer array name",
+                           "DIM MAP(cols*rows-1) first, then TILEMAP DRAW 0,0,0,cols,rows,MAP().");
+        return;
+    }
+    read_identifier(p, namebuf, sizeof(namebuf));
+    uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
+    /* Optional empty subscript parens: `MAP()` or bare `MAP` both accepted. */
+    skip_spaces(p);
+    if (**p == '(') {
+        (*p)++;
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("TILEMAP DRAW: array ref must be empty parens",
+                               "Pass the whole array — write MAP() not MAP(0).");
+            return;
+        }
+        (*p)++;
+        skip_spaces(p);
+    }
+    for (i = 0; i < var_count; i++) {
+        if (strcmp(vars[i].name, namebuf) == 0 && vars[i].is_string == is_string) {
+            ar = &vars[i];
+            break;
+        }
+    }
+    if (!ar || !ar->is_array || !ar->array || ar->size <= 0 || ar->is_string) {
+        runtime_error_hint("TILEMAP DRAW requires a numeric 1-D array",
+                           "DIM MAP(cols*rows-1) before use; MAP$ (strings) not supported.");
+        return;
+    }
+    if (**p == ',') {
+        (*p)++;
+        skip_spaces(p);
+        v = eval_expr(p);
+        ensure_num(&v);
+        z = (int)v.num;
+    }
+    if (!gfx_vs) {
+        runtime_error_hint("TILEMAP DRAW requires basic-gfx or canvas WASM", NULL);
+        return;
+    }
+    if (cols <= 0 || rows <= 0) return;
+    need = cols * rows;
+    if (need > ar->size) need = ar->size;
+    buf = (int *)malloc(sizeof(int) * (size_t)need);
+    if (!buf) { runtime_error_hint("TILEMAP DRAW: out of memory", NULL); return; }
+    for (i = 0; i < need; i++) {
+        buf[i] = (int)ar->array[i].num;
+    }
+    gfx_draw_tilemap(slot, x0, y0, cols, rows, z, buf, need);
+    free(buf);
+}
+
 /* DRAWSPRITE slot, x, y [, z [, sx, sy [, sw, sh ]]] — z higher = on top; alpha from PNG. */
 static void statement_drawsprite(char **p)
 {
@@ -10878,7 +10988,19 @@ static void execute_statement(char **p)
         return;
     }
 #ifdef GFX_VIDEO
-    /* Two-word alias: TILE DRAW → DRAWSPRITETILE. `q` scratch pattern. */
+    /* Two-word dispatch: TILEMAP DRAW (new), TILE DRAW (alias to
+     * DRAWSPRITETILE). Check TILEMAP first because starts_with_kw("TILE")
+     * would otherwise match "TILE" bare but not "TILEMAP" (alnum follows);
+     * still, run longer word first for clarity. */
+    if (c == 'T' && starts_with_kw(*p, "TILEMAP")) {
+        char *q = *p + 7;
+        skip_spaces(&q);
+        if (starts_with_kw(q, "DRAW")) {
+            *p = q + 4;
+            statement_tilemap_draw(p);
+            return;
+        }
+    }
     if (c == 'T' && starts_with_kw(*p, "TILE")) {
         char *q = *p + 4;
         skip_spaces(&q);
@@ -10950,8 +11072,18 @@ static void execute_statement(char **p)
     }
     if (c == 'D') {
 #ifdef GFX_VIDEO
+        if (starts_with_kw(*p, "DRAWTILEMAP")) {
+            *p += 11;
+            statement_tilemap_draw(p);
+            return;
+        }
         if (starts_with_kw(*p, "DRAWSPRITETILE")) {
             *p += 14;
+            statement_drawspritetile(p);
+            return;
+        }
+        if (starts_with_kw(*p, "DRAWTILE")) {
+            *p += 8;
             statement_drawspritetile(p);
             return;
         }

@@ -457,6 +457,34 @@ int gfx_sprite_slot_sheet_cell_h(int slot)
     return v;
 }
 
+/* TILEMAP DRAW: stamp a cols x rows grid of tile indices into the draw queue.
+ * Each tile becomes one GfxSpriteCmd (same as DRAWSPRITETILE) so the existing
+ * render path handles it; one BASIC statement = one asyncify yield regardless
+ * of tile count (the per-tile work happens in C, not in the interpreter loop). */
+void gfx_draw_tilemap(int slot, float x0, float y0, int cols, int rows, int z,
+                      const int *tiles, int tile_count)
+{
+    int cell_w, cell_h;
+    int r, c, i = 0;
+    if (!tiles || cols <= 0 || rows <= 0) return;
+    cell_w = gfx_sprite_slot_sheet_cell_w(slot);
+    cell_h = gfx_sprite_slot_sheet_cell_h(slot);
+    if (cell_w <= 0 || cell_h <= 0) return;
+    for (r = 0; r < rows; r++) {
+        for (c = 0; c < cols; c++) {
+            int idx, sx, sy, sw, sh;
+            if (i >= tile_count) return;
+            idx = tiles[i++];
+            if (idx <= 0) continue;
+            if (gfx_sprite_tile_source_rect(slot, idx, &sx, &sy, &sw, &sh) != 0) continue;
+            gfx_sprite_enqueue_draw(slot,
+                                    x0 + (float)(c * cell_w),
+                                    y0 + (float)(r * cell_h),
+                                    z, sx, sy, sw, sh);
+        }
+    }
+}
+
 int gfx_sprite_tile_source_rect(int slot, int tile_index_1based, int *sx, int *sy, int *sw, int *sh)
 {
     GfxSpriteSlot *sl;
