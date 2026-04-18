@@ -5008,6 +5008,46 @@ static void statement_tilemap_draw(char **p)
     free(buf);
 }
 
+/* SPRITE STAMP slot, x, y [, frame [, z]]
+ *
+ * Immediate single-sprite draw that accumulates per frame. Unlike
+ * DRAWSPRITE (which maintains a single persistent position per slot so
+ * N calls collapse to the last one), STAMP appends to the per-frame
+ * cell list — you can draw N instances of one sheet slot in one
+ * frame without SPRITECOPY. Typical use: particles, bullets, enemy
+ * swarms, stars. */
+static void statement_sprite_stamp(char **p)
+{
+    struct value v;
+    int slot, frame = 0, z = 0;
+    float x, y;
+    skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); slot = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("SPRITE STAMP expects slot, x, y [, frame [, z]]", NULL); return; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); x = (float)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("SPRITE STAMP: missing y", NULL); return; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); y = (float)v.num;
+    skip_spaces(p);
+    if (**p == ',') {
+        (*p)++; skip_spaces(p);
+        v = eval_expr(p); ensure_num(&v); frame = (int)v.num;
+        skip_spaces(p);
+        if (**p == ',') {
+            (*p)++; skip_spaces(p);
+            v = eval_expr(p); ensure_num(&v); z = (int)v.num;
+        }
+    }
+    if (!gfx_vs) {
+        runtime_error_hint("SPRITE STAMP requires basic-gfx or canvas WASM", NULL);
+        return;
+    }
+    gfx_sprite_stamp(slot, x, y, frame, z);
+}
+
 /* IMAGE NEW slot, w, h — allocate a 1bpp off-screen surface. Slot 0
  * (visible) is reserved and cannot be reallocated. */
 static void statement_image_new(char **p)
@@ -11439,10 +11479,11 @@ static void execute_statement(char **p)
             statement_spritecopy(p);
             return;
         }
-        /* Two-word aliases: SPRITE LOAD / DRAW / FRAME / FREE.
-         * Rewrites to existing handlers. `q` is a scratch pointer so
-         * *p is only advanced on a real match — lets non-matching
-         * input (e.g. user var `SPRITE = 5`) fall through unharmed. */
+        /* Two-word aliases: SPRITE LOAD / DRAW / FRAME / FREE / STAMP.
+         * Rewrites to existing handlers (except STAMP, which is new).
+         * `q` is a scratch pointer so *p is only advanced on a real
+         * match — lets non-matching input (e.g. user var `SPRITE = 5`)
+         * fall through unharmed. */
         if (starts_with_kw(*p, "SPRITE")) {
             char *q = *p + 6;
             skip_spaces(&q);
@@ -11464,6 +11505,11 @@ static void execute_statement(char **p)
             if (starts_with_kw(q, "FREE")) {
                 *p = q + 4;
                 statement_unloadsprite(p);
+                return;
+            }
+            if (starts_with_kw(q, "STAMP")) {
+                *p = q + 5;
+                statement_sprite_stamp(p);
                 return;
             }
         }
