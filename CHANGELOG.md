@@ -1,5 +1,124 @@
 ## Changelog
 
+### 1.9.1 – 2026-04-18
+
+**Post-Graphics-1.0 polish pass.** Small features + a pile of fixes
+from porting real user programs (C64-style `cards.bas`, `bounce.bas`,
+`options.bas`, `fileio_basics.bas`, `tutorial_functions.bas`,
+`gfx_menu_demo.bas`) to the WASM raylib runtime. No breaking changes
+from 1.9.0.
+
+- **Statement: `PAPER n` — per-cell background colour (0–15).** Unlike
+  `BACKGROUND` (global bg register), `PAPER` only changes the value
+  stamped into each cell's `bgcolor[]` by subsequent `PRINT`s. Lets
+  BASIC draw a highlighted menu row, a card border, or a status-bar
+  stripe without repainting the rest of the screen. New `uint8_t
+  bgcolor[GFX_COLOR_SIZE]` field in `GfxVideoState`; `gfx_put_byte`
+  stamps `bgcolor[idx] = gfx_bg`; `CLS` and scroll fill / slide the bg
+  plane alongside the fg plane; the raylib text renderer reads per-cell
+  bg from `s->bgcolor[idx]`. Canvas backend unchanged (frozen
+  2026-04-17). New example: `examples/gfx_menu_demo.bas`.
+
+- **Named key-code constants: `KEY_UP`, `KEY_DOWN`, `KEY_LEFT`,
+  `KEY_RIGHT`, `KEY_SPACE`, `KEY_ENTER`, `KEY_ESC`, `KEY_TAB`, `KEY_BACK`.**
+  Resolve at identifier-parse time in `eval_factor` (same path as `TI` /
+  `TI$`) to the PETSCII CHR$ control codes: UP=145, DOWN=17, LEFT=157,
+  RIGHT=29, SPACE=32, ENTER=13, ESC=27, TAB=9, BACK=8. So `IF
+  KEYDOWN(KEY_UP) THEN …` replaces the magic number `145`.
+
+- **Default charset flipped to lower/uppercase ROM.** `petscii_lowercase_cli`
+  defaults to `1` and `GfxVideoState.charset_lowercase` initialises `1`
+  so mixed-case ASCII source (`PRINT "Hello"`) renders as mixed-case
+  glyphs. Pure-uppercase demos still look uppercase (A–Z at SC 65–90 in
+  lower ROM). `#OPTION PETSCII` auto-switches back to upper ROM so
+  PETSCII graphic bytes (208 → SC 80 corner, etc.) render as shapes,
+  but only if the user hasn't already pinned a charset explicitly via
+  `#OPTION CHARSET`.
+
+- **`#OPTION CHARSET` + `#OPTION PETSCII` interaction fix.** New
+  `charset_explicit_opt` flag (reset per-load). Setting `#OPTION
+  CHARSET PET-LOWER` / `PET-UPPER` / `C64-UPPER` / `C64-LOWER` raises
+  the flag; `#OPTION PETSCII` checks it before clobbering the charset.
+  Previously `#OPTION CHARSET PET-LOWER : #OPTION PETSCII` (as in
+  `options.bas`) ended up on upper ROM because `PETSCII` was parsed
+  last.
+
+- **`FILLRECT` in bitmap mode: `COLOR 0` now clears bits; `COLOR n>0`
+  still sets bits.** Bitmap is 1bpp, so `COLOR` only picks set-vs-clear
+  here; the global `bitmap_fg` register still drives how set bits
+  render. Lets `gfx_hud_demo` / `gfx_showcase` erase just the spinner /
+  star area without a whole-screen `CLS` flicker.
+
+- **ASCII `[ \ ] ^ _` pick up the real C64 glyphs in both ROMs.**
+  `gfx_ascii_to_screencode` (upper) and
+  `gfx_ascii_to_screencode_lowcharset` (lower) now map 91–94 → SC 27–30
+  (`[` `£` `]` `↑`) and 95 → SC 100 (real bottom-bar underscore).
+  Previously they returned the raw ASCII byte, which indexed into
+  whatever lived at SC 91–95 in the ROM (cross, pipe, diagonal).
+
+- **Unicode box-drawing (`┌ ─ ┐ │ └ ┘ ├ ┤ ┬ ┴ ┼`) renders in default
+  mode.** `gfx_put_byte`'s `else sc = b` fallback for `b >= 128` now
+  routes through `petscii_to_screencode` instead of using the raw byte.
+  `print_value` decodes UTF-8 via `unicode_to_petscii` and emits the
+  PETSCII byte; without the conversion the byte indexed the reverse-
+  video region.
+
+- **`CHR$(208)` and other high PETSCII bytes in concatenated strings.**
+  `print_value`'s UTF-8 decoder previously ate any byte in `0xC2..0xF4`
+  as a possible 2-byte UTF-8 start and fell back to `gfx_put_byte(' ')`
+  when the "codepoint" wasn't in `unicode_to_petscii` — so
+  `CHR$(208) = 0xD0` silently turned into a space. The decoder now also
+  requires a valid continuation byte (`0x80..0xBF`) before committing;
+  raw PETSCII bytes pass straight through. `bounce.bas`'s paddle
+  (`" {DOWN}{LEFT}"+CHR$(208)+…`) renders correctly.
+
+- **WASM raylib: forced refresh at end of run.** New file-scope
+  `g_wasm_force_next_refresh` flag bypasses the 60 Hz rate-limit in
+  `wasm_gfx_refresh_js` exactly once per run. Short programs whose last
+  `PRINT` stamped the screen within 16 ms of a prior budget-tick
+  render (e.g. `fileio_basics.bas`) no longer leave the final text
+  invisible.
+
+- **WASM raylib: `ticks60` advances per render tick.** Without this the
+  jiffy counter stayed at `0` and `ANIMFRAME(first, last, per)` always
+  returned `first` — `gfx_anim_demo.bas` looked static. Matches the
+  native raylib loop which calls `gfx_video_advance_ticks60(&vs, 1)`
+  each frame.
+
+- **WASM raylib: window + render texture resize on `#OPTION COLUMNS 80`.**
+  `wasm_raylib_init_once` used to build the 40-col-sized GL target
+  before `basic_load` parsed the file's options. New
+  `wasm_resize_if_cols_changed` unloads the old render texture, calls
+  `SetWindowSize`, re-creates at `want_cols * CELL_W`, and restores the
+  filter. Called after `basic_load`.
+
+- **WASM raylib iframe: stderr parsed for `Error on line N: …` and
+  forwarded via `postMessage` as `rgc-basic-runtime-error`.** The
+  canvas iframe already did this; the raylib iframe's `printErr` only
+  logged to `console.warn`, so the IDE overlay never saw runtime errors
+  on that renderer. Now both iframes emit the same event shape.
+
+- **8bitworkshop: local cache-bust script.**
+  `scripts/bump-rgc-basic-cb.sh` writes a fresh `YYYYMMDD-HHMMSS` token
+  to `rgc-basic/asset-cb.txt` and `src/platform/rgc-basic-asset-cb.gen.ts`
+  (same logic as `deploy.sh`). Run after each local WASM rebuild.
+
+- **IDE asset preload: strip REM comment lines + drop `OPEN` from the
+  regex.** Previously `5 REM OPEN uses: logical, device, secondary,
+  "filename"` in `fileio_basics.bas` caused the IDE to fetch
+  `presets/rgc-basic/filename` (404 + CORS). The regex now runs over a
+  REM-stripped copy of the source, and asset verbs are limited to
+  `LOADSPRITE` / `SPRITE LOAD` / `IMAGE LOAD` / `LOADFONT`. Applied to
+  all four parser sites.
+
+- **Example: `examples/gfx_menu_demo.bas` — per-row + per-char
+  PAPER/COLOR menu.** Five menu items with the selected row highlighted
+  via `PAPER 2` (red bg, full-width), a box-drawn frame (`┌─┐ │ └─┘`)
+  with `PAPER 0` (black bg per-char), a rainbow title (one PRINT
+  fragment per letter, different `COLOR` each), and W/S or cursor up /
+  down to cycle the selection. Demonstrates both modes of colour
+  attribute control in one screen.
+
 ### 1.9.0 – 2026-04-18
 
 **Graphics 1.0 milestone.** The entries below collectively round

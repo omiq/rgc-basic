@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RGC-BASIC 1.9.0 — Graphics 1.0 release notes (2026-04-13 → 2026-04-18)</title>
+<title>RGC-BASIC 1.9.0 + 1.9.1 — Graphics 1.0 release notes (2026-04-13 → 2026-04-18)</title>
 <style>
   :root { color-scheme: light dark; }
   body { font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -45,22 +45,85 @@
 </head>
 <body>
 
-<h1>RGC-BASIC 1.9.0 — Graphics 1.0</h1>
+<h1>RGC-BASIC 1.9.0 + 1.9.1 — Graphics 1.0</h1>
 <p class="lede">
 Release notes for the April 2026 graphics batch — a complete AMOS/STOS-class
 2-D feature set landed in 36 commits between 2026-04-13 and 2026-04-18,
-tagged as <strong>v1.9.0</strong>. Shape primitives, sprite stamping with
-rotation, an array-driven tilemap renderer, a 1bpp blitter with PNG/BMP I/O,
-a double-buffered VSYNC frame pipeline, named keyboard intrinsics, a global
-anti-alias toggle, and fourteen new example programs.
+tagged as <strong>v1.9.0</strong>, with a same-day polish pass
+<strong>v1.9.1</strong>. Shape primitives, sprite stamping with rotation, an
+array-driven tilemap renderer, a 1bpp blitter with PNG/BMP I/O, a double-
+buffered VSYNC frame pipeline, named keyboard intrinsics, a global anti-
+alias toggle, and fourteen new example programs — plus the 1.9.1 polish
+round below.
 </p>
 
 <p>
-Full per-feature write-ups sit under the <strong>1.9.0</strong> section of
+Full per-feature write-ups sit under the <strong>1.9.0</strong> and
+<strong>1.9.1</strong> sections of
 <a href="https://github.com/omiq/rgc-basic/blob/main/CHANGELOG.md">CHANGELOG.md</a>
 (what / why / implementation for each entry). This page is the short form
 with demo links. <strong>2.0</strong> is queued for the sound milestone.
 </p>
+
+<div class="card" style="border-color:#6f6; background:#f0fff4">
+<h2 style="margin-top:0; border-top:none; padding-top:0">1.9.1 (polish pass)</h2>
+<ul>
+  <li><strong><code>PAPER n</code></strong> — per-cell background colour
+    (0–15). Only cells stamped after the statement pick up the new bg; the
+    rest of the screen keeps its previous paper. Pairs with
+    <code>COLOR n</code> for proper 2-colour text cells: menu highlights,
+    card borders, status bars. New example
+    <a href="https://ide.retrogamecoders.com/?file=gfx_menu_demo.bas&amp;platform=rgc-basic">gfx_menu_demo.bas</a>
+    shows per-row highlight + per-char box frame.</li>
+  <li><strong>Named key-code constants</strong> —
+    <code>KEY_UP</code>, <code>KEY_DOWN</code>, <code>KEY_LEFT</code>,
+    <code>KEY_RIGHT</code>, <code>KEY_SPACE</code>, <code>KEY_ENTER</code>,
+    <code>KEY_ESC</code>, <code>KEY_TAB</code>, <code>KEY_BACK</code>.
+    Use anywhere a numeric key code is expected:
+    <code>IF KEYDOWN(KEY_UP) THEN …</code>.</li>
+  <li><strong>Default charset is now lower/upper ROM</strong> so ASCII
+    upper+lower both render as real letters
+    (<code>PRINT "Hello"</code> shows "Hello", not "HELLO"). Pure-uppercase
+    demos still look uppercase. <code>#OPTION PETSCII</code> auto-switches
+    back to upper/graphics ROM for PETSCII graphic bytes — unless the user
+    has already pinned a charset with <code>#OPTION CHARSET</code>.</li>
+  <li><strong><code>FILLRECT COLOR 0</code> clears bits in bitmap mode</strong>
+    (<code>COLOR n&gt;0</code> still fills). Bitmap is 1bpp, so
+    <code>COLOR</code> here just picks set-vs-clear — the global
+    <code>bitmap_fg</code> register still drives how set bits render.
+    Lets HUD / showcase demos erase a small region without a whole-
+    screen <code>CLS</code> flicker.</li>
+  <li><strong>ASCII <code>[ \ ] ^ _</code></strong> now pick up the real
+    C64 glyphs in both ROMs: 91–94 → SC 27–30 (<code>[ £ ] ↑</code>),
+    95 → SC 100 (real bottom-bar underscore).</li>
+  <li><strong>Unicode box-drawing</strong> (<code>┌ ─ ┐ │ └ ┘ ├ ┤ ┬ ┴ ┼</code>)
+    now renders correctly in the default non-PETSCII mode — the
+    UTF-8 → PETSCII converter in <code>print_value</code> emits
+    PETSCII bytes, and <code>gfx_put_byte</code> now routes bytes ≥ 128
+    through <code>petscii_to_screencode</code> instead of using the raw
+    byte.</li>
+  <li><strong><code>CHR$(208)</code> and other high PETSCII bytes in
+    concatenated strings</strong> no longer get swallowed by a UTF-8
+    false-positive in <code>print_value</code>. <code>bounce.bas</code>'s
+    paddle (<code>" {DOWN}{LEFT}"+CHR$(208)+…</code>) renders the corner
+    glyph.</li>
+  <li><strong>WASM raylib runtime</strong> — forced end-of-run refresh
+    (short programs like <code>fileio_basics.bas</code> commit their
+    final frame), <code>ticks60</code> advances per render tick so
+    <code>ANIMFRAME</code> animates, window + render texture resize on
+    <code>#OPTION COLUMNS 80</code>, and runtime errors are forwarded
+    to the IDE overlay the same way the canvas iframe already did.</li>
+  <li><strong>IDE asset preload</strong> — REM comment lines stripped
+    before the asset-ref regex runs, and <code>OPEN</code> dropped from
+    the regex (runtime-only verb). No more 404 + CORS spam on demos
+    that document their OPEN arguments inside a REM line.</li>
+  <li><strong>Local cache-bust script</strong>
+    (<code>scripts/bump-rgc-basic-cb.sh</code> in the 8bitworkshop repo)
+    writes a fresh token to <code>rgc-basic/asset-cb.txt</code> and the
+    generated TS module, matching <code>deploy.sh</code>. Run after each
+    local WASM rebuild so the IDE fetches fresh bytes.</li>
+</ul>
+</div>
 
 <h2>Headline changes</h2>
 
