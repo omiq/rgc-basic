@@ -437,11 +437,14 @@ void gfx_cells_flip(void)
 }
 
 /* SPRITE STAMP: append a single sprite-tile draw. `frame` is a 1-based
- * tile index; 0 uses the slot's current SPRITEFRAME. */
-void gfx_sprite_stamp(int slot, float x, float y, int frame, int z)
+ * tile index; 0 uses the slot's current SPRITEFRAME. `rot_deg` is
+ * accepted for API parity with the raylib backend but ignored here —
+ * the 1bpp software blitter doesn't rotate per-pixel. */
+void gfx_sprite_stamp(int slot, float x, float y, int frame, int z, float rot_deg)
 {
     int sx, sy, sw, sh;
     int idx = (frame > 0) ? frame : gfx_sprite_get_draw_frame(slot);
+    (void)rot_deg;
     if (idx <= 0) idx = 1;
     if (gfx_sprite_tile_source_rect(slot, idx, &sx, &sy, &sw, &sh) != 0) {
         sx = sy = 0;

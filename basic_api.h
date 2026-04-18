@@ -84,8 +84,10 @@ void gfx_draw_tilemap(int slot, float x0, float y0, int cols, int rows, int z,
 /* Single-sprite immediate draw (SPRITE STAMP). Appends one cell to the
  * same per-frame list as gfx_draw_tilemap, so N stamps of one slot in
  * one frame all render. `frame` is a 1-based tile index; 0 or a bad
- * index falls back to the slot's current SPRITEFRAME. */
-void gfx_sprite_stamp(int slot, float x, float y, int frame, int z);
+ * index falls back to the slot's current SPRITEFRAME. `rot_deg` is
+ * clockwise rotation in degrees (0 = none). */
+void gfx_sprite_stamp(int slot, float x, float y, int frame, int z,
+                      float rot_deg);
 
 /* Double-buffered TILEMAP / SPRITE STAMP cell list.
  *

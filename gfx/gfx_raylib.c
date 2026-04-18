@@ -473,6 +473,7 @@ typedef struct {
     float x, y;
     int z;
     int sx, sy, sw, sh;
+    float rot;   /* rotation in degrees, 0 = no rotation (SPRITE STAMP only) */
 } GfxTilemapCell;
 
 /* Double-buffered cell list. BASIC appends to g_tm_build; the
@@ -520,6 +521,7 @@ void gfx_draw_tilemap(int slot, float x0, float y0, int cols, int rows, int z,
             scratch[n].sy = sy;
             scratch[n].sw = sw;
             scratch[n].sh = sh;
+            scratch[n].rot = 0.0f;
             n++;
         }
     }
@@ -565,10 +567,9 @@ void gfx_cells_flip(void)
 /* SPRITE STAMP: append a single sprite-tile draw to the per-frame cell
  * list. `frame` is a 1-based tile index into the slot's sheet; 0 uses
  * the slot's current SPRITEFRAME (same default as DRAWSPRITE). */
-void gfx_sprite_stamp(int slot, float x, float y, int frame, int z)
+void gfx_sprite_stamp(int slot, float x, float y, int frame, int z, float rot_deg)
 {
     int sx, sy, sw, sh;
-    int existing;
     int idx = (frame > 0) ? frame : gfx_sprite_get_draw_frame(slot);
     if (idx <= 0) idx = 1;
     if (gfx_sprite_tile_source_rect(slot, idx, &sx, &sy, &sw, &sh) != 0) {
@@ -588,9 +589,8 @@ void gfx_sprite_stamp(int slot, float x, float y, int frame, int z)
         c->sy = sy;
         c->sw = sw;
         c->sh = sh;
+        c->rot = rot_deg;
     }
-    existing = g_tm_count;
-    (void)existing;
     pthread_mutex_unlock(&g_sprite_mutex);
 }
 
@@ -1201,9 +1201,24 @@ static void gfx_sprite_composite_range(const GfxVideoState *vs, RenderTexture2D 
             pthread_mutex_unlock(&g_sprite_mutex);
             src = (Rectangle){ (float)cell->sx, (float)cell->sy,
                                 (float)cell->sw, (float)cell->sh };
-            dest = (Rectangle){ cell->x - scx, cell->y - scy,
-                                 (float)cell->sw, (float)cell->sh };
-            DrawTexturePro(t, src, dest, (Vector2){ 0, 0 }, 0.0f, WHITE);
+            /* When rotating, DrawTexturePro rotates around the origin
+             * argument — offset by half the destination size so rotation
+             * pivots around the sprite's centre, then add back to keep
+             * the cell's (x, y) meaning "top-left of the un-rotated
+             * quad". */
+            if (cell->rot != 0.0f) {
+                dest = (Rectangle){ cell->x - scx + (float)cell->sw * 0.5f,
+                                     cell->y - scy + (float)cell->sh * 0.5f,
+                                     (float)cell->sw, (float)cell->sh };
+                DrawTexturePro(t, src, dest,
+                               (Vector2){ (float)cell->sw * 0.5f,
+                                           (float)cell->sh * 0.5f },
+                               cell->rot, WHITE);
+            } else {
+                dest = (Rectangle){ cell->x - scx, cell->y - scy,
+                                     (float)cell->sw, (float)cell->sh };
+                DrawTexturePro(t, src, dest, (Vector2){ 0, 0 }, 0.0f, WHITE);
+            }
         }
     }
 
