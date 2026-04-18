@@ -13341,6 +13341,20 @@ static void load_program(const char *path)
     int use_explicit_numbers = -1;
     int first_line_seen = 0;
     const char *base_dir = get_base_dir(path);
+    int i;
+
+    /* Browser IDE reuses the interpreter across runs: free old program_lines
+     * so a fresh load starts empty. Without this, lines with numbers not
+     * present in the new file linger (e.g. stale `56 END` from a prior test
+     * halts a later program early). */
+    for (i = 0; i < line_count; i++) {
+        if (program_lines[i]) {
+            free(program_lines[i]->text);
+            free(program_lines[i]);
+            program_lines[i] = NULL;
+        }
+    }
+    line_count = 0;
 
 #ifdef GFX_VIDEO
     /* Each load starts from CLI memory map; #OPTION in file overrides. */
