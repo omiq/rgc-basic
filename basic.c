@@ -7763,7 +7763,13 @@ static struct value eval_factor(char **p)
                 namebuf[i] = (char)toupper((unsigned char)namebuf[i]);
             }
             len = i;
-            if (len >= 2 && namebuf[0] == 'T' && namebuf[1] == 'I') {
+            /* Only exact TI or TI$ — the old `len >= 2` match swallowed any
+             * identifier starting with "TI" (TILE, TILEMAP, TIDE, …). CBM
+             * BASIC used 2-char significance to accept TIME/TICKS as TI;
+             * rgc-basic has full-length identifiers so the abbreviation is
+             * unnecessary and breaks user-chosen names. */
+            if ((len == 2 || (len == 3 && namebuf[2] == '$')) &&
+                namebuf[0] == 'T' && namebuf[1] == 'I') {
                 int is_str = (len > 0 && namebuf[len - 1] == '$');
 #ifdef GFX_VIDEO
                 if (gfx_vs) {

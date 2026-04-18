@@ -457,32 +457,62 @@ int gfx_sprite_slot_sheet_cell_h(int slot)
     return v;
 }
 
-/* TILEMAP DRAW: stamp a cols x rows grid of tile indices into the draw queue.
- * Each tile becomes one GfxSpriteCmd (same as DRAWSPRITETILE) so the existing
- * render path handles it; one BASIC statement = one asyncify yield regardless
- * of tile count (the per-tile work happens in C, not in the interpreter loop). */
+/* TILEMAP DRAW: stamp a cols x rows grid of tile indices.
+ *
+ * Can't use gfx_sprite_enqueue_draw for this — that path mirrors the
+ * last draw into g_sprite_slots[slot].draw_* as a single persistent
+ * position, so N calls per slot per frame collapse to one visible
+ * draw. Instead, we materialise a per-cell list that the compositor
+ * iterates after the regular sprite loop. Replace semantics: each
+ * TILEMAP DRAW call overwrites the prior list. */
+
+#define GFX_TILEMAP_MAX_CELLS 4096
+
+typedef struct {
+    int slot;
+    float x, y;
+    int z;
+    int sx, sy, sw, sh;
+} GfxTilemapCell;
+
+static GfxTilemapCell g_tm_cells[GFX_TILEMAP_MAX_CELLS];
+static int g_tm_count = 0;
+
 void gfx_draw_tilemap(int slot, float x0, float y0, int cols, int rows, int z,
                       const int *tiles, int tile_count)
 {
+    /* scratch: file-scope static is fine — interpreter thread only caller. */
+    static GfxTilemapCell scratch[GFX_TILEMAP_MAX_CELLS];
     int cell_w, cell_h;
-    int r, c, i = 0;
+    int r, c, i = 0, n = 0;
     if (!tiles || cols <= 0 || rows <= 0) return;
     cell_w = gfx_sprite_slot_sheet_cell_w(slot);
     cell_h = gfx_sprite_slot_sheet_cell_h(slot);
     if (cell_w <= 0 || cell_h <= 0) return;
-    for (r = 0; r < rows; r++) {
-        for (c = 0; c < cols; c++) {
+    for (r = 0; r < rows && n < GFX_TILEMAP_MAX_CELLS; r++) {
+        for (c = 0; c < cols && n < GFX_TILEMAP_MAX_CELLS; c++) {
             int idx, sx, sy, sw, sh;
-            if (i >= tile_count) return;
+            if (i >= tile_count) break;
             idx = tiles[i++];
             if (idx <= 0) continue;
             if (gfx_sprite_tile_source_rect(slot, idx, &sx, &sy, &sw, &sh) != 0) continue;
-            gfx_sprite_enqueue_draw(slot,
-                                    x0 + (float)(c * cell_w),
-                                    y0 + (float)(r * cell_h),
-                                    z, sx, sy, sw, sh);
+            scratch[n].slot = slot;
+            scratch[n].x = x0 + (float)(c * cell_w);
+            scratch[n].y = y0 + (float)(r * cell_h);
+            scratch[n].z = z;
+            scratch[n].sx = sx;
+            scratch[n].sy = sy;
+            scratch[n].sw = sw;
+            scratch[n].sh = sh;
+            n++;
         }
     }
+    /* Swap into live list under the sprite mutex so the compositor never
+     * reads a half-built list. */
+    pthread_mutex_lock(&g_sprite_mutex);
+    memcpy(g_tm_cells, scratch, (size_t)n * sizeof(GfxTilemapCell));
+    g_tm_count = n;
+    pthread_mutex_unlock(&g_sprite_mutex);
 }
 
 int gfx_sprite_tile_source_rect(int slot, int tile_index_1based, int *sx, int *sy, int *sw, int *sh)
@@ -1104,6 +1134,40 @@ static void gfx_sprite_composite_range(const GfxVideoState *vs, RenderTexture2D 
                 (unsigned char)d->mod_a
             });
     }
+
+    /* TILEMAP cells — the list populated by gfx_draw_tilemap. Each cell
+     * is rendered directly rather than going through the per-slot draw
+     * cache so N cells per slot all show up. */
+    {
+        GfxTilemapCell local[GFX_TILEMAP_MAX_CELLS];
+        int tn, ti;
+        pthread_mutex_lock(&g_sprite_mutex);
+        tn = g_tm_count;
+        if (tn > GFX_TILEMAP_MAX_CELLS) tn = GFX_TILEMAP_MAX_CELLS;
+        if (tn > 0) memcpy(local, g_tm_cells, (size_t)tn * sizeof(GfxTilemapCell));
+        pthread_mutex_unlock(&g_sprite_mutex);
+        for (ti = 0; ti < tn; ti++) {
+            GfxTilemapCell *cell = &local[ti];
+            Texture2D t;
+            Rectangle src, dest;
+            int s = cell->slot;
+            if (s < 0 || s >= GFX_SPRITE_MAX_SLOTS) continue;
+            if (cell->z < z_min || cell->z > z_max) continue;
+            pthread_mutex_lock(&g_sprite_mutex);
+            if (!g_sprite_slots[s].loaded || !g_sprite_slots[s].visible) {
+                pthread_mutex_unlock(&g_sprite_mutex);
+                continue;
+            }
+            t = g_sprite_slots[s].tex;
+            pthread_mutex_unlock(&g_sprite_mutex);
+            src = (Rectangle){ (float)cell->sx, (float)cell->sy,
+                                (float)cell->sw, (float)cell->sh };
+            dest = (Rectangle){ cell->x - scx, cell->y - scy,
+                                 (float)cell->sw, (float)cell->sh };
+            DrawTexturePro(t, src, dest, (Vector2){ 0, 0 }, 0.0f, WHITE);
+        }
+    }
+
     EndBlendMode();
     EndTextureMode();
     (void)nat_w;
