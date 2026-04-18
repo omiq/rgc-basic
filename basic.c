@@ -2697,6 +2697,8 @@ static void statement_circle(char **p);
 static void statement_fillcircle(char **p);
 static void statement_ellipse(char **p);
 static void statement_fillellipse(char **p);
+static void statement_triangle(char **p);
+static void statement_filltriangle(char **p);
 static void statement_drawtext(char **p);
 static void statement_vsync(char **p);
 static void statement_bitmapclear(char **p);
@@ -3047,7 +3049,7 @@ static const char *const reserved_words[] = {
     "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET",     "PRINT", "PUTBYTE",
     "XOR",
     "READ", "RECT", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITECOPY", "SPRITEFRAME", "SPRITEMODIFY", "SPRITEMODULATE", "SPRITETILES", "SPRITEVISIBLE",
-    "FILLRECT", "CIRCLE", "FILLCIRCLE", "ELLIPSE", "FILLELLIPSE", "VSYNC",
+    "FILLRECT", "CIRCLE", "FILLCIRCLE", "ELLIPSE", "FILLELLIPSE", "TRIANGLE", "FILLTRIANGLE", "VSYNC",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
     "DRAWSPRITE", "DRAWSPRITETILE", "DRAWTEXT", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
@@ -4745,6 +4747,104 @@ static void statement_fillellipse(char **p)
         }
         gfx_bitmap_line(gfx_vs, cx - (int)x, cy + (int)y, cx + (int)x, cy + (int)y, 1);
         gfx_bitmap_line(gfx_vs, cx - (int)x, cy - (int)y, cx + (int)x, cy - (int)y, 1);
+    }
+#endif
+}
+
+/* Parse `x1, y1, x2, y2, x3, y3` for TRIANGLE / FILLTRIANGLE. */
+#ifdef GFX_VIDEO
+static int parse_triangle_coords(char **p,
+                                 int *x1, int *y1,
+                                 int *x2, int *y2,
+                                 int *x3, int *y3)
+{
+    struct value v;
+    int *coords[6];
+    int i;
+    coords[0] = x1; coords[1] = y1;
+    coords[2] = x2; coords[3] = y2;
+    coords[4] = x3; coords[5] = y3;
+    skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); *coords[0] = (int)v.num;
+    for (i = 1; i < 6; i++) {
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("Expected ','",
+                               "Use TRIANGLE x1,y1, x2,y2, x3,y3 — six numbers.");
+            return -1;
+        }
+        (*p)++; skip_spaces(p);
+        v = eval_expr(p); ensure_num(&v); *coords[i] = (int)v.num;
+    }
+    return 0;
+}
+#endif
+
+/* TRIANGLE x1,y1, x2,y2, x3,y3 — three LINE segments outlining the
+ * triangle in the current pen. */
+static void statement_triangle(char **p)
+{
+#ifndef GFX_VIDEO
+    (void)p;
+    runtime_error_hint("TRIANGLE is only available in basic-gfx",
+                       "TRIANGLE draws in bitmap mode (basic-gfx or canvas WASM).");
+#else
+    int x1, y1, x2, y2, x3, y3;
+    if (parse_triangle_coords(p, &x1, &y1, &x2, &y2, &x3, &y3) != 0) return;
+    if (!gfx_vs) return;
+    gfx_bitmap_line(gfx_vs, x1, y1, x2, y2, 1);
+    gfx_bitmap_line(gfx_vs, x2, y2, x3, y3, 1);
+    gfx_bitmap_line(gfx_vs, x3, y3, x1, y1, 1);
+#endif
+}
+
+/* FILLTRIANGLE — standard scanline fill: sort vertices by y, walk
+ * every scanline between y1 and y3, compute left/right edge
+ * intersections (switching at the middle vertex), hline between them. */
+static void statement_filltriangle(char **p)
+{
+#ifndef GFX_VIDEO
+    (void)p;
+    runtime_error_hint("FILLTRIANGLE is only available in basic-gfx",
+                       "FILLTRIANGLE draws in bitmap mode (basic-gfx or canvas WASM).");
+#else
+    int vx[3], vy[3];
+    int t, i, j, y, xa, xb;
+    if (parse_triangle_coords(p, &vx[0], &vy[0], &vx[1], &vy[1], &vx[2], &vy[2]) != 0) return;
+    if (!gfx_vs) return;
+    /* Sort by y ascending (simple bubble, 3 elements). */
+    for (i = 0; i < 2; i++) {
+        for (j = 0; j < 2 - i; j++) {
+            if (vy[j] > vy[j + 1]) {
+                t = vy[j]; vy[j] = vy[j + 1]; vy[j + 1] = t;
+                t = vx[j]; vx[j] = vx[j + 1]; vx[j + 1] = t;
+            }
+        }
+    }
+    if (vy[0] == vy[2]) {
+        /* Degenerate — single hline. */
+        int xmin = vx[0], xmax = vx[0];
+        if (vx[1] < xmin) xmin = vx[1]; if (vx[1] > xmax) xmax = vx[1];
+        if (vx[2] < xmin) xmin = vx[2]; if (vx[2] > xmax) xmax = vx[2];
+        gfx_bitmap_line(gfx_vs, xmin, vy[0], xmax, vy[0], 1);
+        return;
+    }
+    for (y = vy[0]; y <= vy[2]; y++) {
+        /* Left edge runs vy[0] → vy[2]; right edge runs vy[0] → vy[1]
+         * below the middle vertex, then vy[1] → vy[2] above. */
+        long denom_a = vy[2] - vy[0];
+        xa = vx[0] + (int)(((long)(vx[2] - vx[0]) * (y - vy[0])) / denom_a);
+        if (y < vy[1]) {
+            long denom_b = vy[1] - vy[0];
+            if (denom_b == 0) xb = vx[1];
+            else xb = vx[0] + (int)(((long)(vx[1] - vx[0]) * (y - vy[0])) / denom_b);
+        } else {
+            long denom_b = vy[2] - vy[1];
+            if (denom_b == 0) xb = vx[1];
+            else xb = vx[1] + (int)(((long)(vx[2] - vx[1]) * (y - vy[1])) / denom_b);
+        }
+        if (xa > xb) { t = xa; xa = xb; xb = t; }
+        gfx_bitmap_line(gfx_vs, xa, y, xb, y, 1);
     }
 #endif
 }
@@ -11790,6 +11890,13 @@ static void execute_statement(char **p)
         return;
     }
 #ifdef GFX_VIDEO
+    if (c == 'T' && starts_with_kw(*p, "TRIANGLE")) {
+        *p += 8;
+        statement_triangle(p);
+        return;
+    }
+#endif
+#ifdef GFX_VIDEO
     /* Two-word dispatch: TILEMAP DRAW (new), TILE DRAW (alias to
      * DRAWSPRITETILE). Check TILEMAP first because starts_with_kw("TILE")
      * would otherwise match "TILE" bare but not "TILEMAP" (alnum follows);
@@ -12085,6 +12192,11 @@ static void execute_statement(char **p)
         if (starts_with_kw(*p, "FILLELLIPSE")) {
             *p += 11;
             statement_fillellipse(p);
+            return;
+        }
+        if (starts_with_kw(*p, "FILLTRIANGLE")) {
+            *p += 12;
+            statement_filltriangle(p);
             return;
         }
     }
