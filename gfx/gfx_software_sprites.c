@@ -411,6 +411,14 @@ void gfx_draw_tilemap(int slot, float x0, float y0, int cols, int rows, int z,
     g_tm_count = n;
 }
 
+/* Clear the per-frame cell list. Called by CLS so stale stamps from a
+ * previous tick don't linger when the program is rebuilding the scene
+ * each frame. */
+void gfx_cells_clear(void)
+{
+    g_tm_count = 0;
+}
+
 /* SPRITE STAMP: append a single sprite-tile draw. `frame` is a 1-based
  * tile index; 0 uses the slot's current SPRITEFRAME. */
 void gfx_sprite_stamp(int slot, float x, float y, int frame, int z)
@@ -880,7 +888,6 @@ void gfx_canvas_sprite_composite_rgba(const GfxVideoState *s, uint8_t *rgba, int
     for (i = 0; i < g_tm_count && nd < cap; i++) {
         draws[nd++] = g_tm_cells[i];
     }
-    g_tm_count = 0;
 
     if (nd <= 0) {
         free(draws);
