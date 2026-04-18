@@ -16,10 +16,15 @@ builds prior to v1.9.** Once the new tokens ship, move them up into
 
 | File | Demonstrates |
 |---|---|
-| `gfx_tilemap_demo.bas` | `TILEMAP DRAW` — batched grid stamp from 1-D array |
-| `gfx_sheet_info_demo.bas` | `SHEET COLS/ROWS/WIDTH/HEIGHT`, `SPRITE FRAMES`, `TILE COUNT` |
 | `gfx_screen_offset_demo.bas` | `SCREEN OFFSET` — viewport scroll on oversized surface |
 | `gfx_screen_zone_demo.bas` | `SCREEN ZONE` + `SCREEN SCROLL` — parallax bands |
+
+Both require blitter surfaces (`IMAGE NEW` / `IMAGE COPY` — see
+`docs/rgc-blitter-surface-spec.md`) which are not yet implemented.
+
+Promoted to main `examples/` once the commands landed:
+- `gfx_tilemap_demo.bas`  (TILEMAP DRAW)
+- `gfx_sheet_info_demo.bas` (SHEET/SPRITE/TILE accessors)
 
 All four use the two-word canonical spellings. Concat aliases
 (`DRAWTILEMAP`, etc.) will be accepted too once the feature ships.

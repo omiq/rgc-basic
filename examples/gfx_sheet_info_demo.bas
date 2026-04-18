@@ -1,8 +1,7 @@
 1 REM =========================================================
 2 REM gfx_sheet_info_demo — query loaded sheet metadata
-3 REM STATUS: spec preview, requires rgc-basic v1.9+
-4 REM
-5 REM Six accessors, all reading the same underlying sheet record.
+3 REM
+4 REM Six accessors, all reading the same underlying sheet record.
 6 REM Pick the one whose intent matches your code — SPRITE FRAMES
 7 REM for animators, TILE COUNT for tilemap authors, SHEET * for
 8 REM grid geometry.

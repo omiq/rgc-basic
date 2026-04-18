@@ -1,14 +1,11 @@
 1 REM =========================================================
 2 REM gfx_tilemap_demo — batched tile grid via TILEMAP DRAW
-3 REM STATUS: spec preview, requires rgc-basic v1.9+
-4 REM
-5 REM Replaces the 70-call loop in ../gfx_tile_demo.bas with ONE
-6 REM interpreter dispatch. Runtime iterates the map array in C.
-7 REM
-8 REM Asset: tile_sheet.png (expected 64x32 = 2 cells of 32x32:
-9 REM   index 1 = healthy, index 2 = damaged).
-10 REM Sheet does not ship yet — combine tile.png + tile-damaged.png
-11 REM horizontally into a single 64x32 PNG before running.
+3 REM
+4 REM Replaces the 70-call loop in gfx_tile_demo.bas with ONE
+5 REM interpreter dispatch. Runtime iterates the map array in C.
+6 REM
+7 REM Asset: tile_sheet.png (64x32 = 2 cells of 32x32:
+8 REM   index 1 = healthy, index 2 = damaged).
 12 REM
 13 REM Keys: SPACE damage random cell, R reset, Q quit
 14 REM =========================================================
