@@ -7740,7 +7740,13 @@ static void run_until_udf_return(void)
     udf_returned = 0;
     while (!udf_returned && !halted && current_line >= 0 && current_line < line_count) {
         if (statement_pos == NULL) {
+            /* Fresh line start (natural line advance, GOTO/GOSUB jump,
+             * or RETURN). Clear the inline-IF counter so a GOTO from
+             * inside a single-line IF's THEN branch can't leave a
+             * lingering "active" flag that would swallow an ELSE on
+             * the destination line. */
             statement_pos = program_lines[current_line]->text;
+            inline_if_then_active = 0;
         }
         p = statement_pos;
         skip_spaces(&p);

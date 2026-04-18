@@ -75,7 +75,37 @@ ELSE
 END IF
 IF L <> 22 THEN PRINT "FAIL 12 expected 22 got ";L : FAILS = FAILS + 1
 
+REM 13. GOTO from inside a THEN branch must not leak the inline-IF
+REM     counter onto the destination line. Without the fix this would
+REM     swallow the ELSE on the destination line and execute both halves.
+M = 0
+IF 1 = 1 THEN GOTO case13_dest
+PRINT "FAIL 13a never-reached" : FAILS = FAILS + 1
+GOTO case13_end
+case13_dest:
+IF 1 = 2 THEN M = 99 ELSE M = 13
+IF M <> 13 THEN PRINT "FAIL 13b expected 13 got ";M : FAILS = FAILS + 1
+case13_end:
+
+REM 14. Inline IF inside a FOR loop body.
+TOTAL = 0
+FOR I = 1 TO 5
+  IF I MOD 2 = 0 THEN TOTAL = TOTAL + 10 ELSE TOTAL = TOTAL + 1
+NEXT I
+REM expected: 1 + 10 + 1 + 10 + 1 = 23
+IF TOTAL <> 23 THEN PRINT "FAIL 14 expected 23 got ";TOTAL : FAILS = FAILS + 1
+
+REM 15. Inline IF that takes the ELSE branch via GOTO — both arms use GOTO.
+N = 0
+IF 1 = 2 THEN GOTO case15_then ELSE GOTO case15_else
+case15_then:
+N = 100 : GOTO case15_end
+case15_else:
+N = 200 : GOTO case15_end
+case15_end:
+IF N <> 200 THEN PRINT "FAIL 15 expected 200 got ";N : FAILS = FAILS + 1
+
 REM --- summary --------------------------------------------------------
 IF FAILS > 0 THEN PRINT "IF-INLINE-ELSE: ";FAILS;" failure(s)" : STOP
-PRINT "IF-INLINE-ELSE: all 12 cases passed"
+PRINT "IF-INLINE-ELSE: all 15 cases passed"
 END
