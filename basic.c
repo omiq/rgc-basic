@@ -1955,6 +1955,11 @@ static uint8_t gfx_ascii_to_screencode(unsigned char c)
     if (c >= 'a' && c <= 'z') return (uint8_t)(c - 'a' + 1);
     if (c == '@') return 0;
     if (c >= ' ' && c <= '?') return (uint8_t)c;
+    /* 91..94: [ \ ] ^ -> SC 27..30 ([ £ ] up-arrow). '_' (95) maps to
+     * SC 100 — the real bottom-bar underscore glyph in C64 chargen
+     * (SC 31 in petscii_to_screencode is a left-arrow, wrong shape). */
+    if (c >= '[' && c <= '^') return (uint8_t)(c - '[' + 27);
+    if (c == '_') return 100;
     return 32;
 }
 
@@ -1975,8 +1980,14 @@ static uint8_t gfx_ascii_to_screencode_lowcharset(unsigned char c)
     if (c >= ' ' && c <= '?') {
         return (uint8_t)c;
     }
-    if (c >= '[' && c <= '_') {
-        return (uint8_t)c;
+    /* '[' \ ']' ^ → SC 27..30 in both ROMs ([ £ ] up-arrow). Returning
+     * the raw ASCII byte (91..94) indexes into lower-ROM graphics (cross,
+     * pipe, etc.) instead of the bracket/arrow glyphs users expect. */
+    if (c >= '[' && c <= '^') {
+        return (uint8_t)(c - '[' + 27);
+    }
+    if (c == '_') {
+        return 100;  /* real underscore bar, not SC 95 diagonal */
     }
     if (c == '`') {
         return 64;
@@ -2000,9 +2011,13 @@ static void gfx_scroll_up(void)
             memcpy(&gfx_vs->color[row * c],
                    &gfx_vs->color[(row + 1) * c],
                    c);
+            memcpy(&gfx_vs->bgcolor[row * c],
+                   &gfx_vs->bgcolor[(row + 1) * c],
+                   c);
         }
         memset(&gfx_vs->screen[(GFX_ROWS - 1) * c], 32, c);
         memset(&gfx_vs->color[(GFX_ROWS - 1) * c], gfx_fg, c);
+        memset(&gfx_vs->bgcolor[(GFX_ROWS - 1) * c], gfx_bg, c);
     }
 }
 
@@ -2036,6 +2051,7 @@ static void gfx_clear_screen(void)
     } else {
         memset(gfx_vs->screen, 32, GFX_TEXT_SIZE);
         memset(gfx_vs->color, gfx_fg, GFX_COLOR_SIZE);
+        memset(gfx_vs->bgcolor, gfx_bg, GFX_COLOR_SIZE);
     }
     gfx_x = 0;
     gfx_y = 0;
@@ -2209,18 +2225,21 @@ static void gfx_put_byte(unsigned char b)
     } else if (gfx_raw_screen_codes) {
         sc = petscii_to_screencode(b);
     } else if (gfx_vs && gfx_vs->charset_lowercase && b >= 32 && b <= 126) {
-        /* Lowercase char ROM: quoted text in the editor is ASCII — map A–Z/a–z only.
-         * CHR$(n) emits a raw byte n: petscii_to_screencode would map PETSCII 65→sc 1
-         * (wrong; user expects CHR$(65) to show the same as "A" → screen 65). */
-        if ((b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')) {
-            sc = gfx_ascii_to_screencode_lowcharset(b);
-        } else {
-            sc = (uint8_t)b;
-        }
+        /* Lowercase char ROM: quoted text in the editor is ASCII. Route
+         * all printable bytes through the ASCII→SC mapper so non-alpha
+         * chars ([ \ ] ^ _ etc.) pick up real C64 glyphs (e.g. '_' →
+         * SC 100 underscore bar), not the raw-byte fallback which
+         * produced SC 95's diagonal for '_'. */
+        sc = gfx_ascii_to_screencode_lowcharset(b);
     } else if (petscii_mode) {
         sc = petscii_to_screencode(b);
     } else if (b >= 32 && b <= 126) {
         sc = gfx_ascii_to_screencode(b);
+    } else if (b >= 128) {
+        /* PETSCII graphics range (box-drawing, blocks) emitted by
+         * unicode_to_petscii in print_value — convert to screencode
+         * so ┌─┐ etc. render correctly in default (non-petscii) mode. */
+        sc = petscii_to_screencode(b);
     } else {
         sc = (uint8_t)b;
     }
@@ -2252,6 +2271,7 @@ static void gfx_put_byte(unsigned char b)
         if (idx >= 0 && idx < (int)GFX_TEXT_SIZE) {
             gfx_vs->screen[idx] = sc;
             gfx_vs->color[idx]  = (uint8_t)(gfx_fg & 0x0F);
+            gfx_vs->bgcolor[idx] = (uint8_t)(gfx_bg & 0x0F);
         }
     }
 
@@ -2302,9 +2322,12 @@ enum {
 static int palette_mode = PALETTE_ANSI;
 static int cursor_hidden = 0;
 static int petscii_lowercase_opt = 0;
-static int petscii_lowercase_cli = 0; /* Restored at each load_program so #OPTION can override per file. */
+static int petscii_lowercase_cli = 1; /* Default lower ROM so ASCII upper+lower render natively. Restored at each load_program so #OPTION can override per file. */
 /* 0 = C64 PETSCII ROM (default), 1 = PET-style alt glyphs from pet_*.64c (-charset pet-*). */
 static int charrom_family_opt = 0;
+/* Set when user explicitly specified #OPTION CHARSET <something>. Prevents
+ * #OPTION PETSCII from clobbering their choice with the default upper. */
+static int charset_explicit_opt = 0;
 static int charrom_family_cli = 0;
 /* Max string length (1..MAX_STR_LEN); default 4096; #OPTION maxstr 255 for C64 compatibility. */
 static int max_str_limit = 4096;
@@ -2328,16 +2351,41 @@ static int apply_option_directive(const char *name, const char *value)
         petscii_mode = 1;
         petscii_plain = 0;
         petscii_no_wrap = 1;
+        /* PETSCII programs expect C64 upper/graphics charset (SC 80/118/122
+         * = corner/bar glyphs). Override the ASCII-like lower default so
+         * CHR$(208) etc. render as graphic chars, not letters — but only
+         * if the user hasn't already pinned a charset explicitly. */
+        if (!charset_explicit_opt) {
+            petscii_lowercase_opt = 0;
+            petscii_set_lowercase(0);
+#ifdef GFX_VIDEO
+            if (gfx_vs) {
+                gfx_vs->charset_lowercase = 0;
+                gfx_load_default_charrom(gfx_vs);
+            }
+#endif
+        }
         return 0;
     }
     if (str_eq_ci(name, "petscii-plain")) {
         petscii_mode = 1;
         petscii_plain = 1;
         petscii_no_wrap = 1;
+        if (!charset_explicit_opt) {
+            petscii_lowercase_opt = 0;
+            petscii_set_lowercase(0);
+#ifdef GFX_VIDEO
+            if (gfx_vs) {
+                gfx_vs->charset_lowercase = 0;
+                gfx_load_default_charrom(gfx_vs);
+            }
+#endif
+        }
         return 0;
     }
     if (str_eq_ci(name, "charset")) {
         if (!value || !value[0]) return -1;
+        charset_explicit_opt = 1;
         if (str_eq_ci(value, "upper") || str_eq_ci(value, "uc")
             || str_eq_ci(value, "c64-upper") || str_eq_ci(value, "c64-uppercase")) {
             charrom_family_opt = 0;
@@ -2688,6 +2736,7 @@ static int function_lookup(const char *name, int len);
 static void statement_cursor(char **p);
 static void statement_color(char **p);
 static void statement_background(char **p);
+static void statement_paper(char **p);
 static void statement_screencodes(char **p);
 static void statement_pset(char **p, int preset);
 static void statement_line(char **p);
@@ -3046,7 +3095,7 @@ static char *dupstr_local(const char *s)
 
 /* Reserved words: identifiers that cannot be used as variable or label names. */
 static const char *const reserved_words[] = {
-    "AND", "ARG", "ARGC", "ASC", "BACKGROUND", "NOT", "BITMAPCLEAR", "BUFFERFETCH", "BUFFERFREE", "BUFFERLEN", "BUFFERNEW", "BUFFERPATH", "CHR", "CLOSE", "CLR", "CLS", "COLOR",
+    "AND", "ARG", "ARGC", "ASC", "BACKGROUND", "NOT", "BITMAPCLEAR", "BUFFERFETCH", "BUFFERFREE", "BUFFERLEN", "BUFFERNEW", "BUFFERPATH", "CHR", "CLOSE", "CLR", "CLS", "COLOR", "PAPER",
     "COLOUR", "COS", "CURSOR", "DATA", "DEC", "DEF", "DIM", "DOWN", "END", "FUNCTION",
     "ELSE", "ENV", "EVAL", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
     "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LINE", "LOAD", "LOADSPRITE", "LOCATE", "LOG",
@@ -3729,8 +3778,14 @@ static void print_value(struct value *v)
 #ifdef GFX_VIDEO
             if (gfx_vs) {
                 /* Decode UTF-8 so Unicode box-drawing (┌─┐ etc.) and £
-                 * from trek.bas and similar sources map to C64 PETSCII. */
-                if (c >= 0xC2 && c <= 0xF4) {
+                 * from trek.bas and similar sources map to C64 PETSCII.
+                 * Require a valid continuation byte (0x80..0xBF) before
+                 * committing — without this, raw PETSCII bytes emitted
+                 * by CHR$(n) for n >= 0xC2 (e.g. CHR$(208) = 0xD0, which
+                 * bounce.bas uses for paddle graphics) get swallowed as
+                 * fake 2-byte UTF-8 and fall through to `gfx_put_byte(' ')`. */
+                if (c >= 0xC2 && c <= 0xF4 &&
+                    ((unsigned char)s[1] >= 0x80 && (unsigned char)s[1] <= 0xBF)) {
                     int u = gfx_decode_utf8((const char **)&s);
                     if (u >= 0) {
                         int pet = unicode_to_petscii(u);
@@ -4366,6 +4421,31 @@ static void statement_background(char **p)
     OUTFLUSH();
 }
 
+/* PAPER n: set per-cell background colour for subsequent PRINT. Unlike
+ * BACKGROUND (which sets the global bg register), PAPER only changes the
+ * value stamped into bgcolor[] by each print, so you can paint a
+ * highlighted row while the rest of the screen keeps the global bg. */
+static void statement_paper(char **p)
+{
+#ifndef GFX_VIDEO
+    (void)p;
+    runtime_error_hint("PAPER is only available in basic-gfx",
+                         "Per-cell paper colour needs the gfx backend.");
+#else
+    struct value v;
+    int idx;
+
+    v = eval_expr(p);
+    ensure_num(&v);
+    idx = (int)v.num;
+    if (idx < 0 || idx > 15) {
+        runtime_error_hint("PAPER index must be 0-15", "Uses C64 palette indices like COLOR/BACKGROUND.");
+        return;
+    }
+    gfx_bg = (uint8_t)idx;
+#endif
+}
+
 static void statement_pset(char **p, int preset)
 {
 #ifndef GFX_VIDEO
@@ -4537,8 +4617,14 @@ static void statement_fillrect(char **p)
     }
     if (x0 > x1) { int t = x0; x0 = x1; x1 = t; }
     if (y0 > y1) { int t = y0; y0 = y1; y1 = t; }
-    for (y = y0; y <= y1; y++) {
-        gfx_bitmap_line(gfx_vs, x0, y, x1, y, 1);
+    /* COLOR 0 clears bits (erase rect), COLOR>0 sets bits (fill rect).
+     * Bitmap is 1bpp — current pen colour only selects set-vs-clear here;
+     * the global bitmap_fg register still drives how `1` pixels render. */
+    {
+        int on = (gfx_fg & 0x0F) ? 1 : 0;
+        for (y = y0; y <= y1; y++) {
+            gfx_bitmap_line(gfx_vs, x0, y, x1, y, on);
+        }
     }
 #endif
 }
@@ -8805,7 +8891,7 @@ static struct value eval_factor(char **p)
          * CBM BASIC resolves TIME, TICKS, etc. to TI due to 2-char name matching;
          * we do the same by keying off the first two characters. */
         {
-            char namebuf[8];
+            char namebuf[16];
             char *q = *p;
             int i, len;
             read_identifier(&q, namebuf, sizeof(namebuf));
@@ -8818,6 +8904,25 @@ static struct value eval_factor(char **p)
              * BASIC used 2-char significance to accept TIME/TICKS as TI;
              * rgc-basic has full-length identifiers so the abbreviation is
              * unnecessary and breaks user-chosen names. */
+            /* Built-in keyboard code constants used with KEYDOWN/KEYUP/KEYPRESS
+             * and PEEK(GFX_KEY_BASE + code). Match C64 CHR$ numbering so
+             * KEYDOWN(KEY_UP) <-> CHR$(145), etc. Added for menu/game demos. */
+            if (len >= 6 && len <= 10 && namebuf[0] == 'K' && namebuf[1] == 'E' && namebuf[2] == 'Y' && namebuf[3] == '_') {
+                int kc = -1;
+                if (strcmp(namebuf + 4, "UP") == 0)      kc = 145;
+                else if (strcmp(namebuf + 4, "DOWN") == 0)  kc = 17;
+                else if (strcmp(namebuf + 4, "LEFT") == 0)  kc = 157;
+                else if (strcmp(namebuf + 4, "RIGHT") == 0) kc = 29;
+                else if (strcmp(namebuf + 4, "SPACE") == 0) kc = 32;
+                else if (strcmp(namebuf + 4, "ENTER") == 0) kc = 13;
+                else if (strcmp(namebuf + 4, "ESC") == 0)   kc = 27;
+                else if (strcmp(namebuf + 4, "TAB") == 0)   kc = 9;
+                else if (strcmp(namebuf + 4, "BACK") == 0)  kc = 8;
+                if (kc >= 0) {
+                    *p = q;
+                    return make_num((double)kc);
+                }
+            }
             if ((len == 2 || (len == 3 && namebuf[2] == '$')) &&
                 namebuf[0] == 'T' && namebuf[1] == 'I') {
                 int is_str = (len > 0 && namebuf[len - 1] == '$');
@@ -12138,6 +12243,11 @@ static void execute_statement(char **p)
             statement_pset(p, 1);
             return;
         }
+        if (starts_with_kw(*p, "PAPER")) {
+            *p += 5;
+            statement_paper(p);
+            return;
+        }
         if (starts_with_kw(*p, "PSET")) {
             *p += 4;
             statement_pset(p, 0);
@@ -13239,6 +13349,7 @@ static void load_program(const char *path)
 #endif
     /* Restore charset from CLI baseline; #OPTION in file overrides during parse. */
     petscii_lowercase_opt = petscii_lowercase_cli;
+    charset_explicit_opt = 0;
     charrom_family_opt = charrom_family_cli;
     petscii_set_lowercase(petscii_lowercase_opt);
 #ifdef GFX_VIDEO

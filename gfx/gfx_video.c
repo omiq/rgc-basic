@@ -140,8 +140,9 @@ void gfx_video_init(GfxVideoState *s)
     s->mem_key = GFX_KEY_BASE;
     s->mem_bitmap = GFX_BITMAP_BASE;
     s->bg_color = 6; /* default C64 blue background */
+    memset(s->bgcolor, s->bg_color, sizeof(s->bgcolor));
     s->bitmap_fg = 14; /* default light blue pen (matches text COLOR default) */
-    s->charset_lowercase = 0;
+    s->charset_lowercase = 1;  /* default lower ROM: ASCII-like upper+lower both render natively; uppercase still shows uppercase (SC 65-90 in lower ROM) */
     s->charrom_family = 0;
     s->cols = 40;    /* 40 or 80; set by basic_set_video from -columns */
     s->key_q_head = 0;

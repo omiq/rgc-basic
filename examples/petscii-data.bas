@@ -22,6 +22,7 @@ PRINT C
     B$=B$+BIT_PRINT(BYTE)
     NEXT B
     PRINT B$
+    SLEEP 10
 NEXT C
 
 PRINT "{DEFAULT}"

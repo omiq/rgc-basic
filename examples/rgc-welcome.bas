@@ -8,7 +8,7 @@ M = 0
 CX=0
 CY=0
 MAX_MSG=2
-
+CLS
 
 REM Bake sky tint via a spare slot (SPRITECOPY src!=dst for best compat)
 LOADSPRITE 6, "sky.png"
