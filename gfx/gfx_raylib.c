@@ -524,6 +524,16 @@ void gfx_draw_tilemap(int slot, float x0, float y0, int cols, int rows, int z,
     pthread_mutex_unlock(&g_sprite_mutex);
 }
 
+/* Clear the per-frame cell list. Called by CLS (and any other "start
+ * of frame" resets) so stale stamps don't persist when the user is
+ * actively rebuilding the scene each tick. */
+void gfx_cells_clear(void)
+{
+    pthread_mutex_lock(&g_sprite_mutex);
+    g_tm_count = 0;
+    pthread_mutex_unlock(&g_sprite_mutex);
+}
+
 /* SPRITE STAMP: append a single sprite-tile draw to the per-frame cell
  * list. `frame` is a 1-based tile index into the slot's sheet; 0 uses
  * the slot's current SPRITEFRAME (same default as DRAWSPRITE). */
@@ -1145,7 +1155,6 @@ static void gfx_sprite_composite_range(const GfxVideoState *vs, RenderTexture2D 
         tn = g_tm_count;
         if (tn > GFX_TILEMAP_MAX_CELLS) tn = GFX_TILEMAP_MAX_CELLS;
         if (tn > 0) memcpy(local, g_tm_cells, (size_t)tn * sizeof(GfxTilemapCell));
-        g_tm_count = 0;
         pthread_mutex_unlock(&g_sprite_mutex);
         if (tn > 1) qsort(local, (size_t)tn, sizeof(GfxTilemapCell), cmp_tm_cell_z);
         for (ti = 0; ti < tn; ti++) {

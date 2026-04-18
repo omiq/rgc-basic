@@ -87,6 +87,12 @@ void gfx_draw_tilemap(int slot, float x0, float y0, int cols, int rows, int z,
  * index falls back to the slot's current SPRITEFRAME. */
 void gfx_sprite_stamp(int slot, float x, float y, int frame, int z);
 
+/* Clear the per-frame TILEMAP / SPRITE STAMP cell list. Called by CLS
+ * at the top of a frame so the previous frame's cells don't linger;
+ * programs that rebuild their scene each tick end up with stable,
+ * flicker-free output. */
+void gfx_cells_clear(void);
+
 /* Blitter surfaces (IMAGE NEW / IMAGE FREE / IMAGE COPY) — Phase 1 of
  * docs/rgc-blitter-surface-spec.md. Slot 0 is the visible bitmap. */
 struct GfxVideoState;

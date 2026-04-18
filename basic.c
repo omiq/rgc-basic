@@ -4781,6 +4781,12 @@ static void statement_cls(char **p)
 #ifdef GFX_VIDEO
     if (gfx_vs) {
         gfx_clear_screen();
+        /* Also clear the per-frame TILEMAP / SPRITE STAMP cell list so
+         * programs that do `CLS : ...STAMP : ...STAMP : ...` get a
+         * fresh slate each tick. Without this the list accumulates
+         * across frames and flickers when the renderer races the
+         * interpreter. */
+        gfx_cells_clear();
         return;
     }
 #endif
