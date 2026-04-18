@@ -358,30 +358,56 @@ int gfx_sprite_slot_sheet_cell_h(int slot)
     return g_sprite_slots[slot].tile_h;
 }
 
-/* TILEMAP DRAW: batch-stamp a cols x rows grid of 1-based tile indices.
- * Each non-zero idx → one enqueue_draw; 0 = transparent skip. */
+/* TILEMAP DRAW (canvas/WASM backend).
+ *
+ * Can't use gfx_sprite_enqueue_draw — that path mirrors into
+ * g_sprite_slots[slot].draw_* as a single persistent position per slot
+ * so N per-slot enqueues collapse to one draw. Instead we keep a
+ * per-cell list (g_tm_cells[]) which the compositor consumes each
+ * frame alongside the regular sprite slots.
+ *
+ * Replace semantics: each gfx_draw_tilemap call overwrites the list.
+ * No mutex — canvas/WASM build is single-threaded. */
+
+#define GFX_TILEMAP_MAX_CELLS 4096
+
+static GfxSpriteDraw g_tm_cells[GFX_TILEMAP_MAX_CELLS];
+static int g_tm_count = 0;
+
 void gfx_draw_tilemap(int slot, float x0, float y0, int cols, int rows, int z,
                       const int *tiles, int tile_count)
 {
     int cell_w, cell_h;
-    int r, c, i = 0;
-    if (!tiles || cols <= 0 || rows <= 0) return;
+    int r, c, i = 0, n = 0;
+    if (!tiles || cols <= 0 || rows <= 0) { g_tm_count = 0; return; }
     cell_w = gfx_sprite_slot_sheet_cell_w(slot);
     cell_h = gfx_sprite_slot_sheet_cell_h(slot);
-    if (cell_w <= 0 || cell_h <= 0) return;
-    for (r = 0; r < rows; r++) {
-        for (c = 0; c < cols; c++) {
+    if (cell_w <= 0 || cell_h <= 0) { g_tm_count = 0; return; }
+    for (r = 0; r < rows && n < GFX_TILEMAP_MAX_CELLS; r++) {
+        for (c = 0; c < cols && n < GFX_TILEMAP_MAX_CELLS; c++) {
             int idx, sx, sy, sw, sh;
-            if (i >= tile_count) return;
+            if (i >= tile_count) break;
             idx = tiles[i++];
             if (idx <= 0) continue;
             if (gfx_sprite_tile_source_rect(slot, idx, &sx, &sy, &sw, &sh) != 0) continue;
-            gfx_sprite_enqueue_draw(slot,
-                                    x0 + (float)(c * cell_w),
-                                    y0 + (float)(r * cell_h),
-                                    z, sx, sy, sw, sh);
+            g_tm_cells[n].slot = slot;
+            g_tm_cells[n].x = x0 + (float)(c * cell_w);
+            g_tm_cells[n].y = y0 + (float)(r * cell_h);
+            g_tm_cells[n].z = z;
+            g_tm_cells[n].sx = sx;
+            g_tm_cells[n].sy = sy;
+            g_tm_cells[n].sw = sw;
+            g_tm_cells[n].sh = sh;
+            g_tm_cells[n].mod_a = 255;
+            g_tm_cells[n].mod_r = 255;
+            g_tm_cells[n].mod_g = 255;
+            g_tm_cells[n].mod_b = 255;
+            g_tm_cells[n].mod_sx = 1.0f;
+            g_tm_cells[n].mod_sy = 1.0f;
+            n++;
         }
     }
+    g_tm_count = n;
 }
 
 int gfx_sprite_tile_source_rect(int slot, int tile_index_1based, int *sx, int *sy, int *sw, int *sh)
@@ -770,7 +796,8 @@ void gfx_sprite_shutdown(void)
 
 void gfx_canvas_sprite_composite_rgba(const GfxVideoState *s, uint8_t *rgba, int fb_w, int fb_h)
 {
-    GfxSpriteDraw draws[GFX_SPRITE_MAX_SLOTS];
+    GfxSpriteDraw *draws = NULL;
+    int cap = 0;
     int nd = 0;
     int i, dx, dy;
     int scx = 0;
@@ -784,14 +811,18 @@ void gfx_canvas_sprite_composite_rgba(const GfxVideoState *s, uint8_t *rgba, int
 
     gfx_sprite_process_queue();
 
+    /* Capacity = per-slot sprite draws (at most MAX_SLOTS) + tilemap cells. */
+    cap = GFX_SPRITE_MAX_SLOTS + g_tm_count;
+    if (cap <= 0) return;
+    draws = (GfxSpriteDraw *)malloc((size_t)cap * sizeof(GfxSpriteDraw));
+    if (!draws) return;
+
     for (i = 0; i < GFX_SPRITE_MAX_SLOTS; i++) {
         GfxSpriteSlot *sl = &g_sprite_slots[i];
         if (!sl->loaded || !sl->visible || !sl->draw_active) {
             continue;
         }
-        if (nd >= GFX_SPRITE_MAX_SLOTS) {
-            break;
-        }
+        if (nd >= cap) break;
         draws[nd].slot = i;
         draws[nd].x = sl->draw_x;
         draws[nd].y = sl->draw_y;
@@ -809,7 +840,16 @@ void gfx_canvas_sprite_composite_rgba(const GfxVideoState *s, uint8_t *rgba, int
         nd++;
     }
 
+    /* Append TILEMAP DRAW cells — each is a plain-modulation draw
+     * (alpha 255, tint white, scale 1:1). They sort together with the
+     * per-slot sprites so a player sprite at z=100 composites cleanly
+     * on top of a background tilemap at z=0. */
+    for (i = 0; i < g_tm_count && nd < cap; i++) {
+        draws[nd++] = g_tm_cells[i];
+    }
+
     if (nd <= 0) {
+        free(draws);
         return;
     }
 
@@ -1066,6 +1106,7 @@ void gfx_canvas_sprite_composite_rgba(const GfxVideoState *s, uint8_t *rgba, int
         }
         } /* end scaled path */
     }
+    free(draws);
 }
 
 /* ── JS Canvas2D sprite accessor API ───────────────────────────────────────
