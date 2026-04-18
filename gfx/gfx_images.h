@@ -44,4 +44,10 @@ int gfx_image_height(int slot);
  * on success, -1 on error (slot unloaded, can't open file, etc.). */
 int gfx_image_save_bmp(int slot, const char *path);
 
+/* Load a PNG / BMP / JPG / etc. into the given slot as a 1bpp mask.
+ * Pixels with luminance >= 128 become pen; others become background.
+ * Alpha = 0 always maps to background. slot must be 1..MAX-1 (slot 0
+ * is the visible bitmap and can't be reallocated by this path). */
+int gfx_image_load(int slot, const char *path);
+
 #endif /* GFX_IMAGES_H */

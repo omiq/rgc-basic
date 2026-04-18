@@ -11,7 +11,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define STB_IMAGE_IMPLEMENTATION
+/* STB_IMAGE_IMPLEMENTATION now lives in gfx_images.c so the loader is
+ * linked in every GFX target (not just canvas/WASM). */
 #include "stb_image.h"
 
 #define GFX_SPRITE_MAX_SLOTS 64
