@@ -44,7 +44,8 @@
 350 POLYGON     6, PX(), PY()
 360 REM --- animated spinner (rotating line in a filled circle) ---
 370 CX = 280 : CY = 88
-380 FILLCIRCLE CX, CY, 14
+380 CIRCLE CX, CY, 14
+385 PSET CX, CY
 390 RX = CX + INT(12 * COS(T * 3.14159 / 180))
 400 RY = CY + INT(12 * SIN(T * 3.14159 / 180))
 410 LINE CX, CY TO RX, RY
