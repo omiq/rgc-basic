@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RGC-BASIC — Graphics 1.0 release notes (2026-04-13 → 2026-04-18)</title>
+<title>RGC-BASIC 1.9.0 — Graphics 1.0 release notes (2026-04-13 → 2026-04-18)</title>
 <style>
   :root { color-scheme: light dark; }
   body { font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -45,21 +45,21 @@
 </head>
 <body>
 
-<h1>RGC-BASIC Graphics 1.0</h1>
+<h1>RGC-BASIC 1.9.0 — Graphics 1.0</h1>
 <p class="lede">
 Release notes for the April 2026 graphics batch — a complete AMOS/STOS-class
-2-D feature set landed in 36 commits between 2026-04-13 and 2026-04-18.
-Shape primitives, sprite stamping with rotation, an array-driven tilemap
-renderer, a 1bpp blitter with PNG/BMP I/O, a double-buffered VSYNC frame
-pipeline, named keyboard intrinsics, a global anti-alias toggle, and
-fourteen new example programs.
+2-D feature set landed in 36 commits between 2026-04-13 and 2026-04-18,
+tagged as <strong>v1.9.0</strong>. Shape primitives, sprite stamping with
+rotation, an array-driven tilemap renderer, a 1bpp blitter with PNG/BMP I/O,
+a double-buffered VSYNC frame pipeline, named keyboard intrinsics, a global
+anti-alias toggle, and fourteen new example programs.
 </p>
 
 <p>
-All commits sit in the <strong>Unreleased</strong> block of
+Full per-feature write-ups sit under the <strong>1.9.0</strong> section of
 <a href="https://github.com/omiq/rgc-basic/blob/main/CHANGELOG.md">CHANGELOG.md</a>
-(each entry explains what/why/implementation in full detail). This page is the
-short form with demo links.
+(what / why / implementation for each entry). This page is the short form
+with demo links. <strong>2.0</strong> is queued for the sound milestone.
 </p>
 
 <h2>Headline changes</h2>
@@ -329,10 +329,12 @@ the canvas runtime for the same reason.
 </ol>
 
 <p style="margin-top: 3rem; color: #888; font-size: 0.9em;">
-Released unreleased-on-main 2026-04-18. Pull from
-<a href="https://github.com/omiq/rgc-basic">github.com/omiq/rgc-basic</a>
-and build with <code>make basic-gfx</code> (native) or
-<code>EMSDK=~/emsdk scripts/pullmake.sh</code> (native + WASM).
+Tagged <strong>v1.9.0</strong> on 2026-04-18. Binaries:
+<a href="https://github.com/omiq/rgc-basic/releases/tag/v1.9.0">github.com/omiq/rgc-basic/releases/tag/v1.9.0</a>
+(Win/Mac/Linux) or
+<a href="https://github.com/omiq/rgc-basic/releases/tag/nightly">nightly</a>
+for bleeding-edge main. Build from source with <code>make basic-gfx</code>
+(native) or <code>EMSDK=~/emsdk scripts/pullmake.sh</code> (native + WASM).
 </p>
 
 </body>

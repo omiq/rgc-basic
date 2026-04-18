@@ -1,6 +1,6 @@
 ## Changelog
 
-### Unreleased
+### 1.9.0 – 2026-04-18
 
 **Graphics 1.0 milestone.** The entries below collectively round
 RGC-BASIC's bitmap / sprite / tile / blitter / input surface out to
