@@ -113,6 +113,15 @@ int gfx_image_height(int slot);
 int gfx_image_save_bmp(int slot, const char *path);
 int gfx_image_load(int slot, const char *path);
 
+/* ANTIALIAS toggle (raylib only). Sets the texture-filter mode used
+ * by subsequently-loaded sprites and the render target. 0 = nearest
+ * (hard-pixel retro look — default); non-zero = bilinear (smooth).
+ * Existing textures keep their prior filter; users who want to flip
+ * mid-program should reload their sprites after calling this. The
+ * canvas/software WASM path is always nearest and silently ignores
+ * the call. */
+void gfx_set_antialias(int on);
+
 /* 1-based tile index into a tilemap sheet; sets source rect for DRAWSPRITE crop. Returns 0 on success. */
 int gfx_sprite_tile_source_rect(int slot, int tile_index_1based, int *sx, int *sy, int *sw, int *sh);
 

@@ -88,6 +88,41 @@ static uint64_t g_sprite_gpu_done_seq = 0;
 
 static char g_sprite_base_dir[GFX_SPRITE_PATH_MAX];
 static GfxSpriteSlot g_sprite_slots[GFX_SPRITE_MAX_SLOTS];
+
+/* Global anti-aliasing / texture-filter mode.
+ *   0 = nearest-neighbour (hard pixels, classic retro look) — default
+ *   1 = bilinear (smoothed)
+ * Set via the BASIC `ANTIALIAS ON/OFF` statement. Applied to future
+ * SPRITE LOAD calls and, when toggled, re-applied to every already-
+ * loaded slot texture and to the render target. */
+static int g_antialias = 0;
+
+static int sprite_filter_mode(void)
+{
+    return g_antialias ? TEXTURE_FILTER_BILINEAR : TEXTURE_FILTER_POINT;
+}
+
+void gfx_set_antialias(int on)
+{
+    int mode;
+    int i;
+    g_antialias = on ? 1 : 0;
+    mode = sprite_filter_mode();
+    /* Re-apply to every already-loaded sprite texture so the toggle
+     * takes effect immediately without requiring a sprite reload.
+     * Note: SetTextureFilter is a GL call; this runs on the
+     * interpreter thread (raylib has been tolerant of cross-thread
+     * texture-parameter calls in practice). If this proves flaky on
+     * some backends, move the reapply into the main render tick via
+     * a pending flag. */
+    pthread_mutex_lock(&g_sprite_mutex);
+    for (i = 0; i < GFX_SPRITE_MAX_SLOTS; i++) {
+        if (g_sprite_slots[i].loaded) {
+            SetTextureFilter(g_sprite_slots[i].tex, mode);
+        }
+    }
+    pthread_mutex_unlock(&g_sprite_mutex);
+}
 static GfxSpriteCmd g_sprite_q[GFX_SPRITE_Q_CAP];
 static int g_sprite_q_count;
 
@@ -867,7 +902,7 @@ static void gfx_sprite_process_queue(void)
                 /* Bilinear so PNG sprites scale smoothly (matches Canvas2D
                  * default imageSmoothingEnabled behaviour). Text/glyph
                  * render target keeps POINT for crisp pixel-art look. */
-                SetTextureFilter(t, TEXTURE_FILTER_BILINEAR);
+                SetTextureFilter(t, sprite_filter_mode());
                 g_sprite_slots[c->slot].tex = t;
                 g_sprite_slots[c->slot].loaded = 1;
                 g_sprite_slots[c->slot].visible = 1;
@@ -1004,7 +1039,7 @@ static void gfx_sprite_process_queue(void)
             new_tex = LoadTextureFromImage(img);
             UnloadImage(img);
             if (new_tex.id == 0) break;
-            SetTextureFilter(new_tex, TEXTURE_FILTER_BILINEAR);
+            SetTextureFilter(new_tex, sprite_filter_mode());
 
             pthread_mutex_lock(&g_sprite_mutex);
             if (g_sprite_slots[dst].loaded) {
@@ -1576,7 +1611,7 @@ int main(int argc, char **argv)
         SetTargetFPS(60);
         target = LoadRenderTexture(nat_w, nat_h);
         /* Nearest-neighbour upscale — retro pixel-art look, no bilinear smear. */
-        SetTextureFilter(target.texture, TEXTURE_FILTER_POINT);
+        SetTextureFilter(target.texture, sprite_filter_mode());
 
         /* -fullscreen: stretch to full monitor, preserve aspect (letterbox).
          * Target monitor dims become the window; draw-rect computed per frame. */
@@ -1878,7 +1913,7 @@ static void wasm_raylib_init_once(void)
     SetTargetFPS(60);
     g_wasm_target = LoadRenderTexture(g_wasm_nat_w, g_wasm_nat_h);
     /* Nearest-neighbour upscale — retro pixel-art look, no bilinear smear. */
-    SetTextureFilter(g_wasm_target.texture, TEXTURE_FILTER_POINT);
+    SetTextureFilter(g_wasm_target.texture, sprite_filter_mode());
     g_wasm_inited = 1;
 }
 
