@@ -1,5 +1,40 @@
 # Features to add/to-do
 
+## Naming convention for new commands
+
+**Two-word verb/noun style for new graphics commands** (AMOS/STOS precedent):
+
+- `SPRITE LOAD`, `SPRITE DRAW`, `SPRITE FRAME`, `SPRITE FREE`, `SPRITE FRAMES(...)`
+- `TILE DRAW`, `TILE COUNT(...)`
+- `TILEMAP DRAW`
+- `SHEET COLS(...)`, `SHEET ROWS(...)`, `SHEET WIDTH(...)`, `SHEET HEIGHT(...)`
+- `IMAGE NEW`, `IMAGE FREE`, `IMAGE COPY`, `IMAGE SAVE`, `IMAGE GRAB`
+- `SCREEN OFFSET`, `SCREEN ZONE`, `SCREEN SCROLL`
+
+**Existing concat names stay as permanent aliases** — not deprecated,
+no warnings, no removal date:
+
+| New (canonical) | Concat alias (permanent) |
+|---|---|
+| `SPRITE LOAD` | `LOADSPRITE` |
+| `SPRITE DRAW` | `DRAWSPRITE` |
+| `SPRITE FRAME` | `SPRITEFRAME` |
+| `SPRITE FREE` | `FREESPRITE` |
+| `TILE DRAW` | `DRAWTILE` / `DRAWSPRITETILE` |
+| `TILE COUNT(...)` | `SPRITETILES(...)` |
+| `TILEMAP DRAW` | `DRAWTILEMAP` |
+
+Both spellings tokenise to the same opcode. Pick per taste; docs lead
+with two-word form for new material. Applies to **new** commands only;
+don't retroactively rewrite working code.
+
+Rationale: two-word grammar groups features visually (`SPRITE *`,
+`TILE *`, `SHEET *`, `IMAGE *`, `SCROLL *`), reads closer to English,
+matches AMOS/STOS precedent. Concat aliases preserve backward
+compatibility for every tutorial, WordPress embed, and shared program.
+
+---
+
 ## Phase status: "Bash replacement" + "Full PETSCII" — mostly complete ✓
 
 **Bash replacement:** ARGC/ARG$, stdin/stdout, pipes, SYSTEM, EXEC$ — done.  
