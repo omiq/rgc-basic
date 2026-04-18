@@ -2693,6 +2693,8 @@ static void statement_pset(char **p, int preset);
 static void statement_line(char **p);
 static void statement_rect(char **p);
 static void statement_fillrect(char **p);
+static void statement_circle(char **p);
+static void statement_fillcircle(char **p);
 static void statement_drawtext(char **p);
 static void statement_bitmapclear(char **p);
 static void statement_cls(char **p);
@@ -3040,7 +3042,7 @@ static const char *const reserved_words[] = {
     "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET",     "PRINT", "PUTBYTE",
     "XOR",
     "READ", "RECT", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITECOPY", "SPRITEFRAME", "SPRITEMODIFY", "SPRITEMODULATE", "SPRITETILES", "SPRITEVISIBLE",
-    "FILLRECT",
+    "FILLRECT", "CIRCLE", "FILLCIRCLE",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
     "DRAWSPRITE", "DRAWSPRITETILE", "DRAWTEXT", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
@@ -4523,6 +4525,82 @@ static void statement_fillrect(char **p)
     if (y0 > y1) { int t = y0; y0 = y1; y1 = t; }
     for (y = y0; y <= y1; y++) {
         gfx_bitmap_line(gfx_vs, x0, y, x1, y, 1);
+    }
+#endif
+}
+
+/* Parse `x, y, r` for CIRCLE / FILLCIRCLE. */
+#ifdef GFX_VIDEO
+static int parse_circle_coords(char **p, int *cx, int *cy, int *r)
+{
+    struct value v;
+    skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); *cx = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("Expected ',' after x", "Use CIRCLE x, y, r"); return -1; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); *cy = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("Expected ',' after y", "Use CIRCLE x, y, r"); return -1; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); *r = (int)v.num;
+    return 0;
+}
+#endif
+
+/* CIRCLE x, y, r — midpoint-circle (Bresenham) outline in the current
+ * pen. 8-way symmetry; no anti-aliasing. */
+static void statement_circle(char **p)
+{
+#ifndef GFX_VIDEO
+    (void)p;
+    runtime_error_hint("CIRCLE is only available in basic-gfx",
+                       "CIRCLE draws in bitmap mode (basic-gfx or canvas WASM).");
+#else
+    int cx, cy, r, x, y, d;
+    if (parse_circle_coords(p, &cx, &cy, &r) != 0) return;
+    if (!gfx_vs || r < 0) return;
+    if (r == 0) { gfx_bitmap_set_pixel(gfx_vs, cx, cy, 1); return; }
+    x = 0; y = r; d = 3 - 2 * r;
+    while (x <= y) {
+        gfx_bitmap_set_pixel(gfx_vs, cx + x, cy + y, 1);
+        gfx_bitmap_set_pixel(gfx_vs, cx - x, cy + y, 1);
+        gfx_bitmap_set_pixel(gfx_vs, cx + x, cy - y, 1);
+        gfx_bitmap_set_pixel(gfx_vs, cx - x, cy - y, 1);
+        gfx_bitmap_set_pixel(gfx_vs, cx + y, cy + x, 1);
+        gfx_bitmap_set_pixel(gfx_vs, cx - y, cy + x, 1);
+        gfx_bitmap_set_pixel(gfx_vs, cx + y, cy - x, 1);
+        gfx_bitmap_set_pixel(gfx_vs, cx - y, cy - x, 1);
+        if (d <= 0) d += 4 * x + 6;
+        else { d += 4 * (x - y) + 10; y--; }
+        x++;
+    }
+#endif
+}
+
+/* FILLCIRCLE x, y, r — solid disk via horizontal spans per scanline.
+ * Same midpoint iteration as CIRCLE but draws hlines between mirrored
+ * points. */
+static void statement_fillcircle(char **p)
+{
+#ifndef GFX_VIDEO
+    (void)p;
+    runtime_error_hint("FILLCIRCLE is only available in basic-gfx",
+                       "FILLCIRCLE draws in bitmap mode (basic-gfx or canvas WASM).");
+#else
+    int cx, cy, r, x, y, d;
+    if (parse_circle_coords(p, &cx, &cy, &r) != 0) return;
+    if (!gfx_vs || r < 0) return;
+    if (r == 0) { gfx_bitmap_set_pixel(gfx_vs, cx, cy, 1); return; }
+    x = 0; y = r; d = 3 - 2 * r;
+    while (x <= y) {
+        gfx_bitmap_line(gfx_vs, cx - x, cy + y, cx + x, cy + y, 1);
+        gfx_bitmap_line(gfx_vs, cx - x, cy - y, cx + x, cy - y, 1);
+        gfx_bitmap_line(gfx_vs, cx - y, cy + x, cx + y, cy + x, 1);
+        gfx_bitmap_line(gfx_vs, cx - y, cy - x, cx + y, cy - x, 1);
+        if (d <= 0) d += 4 * x + 6;
+        else { d += 4 * (x - y) + 10; y--; }
+        x++;
     }
 #endif
 }
@@ -11734,6 +11812,11 @@ static void execute_statement(char **p)
             statement_fillrect(p);
             return;
         }
+        if (starts_with_kw(*p, "FILLCIRCLE")) {
+            *p += 10;
+            statement_fillcircle(p);
+            return;
+        }
     }
     if (c == 'S' && starts_with_kw(*p, "STOP")) {
         halted = 1;
@@ -11753,6 +11836,11 @@ static void execute_statement(char **p)
         if (starts_with_kw(*p, "CLS")) {
             *p += 3;
             statement_cls(p);
+            return;
+        }
+        if (starts_with_kw(*p, "CIRCLE")) {
+            *p += 6;
+            statement_circle(p);
             return;
         }
         if (starts_with_kw(*p, "CLR")) {
