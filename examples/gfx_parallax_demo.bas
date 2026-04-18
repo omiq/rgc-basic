@@ -12,7 +12,7 @@
 12 REM
 13 REM Keys: Q quit
 14 REM =========================================================
-20 PRINT CHR$(14)
+20 SCREEN 1 : REM hi-res bitmap mode
 30 REM --- Build each band in a separate surface ---
 40 IMAGE NEW 1, 640, 60   : REM sky
 50 IMAGE NEW 2, 640, 80   : REM mid
