@@ -641,6 +641,12 @@ void gfx_sprite_set_draw_frame(int slot, int frame_1based)
         frame_1based = sl->tile_count;
     }
     sl->draw_frame = frame_1based;
+    /* Invalidate any cached explicit crop — gfx_sprite_effective_source_rect
+     * prefers (draw_sx, draw_sy, draw_sw, draw_sh) when they're non-zero, so
+     * without this the first DRAWSPRITE's crop would stick forever and
+     * subsequent SPRITEFRAME changes wouldn't advance the displayed tile. */
+    sl->draw_sw = 0;
+    sl->draw_sh = 0;
     pthread_mutex_unlock(&g_sprite_mutex);
 }
 
