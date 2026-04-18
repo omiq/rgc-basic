@@ -120,36 +120,38 @@ Optional scroll-offset form (v2, defer):
     cell reads from an offset. Smooth scrolling without rebuilding the map
     each frame.
 
-### Viewport scroll (AMOS `Screen Offset` port)
+### Scrolling — covered by IMAGE COPY, no new commands
 
-- `SCREEN OFFSET slot, x_off, y_off`
-  - Shifts the visible window inside an oversized bitmap/surface slot
-    without copying data. Paired with a bitmap larger than the visible
-    screen (e.g. 512+32 tall) for wrap-around scrolling.
-  - Implementation: adjust the source-rect origin used when compositing
-    the surface to the visible screen. No pixel movement.
-  - Scope question: operates on blitter surfaces (see
-    `docs/rgc-blitter-surface-spec.md`) rather than sprite/tilemap slots.
-    Cross-linked but owned by blitter spec.
+Originally this spec proposed `SCREEN OFFSET`, `SCREEN ZONE`, and
+`SCREEN SCROLL` as ports of AMOS's viewport/zone scroll primitives.
+**Deferred.** The blitter (`IMAGE NEW` + `IMAGE COPY`, Phase 1 already
+shipped) covers the same use cases in a single primitive, and adding
+viewport state to the renderer is a bigger architectural change (the
+sprite/tilemap queue and the 1bpp bitmap surfaces are separate paths
+today; SCREEN OFFSET on an oversized surface would only shift the
+bitmap, not any queued sprites on top).
 
-### Scroll zones (AMOS `Def Scroll` / `Scroll` port)
+**Scroll recipe (use this instead):**
 
-- `SCREEN ZONE zone, x1, y1, x2, y2, x_spd, y_spd`
-  - Defines rectangular scroll region + per-axis velocity. Numbered
-    zone handle for later reference.
-- `SCREEN SCROLL zone`
-  - Advances that zone one tick: moves pixels by `(x_spd, y_spd)` via
-    surface blit; wraps at zone edges.
+1. Allocate an off-screen surface bigger than the visible bitmap:
+   `IMAGE NEW 1, 640, 200`.
+2. Paint or stamp content into it (see `examples/gfx_scroll_demo.bas`
+   for the PSET-then-capture-then-tile pattern).
+3. Each frame, blit a 320x200 window from the surface to visible:
+   ```
+   IMAGE COPY 1, XO, 0, 320, 200 TO 0, 0, 0
+   ```
+   Advance `XO` and wrap when it crosses the tile seam for loopable
+   backgrounds.
 
-All three new scroll/viewport commands live under `SCREEN *` so the
-family reads uniformly alongside the existing `SCREEN n` mode switch:
+**Parallax recipe:** one surface per band, one `IMAGE COPY` per band
+per frame with independent offsets. See
+`examples/gfx_parallax_demo.bas`.
 
-- `SCREEN OFFSET ...` — viewport shift
-- `SCREEN ZONE ...` — define parallax band
-- `SCREEN SCROLL ...` — tick a band
-
-Useful for parallax (sky zone slow, ground zone fast). Implementation is
-surface-blit-based; owned by blitter spec (see cross-reference below).
+If real viewport scroll (hardware-style, no copy) becomes important
+later, revisit: it needs the renderer to track per-slot origin plus a
+way to composite queued sprites/tilemap over the offset surface. Not
+zero-cost.
 
 ## Implementation notes
 
@@ -159,8 +161,7 @@ surface-blit-based; owned by blitter spec (see cross-reference below).
    for the two-word forms map to the same handler as the concat alias.
    No deprecation warnings.
 2. New opcodes: `TILE_DRAW`, `TILEMAP_DRAW`, `SHEET_COLS`, `SHEET_ROWS`,
-   `SHEET_WIDTH`, `SHEET_HEIGHT`, `SPRITE_FRAMES`, `TILE_COUNT`,
-   `SCREEN_OFFSET`, `SCREEN_ZONE`, `SCREEN_SCROLL`.
+   `SHEET_WIDTH`, `SHEET_HEIGHT`, `SPRITE_FRAMES`, `TILE_COUNT`.
 3. `TILEMAP DRAW`: fetch array address + length, validate, call
    `gfx_draw_tilemap(slot, x0, y0, cols, rows, int16_t *map, map_len)`.
 
@@ -287,12 +288,10 @@ rgc-basic mapping:
 
 ### Derived action items for our specs
 
-- Add `SCREEN OFFSET slot, x_off, y_off` to the blitter spec (viewport
-  shift on a bitmap surface without copying).
-- Add `SCREEN ZONE` / `SCREEN SCROLL` to either the blitter spec or a new
-  `scrolling-viewport-plan.md`. Decide based on whether the scroll
-  implementation is bitmap-blitter-backed (→ blitter spec) or
-  GPU-retained (→ new doc).
+- ~~Add `SCREEN OFFSET` to the blitter spec~~ — deferred. `IMAGE COPY`
+  already does the job; see "Scrolling — covered by IMAGE COPY" above.
+- ~~Add `SCREEN ZONE` / `SCREEN SCROLL`~~ — deferred. Parallax = one
+  `IMAGE COPY` per band per frame.
 - Document an ASCII map-file convention (rows of space-separated integers
   or 4-char fixed-width) in `TILEMAP DRAW` reference so user code has a
   standard to follow.
@@ -301,8 +300,8 @@ rgc-basic mapping:
 
 1. Should `TILEMAP DRAW` support a per-tile tint/alpha override, or is
    that sprite-only? Probably leave at "sheet's loaded colors" for v1.
-2. Scroll offsets on `TILEMAP DRAW` — ship in v1 or defer in favour of
-   `SCREEN OFFSET` on the surface? Suggest defer.
+2. Scroll offsets on `TILEMAP DRAW` — deferred; scroll now handled by
+   `IMAGE COPY` with a user-managed offset.
 3. Should `z` default to the slot's current `SPRITE FRAME`-style z, or
    to 0? Probably 0 for tilemaps (backgrounds typically sit at a single
    depth).
@@ -310,7 +309,5 @@ rgc-basic mapping:
    map draws every frame automatically, or stay explicit per-frame?
    Explicit matches the rest of the API; implicit would need a new
    frame hook.
-5. `SCREEN ZONE` / `SCREEN SCROLL` ownership — this spec, blitter spec, or
-   new `scrolling-viewport-plan.md`? Answer depends on whether scroll
-   regions operate on bitmap surfaces (blitter-backed) or on the
-   tilemap/GPU path.
+5. ~~`SCREEN ZONE` / `SCREEN SCROLL` ownership~~ — resolved: not
+   shipping; `IMAGE COPY` per band per frame covers the use case.
