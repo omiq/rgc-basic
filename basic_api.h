@@ -72,6 +72,13 @@ int gfx_sprite_slot_sheet_rows(int slot);
 int gfx_sprite_slot_sheet_cell_w(int slot);
 int gfx_sprite_slot_sheet_cell_h(int slot);
 
+/* Batched tile grid stamp (TILEMAP DRAW). `tiles` is a row-major buffer
+ * of 1-based tile indices of length cols*rows (truncated to tile_count);
+ * index 0 = transparent (skip). x0,y0 are pixel coords of the top-left
+ * cell; each cell is cell_w x cell_h (from the slot's loaded sheet). */
+void gfx_draw_tilemap(int slot, float x0, float y0, int cols, int rows, int z,
+                      const int *tiles, int tile_count);
+
 /* 1-based tile index into a tilemap sheet; sets source rect for DRAWSPRITE crop. Returns 0 on success. */
 int gfx_sprite_tile_source_rect(int slot, int tile_index_1based, int *sx, int *sy, int *sw, int *sh);
 
