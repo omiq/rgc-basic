@@ -2704,6 +2704,7 @@ static void statement_polygon(char **p);
 static void statement_fillpolygon(char **p);
 static void statement_drawtext(char **p);
 static void statement_vsync(char **p);
+static void statement_antialias(char **p);
 static void statement_bitmapclear(char **p);
 static void statement_cls(char **p);
 static void statement_buffernew(char **p);
@@ -3052,7 +3053,7 @@ static const char *const reserved_words[] = {
     "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET",     "PRINT", "PUTBYTE",
     "XOR",
     "READ", "RECT", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITECOPY", "SPRITEFRAME", "SPRITEMODIFY", "SPRITEMODULATE", "SPRITETILES", "SPRITEVISIBLE",
-    "FILLRECT", "CIRCLE", "FILLCIRCLE", "ELLIPSE", "FILLELLIPSE", "TRIANGLE", "FILLTRIANGLE", "FLOODFILL", "POLYGON", "FILLPOLYGON", "VSYNC",
+    "FILLRECT", "CIRCLE", "FILLCIRCLE", "ELLIPSE", "FILLELLIPSE", "TRIANGLE", "FILLTRIANGLE", "FLOODFILL", "POLYGON", "FILLPOLYGON", "VSYNC", "ANTIALIAS",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
     "DRAWSPRITE", "DRAWSPRITETILE", "DRAWTEXT", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
@@ -5714,6 +5715,41 @@ static void statement_tilemap_draw(char **p)
     }
     gfx_draw_tilemap(slot, x0, y0, cols, rows, z, buf, need);
     free(buf);
+}
+
+/* ANTIALIAS ON | OFF | 0 | 1
+ *
+ * Toggles texture filtering on the raylib renderer. OFF (default) =
+ * nearest-neighbour pixels for the classic retro / pixel-art look; ON
+ * = bilinear smoothing across sprites, the render target upscale, and
+ * anything DRAWTEXT stamps through that path. Accepted forms:
+ *
+ *     ANTIALIAS ON
+ *     ANTIALIAS OFF
+ *     ANTIALIAS 1
+ *     ANTIALIAS 0
+ *
+ * Canvas/WASM software backend always renders nearest pixels; calling
+ * ANTIALIAS there is a silent no-op. Applies immediately to every
+ * already-loaded sprite slot and the current render target. */
+static void statement_antialias(char **p)
+{
+#ifndef GFX_VIDEO
+    (void)p;
+    runtime_error_hint("ANTIALIAS is only available in basic-gfx",
+                       "ANTIALIAS toggles raylib texture filtering (basic-gfx / canvas WASM).");
+#else
+    struct value v;
+    int on = 0;
+    skip_spaces(p);
+    if (starts_with_kw(*p, "ON"))   { *p += 2; on = 1; }
+    else if (starts_with_kw(*p, "OFF")) { *p += 3; on = 0; }
+    else {
+        v = eval_expr(p); ensure_num(&v); on = (v.num != 0.0) ? 1 : 0;
+    }
+    skip_spaces(p);
+    if (gfx_vs) gfx_set_antialias(on);
+#endif
 }
 
 /* VSYNC
@@ -12520,6 +12556,11 @@ static void execute_statement(char **p)
     if (c == 'V' && starts_with_kw(*p, "VSYNC")) {
         *p += 5;
         statement_vsync(p);
+        return;
+    }
+    if (c == 'A' && starts_with_kw(*p, "ANTIALIAS")) {
+        *p += 9;
+        statement_antialias(p);
         return;
     }
 #endif

@@ -430,6 +430,14 @@ void gfx_cells_clear(void)
     g_tm_build_count = 0;
 }
 
+/* ANTIALIAS toggle is a raylib-only concept; the canvas/software
+ * compositor always renders nearest-neighbour pixels. Accept and
+ * ignore so programs written with ANTIALIAS still link here. */
+void gfx_set_antialias(int on)
+{
+    (void)on;
+}
+
 /* Commit build → show. Single-threaded canvas/WASM build so no lock
  * needed, but keep the semantics identical to the raylib backend. */
 void gfx_cells_flip(void)
