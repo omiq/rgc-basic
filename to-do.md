@@ -8,8 +8,13 @@
 - `TILE DRAW`, `TILE COUNT(...)`
 - `TILEMAP DRAW`
 - `SHEET COLS(...)`, `SHEET ROWS(...)`, `SHEET WIDTH(...)`, `SHEET HEIGHT(...)`
-- `IMAGE NEW`, `IMAGE FREE`, `IMAGE COPY`, `IMAGE SAVE`, `IMAGE GRAB`
-- `SCREEN OFFSET`, `SCREEN ZONE`, `SCREEN SCROLL`
+- `IMAGE NEW`, `IMAGE FREE`, `IMAGE COPY` (shipped); `IMAGE SAVE`,
+  `IMAGE GRAB` (planned, Phase 2/3 of blitter spec)
+
+Dropped from the original proposal:
+- ~~`SCREEN OFFSET`, `SCREEN ZONE`, `SCREEN SCROLL`~~ — `IMAGE COPY`
+  already covers scrolling and parallax; see
+  `docs/tilemap-sheet-plan.md` "Scrolling — covered by IMAGE COPY".
 
 **Existing concat names stay as permanent aliases** — not deprecated,
 no warnings, no removal date:
