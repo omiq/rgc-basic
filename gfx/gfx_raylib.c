@@ -1077,6 +1077,43 @@ static void gfx_sprite_composite_range(const GfxVideoState *vs, RenderTexture2D 
 
     BeginTextureMode(target);
     BeginBlendMode(BLEND_ALPHA);
+
+    /* TILEMAP cells — render BEFORE sprites. Tilemap typically z=0 for
+     * backgrounds; sprites (e.g. player at z=100) should draw on top.
+     * If a program really wants tilemap-over-sprite, mix z explicitly.
+     * (A full z-sorted merge of sprites + tiles is deferred; the two-
+     * pass split is sufficient for the common background-vs-player
+     * case.) */
+    {
+        GfxTilemapCell local[GFX_TILEMAP_MAX_CELLS];
+        int tn, ti;
+        pthread_mutex_lock(&g_sprite_mutex);
+        tn = g_tm_count;
+        if (tn > GFX_TILEMAP_MAX_CELLS) tn = GFX_TILEMAP_MAX_CELLS;
+        if (tn > 0) memcpy(local, g_tm_cells, (size_t)tn * sizeof(GfxTilemapCell));
+        pthread_mutex_unlock(&g_sprite_mutex);
+        for (ti = 0; ti < tn; ti++) {
+            GfxTilemapCell *cell = &local[ti];
+            Texture2D t;
+            Rectangle src, dest;
+            int s = cell->slot;
+            if (s < 0 || s >= GFX_SPRITE_MAX_SLOTS) continue;
+            if (cell->z < z_min || cell->z > z_max) continue;
+            pthread_mutex_lock(&g_sprite_mutex);
+            if (!g_sprite_slots[s].loaded || !g_sprite_slots[s].visible) {
+                pthread_mutex_unlock(&g_sprite_mutex);
+                continue;
+            }
+            t = g_sprite_slots[s].tex;
+            pthread_mutex_unlock(&g_sprite_mutex);
+            src = (Rectangle){ (float)cell->sx, (float)cell->sy,
+                                (float)cell->sw, (float)cell->sh };
+            dest = (Rectangle){ cell->x - scx, cell->y - scy,
+                                 (float)cell->sw, (float)cell->sh };
+            DrawTexturePro(t, src, dest, (Vector2){ 0, 0 }, 0.0f, WHITE);
+        }
+    }
+
     for (i = 0; i < nd; i++) {
         GfxSpriteDraw *d = &draws[i];
         int s = d->slot;
@@ -1138,39 +1175,6 @@ static void gfx_sprite_composite_range(const GfxVideoState *vs, RenderTexture2D 
                 (unsigned char)d->mod_b,
                 (unsigned char)d->mod_a
             });
-    }
-
-    /* TILEMAP cells — the list populated by gfx_draw_tilemap. Each cell
-     * is rendered directly rather than going through the per-slot draw
-     * cache so N cells per slot all show up. */
-    {
-        GfxTilemapCell local[GFX_TILEMAP_MAX_CELLS];
-        int tn, ti;
-        pthread_mutex_lock(&g_sprite_mutex);
-        tn = g_tm_count;
-        if (tn > GFX_TILEMAP_MAX_CELLS) tn = GFX_TILEMAP_MAX_CELLS;
-        if (tn > 0) memcpy(local, g_tm_cells, (size_t)tn * sizeof(GfxTilemapCell));
-        pthread_mutex_unlock(&g_sprite_mutex);
-        for (ti = 0; ti < tn; ti++) {
-            GfxTilemapCell *cell = &local[ti];
-            Texture2D t;
-            Rectangle src, dest;
-            int s = cell->slot;
-            if (s < 0 || s >= GFX_SPRITE_MAX_SLOTS) continue;
-            if (cell->z < z_min || cell->z > z_max) continue;
-            pthread_mutex_lock(&g_sprite_mutex);
-            if (!g_sprite_slots[s].loaded || !g_sprite_slots[s].visible) {
-                pthread_mutex_unlock(&g_sprite_mutex);
-                continue;
-            }
-            t = g_sprite_slots[s].tex;
-            pthread_mutex_unlock(&g_sprite_mutex);
-            src = (Rectangle){ (float)cell->sx, (float)cell->sy,
-                                (float)cell->sw, (float)cell->sh };
-            dest = (Rectangle){ cell->x - scx, cell->y - scy,
-                                 (float)cell->sw, (float)cell->sh };
-            DrawTexturePro(t, src, dest, (Vector2){ 0, 0 }, 0.0f, WHITE);
-        }
     }
 
     EndBlendMode();
