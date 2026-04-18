@@ -512,6 +512,10 @@ void gfx_sprite_set_draw_frame(int slot, int frame_1based)
         frame_1based = sl->tile_count;
     }
     sl->draw_frame = frame_1based;
+    /* Invalidate any cached explicit crop from the previous DRAWSPRITE
+     * so the next default draw resolves via the new frame. */
+    sl->draw_sw = 0;
+    sl->draw_sh = 0;
 }
 
 int gfx_sprite_get_draw_frame(int slot)

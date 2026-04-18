@@ -6644,45 +6644,8 @@ static struct value eval_function(const char *name, char **p)
         if (code == FN_KEYUP) down = !down;
         return make_num((double)down);
     }
-    if (code == FN_ANIMFRAME) {
-        /* ANIMFRAME(first, last, jiffies_per_frame)
-         * Returns a 1-based frame index cycling between first and last
-         * (inclusive), advancing every `jiffies_per_frame` ticks. Uses
-         * gfx_vs->ticks60 when present (basic-gfx / canvas WASM) or
-         * wall-clock-derived jiffies in the terminal build. */
-        struct value va, vb, vc;
-        int first, last, per, span, idx;
-        uint32_t t;
-        skip_spaces(p);
-        va = eval_expr(p); ensure_num(&va); first = (int)va.num;
-        skip_spaces(p);
-        if (**p != ',') { runtime_error_hint("ANIMFRAME expects first, last, jiffies_per_frame", NULL); return make_num(0.0); }
-        (*p)++; skip_spaces(p);
-        vb = eval_expr(p); ensure_num(&vb); last = (int)vb.num;
-        skip_spaces(p);
-        if (**p != ',') { runtime_error_hint("ANIMFRAME expects first, last, jiffies_per_frame", NULL); return make_num(0.0); }
-        (*p)++; skip_spaces(p);
-        vc = eval_expr(p); ensure_num(&vc); per = (int)vc.num;
-        skip_spaces(p);
-        if (**p != ')') {
-            runtime_error_hint("Missing ')'", "ANIMFRAME(first, last, jiffies_per_frame)");
-            return make_num(0.0);
-        }
-        (*p)++; skip_spaces(p);
-        if (per <= 0) per = 1;
-        span = last - first + 1;
-        if (span <= 0) return make_num((double)first);
-#ifdef GFX_VIDEO
-        if (gfx_vs) {
-            t = gfx_vs->ticks60;
-        } else
-#endif
-        {
-            t = (uint32_t)((unsigned long)time(NULL) * 60u);
-        }
-        idx = first + (int)((t / (uint32_t)per) % (uint32_t)span);
-        return make_num((double)idx);
-    }
+    /* ANIMFRAME moved below — it needs to compile in the terminal build
+     * too so the full three-argument form parses even without gfx. */
     if (code == FN_SPRITEFRAME) {
         struct value vs;
         int slot, fr;
@@ -6973,6 +6936,45 @@ static struct value eval_function(const char *name, char **p)
         }
         return make_num(0.0);
     }
+    /* ANIMFRAME(first, last, jiffies_per_frame) — handled up-front so
+     * the three-argument form works in every build (terminal included)
+     * before the single-argument eval_expr path below runs. */
+    if (code == FN_ANIMFRAME) {
+        struct value vb, vc;
+        int first, last, per, span, idx;
+        uint32_t t;
+        arg = eval_expr(p);
+        ensure_num(&arg);
+        first = (int)arg.num;
+        skip_spaces(p);
+        if (**p != ',') { runtime_error_hint("ANIMFRAME expects first, last, jiffies_per_frame", NULL); return make_num(0.0); }
+        (*p)++; skip_spaces(p);
+        vb = eval_expr(p); ensure_num(&vb); last = (int)vb.num;
+        skip_spaces(p);
+        if (**p != ',') { runtime_error_hint("ANIMFRAME expects first, last, jiffies_per_frame", NULL); return make_num(0.0); }
+        (*p)++; skip_spaces(p);
+        vc = eval_expr(p); ensure_num(&vc); per = (int)vc.num;
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("Missing ')'", "ANIMFRAME(first, last, jiffies_per_frame)");
+            return make_num(0.0);
+        }
+        (*p)++; skip_spaces(p);
+        if (per <= 0) per = 1;
+        span = last - first + 1;
+        if (span <= 0) return make_num((double)first);
+#ifdef GFX_VIDEO
+        if (gfx_vs) {
+            t = gfx_vs->ticks60;
+        } else
+#endif
+        {
+            t = (uint32_t)((unsigned long)time(NULL) * 60u);
+        }
+        idx = first + (int)((t / (uint32_t)per) % (uint32_t)span);
+        return make_num((double)idx);
+    }
+
     arg = eval_expr(p);
     skip_spaces(p);
 
