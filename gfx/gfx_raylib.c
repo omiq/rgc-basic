@@ -92,10 +92,14 @@ static GfxSpriteSlot g_sprite_slots[GFX_SPRITE_MAX_SLOTS];
 /* Global anti-aliasing / texture-filter mode.
  *   0 = nearest-neighbour (hard pixels, classic retro look) — default
  *   1 = bilinear (smoothed)
- * Set via the BASIC `ANTIALIAS ON/OFF` statement. Applied to future
- * SPRITE LOAD calls and, when toggled, re-applied to every already-
- * loaded slot texture and to the render target. */
+ * Set via the BASIC `ANTIALIAS ON/OFF` statement. gfx_set_antialias()
+ * just flips the flag — the main render thread (which owns the GL
+ * context) checks each tick and re-applies the filter to every
+ * loaded texture + the target if the value changed. Cross-thread GL
+ * calls are undefined under emscripten-glfw, so the interpreter
+ * thread never touches texture state directly. */
 static int g_antialias = 0;
+static int g_antialias_applied = -1; /* force first-frame apply */
 
 static int sprite_filter_mode(void)
 {
@@ -104,24 +108,7 @@ static int sprite_filter_mode(void)
 
 void gfx_set_antialias(int on)
 {
-    int mode;
-    int i;
     g_antialias = on ? 1 : 0;
-    mode = sprite_filter_mode();
-    /* Re-apply to every already-loaded sprite texture so the toggle
-     * takes effect immediately without requiring a sprite reload.
-     * Note: SetTextureFilter is a GL call; this runs on the
-     * interpreter thread (raylib has been tolerant of cross-thread
-     * texture-parameter calls in practice). If this proves flaky on
-     * some backends, move the reapply into the main render tick via
-     * a pending flag. */
-    pthread_mutex_lock(&g_sprite_mutex);
-    for (i = 0; i < GFX_SPRITE_MAX_SLOTS; i++) {
-        if (g_sprite_slots[i].loaded) {
-            SetTextureFilter(g_sprite_slots[i].tex, mode);
-        }
-    }
-    pthread_mutex_unlock(&g_sprite_mutex);
 }
 static GfxSpriteCmd g_sprite_q[GFX_SPRITE_Q_CAP];
 static int g_sprite_q_count;
@@ -1662,6 +1649,24 @@ int main(int argc, char **argv)
         /* 60 Hz jiffy clock (C64-style TI), wraps every 24 hours. */
         gfx_video_advance_ticks60(&vs, 1u);
 
+        /* ANTIALIAS: apply pending filter change on the main (GL) thread.
+         * gfx_set_antialias() just flips the flag; this walks loaded
+         * sprite textures + the render target and calls SetTextureFilter
+         * when the desired mode has changed since the last frame. */
+        if (g_antialias != g_antialias_applied) {
+            int mode = sprite_filter_mode();
+            int si;
+            pthread_mutex_lock(&g_sprite_mutex);
+            for (si = 0; si < GFX_SPRITE_MAX_SLOTS; si++) {
+                if (g_sprite_slots[si].loaded) {
+                    SetTextureFilter(g_sprite_slots[si].tex, mode);
+                }
+            }
+            pthread_mutex_unlock(&g_sprite_mutex);
+            SetTextureFilter(target.texture, mode);
+            g_antialias_applied = g_antialias;
+        }
+
         /* Update simple keyboard state map (ASCII-like indices) so BASIC can
          * poll via PEEK(GFX_KEY_BASE + code). */
         gfx_video_clear_keys(&vs);
@@ -1940,6 +1945,20 @@ void wasm_gfx_refresh_js(void)
             return;
         }
         last_render_ms = now_ms;
+    }
+    /* Apply pending ANTIALIAS toggle on the GL thread. */
+    if (g_antialias != g_antialias_applied) {
+        int mode = sprite_filter_mode();
+        int si;
+        pthread_mutex_lock(&g_sprite_mutex);
+        for (si = 0; si < GFX_SPRITE_MAX_SLOTS; si++) {
+            if (g_sprite_slots[si].loaded) {
+                SetTextureFilter(g_sprite_slots[si].tex, mode);
+            }
+        }
+        pthread_mutex_unlock(&g_sprite_mutex);
+        SetTextureFilter(g_wasm_target.texture, mode);
+        g_antialias_applied = g_antialias;
     }
     if (g_wasm_vs.screen_mode == GFX_SCREEN_BITMAP) {
         render_bitmap_screen(&g_wasm_vs, g_wasm_target, g_wasm_nat_w);
