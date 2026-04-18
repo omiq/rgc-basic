@@ -8,7 +8,7 @@
 8 REM Commands: IMAGE NEW, IMAGE COPY, PSET, CLS
 9 REM Keys: Q quit (scrolls automatically)
 10 REM =========================================================
-20 PRINT CHR$(14)
+20 SCREEN 1 : REM hi-res bitmap mode (PSET writes, display shows)
 30 REM --- 1. Paint a 16x16 "tile" into visible (slot 0) ---
 40 CLS
 50 FOR Y = 0 TO 15 : PSET 0,Y : PSET 15,Y : NEXT Y
