@@ -65,6 +65,13 @@ void gfx_sprite_enqueue_load_ex(int slot, const char *path, int tile_w, int tile
 /* Number of tiles in a loaded sheet (0 if not tilemap or unloaded). */
 int gfx_sprite_slot_tile_count(int slot);
 
+/* Sheet grid geometry (SHEET COLS/ROWS/WIDTH/HEIGHT intrinsics).
+ * Returns 0 when slot is unloaded, out-of-range, or non-tilemap. */
+int gfx_sprite_slot_sheet_cols(int slot);
+int gfx_sprite_slot_sheet_rows(int slot);
+int gfx_sprite_slot_sheet_cell_w(int slot);
+int gfx_sprite_slot_sheet_cell_h(int slot);
+
 /* 1-based tile index into a tilemap sheet; sets source rect for DRAWSPRITE crop. Returns 0 on success. */
 int gfx_sprite_tile_source_rect(int slot, int tile_index_1based, int *sx, int *sy, int *sw, int *sh);
 

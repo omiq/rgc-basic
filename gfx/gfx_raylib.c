@@ -420,6 +420,43 @@ int gfx_sprite_slot_tile_count(int slot)
     return n;
 }
 
+int gfx_sprite_slot_sheet_cols(int slot)
+{
+    int v = 0;
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) return 0;
+    pthread_mutex_lock(&g_sprite_mutex);
+    if (g_sprite_slots[slot].loaded) v = g_sprite_slots[slot].tiles_x;
+    pthread_mutex_unlock(&g_sprite_mutex);
+    return v;
+}
+int gfx_sprite_slot_sheet_rows(int slot)
+{
+    int v = 0;
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) return 0;
+    pthread_mutex_lock(&g_sprite_mutex);
+    if (g_sprite_slots[slot].loaded) v = g_sprite_slots[slot].tiles_y;
+    pthread_mutex_unlock(&g_sprite_mutex);
+    return v;
+}
+int gfx_sprite_slot_sheet_cell_w(int slot)
+{
+    int v = 0;
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) return 0;
+    pthread_mutex_lock(&g_sprite_mutex);
+    if (g_sprite_slots[slot].loaded) v = g_sprite_slots[slot].tile_w;
+    pthread_mutex_unlock(&g_sprite_mutex);
+    return v;
+}
+int gfx_sprite_slot_sheet_cell_h(int slot)
+{
+    int v = 0;
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) return 0;
+    pthread_mutex_lock(&g_sprite_mutex);
+    if (g_sprite_slots[slot].loaded) v = g_sprite_slots[slot].tile_h;
+    pthread_mutex_unlock(&g_sprite_mutex);
+    return v;
+}
+
 int gfx_sprite_tile_source_rect(int slot, int tile_index_1based, int *sx, int *sy, int *sw, int *sh)
 {
     GfxSpriteSlot *sl;

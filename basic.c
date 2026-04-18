@@ -2784,7 +2784,15 @@ enum func_code {
     FN_ISMOUSEBUTTONUP = 61,
     FN_ISMOUSEOVERSPRITE = 62,
     FN_BUFFERLEN = 63,
-    FN_BUFFERPATH = 64
+    FN_BUFFERPATH = 64,
+    /* Sheet/tile metadata accessors (two-word canonical spellings are
+     * glued in eval_function before function_lookup runs: SPRITE FRAMES
+     * and TILE COUNT alias to FN_SPRITETILES; SHEET COLS/ROWS/WIDTH/
+     * HEIGHT get their own opcodes below). */
+    FN_SHEETCOLS = 65,
+    FN_SHEETROWS = 66,
+    FN_SHEETWIDTH = 67,
+    FN_SHEETHEIGHT = 68
 };
 
 /* Report an error and halt further execution.
@@ -3068,6 +3076,25 @@ static int starts_with_kw(char *p, const char *kw)
     if (isalnum((unsigned char)p[i]) || p[i] == '_') {
         return 0;
     }
+    return 1;
+}
+
+/* Same rules as starts_with_kw but for two whitespace-separated words.
+ * Used to detect two-word function forms (SPRITE FRAMES, TILE COUNT,
+ * SHEET COLS/ROWS/WIDTH/HEIGHT) at the point where we decide whether an
+ * identifier is an intrinsic call. */
+static int starts_with_two_words(char *p, const char *w1, const char *w2)
+{
+    int i = 0, j;
+    for (; w1[i]; i++) {
+        if (toupper((unsigned char)p[i]) != w1[i]) return 0;
+    }
+    if (p[i] != ' ' && p[i] != '\t') return 0;
+    while (p[i] == ' ' || p[i] == '\t') i++;
+    for (j = 0; w2[j]; j++) {
+        if (toupper((unsigned char)p[i + j]) != w2[j]) return 0;
+    }
+    if (isalnum((unsigned char)p[i + j]) || p[i + j] == '_') return 0;
     return 1;
 }
 
@@ -3837,9 +3864,24 @@ static int function_lookup(const char *name, int len)
         if (len == 11 && name[0] == 'S' && name[1] == 'P' && name[2] == 'R' && name[3] == 'I' &&
             name[4] == 'T' && name[5] == 'E' && name[6] == 'T' && name[7] == 'I' && name[8] == 'L' &&
             name[9] == 'E' && name[10] == 'S') return FN_SPRITETILES;
+        /* SPRITEFRAMES (two-word SPRITE FRAMES glued) → same opcode as SPRITETILES. */
+        if (len == 12 && name[0] == 'S' && name[1] == 'P' && name[2] == 'R' && name[3] == 'I' &&
+            name[4] == 'T' && name[5] == 'E' && name[6] == 'F' && name[7] == 'R' && name[8] == 'A' &&
+            name[9] == 'M' && name[10] == 'E' && name[11] == 'S') return FN_SPRITETILES;
         if (len == 11 && name[0] == 'S' && name[1] == 'P' && name[2] == 'R' && name[3] == 'I' &&
             name[4] == 'T' && name[5] == 'E' && name[6] == 'F' && name[7] == 'R' && name[8] == 'A' &&
             name[9] == 'M' && name[10] == 'E') return FN_SPRITEFRAME;
+        /* SHEET metadata accessors (SHEET COLS/ROWS/WIDTH/HEIGHT glued). */
+        if (len == 9 && name[0] == 'S' && name[1] == 'H' && name[2] == 'E' && name[3] == 'E' &&
+            name[4] == 'T' && name[5] == 'C' && name[6] == 'O' && name[7] == 'L' && name[8] == 'S') return FN_SHEETCOLS;
+        if (len == 9 && name[0] == 'S' && name[1] == 'H' && name[2] == 'E' && name[3] == 'E' &&
+            name[4] == 'T' && name[5] == 'R' && name[6] == 'O' && name[7] == 'W' && name[8] == 'S') return FN_SHEETROWS;
+        if (len == 10 && name[0] == 'S' && name[1] == 'H' && name[2] == 'E' && name[3] == 'E' &&
+            name[4] == 'T' && name[5] == 'W' && name[6] == 'I' && name[7] == 'D' && name[8] == 'T' &&
+            name[9] == 'H') return FN_SHEETWIDTH;
+        if (len == 11 && name[0] == 'S' && name[1] == 'H' && name[2] == 'E' && name[3] == 'E' &&
+            name[4] == 'T' && name[5] == 'H' && name[6] == 'E' && name[7] == 'I' && name[8] == 'G' &&
+            name[9] == 'H' && name[10] == 'T') return FN_SHEETHEIGHT;
         if (len == 7 && name[0] == 'S' && name[1] == 'C' && name[2] == 'R' && name[3] == 'O' &&
             name[4] == 'L' && name[5] == 'L' && name[6] == 'X') return FN_SCROLLX;
         if (len == 7 && name[0] == 'S' && name[1] == 'C' && name[2] == 'R' && name[3] == 'O' &&
@@ -3867,6 +3909,10 @@ static int function_lookup(const char *name, int len)
         if ((len == 4 && name[0] == 'T' && name[1] == 'R' && name[2] == 'I' && name[3] == 'M') ||
             (len == 5 && name[0] == 'T' && name[1] == 'R' && name[2] == 'I' && name[3] == 'M' && name[4] == '$'))
             return FN_TRIM;
+        /* TILECOUNT (two-word TILE COUNT glued) → alias of SPRITETILES. */
+        if (len == 9 && name[0] == 'T' && name[1] == 'I' && name[2] == 'L' && name[3] == 'E' &&
+            name[4] == 'C' && name[5] == 'O' && name[6] == 'U' && name[7] == 'N' && name[8] == 'T')
+            return FN_SPRITETILES;
         return FN_NONE;
     case 'A':
         if (len == 3 && name[0] == 'A' && name[1] == 'B' && name[2] == 'S') return FN_ABS;
@@ -5583,6 +5629,31 @@ static struct value eval_function(const char *name, char **p)
     for (len = 0; tmp[len]; len++) {
         tmp[len] = toupper((unsigned char)tmp[len]);
     }
+    /* Two-word glue: if the first word is SPRITE/TILE/SHEET and a second
+     * alpha token follows, concatenate so function_lookup sees the combined
+     * spelling (SPRITEFRAMES, TILECOUNT, SHEETCOLS, etc.). Matches the
+     * naming convention in to-do.md / docs/tilemap-sheet-plan.md. */
+    if (strcmp(tmp, "SPRITE") == 0 || strcmp(tmp, "TILE") == 0 ||
+        strcmp(tmp, "SHEET") == 0) {
+        char *save = *p;
+        skip_spaces(p);
+        if (isalpha((unsigned char)**p)) {
+            char second[32];
+            int slen;
+            read_identifier(p, second, sizeof(second));
+            for (slen = 0; second[slen]; slen++) {
+                second[slen] = toupper((unsigned char)second[slen]);
+            }
+            if (len + slen < (int)sizeof(tmp)) {
+                memcpy(tmp + len, second, (size_t)slen + 1);
+                len += slen;
+            } else {
+                *p = save;
+            }
+        } else {
+            *p = save;
+        }
+    }
     code = function_lookup(tmp, len);
     skip_spaces(p);
     if (**p != '(') {
@@ -5805,19 +5876,21 @@ static struct value eval_function(const char *name, char **p)
                              "Sprite collision needs a graphics build with LOADSPRITE/DRAWSPRITE.");
         return make_num(0.0);
     }
-    if (code == FN_SPRITETILES || code == FN_SPRITEFRAME) {
+    if (code == FN_SPRITETILES || code == FN_SPRITEFRAME ||
+        code == FN_SHEETCOLS || code == FN_SHEETROWS ||
+        code == FN_SHEETWIDTH || code == FN_SHEETHEIGHT) {
         struct value v1;
         skip_spaces(p);
         v1 = eval_expr(p);
         (void)v1;
         skip_spaces(p);
         if (**p != ')') {
-            runtime_error_hint("Missing ')'", "SPRITETILES(slot) / SPRITEFRAME(slot) take one argument.");
+            runtime_error_hint("Missing ')'", "SPRITETILES/SPRITEFRAME/SHEET accessors take one slot argument.");
             return make_num(0.0);
         }
         (*p)++;
         skip_spaces(p);
-        runtime_error_hint("SPRITETILES/SPRITEFRAME require basic-gfx or canvas WASM", NULL);
+        runtime_error_hint("SPRITE/SHEET metadata requires basic-gfx or canvas WASM", NULL);
         return make_num(0.0);
     }
     if (code == FN_JOY || code == FN_JOYAXIS) {
@@ -5927,6 +6000,29 @@ static struct value eval_function(const char *name, char **p)
             return make_num((double)n);
         }
         return make_num(0.0);
+    }
+    if (code == FN_SHEETCOLS || code == FN_SHEETROWS ||
+        code == FN_SHEETWIDTH || code == FN_SHEETHEIGHT) {
+        struct value vs;
+        int slot, v = 0;
+        skip_spaces(p);
+        vs = eval_expr(p);
+        ensure_num(&vs);
+        slot = (int)vs.num;
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("Missing ')'", "SHEET COLS/ROWS/WIDTH/HEIGHT take one slot number.");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        if (gfx_vs) {
+            if (code == FN_SHEETCOLS)   v = gfx_sprite_slot_sheet_cols(slot);
+            if (code == FN_SHEETROWS)   v = gfx_sprite_slot_sheet_rows(slot);
+            if (code == FN_SHEETWIDTH)  v = gfx_sprite_slot_sheet_cell_w(slot);
+            if (code == FN_SHEETHEIGHT) v = gfx_sprite_slot_sheet_cell_h(slot);
+        }
+        return make_num((double)v);
     }
     if (code == FN_SPRITEFRAME) {
         struct value vs;
@@ -7571,7 +7667,13 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "ISMOUSEBUTTONPRESSED") || starts_with_kw(*p, "ISMOUSEBUTTONDOWN") ||
             starts_with_kw(*p, "ISMOUSEBUTTONRELEASED") || starts_with_kw(*p, "ISMOUSEBUTTONUP") ||
             starts_with_kw(*p, "ISMOUSEOVERSPRITE") ||
-            starts_with_kw(*p, "BUFFERLEN") || starts_with_kw(*p, "BUFFERPATH")) {
+            starts_with_kw(*p, "BUFFERLEN") || starts_with_kw(*p, "BUFFERPATH") ||
+            starts_with_two_words(*p, "SPRITE", "FRAMES") ||
+            starts_with_two_words(*p, "TILE", "COUNT") ||
+            starts_with_two_words(*p, "SHEET", "COLS") ||
+            starts_with_two_words(*p, "SHEET", "ROWS") ||
+            starts_with_two_words(*p, "SHEET", "WIDTH") ||
+            starts_with_two_words(*p, "SHEET", "HEIGHT")) {
             char namebuf[32];
             char *q;
             q = *p;
