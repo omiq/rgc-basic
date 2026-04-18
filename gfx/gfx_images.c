@@ -1,4 +1,10 @@
-/* gfx_images.c — 1bpp off-screen bitmap surfaces (blitter Phase 1). */
+/* gfx_images.c — 1bpp off-screen bitmap surfaces (blitter Phase 1).
+ *
+ * This file also owns STB_IMAGE_IMPLEMENTATION so every GFX target
+ * (basic-gfx + basic-wasm-canvas + basic-wasm-raylib) links one copy
+ * of stbi_load — previously that lived in gfx_software_sprites.c
+ * which isn't in the raylib build, so gfx_image_load would have been
+ * unresolved there. */
 
 #include <stdint.h>
 #include <stdio.h>
@@ -6,6 +12,9 @@
 #include <string.h>
 #include "gfx_images.h"
 #include "gfx_video.h"
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
 static void bmp_put_u16(uint8_t *dst, uint16_t v)
 {
@@ -246,5 +255,41 @@ int gfx_image_save_bmp(int slot, const char *path)
     }
     free(row);
     fclose(f);
+    return 0;
+}
+
+int gfx_image_load(int slot, const char *path)
+{
+    int w, h, channels;
+    unsigned char *pixels;
+    int x, y;
+    GfxImageSlot *sl;
+    if (!path || !path[0]) return -1;
+    if (slot <= GFX_IMAGE_SLOT_VISIBLE || slot >= GFX_IMAGE_MAX_SLOTS) return -1;
+    pixels = stbi_load(path, &w, &h, &channels, 4);
+    if (!pixels) return -1;
+    if (gfx_image_new(slot, w, h) != 0) {
+        stbi_image_free(pixels);
+        return -1;
+    }
+    sl = &g_slots[slot];
+    /* Threshold to 1bpp: luminance >= 128 and alpha > 0 → pen.
+     * Standard Rec.601 grey weights (299/587/114). Cheap enough for
+     * a one-shot conversion; runtime games blit from the resulting
+     * 1bpp buffer. */
+    for (y = 0; y < h; y++) {
+        for (x = 0; x < w; x++) {
+            unsigned char *px = pixels + ((size_t)y * (size_t)w + (size_t)x) * 4u;
+            unsigned r = px[0], g = px[1], b = px[2], a = px[3];
+            unsigned luma = (299u * r + 587u * g + 114u * b + 500u) / 1000u;
+            int on = (a > 0 && luma >= 128u) ? 1 : 0;
+            if (on) {
+                int byte = y * sl->stride + (x >> 3);
+                int bit = 7 - (x & 7);
+                sl->pixels[byte] |= (uint8_t)(1u << bit);
+            }
+        }
+    }
+    stbi_image_free(pixels);
     return 0;
 }

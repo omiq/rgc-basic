@@ -5837,6 +5837,63 @@ static void statement_image_free(char **p)
     gfx_image_free(slot);
 }
 
+/* IMAGE GRAB slot, sx, sy, sw, sh — capture a rectangle from the
+ * visible bitmap (slot 0) into a fresh off-screen slot. Equivalent to
+ * `IMAGE NEW slot, sw, sh : IMAGE COPY 0, sx, sy, sw, sh TO slot, 0, 0`
+ * but as a single statement so users can express "snapshot this
+ * region" without remembering the two-step idiom. */
+static void statement_image_grab(char **p)
+{
+    struct value v;
+    int slot, sx, sy, sw, sh;
+    skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); slot = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("IMAGE GRAB expects slot, sx, sy, sw, sh", NULL); return; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); sx = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("IMAGE GRAB: missing sy", NULL); return; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); sy = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("IMAGE GRAB: missing sw", NULL); return; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); sw = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("IMAGE GRAB: missing sh", NULL); return; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); sh = (int)v.num;
+    skip_spaces(p);
+    if (sw <= 0 || sh <= 0) return;
+    if (gfx_image_new(slot, sw, sh) != 0) {
+        runtime_error_hint("IMAGE GRAB: could not allocate slot", NULL);
+        return;
+    }
+    if (gfx_image_copy(0, sx, sy, sw, sh, slot, 0, 0) != 0) {
+        runtime_error_hint("IMAGE GRAB: copy failed", NULL);
+    }
+}
+
+/* IMAGE LOAD slot, "path" — read PNG / BMP / JPG / etc. into a slot
+ * as a 1bpp mask (luminance-threshold at 128, alpha=0 → off). */
+static void statement_image_load(char **p)
+{
+    struct value vslot, vpath;
+    int slot;
+    skip_spaces(p);
+    vslot = eval_expr(p); ensure_num(&vslot); slot = (int)vslot.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("IMAGE LOAD expects slot, path$", NULL); return; }
+    (*p)++; skip_spaces(p);
+    vpath = eval_expr(p); ensure_str(&vpath);
+    skip_spaces(p);
+    if (gfx_image_load(slot, vpath.str) != 0) {
+        runtime_error_hint("IMAGE LOAD failed",
+                           "Slot must be 1..31; path must be a readable PNG/BMP/JPG.");
+    }
+}
+
 /* IMAGE SAVE slot, "path.bmp" — export a surface as 24-bit BMP.
  * pen=1 pixels become white, pen=0 black. Keeps the implementation
  * dependency-free (no PNG encoder); callers who need PNG can convert
@@ -12063,7 +12120,7 @@ static void execute_statement(char **p)
         return;
     }
 #ifdef GFX_VIDEO
-    /* IMAGE NEW / IMAGE FREE / IMAGE COPY / IMAGE SAVE — blitter Phase 1. */
+    /* IMAGE NEW / IMAGE FREE / IMAGE COPY / IMAGE SAVE / IMAGE LOAD — blitter Phase 1. */
     if (c == 'I' && starts_with_kw(*p, "IMAGE")) {
         char *q = *p + 5;
         skip_spaces(&q);
@@ -12071,6 +12128,8 @@ static void execute_statement(char **p)
         if (starts_with_kw(q, "FREE")) { *p = q + 4; statement_image_free(p); return; }
         if (starts_with_kw(q, "COPY")) { *p = q + 4; statement_image_copy(p); return; }
         if (starts_with_kw(q, "SAVE")) { *p = q + 4; statement_image_save(p); return; }
+        if (starts_with_kw(q, "LOAD")) { *p = q + 4; statement_image_load(p); return; }
+        if (starts_with_kw(q, "GRAB")) { *p = q + 4; statement_image_grab(p); return; }
     }
 #endif
     if (c == 'L') {
