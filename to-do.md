@@ -1,5 +1,31 @@
 # Features to add/to-do
 
+## Future: textured polygons
+
+`TEXTUREPOLY slot, n, vx(), vy(), ux(), uy()` — draw a polygon with a
+sheet-slot texture mapped across its surface. Per-vertex UV coordinates
+(0..1 or 0..sheet_w / 0..sheet_h, TBD) drive a scanline fill that
+samples the source texture instead of using a flat pen. Convex case
+only for v1 (fan-triangulate, per-triangle affine UV interpolation);
+concave + perspective-correct mapping deferred.
+
+Useful for:
+- Rotated/sheared sprite blits without pre-rendered frame sheets
+- Pseudo-3D floor/ceiling mode-7 style effects
+- Heightmap terrain triangles
+- Stretched health-bar / progress-bar fills using a single texture
+
+Constraints worth thinking through:
+- 1bpp blitter surfaces only carry on/off — textured poly probably
+  wants RGBA source too (ties into Blitter Phase 2).
+- Per-pixel UV interpolation is much heavier than flat fill; document
+  vertex-count / pixel-count budget.
+- Raylib path can use `rlPushMatrix` + `DrawTexturePoly` for the fast
+  case; canvas/WASM software path needs a full scanline rasteriser.
+
+Reference precedent: AMOS `Polyline` + `Polygon` with pattern brushes;
+QuickBASIC `PAINT` with tile brush; modern raylib `DrawTexturePoly`.
+
 ## Naming convention for new commands
 
 **Two-word verb/noun style for new graphics commands** (AMOS/STOS precedent):
