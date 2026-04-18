@@ -2699,6 +2699,7 @@ static void statement_ellipse(char **p);
 static void statement_fillellipse(char **p);
 static void statement_triangle(char **p);
 static void statement_filltriangle(char **p);
+static void statement_floodfill(char **p);
 static void statement_drawtext(char **p);
 static void statement_vsync(char **p);
 static void statement_bitmapclear(char **p);
@@ -3049,7 +3050,7 @@ static const char *const reserved_words[] = {
     "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET",     "PRINT", "PUTBYTE",
     "XOR",
     "READ", "RECT", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITECOPY", "SPRITEFRAME", "SPRITEMODIFY", "SPRITEMODULATE", "SPRITETILES", "SPRITEVISIBLE",
-    "FILLRECT", "CIRCLE", "FILLCIRCLE", "ELLIPSE", "FILLELLIPSE", "TRIANGLE", "FILLTRIANGLE", "VSYNC",
+    "FILLRECT", "CIRCLE", "FILLCIRCLE", "ELLIPSE", "FILLELLIPSE", "TRIANGLE", "FILLTRIANGLE", "FLOODFILL", "VSYNC",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
     "DRAWSPRITE", "DRAWSPRITETILE", "DRAWTEXT", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
@@ -4846,6 +4847,79 @@ static void statement_filltriangle(char **p)
         if (xa > xb) { t = xa; xa = xb; xb = t; }
         gfx_bitmap_line(gfx_vs, xa, y, xb, y, 1);
     }
+#endif
+}
+
+/* FLOODFILL x, y — scanline seed fill on the visible bitmap.
+ *
+ * Fills every pixel reachable from (x, y) through 4-connected
+ * same-value neighbours. 1bpp semantics: if the seed pixel is already
+ * pen (on), the call is a no-op; otherwise the connected region of
+ * off pixels becomes on.
+ *
+ * Implementation: scanline flood fill with an explicit LIFO stack
+ * (size 320*200, worst case one entry per pixel). Walks left/right
+ * from each seed to find a run, writes the run, then seeds the row
+ * above and below at every position where the neighbour is still the
+ * target value. Uses gfx_bitmap_get_pixel / gfx_bitmap_set_pixel so
+ * the same code works across basic-gfx and canvas WASM. */
+static void statement_floodfill(char **p)
+{
+#ifndef GFX_VIDEO
+    (void)p;
+    runtime_error_hint("FLOODFILL is only available in basic-gfx",
+                       "FLOODFILL operates on the bitmap (basic-gfx or canvas WASM).");
+#else
+#define FF_MAX (320 * 200)
+    static int ff_x[FF_MAX];
+    static int ff_y[FF_MAX];
+    struct value vx, vy;
+    int sx, sy, sp = 0, target;
+    skip_spaces(p);
+    vx = eval_expr(p); ensure_num(&vx); sx = (int)vx.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("FLOODFILL expects x, y", NULL); return; }
+    (*p)++; skip_spaces(p);
+    vy = eval_expr(p); ensure_num(&vy); sy = (int)vy.num;
+    if (!gfx_vs) return;
+    if (sx < 0 || sx >= (int)GFX_BITMAP_WIDTH ||
+        sy < 0 || sy >= (int)GFX_BITMAP_HEIGHT) return;
+    target = gfx_bitmap_get_pixel(gfx_vs, (unsigned)sx, (unsigned)sy);
+    if (target == 1) return; /* already pen — nothing to fill */
+    ff_x[sp] = sx; ff_y[sp] = sy; sp++;
+    while (sp > 0) {
+        int cx, cy, lx, rx, x;
+        sp--;
+        cx = ff_x[sp]; cy = ff_y[sp];
+        /* If the pixel was filled by a previous pass, skip. */
+        if (gfx_bitmap_get_pixel(gfx_vs, (unsigned)cx, (unsigned)cy) != target) continue;
+        /* Find left/right extent of the run on this row. */
+        lx = cx;
+        while (lx > 0 && gfx_bitmap_get_pixel(gfx_vs, (unsigned)(lx - 1), (unsigned)cy) == target) lx--;
+        rx = cx;
+        while (rx < (int)GFX_BITMAP_WIDTH - 1 &&
+               gfx_bitmap_get_pixel(gfx_vs, (unsigned)(rx + 1), (unsigned)cy) == target) rx++;
+        /* Fill the run. */
+        for (x = lx; x <= rx; x++) gfx_bitmap_set_pixel(gfx_vs, x, cy, 1);
+        /* Seed rows above and below where the neighbour is still the
+         * target value — a simple (and slightly redundant) strategy
+         * that's fine for 320x200. */
+        if (cy > 0) {
+            for (x = lx; x <= rx; x++) {
+                if (gfx_bitmap_get_pixel(gfx_vs, (unsigned)x, (unsigned)(cy - 1)) == target && sp < FF_MAX) {
+                    ff_x[sp] = x; ff_y[sp] = cy - 1; sp++;
+                }
+            }
+        }
+        if (cy < (int)GFX_BITMAP_HEIGHT - 1) {
+            for (x = lx; x <= rx; x++) {
+                if (gfx_bitmap_get_pixel(gfx_vs, (unsigned)x, (unsigned)(cy + 1)) == target && sp < FF_MAX) {
+                    ff_x[sp] = x; ff_y[sp] = cy + 1; sp++;
+                }
+            }
+        }
+    }
+#undef FF_MAX
 #endif
 }
 
@@ -12197,6 +12271,11 @@ static void execute_statement(char **p)
         if (starts_with_kw(*p, "FILLTRIANGLE")) {
             *p += 12;
             statement_filltriangle(p);
+            return;
+        }
+        if (starts_with_kw(*p, "FLOODFILL")) {
+            *p += 9;
+            statement_floodfill(p);
             return;
         }
     }
