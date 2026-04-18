@@ -2700,6 +2700,8 @@ static void statement_fillellipse(char **p);
 static void statement_triangle(char **p);
 static void statement_filltriangle(char **p);
 static void statement_floodfill(char **p);
+static void statement_polygon(char **p);
+static void statement_fillpolygon(char **p);
 static void statement_drawtext(char **p);
 static void statement_vsync(char **p);
 static void statement_bitmapclear(char **p);
@@ -3050,7 +3052,7 @@ static const char *const reserved_words[] = {
     "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET",     "PRINT", "PUTBYTE",
     "XOR",
     "READ", "RECT", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITECOPY", "SPRITEFRAME", "SPRITEMODIFY", "SPRITEMODULATE", "SPRITETILES", "SPRITEVISIBLE",
-    "FILLRECT", "CIRCLE", "FILLCIRCLE", "ELLIPSE", "FILLELLIPSE", "TRIANGLE", "FILLTRIANGLE", "FLOODFILL", "VSYNC",
+    "FILLRECT", "CIRCLE", "FILLCIRCLE", "ELLIPSE", "FILLELLIPSE", "TRIANGLE", "FILLTRIANGLE", "FLOODFILL", "POLYGON", "FILLPOLYGON", "VSYNC",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
     "DRAWSPRITE", "DRAWSPRITETILE", "DRAWTEXT", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
@@ -4920,6 +4922,170 @@ static void statement_floodfill(char **p)
         }
     }
 #undef FF_MAX
+#endif
+}
+
+/* Parse `n, vx(), vy()` for POLYGON / FILLPOLYGON.
+ * Fills pre-allocated `xs` / `ys` buffers (caller responsible for
+ * sizing them to at least `*out_n` ints). Returns 0 on success. */
+#ifdef GFX_VIDEO
+static int parse_polygon_args(char **p, int *out_n, int *xs, int *ys, int cap)
+{
+    struct value v;
+    int n, i;
+    char namebuf[VAR_NAME_MAX];
+    int is_string = 0;
+    struct var *vx_arr = NULL, *vy_arr = NULL;
+    skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); n = (int)v.num;
+    if (n < 3) {
+        runtime_error_hint("POLYGON needs at least 3 vertices", NULL);
+        return -1;
+    }
+    if (n > cap) n = cap;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("POLYGON expects n, vx(), vy()", NULL); return -1; }
+    (*p)++; skip_spaces(p);
+    if (!isalpha((unsigned char)**p)) {
+        runtime_error_hint("POLYGON expects an array for vx", "DIM VX(N-1) then pass as VX().");
+        return -1;
+    }
+    read_identifier(p, namebuf, sizeof(namebuf));
+    uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
+    skip_spaces(p);
+    if (**p == '(') {
+        (*p)++; skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("POLYGON: array ref must be empty parens", "Use VX() not VX(0).");
+            return -1;
+        }
+        (*p)++; skip_spaces(p);
+    }
+    for (i = 0; i < var_count; i++) {
+        if (strcmp(vars[i].name, namebuf) == 0 && vars[i].is_string == is_string) {
+            vx_arr = &vars[i];
+            break;
+        }
+    }
+    if (!vx_arr || !vx_arr->is_array || !vx_arr->array || vx_arr->is_string) {
+        runtime_error_hint("POLYGON requires a numeric array for vx", "DIM VX(N-1) before use.");
+        return -1;
+    }
+    if (**p != ',') { runtime_error_hint("POLYGON expects n, vx(), vy()", NULL); return -1; }
+    (*p)++; skip_spaces(p);
+    if (!isalpha((unsigned char)**p)) {
+        runtime_error_hint("POLYGON expects an array for vy", "DIM VY(N-1) then pass as VY().");
+        return -1;
+    }
+    read_identifier(p, namebuf, sizeof(namebuf));
+    uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
+    skip_spaces(p);
+    if (**p == '(') {
+        (*p)++; skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("POLYGON: array ref must be empty parens", NULL);
+            return -1;
+        }
+        (*p)++; skip_spaces(p);
+    }
+    for (i = 0; i < var_count; i++) {
+        if (strcmp(vars[i].name, namebuf) == 0 && vars[i].is_string == is_string) {
+            vy_arr = &vars[i];
+            break;
+        }
+    }
+    if (!vy_arr || !vy_arr->is_array || !vy_arr->array || vy_arr->is_string) {
+        runtime_error_hint("POLYGON requires a numeric array for vy", NULL);
+        return -1;
+    }
+    if (n > vx_arr->size) n = vx_arr->size;
+    if (n > vy_arr->size) n = vy_arr->size;
+    for (i = 0; i < n; i++) {
+        xs[i] = (int)vx_arr->array[i].num;
+        ys[i] = (int)vy_arr->array[i].num;
+    }
+    *out_n = n;
+    return 0;
+}
+#endif
+
+/* POLYGON n, vx(), vy() — close-polygon outline via n LINE segments. */
+static void statement_polygon(char **p)
+{
+#ifndef GFX_VIDEO
+    (void)p;
+    runtime_error_hint("POLYGON is only available in basic-gfx",
+                       "POLYGON draws in bitmap mode (basic-gfx or canvas WASM).");
+#else
+#define POLY_MAX 256
+    int xs[POLY_MAX], ys[POLY_MAX];
+    int n = 0, i;
+    if (parse_polygon_args(p, &n, xs, ys, POLY_MAX) != 0) return;
+    if (!gfx_vs || n < 2) return;
+    for (i = 0; i < n; i++) {
+        int j = (i + 1) % n;
+        gfx_bitmap_line(gfx_vs, xs[i], ys[i], xs[j], ys[j], 1);
+    }
+#undef POLY_MAX
+#endif
+}
+
+/* FILLPOLYGON n, vx(), vy() — solid polygon via fan triangulation.
+ * Correct for convex polygons; non-convex input gets the fan's overlap
+ * artefacts — document that and recommend users stick to convex shapes
+ * or stitch multiple FILLTRIANGLEs for more complex outlines. */
+static void statement_fillpolygon(char **p)
+{
+#ifndef GFX_VIDEO
+    (void)p;
+    runtime_error_hint("FILLPOLYGON is only available in basic-gfx",
+                       "FILLPOLYGON draws in bitmap mode (basic-gfx or canvas WASM).");
+#else
+#define POLY_MAX 256
+    int xs[POLY_MAX], ys[POLY_MAX];
+    int n = 0, i;
+    /* Fan-triangulate from vertex 0: (0, i, i+1) for i = 1..n-2. */
+    if (parse_polygon_args(p, &n, xs, ys, POLY_MAX) != 0) return;
+    if (!gfx_vs || n < 3) return;
+    for (i = 1; i < n - 1; i++) {
+        /* Inline the FILLTRIANGLE scanline rasteriser so we don't
+         * re-parse args — same algorithm as statement_filltriangle. */
+        int vx[3], vy[3], t, a, b, y, xa, xb;
+        vx[0] = xs[0];     vy[0] = ys[0];
+        vx[1] = xs[i];     vy[1] = ys[i];
+        vx[2] = xs[i + 1]; vy[2] = ys[i + 1];
+        for (a = 0; a < 2; a++) {
+            for (b = 0; b < 2 - a; b++) {
+                if (vy[b] > vy[b + 1]) {
+                    t = vy[b]; vy[b] = vy[b + 1]; vy[b + 1] = t;
+                    t = vx[b]; vx[b] = vx[b + 1]; vx[b + 1] = t;
+                }
+            }
+        }
+        if (vy[0] == vy[2]) {
+            int xmin = vx[0], xmax = vx[0];
+            if (vx[1] < xmin) xmin = vx[1]; if (vx[1] > xmax) xmax = vx[1];
+            if (vx[2] < xmin) xmin = vx[2]; if (vx[2] > xmax) xmax = vx[2];
+            gfx_bitmap_line(gfx_vs, xmin, vy[0], xmax, vy[0], 1);
+            continue;
+        }
+        for (y = vy[0]; y <= vy[2]; y++) {
+            long denom_a = vy[2] - vy[0];
+            xa = vx[0] + (int)(((long)(vx[2] - vx[0]) * (y - vy[0])) / denom_a);
+            if (y < vy[1]) {
+                long denom_b = vy[1] - vy[0];
+                if (denom_b == 0) xb = vx[1];
+                else xb = vx[0] + (int)(((long)(vx[1] - vx[0]) * (y - vy[0])) / denom_b);
+            } else {
+                long denom_b = vy[2] - vy[1];
+                if (denom_b == 0) xb = vx[1];
+                else xb = vx[1] + (int)(((long)(vx[2] - vx[1]) * (y - vy[1])) / denom_b);
+            }
+            if (xa > xb) { t = xa; xa = xb; xb = t; }
+            gfx_bitmap_line(gfx_vs, xa, y, xb, y, 1);
+        }
+    }
+#undef POLY_MAX
 #endif
 }
 
@@ -11867,6 +12033,13 @@ static void execute_statement(char **p)
 #endif
             return;
         }
+#ifdef GFX_VIDEO
+        if (starts_with_kw(*p, "POLYGON")) {
+            *p += 7;
+            statement_polygon(p);
+            return;
+        }
+#endif
         if (starts_with_kw(*p, "PRESET")) {
             *p += 6;
             statement_pset(p, 1);
@@ -12276,6 +12449,11 @@ static void execute_statement(char **p)
         if (starts_with_kw(*p, "FLOODFILL")) {
             *p += 9;
             statement_floodfill(p);
+            return;
+        }
+        if (starts_with_kw(*p, "FILLPOLYGON")) {
+            *p += 11;
+            statement_fillpolygon(p);
             return;
         }
     }
