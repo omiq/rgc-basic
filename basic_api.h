@@ -79,6 +79,17 @@ int gfx_sprite_slot_sheet_cell_h(int slot);
 void gfx_draw_tilemap(int slot, float x0, float y0, int cols, int rows, int z,
                       const int *tiles, int tile_count);
 
+/* Blitter surfaces (IMAGE NEW / IMAGE FREE / IMAGE COPY) — Phase 1 of
+ * docs/rgc-blitter-surface-spec.md. Slot 0 is the visible bitmap. */
+struct GfxVideoState;
+void gfx_image_bind_visible(struct GfxVideoState *s);
+int gfx_image_new(int slot, int w, int h);
+int gfx_image_free(int slot);
+int gfx_image_copy(int src_slot, int sx, int sy, int sw, int sh,
+                   int dst_slot, int dx, int dy);
+int gfx_image_width(int slot);
+int gfx_image_height(int slot);
+
 /* 1-based tile index into a tilemap sheet; sets source rect for DRAWSPRITE crop. Returns 0 on success. */
 int gfx_sprite_tile_source_rect(int slot, int tile_index_1based, int *sx, int *sy, int *sw, int *sh);
 
