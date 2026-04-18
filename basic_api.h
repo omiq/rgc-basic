@@ -87,11 +87,16 @@ void gfx_draw_tilemap(int slot, float x0, float y0, int cols, int rows, int z,
  * index falls back to the slot's current SPRITEFRAME. */
 void gfx_sprite_stamp(int slot, float x, float y, int frame, int z);
 
-/* Clear the per-frame TILEMAP / SPRITE STAMP cell list. Called by CLS
- * at the top of a frame so the previous frame's cells don't linger;
- * programs that rebuild their scene each tick end up with stable,
- * flicker-free output. */
+/* Double-buffered TILEMAP / SPRITE STAMP cell list.
+ *
+ * BASIC appends to the BUILD buffer; the renderer reads the SHOW
+ * buffer. VSYNC copies build → show atomically and clears build, so
+ * programs that build a fresh scene per tick never expose a
+ * half-populated list to the renderer. gfx_cells_clear() only zeroes
+ * the build buffer — useful when the program wants to start over
+ * without committing. */
 void gfx_cells_clear(void);
+void gfx_cells_flip(void);
 
 /* Blitter surfaces (IMAGE NEW / IMAGE FREE / IMAGE COPY) — Phase 1 of
  * docs/rgc-blitter-surface-spec.md. Slot 0 is the visible bitmap. */

@@ -371,8 +371,15 @@ int gfx_sprite_slot_sheet_cell_h(int slot)
 
 #define GFX_TILEMAP_MAX_CELLS 4096
 
-static GfxSpriteDraw g_tm_cells[GFX_TILEMAP_MAX_CELLS];
-static int g_tm_count = 0;
+/* Double-buffered cell list — see gfx/gfx_raylib.c for the rationale.
+ * BASIC appends to g_tm_build; the compositor reads g_tm_show;
+ * gfx_cells_flip() (called by VSYNC) swaps atomically. */
+static GfxSpriteDraw g_tm_build[GFX_TILEMAP_MAX_CELLS];
+static int g_tm_build_count = 0;
+static GfxSpriteDraw g_tm_show[GFX_TILEMAP_MAX_CELLS];
+static int g_tm_show_count = 0;
+#define g_tm_cells g_tm_build
+#define g_tm_count g_tm_build_count
 
 void gfx_draw_tilemap(int slot, float x0, float y0, int cols, int rows, int z,
                       const int *tiles, int tile_count)
@@ -411,12 +418,22 @@ void gfx_draw_tilemap(int slot, float x0, float y0, int cols, int rows, int z,
     g_tm_count = n;
 }
 
-/* Clear the per-frame cell list. Called by CLS so stale stamps from a
- * previous tick don't linger when the program is rebuilding the scene
- * each frame. */
+/* Clear only the build buffer; show buffer keeps the last committed
+ * frame so the renderer still has something coherent to draw. */
 void gfx_cells_clear(void)
 {
-    g_tm_count = 0;
+    g_tm_build_count = 0;
+}
+
+/* Commit build → show. Single-threaded canvas/WASM build so no lock
+ * needed, but keep the semantics identical to the raylib backend. */
+void gfx_cells_flip(void)
+{
+    g_tm_show_count = g_tm_build_count;
+    if (g_tm_show_count > 0) {
+        memcpy(g_tm_show, g_tm_build,
+               (size_t)g_tm_show_count * sizeof(GfxSpriteDraw));
+    }
 }
 
 /* SPRITE STAMP: append a single sprite-tile draw. `frame` is a 1-based
@@ -851,7 +868,7 @@ void gfx_canvas_sprite_composite_rgba(const GfxVideoState *s, uint8_t *rgba, int
     gfx_sprite_process_queue();
 
     /* Capacity = per-slot sprite draws (at most MAX_SLOTS) + tilemap cells. */
-    cap = GFX_SPRITE_MAX_SLOTS + g_tm_count;
+    cap = GFX_SPRITE_MAX_SLOTS + g_tm_show_count;
     if (cap <= 0) return;
     draws = (GfxSpriteDraw *)malloc((size_t)cap * sizeof(GfxSpriteDraw));
     if (!draws) return;
@@ -885,8 +902,8 @@ void gfx_canvas_sprite_composite_rgba(const GfxVideoState *s, uint8_t *rgba, int
      * composites cleanly on top of a background tilemap at z=0.
      * Auto-clear after capture: cells are per-frame; callers must
      * re-submit each tick. */
-    for (i = 0; i < g_tm_count && nd < cap; i++) {
-        draws[nd++] = g_tm_cells[i];
+    for (i = 0; i < g_tm_show_count && nd < cap; i++) {
+        draws[nd++] = g_tm_show[i];
     }
 
     if (nd <= 0) {

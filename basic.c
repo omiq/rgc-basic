@@ -2696,6 +2696,7 @@ static void statement_fillrect(char **p);
 static void statement_circle(char **p);
 static void statement_fillcircle(char **p);
 static void statement_drawtext(char **p);
+static void statement_vsync(char **p);
 static void statement_bitmapclear(char **p);
 static void statement_cls(char **p);
 static void statement_buffernew(char **p);
@@ -3042,7 +3043,7 @@ static const char *const reserved_words[] = {
     "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET",     "PRINT", "PUTBYTE",
     "XOR",
     "READ", "RECT", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITECOPY", "SPRITEFRAME", "SPRITEMODIFY", "SPRITEMODULATE", "SPRITETILES", "SPRITEVISIBLE",
-    "FILLRECT", "CIRCLE", "FILLCIRCLE",
+    "FILLRECT", "CIRCLE", "FILLCIRCLE", "VSYNC",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
     "DRAWSPRITE", "DRAWSPRITETILE", "DRAWTEXT", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
@@ -5230,6 +5231,48 @@ static void statement_tilemap_draw(char **p)
     }
     gfx_draw_tilemap(slot, x0, y0, cols, rows, z, buf, need);
     free(buf);
+}
+
+/* VSYNC
+ *
+ * Frame-commit + yield. Atomically flips the TILEMAP DRAW / SPRITE
+ * STAMP build buffer over to the show buffer (so the renderer
+ * transitions between frames as one consistent unit, never showing a
+ * half-populated cell list) and yields long enough for one display
+ * frame. Without VSYNC the compositor can snapshot the cell list
+ * mid-append and the user sees flicker — BASIC had no vertical-blank
+ * signal before this.
+ *
+ * Idiomatic loop:
+ *     CLS                  : REM reset the build buffer + bitmap
+ *     TILEMAP DRAW ...
+ *     SPRITE STAMP ...
+ *     DRAWSPRITE ...
+ *     VSYNC                : REM commit the frame, wait one tick
+ *     GOTO loop */
+static void statement_vsync(char **p)
+{
+    (void)p;
+#ifdef GFX_VIDEO
+    if (gfx_vs) {
+        gfx_cells_flip();
+    }
+#endif
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+    /* Canvas/WASM: schedule the same deadline style statement_sleep
+     * uses so timers still fire during the frame wait. */
+    {
+        wasm_sleep_deadline_ms = timer_get_wall_ms() + 16;
+        return;
+    }
+#elif defined(__EMSCRIPTEN__)
+    emscripten_sleep(16);
+#else
+    /* Native (desktop basic-gfx or terminal): one jiffy ≈ 1 display
+     * frame at 60 Hz. Reuses the same chunked, timer-aware sleep
+     * statement_sleep goes through so ON TIMER handlers keep running. */
+    do_sleep_ticks(1.0);
+#endif
 }
 
 /* SPRITE STAMP slot, x, y [, frame [, z]]
@@ -11846,6 +11889,13 @@ static void execute_statement(char **p)
             return;
         }
     }
+#ifdef GFX_VIDEO
+    if (c == 'V' && starts_with_kw(*p, "VSYNC")) {
+        *p += 5;
+        statement_vsync(p);
+        return;
+    }
+#endif
     if (c == 'S' && starts_with_kw(*p, "STOP")) {
         halted = 1;
         *p += strlen(*p);
