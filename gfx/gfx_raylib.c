@@ -478,13 +478,18 @@ typedef struct {
 static GfxTilemapCell g_tm_cells[GFX_TILEMAP_MAX_CELLS];
 static int g_tm_count = 0;
 
+/* TILEMAP DRAW and SPRITE STAMP both append to g_tm_cells; the
+ * compositor drains the list each render pass. So a program that
+ * rebuilds its scene every frame (the normal BASIC pattern) gets clean
+ * per-frame semantics without an explicit clear, and callers can layer
+ * a tilemap + sprite stamps into the same frame by calling both. */
 void gfx_draw_tilemap(int slot, float x0, float y0, int cols, int rows, int z,
                       const int *tiles, int tile_count)
 {
-    /* scratch: file-scope static is fine — interpreter thread only caller. */
     static GfxTilemapCell scratch[GFX_TILEMAP_MAX_CELLS];
     int cell_w, cell_h;
     int r, c, i = 0, n = 0;
+    int existing;
     if (!tiles || cols <= 0 || rows <= 0) return;
     cell_w = gfx_sprite_slot_sheet_cell_w(slot);
     cell_h = gfx_sprite_slot_sheet_cell_h(slot);
@@ -507,11 +512,47 @@ void gfx_draw_tilemap(int slot, float x0, float y0, int cols, int rows, int z,
             n++;
         }
     }
-    /* Swap into live list under the sprite mutex so the compositor never
-     * reads a half-built list. */
+    /* Append under the mutex. If the list would overflow we drop the
+     * excess rather than partially append — keeps the render stable. */
     pthread_mutex_lock(&g_sprite_mutex);
-    memcpy(g_tm_cells, scratch, (size_t)n * sizeof(GfxTilemapCell));
-    g_tm_count = n;
+    existing = g_tm_count;
+    if (existing + n > GFX_TILEMAP_MAX_CELLS) n = GFX_TILEMAP_MAX_CELLS - existing;
+    if (n > 0) {
+        memcpy(g_tm_cells + existing, scratch, (size_t)n * sizeof(GfxTilemapCell));
+        g_tm_count = existing + n;
+    }
+    pthread_mutex_unlock(&g_sprite_mutex);
+}
+
+/* SPRITE STAMP: append a single sprite-tile draw to the per-frame cell
+ * list. `frame` is a 1-based tile index into the slot's sheet; 0 uses
+ * the slot's current SPRITEFRAME (same default as DRAWSPRITE). */
+void gfx_sprite_stamp(int slot, float x, float y, int frame, int z)
+{
+    int sx, sy, sw, sh;
+    int existing;
+    int idx = (frame > 0) ? frame : gfx_sprite_get_draw_frame(slot);
+    if (idx <= 0) idx = 1;
+    if (gfx_sprite_tile_source_rect(slot, idx, &sx, &sy, &sw, &sh) != 0) {
+        /* Fall back to slot's effective source rect (handles single-image
+         * sprites that aren't a tile sheet). */
+        sx = sy = 0;
+        if (gfx_sprite_effective_source_rect(slot, &sx, &sy, &sw, &sh) != 0) return;
+    }
+    pthread_mutex_lock(&g_sprite_mutex);
+    if (g_tm_count < GFX_TILEMAP_MAX_CELLS) {
+        GfxTilemapCell *c = &g_tm_cells[g_tm_count++];
+        c->slot = slot;
+        c->x = x;
+        c->y = y;
+        c->z = z;
+        c->sx = sx;
+        c->sy = sy;
+        c->sw = sw;
+        c->sh = sh;
+    }
+    existing = g_tm_count;
+    (void)existing;
     pthread_mutex_unlock(&g_sprite_mutex);
 }
 
@@ -1083,7 +1124,11 @@ static void gfx_sprite_composite_range(const GfxVideoState *vs, RenderTexture2D 
      * If a program really wants tilemap-over-sprite, mix z explicitly.
      * (A full z-sorted merge of sprites + tiles is deferred; the two-
      * pass split is sufficient for the common background-vs-player
-     * case.) */
+     * case.)
+     * Auto-clear after rendering: cells are per-frame, callers must
+     * re-submit each tick. Matches the one-position-per-slot sprite
+     * model and lets programs layer a tilemap + stamps without state
+     * leaking across frames. */
     {
         GfxTilemapCell local[GFX_TILEMAP_MAX_CELLS];
         int tn, ti;
@@ -1091,6 +1136,7 @@ static void gfx_sprite_composite_range(const GfxVideoState *vs, RenderTexture2D 
         tn = g_tm_count;
         if (tn > GFX_TILEMAP_MAX_CELLS) tn = GFX_TILEMAP_MAX_CELLS;
         if (tn > 0) memcpy(local, g_tm_cells, (size_t)tn * sizeof(GfxTilemapCell));
+        g_tm_count = 0;
         pthread_mutex_unlock(&g_sprite_mutex);
         for (ti = 0; ti < tn; ti++) {
             GfxTilemapCell *cell = &local[ti];

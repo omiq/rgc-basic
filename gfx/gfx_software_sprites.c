@@ -378,11 +378,12 @@ void gfx_draw_tilemap(int slot, float x0, float y0, int cols, int rows, int z,
                       const int *tiles, int tile_count)
 {
     int cell_w, cell_h;
-    int r, c, i = 0, n = 0;
-    if (!tiles || cols <= 0 || rows <= 0) { g_tm_count = 0; return; }
+    int r, c, i = 0;
+    int n = g_tm_count;  /* append to any cells already queued this frame */
+    if (!tiles || cols <= 0 || rows <= 0) return;
     cell_w = gfx_sprite_slot_sheet_cell_w(slot);
     cell_h = gfx_sprite_slot_sheet_cell_h(slot);
-    if (cell_w <= 0 || cell_h <= 0) { g_tm_count = 0; return; }
+    if (cell_w <= 0 || cell_h <= 0) return;
     for (r = 0; r < rows && n < GFX_TILEMAP_MAX_CELLS; r++) {
         for (c = 0; c < cols && n < GFX_TILEMAP_MAX_CELLS; c++) {
             int idx, sx, sy, sw, sh;
@@ -408,6 +409,36 @@ void gfx_draw_tilemap(int slot, float x0, float y0, int cols, int rows, int z,
         }
     }
     g_tm_count = n;
+}
+
+/* SPRITE STAMP: append a single sprite-tile draw. `frame` is a 1-based
+ * tile index; 0 uses the slot's current SPRITEFRAME. */
+void gfx_sprite_stamp(int slot, float x, float y, int frame, int z)
+{
+    int sx, sy, sw, sh;
+    int idx = (frame > 0) ? frame : gfx_sprite_get_draw_frame(slot);
+    if (idx <= 0) idx = 1;
+    if (gfx_sprite_tile_source_rect(slot, idx, &sx, &sy, &sw, &sh) != 0) {
+        sx = sy = 0;
+        if (gfx_sprite_effective_source_rect(slot, &sx, &sy, &sw, &sh) != 0) return;
+    }
+    if (g_tm_count < GFX_TILEMAP_MAX_CELLS) {
+        GfxSpriteDraw *c = &g_tm_cells[g_tm_count++];
+        c->slot = slot;
+        c->x = x;
+        c->y = y;
+        c->z = z;
+        c->sx = sx;
+        c->sy = sy;
+        c->sw = sw;
+        c->sh = sh;
+        c->mod_a = 255;
+        c->mod_r = 255;
+        c->mod_g = 255;
+        c->mod_b = 255;
+        c->mod_sx = 1.0f;
+        c->mod_sy = 1.0f;
+    }
 }
 
 int gfx_sprite_tile_source_rect(int slot, int tile_index_1based, int *sx, int *sy, int *sw, int *sh)
@@ -840,13 +871,16 @@ void gfx_canvas_sprite_composite_rgba(const GfxVideoState *s, uint8_t *rgba, int
         nd++;
     }
 
-    /* Append TILEMAP DRAW cells — each is a plain-modulation draw
-     * (alpha 255, tint white, scale 1:1). They sort together with the
-     * per-slot sprites so a player sprite at z=100 composites cleanly
-     * on top of a background tilemap at z=0. */
+    /* Append TILEMAP DRAW / SPRITE STAMP cells — each is a plain-
+     * modulation draw (alpha 255, tint white, scale 1:1). They sort
+     * together with the per-slot sprites so a player sprite at z=100
+     * composites cleanly on top of a background tilemap at z=0.
+     * Auto-clear after capture: cells are per-frame; callers must
+     * re-submit each tick. */
     for (i = 0; i < g_tm_count && nd < cap; i++) {
         draws[nd++] = g_tm_cells[i];
     }
+    g_tm_count = 0;
 
     if (nd <= 0) {
         free(draws);

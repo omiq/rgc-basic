@@ -75,9 +75,17 @@ int gfx_sprite_slot_sheet_cell_h(int slot);
 /* Batched tile grid stamp (TILEMAP DRAW). `tiles` is a row-major buffer
  * of 1-based tile indices of length cols*rows (truncated to tile_count);
  * index 0 = transparent (skip). x0,y0 are pixel coords of the top-left
- * cell; each cell is cell_w x cell_h (from the slot's loaded sheet). */
+ * cell; each cell is cell_w x cell_h (from the slot's loaded sheet).
+ * Appends to the per-frame cell list, so multiple calls layer and the
+ * compositor drains the list after each render pass. */
 void gfx_draw_tilemap(int slot, float x0, float y0, int cols, int rows, int z,
                       const int *tiles, int tile_count);
+
+/* Single-sprite immediate draw (SPRITE STAMP). Appends one cell to the
+ * same per-frame list as gfx_draw_tilemap, so N stamps of one slot in
+ * one frame all render. `frame` is a 1-based tile index; 0 or a bad
+ * index falls back to the slot's current SPRITEFRAME. */
+void gfx_sprite_stamp(int slot, float x, float y, int frame, int z);
 
 /* Blitter surfaces (IMAGE NEW / IMAGE FREE / IMAGE COPY) — Phase 1 of
  * docs/rgc-blitter-surface-spec.md. Slot 0 is the visible bitmap. */
