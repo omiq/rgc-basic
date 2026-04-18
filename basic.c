@@ -2691,6 +2691,8 @@ static void statement_background(char **p);
 static void statement_screencodes(char **p);
 static void statement_pset(char **p, int preset);
 static void statement_line(char **p);
+static void statement_rect(char **p);
+static void statement_fillrect(char **p);
 static void statement_bitmapclear(char **p);
 static void statement_cls(char **p);
 static void statement_buffernew(char **p);
@@ -3036,7 +3038,8 @@ static const char *const reserved_words[] = {
     "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LINE", "LOAD", "LOADSPRITE", "LOCATE", "LOG",
     "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET",     "PRINT", "PUTBYTE",
     "XOR",
-    "READ", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITECOPY", "SPRITEFRAME", "SPRITEMODIFY", "SPRITEMODULATE", "SPRITETILES", "SPRITEVISIBLE",
+    "READ", "RECT", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITECOPY", "SPRITEFRAME", "SPRITEMODIFY", "SPRITEMODULATE", "SPRITETILES", "SPRITEVISIBLE",
+    "FILLRECT",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
     "DRAWSPRITE", "DRAWSPRITETILE", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
@@ -4430,6 +4433,96 @@ static void statement_line(char **p)
     x1 = (int)vx1.num;
     y1 = (int)vy1.num;
     gfx_bitmap_line(gfx_vs, x0, y0, x1, y1, 1);
+#endif
+}
+
+/* Helper for RECT / FILLRECT: parse `x0,y0 TO x1,y1`.
+ * Returns 0 on success with coords filled. */
+#ifdef GFX_VIDEO
+static int parse_rect_coords(char **p, int *x0, int *y0, int *x1, int *y1,
+                             const char *stmt_name)
+{
+    struct value vx0, vy0, vx1, vy1;
+    skip_spaces(p);
+    vx0 = eval_expr(p); ensure_num(&vx0);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("Missing ','",
+                           "Use x1,y1 TO x2,y2 — first endpoint needs a comma between x and y.");
+        (void)stmt_name;
+        return -1;
+    }
+    (*p)++; skip_spaces(p);
+    vy0 = eval_expr(p); ensure_num(&vy0);
+    skip_spaces(p);
+    if (!starts_with_kw(*p, "TO")) {
+        runtime_error_hint("Missing TO",
+                           "Use x1,y1 TO x2,y2 between the two endpoints.");
+        return -1;
+    }
+    *p += 2; skip_spaces(p);
+    vx1 = eval_expr(p); ensure_num(&vx1);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("Missing ','",
+                           "Second endpoint needs x,y after TO.");
+        return -1;
+    }
+    (*p)++; skip_spaces(p);
+    vy1 = eval_expr(p); ensure_num(&vy1);
+    *x0 = (int)vx0.num;
+    *y0 = (int)vy0.num;
+    *x1 = (int)vx1.num;
+    *y1 = (int)vy1.num;
+    return 0;
+}
+#endif
+
+/* RECT x1,y1 TO x2,y2 — outline rectangle on the bitmap in the current
+ * bitmap pen colour. Four line segments; order of corners does not
+ * matter (handled by the line rasteriser). */
+static void statement_rect(char **p)
+{
+#ifndef GFX_VIDEO
+    (void)p;
+    runtime_error_hint("RECT is only available in basic-gfx",
+                       "RECT draws in bitmap mode (basic-gfx or canvas WASM).");
+#else
+    int x0, y0, x1, y1;
+    if (parse_rect_coords(p, &x0, &y0, &x1, &y1, "RECT") != 0) return;
+    if (!gfx_vs) {
+        runtime_error_hint("RECT is only available in basic-gfx",
+                           "Bitmap RECT needs basic-gfx or canvas WASM.");
+        return;
+    }
+    gfx_bitmap_line(gfx_vs, x0, y0, x1, y0, 1); /* top */
+    gfx_bitmap_line(gfx_vs, x0, y1, x1, y1, 1); /* bottom */
+    gfx_bitmap_line(gfx_vs, x0, y0, x0, y1, 1); /* left */
+    gfx_bitmap_line(gfx_vs, x1, y0, x1, y1, 1); /* right */
+#endif
+}
+
+/* FILLRECT x1,y1 TO x2,y2 — solid rectangle on the bitmap. Normalises
+ * the corner order so either diagonal works, then hlines row by row. */
+static void statement_fillrect(char **p)
+{
+#ifndef GFX_VIDEO
+    (void)p;
+    runtime_error_hint("FILLRECT is only available in basic-gfx",
+                       "FILLRECT draws in bitmap mode (basic-gfx or canvas WASM).");
+#else
+    int x0, y0, x1, y1, y;
+    if (parse_rect_coords(p, &x0, &y0, &x1, &y1, "FILLRECT") != 0) return;
+    if (!gfx_vs) {
+        runtime_error_hint("FILLRECT is only available in basic-gfx",
+                           "Bitmap FILLRECT needs basic-gfx or canvas WASM.");
+        return;
+    }
+    if (x0 > x1) { int t = x0; x0 = x1; x1 = t; }
+    if (y0 > y1) { int t = y0; y0 = y1; y1 = t; }
+    for (y = y0; y <= y1; y++) {
+        gfx_bitmap_line(gfx_vs, x0, y, x1, y, 1);
+    }
 #endif
 }
 
@@ -11148,6 +11241,11 @@ static void execute_statement(char **p)
             statement_read(p);
             return;
         }
+        if (starts_with_kw(*p, "RECT")) {
+            *p += 4;
+            statement_rect(p);
+            return;
+        }
         if (starts_with_kw(*p, "RESTORE")) {
             *p += 7;
             statement_restore(p);
@@ -11577,6 +11675,11 @@ static void execute_statement(char **p)
     if (c == 'F') {
         if (starts_with_kw(*p, "FUNCTION") && ((*p)[8]=='\0' || (*p)[8]==' ' || (*p)[8]=='\t')) {
             skip_function_block(p);
+            return;
+        }
+        if (starts_with_kw(*p, "FILLRECT")) {
+            *p += 8;
+            statement_fillrect(p);
             return;
         }
     }
