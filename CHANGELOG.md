@@ -2,6 +2,17 @@
 
 ### Unreleased
 
+**Graphics 1.0 milestone.** The entries below collectively round
+RGC-BASIC's bitmap / sprite / tile / blitter / input surface out to
+classic-BASIC feature parity: AMOS-class 2-D primitives, a double-
+buffered per-frame cell pipeline, a complete blitter-surface I/O
+round-trip (load PNG/BMP/JPG, grab visible region, save to BMP), and
+named intrinsics for every host-input axis the interpreter polls.
+See `examples/gfx_showcase.bas` for a one-screen tour of every
+bitmap primitive.
+
+- **Example: `examples/gfx_showcase.bas` — every bitmap primitive in one frame.** Tours `RECT` / `CIRCLE` / `ELLIPSE` / `TRIANGLE` / `LINE` / `PSET` outlines, matching `FILLRECT` / `FILLCIRCLE` / `FILLELLIPSE` / `FILLTRIANGLE` solid forms, a `POLYGON` from a `DIM`-ed vertex array, a `FLOODFILL`-ed panel, pixel-placed `DRAWTEXT` labels, and an animated spinner driven by per-frame `CLS` + `VSYNC`. Intended as the screenshot / capture source for the "Graphics 1.0" announcement.
+
 - **Function: `ANIMFRAME(first, last, jiffies_per_frame)` — time-based sprite frame selector.** Cycles through `first..last` inclusive, advancing every `jiffies_per_frame` ticks (60 jiffies = 1 second, same unit as `SLEEP`). Typical use: `SPRITE FRAME 0, ANIMFRAME(1, 4, 6)` to cycle four frames at 10 FPS without maintaining frame state in BASIC. Draws the jiffy value from `gfx_vs->ticks60` in basic-gfx / canvas WASM, or wall-clock seconds × 60 in the terminal build. Invalid spans (`last < first`) fall back to `first`; `jiffies_per_frame <= 0` treats as 1.
 
 - **`SPRITE STAMP` gains a rotation arg.** Optional 6th parameter: `SPRITE STAMP slot, x, y, frame, z, rot_deg`. Raylib backend rotates via `DrawTexturePro` around the sprite's centre (pivot offset handled internally so the `(x, y)` argument still means "top-left of the un-rotated quad"). Canvas/WASM software backend accepts the arg for API parity but ignores it — 1bpp per-pixel rotation isn't fast enough for the software blitter; programs that must rotate under WASM should pre-rotate the asset or use multiple frames. `gfx_sprite_stamp()` signature in `basic_api.h` extended with `float rot_deg`. New example: `examples/gfx_rotate_demo.bas` — 16 ships fanned out in a ring, each pointing outward, whole ring spinning.
