@@ -748,6 +748,15 @@ int gfx_sprite_slots_overlap_aabb(int slot_a, int slot_b)
     return 1;
 }
 
+static int cmp_tm_cell_z(const void *a, const void *b)
+{
+    const GfxTilemapCell *ca = (const GfxTilemapCell *)a;
+    const GfxTilemapCell *cb = (const GfxTilemapCell *)b;
+    if (ca->z < cb->z) return -1;
+    if (ca->z > cb->z) return 1;
+    return 0;
+}
+
 static int cmp_sprite_draw_z(const void *a, const void *b)
 {
     const GfxSpriteDraw *da = (const GfxSpriteDraw *)a;
@@ -1138,6 +1147,7 @@ static void gfx_sprite_composite_range(const GfxVideoState *vs, RenderTexture2D 
         if (tn > 0) memcpy(local, g_tm_cells, (size_t)tn * sizeof(GfxTilemapCell));
         g_tm_count = 0;
         pthread_mutex_unlock(&g_sprite_mutex);
+        if (tn > 1) qsort(local, (size_t)tn, sizeof(GfxTilemapCell), cmp_tm_cell_z);
         for (ti = 0; ti < tn; ti++) {
             GfxTilemapCell *cell = &local[ti];
             Texture2D t;
