@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RGC-BASIC — Graphics 1.0 release notes (2026-04-13 → 2026-04-18)</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #222; background: #fafafa; }
+  @media (prefers-color-scheme: dark) {
+    body { color: #ddd; background: #111; }
+    a { color: #6fb3ff; }
+    code, pre { background: #1e1e1e; }
+    .card { background: #181818; border-color: #333; }
+  }
+  h1 { margin-top: 0; font-size: 2em; line-height: 1.1; }
+  h2 { margin-top: 2.2rem; padding-top: 0.4rem; border-top: 1px solid #ddd; }
+  h3 { margin-top: 1.4rem; }
+  code, pre { font-family: ui-monospace, Menlo, Consolas, monospace;
+              background: #f1f1f1; padding: 0.1em 0.35em; border-radius: 3px; }
+  pre { padding: 0.6rem 0.8rem; overflow-x: auto; }
+  ul { padding-left: 1.4em; }
+  li { margin: 0.25rem 0; }
+  .lede { font-size: 1.1em; color: #555; }
+  @media (prefers-color-scheme: dark) { .lede { color: #aaa; } }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem 1.2rem;
+          margin: 1.2rem 0; background: #fff; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0.75rem; }
+  .grid a { display: block; border: 1px solid #ccc; border-radius: 6px;
+            padding: 0.6rem 0.8rem; text-decoration: none; color: inherit;
+            background: #fff; }
+  @media (prefers-color-scheme: dark) { .grid a { background: #181818; border-color: #333; } }
+  .grid a:hover { border-color: #6fb3ff; }
+  .grid a strong { display: block; }
+  .grid a em { color: #666; font-style: normal; font-size: 0.92em; }
+  @media (prefers-color-scheme: dark) { .grid a em { color: #9aa; } }
+  .tag { display: inline-block; font-size: 0.75em; background: #eee; color: #333;
+         border-radius: 3px; padding: 0 0.35em; vertical-align: 1px; margin-left: 0.25em; }
+  @media (prefers-color-scheme: dark) { .tag { background: #333; color: #ddd; } }
+  table { border-collapse: collapse; margin: 0.8rem 0; }
+  th, td { border: 1px solid #ccc; padding: 0.3rem 0.6rem; text-align: left; vertical-align: top; }
+  @media (prefers-color-scheme: dark) { th, td { border-color: #333; } }
+</style>
+</head>
+<body>
+
+<h1>RGC-BASIC Graphics 1.0</h1>
+<p class="lede">
+Release notes for the April 2026 graphics batch — a complete AMOS/STOS-class
+2-D feature set landed in 36 commits between 2026-04-13 and 2026-04-18.
+Shape primitives, sprite stamping with rotation, an array-driven tilemap
+renderer, a 1bpp blitter with PNG/BMP I/O, a double-buffered VSYNC frame
+pipeline, named keyboard intrinsics, a global anti-alias toggle, and
+fourteen new example programs.
+</p>
+
+<p>
+All commits sit in the <strong>Unreleased</strong> block of
+<a href="https://github.com/omiq/rgc-basic/blob/main/CHANGELOG.md">CHANGELOG.md</a>
+(each entry explains what/why/implementation in full detail). This page is the
+short form with demo links.
+</p>
+
+<h2>Headline changes</h2>
+
+<div class="card">
+<h3>Bitmap primitive set — full 2-D toolkit</h3>
+<p>
+Fourteen new drawing statements on top of the existing <code>PSET</code> /
+<code>PRESET</code> / <code>LINE</code>. Every outline has a matching solid
+fill; text now has a pixel-space stamp distinct from <code>PRINT</code>'s
+character grid.
+</p>
+<ul>
+  <li><code>RECT x1,y1 TO x2,y2</code> / <code>FILLRECT …</code></li>
+  <li><code>CIRCLE x,y,r</code> / <code>FILLCIRCLE x,y,r</code> — midpoint disk</li>
+  <li><code>ELLIPSE x,y,rx,ry</code> / <code>FILLELLIPSE …</code> — axis-aligned midpoint</li>
+  <li><code>TRIANGLE x1,y1,x2,y2,x3,y3</code> / <code>FILLTRIANGLE …</code> — scanline fill</li>
+  <li><code>POLYGON n, vx(), vy()</code> / <code>FILLPOLYGON …</code> — N-sided from BASIC arrays, up to 256 vertices</li>
+  <li><code>FLOODFILL x, y</code> — paint-bucket seed fill</li>
+  <li><code>DRAWTEXT x, y, text$</code> — pixel-space chargen stamp (no text-grid snap)</li>
+</ul>
+</div>
+
+<div class="card">
+<h3>Sprite stamping + rotation + time-based animation</h3>
+<p>
+<code>DRAWSPRITE</code> has always tracked one persistent position per slot —
+fine for the player, useless for particles. <strong>SPRITE STAMP</strong>
+appends to a per-frame cell list, so N stamps of one slot in one frame all
+render at distinct positions. The sixth arg is rotation in degrees (raylib
+backend; canvas accepts but ignores).
+</p>
+<pre>SPRITE STAMP slot, x, y [, frame [, z [, rot_deg]]]
+SPRITE FRAME slot, ANIMFRAME(first, last, jiffies_per_frame)</pre>
+<p>
+<code>ANIMFRAME(first, last, jiffies)</code> returns a 1-based frame index
+cycling at the requested rate — no counter variable, no modulo maths. Feeds
+directly into <code>SPRITE FRAME</code>.
+</p>
+</div>
+
+<div class="card">
+<h3>Tilemap renderer — one call, whole grid</h3>
+<pre>DIM MAP(COLS*ROWS-1)
+' fill MAP with 1-based tile indices (0 = transparent)
+TILEMAP DRAW slot, x0, y0, cols, rows, MAP()</pre>
+<p>
+One interpreter dispatch stamps the entire grid. Runtime iterates in C
+(~1 µs yield overhead per tile on WASM matters — this batches it to one
+yield regardless of tile count). Negative <code>x0</code>/<code>y0</code>
+shifts the map for smooth scrolling under a fixed viewport.
+</p>
+<p>
+New metadata accessors: <code>SHEET COLS(slot)</code>, <code>SHEET ROWS</code>,
+<code>SHEET WIDTH</code>, <code>SHEET HEIGHT</code>, plus
+<code>SPRITE FRAMES(slot)</code> and <code>TILE COUNT(slot)</code> for the
+same count under different intents.
+</p>
+</div>
+
+<div class="card">
+<h3>Blitter Phase 1 — off-screen 1bpp surfaces with PNG/BMP I/O</h3>
+<ul>
+  <li><code>IMAGE NEW slot, w, h</code> / <code>IMAGE FREE slot</code></li>
+  <li><code>IMAGE COPY src, sx, sy, sw, sh TO dst, dx, dy</code> — clipped, overlap-safe</li>
+  <li><code>IMAGE LOAD slot, "path"</code> — PNG/BMP/JPG/TGA/GIF → 1bpp (luminance threshold)</li>
+  <li><code>IMAGE GRAB slot, sx, sy, sw, sh</code> — capture visible region into a fresh slot</li>
+  <li><code>IMAGE SAVE slot, "path.bmp"</code> — export as 24-bit BMP</li>
+</ul>
+<p>
+Slot 0 is the visible bitmap; copies work both directions without
+conversion. Scrolling / parallax / work-buffer patterns from AMOS/STOS-style
+BASIC now map 1:1. The <code>SCREEN OFFSET</code> / <code>SCREEN ZONE</code>
+/ <code>SCREEN SCROLL</code> verbs originally proposed were
+<strong>dropped</strong> — <code>IMAGE COPY</code> with a user-managed
+offset covers both use cases without adding viewport state to the renderer.
+</p>
+</div>
+
+<div class="card">
+<h3>Frame pipeline — <code>VSYNC</code> + double-buffered cells</h3>
+<p>
+raylib's GL framebuffer was already double-buffered at the pixel level, but
+the intermediate <code>TILEMAP DRAW</code> / <code>SPRITE STAMP</code> cell
+list was a single shared array. The compositor could snapshot mid-append and
+the user saw flicker. <strong>VSYNC</strong> closes the gap:
+</p>
+<pre>CLS
+TILEMAP DRAW ...
+SPRITE STAMP ...
+DRAWSPRITE ...
+VSYNC           ' atomic commit + 1 display frame wait
+GOTO loop</pre>
+<p>
+<code>CLS</code> clears the build buffer; the renderer reads the show
+buffer; <code>VSYNC</code> atomically flips build → show and yields one
+~16 ms display frame (same timer-aware path <code>SLEEP</code> uses, so
+<code>ON TIMER</code> handlers keep firing).
+</p>
+</div>
+
+<div class="card">
+<h3>Keyboard polling — named intrinsics</h3>
+<ul>
+  <li><code>KEYDOWN(code)</code> — 1 while held (lets A+D or A+W fire simultaneously for diagonal movement)</li>
+  <li><code>KEYUP(code)</code> — inverse</li>
+  <li><code>KEYPRESS(code)</code> — rising-edge latch, returns 1 exactly once per press (pause toggles, single-shot actions)</li>
+</ul>
+<p>
+Replaces the <code>PEEK(56320+ASC("W"))</code> idiom. Survives
+<code>#OPTION memory</code> base changes. <code>code</code> = uppercase ASCII
+for letters/digits; specials: Up=145, Down=17, Left=157, Right=29, Esc=27,
+Space=32, Enter=13, Tab=9, Backspace=8.
+</p>
+</div>
+
+<div class="card">
+<h3>Texture filter toggle — <code>ANTIALIAS ON/OFF</code></h3>
+<p>
+Retro-vs-modern render choice. <strong>OFF</strong> (default) = nearest
+neighbour, hard pixels. <strong>ON</strong> = bilinear, smoothed.
+</p>
+<pre>ANTIALIAS OFF   ' classic pixel art (default)
+ANTIALIAS ON    ' smoothed scaling</pre>
+<p>
+Global setting — applies to every loaded sprite, the render target's
+upscale, and (once the Font system lands) <code>DRAWTEXT</code>. Also fixes
+a prior bug where sprite textures were hard-coded to BILINEAR even when the
+target was POINT (pixel art edges were slightly smudged).
+</p>
+</div>
+
+<div class="card">
+<h3>Two-word command family + permanent concat aliases</h3>
+<p>
+New graphics verbs follow AMOS/STOS-style <strong>verb/noun</strong> grammar.
+Existing concat names stay forever — both spellings tokenise to the same
+opcode.
+</p>
+<table>
+  <thead><tr><th>Two-word (canonical)</th><th>Concat alias (permanent)</th></tr></thead>
+  <tbody>
+    <tr><td><code>SPRITE LOAD slot, "file.png" [, tw, th]</code></td><td><code>LOADSPRITE</code></td></tr>
+    <tr><td><code>SPRITE DRAW slot, x, y [, z [, sx, sy, sw, sh]]</code></td><td><code>DRAWSPRITE</code></td></tr>
+    <tr><td><code>SPRITE FRAME slot, n</code></td><td><code>SPRITEFRAME</code></td></tr>
+    <tr><td><code>SPRITE FREE slot</code></td><td><code>UNLOADSPRITE</code></td></tr>
+    <tr><td><code>SPRITE FRAMES(slot)</code> / <code>TILE COUNT(slot)</code></td><td><code>SPRITETILES(slot)</code></td></tr>
+    <tr><td><code>TILE DRAW slot, x, y, idx</code></td><td><code>DRAWSPRITETILE</code></td></tr>
+    <tr><td><code>TILEMAP DRAW slot, x0, y0, cols, rows, map()</code></td><td><code>DRAWTILEMAP</code></td></tr>
+  </tbody>
+</table>
+<p>Pick per taste. Docs lead with two-word form for new material.</p>
+</div>
+
+<div class="card">
+<h3>Parser fixes (shipped in the same cycle)</h3>
+<ul>
+  <li><strong>Single-line <code>IF … THEN … ELSE …</code></strong> routes correctly in both directions (was half-broken)</li>
+  <li><code>IF (expr) MOD n = 0 THEN …</code> — arithmetic continuation after <code>(expr)</code> now parses</li>
+  <li><code>TI</code>/<code>TI$</code> no longer swallows any identifier starting with "TI" (was eating <code>TILE</code>, <code>TILEMAP</code>, <code>TIDE</code>…)</li>
+  <li><code>GOTO</code> from inside a THEN branch resets the inline-IF counter so the destination line's own ELSE isn't hijacked</li>
+  <li><code>SPRITEFRAME</code> now invalidates the cached draw rect so animation actually advances (was locking to the first frame's crop)</li>
+</ul>
+</div>
+
+<h2>IDE renderer default</h2>
+<p>
+The <code>rgc-basic</code> platform in the web IDE now defaults to the
+<strong>raylib-emscripten WebGL2</strong> runtime — Graphics 1.0 features
+(SPRITE STAMP rotation, TILEMAP DRAW z-sort, VSYNC, ANIMFRAME) render the
+same way they do native. Set <code>?renderer=canvas</code> on the IDE URL
+to force the old canvas path (useful for regression testing or on hosts
+without WebGL2).
+</p>
+<p>
+The <strong>RGC BASIC Web ZIP</strong> download now bundles
+<code>basic-raylib.js</code> + <code>basic-raylib.wasm</code> instead of
+the canvas runtime for the same reason.
+</p>
+
+<h2>Fourteen new example programs</h2>
+<p>Open each in the IDE with the link below, or run locally as
+<code>./basic-gfx examples/&lt;name&gt;.bas</code>.</p>
+
+<div class="grid">
+  <a href="https://ide.retrogamecoders.com/?file=gfx_showcase.bas&platform=rgc-basic">
+    <strong>gfx_showcase.bas</strong>
+    <em>Every bitmap primitive in one 320×200 frame + rotating spinner. Use as the release screenshot.</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=gfx_shapes_demo.bas&platform=rgc-basic">
+    <strong>gfx_shapes_demo.bas</strong>
+    <em>Outline vs fill tour — RECT, CIRCLE, ELLIPSE, TRIANGLE side-by-side.</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=gfx_sprite_demo.bas&platform=rgc-basic">
+    <strong>gfx_sprite_demo.bas</strong>
+    <em>WASD-move ship.png. Baseline SPRITE LOAD + DRAWSPRITE.</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=gfx_stamp_demo.bas&platform=rgc-basic">
+    <strong>gfx_stamp_demo.bas</strong>
+    <em>50 scrolling particles via SPRITE STAMP, WASD-controlled player on top.</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=gfx_rotate_demo.bas&platform=rgc-basic">
+    <strong>gfx_rotate_demo.bas</strong>
+    <em>16 ships fanned out in a spinning ring — SPRITE STAMP rotation.</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=gfx_anim_demo.bas&platform=rgc-basic">
+    <strong>gfx_anim_demo.bas</strong>
+    <em>Amiga boing-ball cycle via ANIMFRAME — 12 frames at 15 FPS, no counter variable.</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=gfx_sheet_info_demo.bas&platform=rgc-basic">
+    <strong>gfx_sheet_info_demo.bas</strong>
+    <em>Prints SHEET COLS/ROWS/WIDTH/HEIGHT + SPRITE FRAMES + TILE COUNT for loaded sheets.</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=gfx_tilemap_demo.bas&platform=rgc-basic">
+    <strong>gfx_tilemap_demo.bas</strong>
+    <em>TILEMAP DRAW batched stamp; SPACE damages a random cell, R resets.</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=gfx_world_demo.bas&platform=rgc-basic">
+    <strong>gfx_world_demo.bas</strong>
+    <em>40×40 tile world — vertical auto-scroll + horizontal push-scroll + WASD (diagonal).</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=gfx_scroll_demo.bas&platform=rgc-basic">
+    <strong>gfx_scroll_demo.bas</strong>
+    <em>Smooth bitmap scroll via oversized IMAGE surface + windowed IMAGE COPY.</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=gfx_parallax_demo.bas&platform=rgc-basic">
+    <strong>gfx_parallax_demo.bas</strong>
+    <em>Three-band parallax (sky / mid / ground) via independent IMAGE COPY offsets.</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=gfx_hud_demo.bas&platform=rgc-basic">
+    <strong>gfx_hud_demo.bas</strong>
+    <em>Starfield + RECT-framed HUD + DRAWTEXT score + FILLRECT speed bar.</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=gfx_ball_demo.bas&platform=rgc-basic">
+    <strong>gfx_ball_demo.bas</strong>
+    <em>FILLCIRCLE bouncing ball + RECT playfield + KEYPRESS pause toggle.</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=gfx_antialias_demo.bas&platform=rgc-basic">
+    <strong>gfx_antialias_demo.bas</strong>
+    <em>4×-upscaled ship with SPACE to flip ANTIALIAS — side-by-side POINT vs BILINEAR.</em>
+  </a>
+</div>
+
+<h2>Where to read more</h2>
+
+<ul>
+  <li><a href="https://github.com/omiq/rgc-basic/blob/main/CHANGELOG.md">CHANGELOG.md</a>
+      — per-feature write-ups under <em>Unreleased</em>, ordered by commit.</li>
+  <li><a href="https://github.com/omiq/rgc-basic/blob/main/README.md">README.md</a>
+      — quick reference for all the new statements.</li>
+  <li><a href="https://retrogamecoders.com/docs/basic/rgc-basic/graphics-raylib/">graphics-raylib</a>
+      (retrodocs) — full graphics chapter, two-word family table, blitter recipes.</li>
+  <li><a href="https://github.com/omiq/rgc-basic/blob/main/docs/tilemap-sheet-plan.md">docs/tilemap-sheet-plan.md</a>
+      — naming-convention rationale + AMOS/STOS precedent.</li>
+  <li><a href="https://github.com/omiq/rgc-basic/blob/main/docs/rgc-blitter-surface-spec.md">docs/rgc-blitter-surface-spec.md</a>
+      — blitter Phase 1 (shipped) + Phase 2/3 (pending).</li>
+  <li><a href="https://github.com/omiq/rgc-basic/blob/main/docs/bitmap-text-plan.md">docs/bitmap-text-plan.md</a>
+      — DRAWTEXT + Font system (next milestone).</li>
+</ul>
+
+<h2>What's next</h2>
+
+<ol>
+  <li><strong>Sound 1.0</strong> — <code>LOADSOUND</code> / <code>PLAYSOUND</code> / <code>STOPSOUND</code> / <code>PAUSESOUND</code> / <code>RESUMESOUND</code> / <code>SOUNDVOL</code> / <code>SOUNDPLAYING()</code>. Spec exists; raylib-backed native + Web Audio for canvas.</li>
+  <li><strong>Typography 1.0</strong> — <code>LOADFONT</code>, <code>DRAWTEXT</code> with fg/bg/font/scale, <code>.rgcfont</code> format, <code>pngfont2rgc</code> offline converter.</li>
+  <li><strong>Blitter Phase 2</strong> — RGBA surfaces, colour blit, alpha-aware <code>IMAGE COPY</code>. Unblocks <code>TEXTUREPOLY</code> and coloured <code>DRAWTEXT</code>.</li>
+</ol>
+
+<p style="margin-top: 3rem; color: #888; font-size: 0.9em;">
+Released unreleased-on-main 2026-04-18. Pull from
+<a href="https://github.com/omiq/rgc-basic">github.com/omiq/rgc-basic</a>
+and build with <code>make basic-gfx</code> (native) or
+<code>EMSDK=~/emsdk scripts/pullmake.sh</code> (native + WASM).
+</p>
+
+</body>
+</html>
