@@ -1065,10 +1065,15 @@ static void gfx_sprite_composite_range(const GfxVideoState *vs, RenderTexture2D 
     }
     pthread_mutex_unlock(&g_sprite_mutex);
 
-    if (nd <= 0) {
+    /* Peek at tilemap cell count so we enter the render block even when
+     * no per-slot sprites are active — TILEMAP DRAW alone must still draw. */
+    pthread_mutex_lock(&g_sprite_mutex);
+    int tm_have = (g_tm_count > 0);
+    pthread_mutex_unlock(&g_sprite_mutex);
+    if (nd <= 0 && !tm_have) {
         return;
     }
-    qsort(draws, (size_t)nd, sizeof(draws[0]), cmp_sprite_draw_z);
+    if (nd > 0) qsort(draws, (size_t)nd, sizeof(draws[0]), cmp_sprite_draw_z);
 
     BeginTextureMode(target);
     BeginBlendMode(BLEND_ALPHA);
