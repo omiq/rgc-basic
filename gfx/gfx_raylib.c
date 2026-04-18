@@ -1434,9 +1434,10 @@ static void render_text_screen(const GfxVideoState *s,
             int idx = row * cols + col;
             uint8_t sc = s->screen[idx];
             uint8_t ci = s->color[idx] & 0x0F;
+            uint8_t bgi = s->bgcolor[idx] & 0x0F;
             const uint8_t *glyph;
             Color fg = c64_palette[ci];
-            Color bg = bg_global;
+            Color bg = c64_palette[bgi];
             int reversed = (sc & 0x80) ? 1 : 0;
             int base_px = col * CELL_W - sx;
             int base_py = row * CELL_H - sy;
@@ -1940,14 +1941,20 @@ void wasm_gfx_refresh_js(void)
      * updating in g_wasm_vs; the next scheduled render shows the latest. */
     {
         static double last_render_ms = 0.0;
+        extern int g_wasm_force_next_refresh;
         double now_ms = emscripten_get_now();
-        if (now_ms - last_render_ms < 16.0) {
+        if (!g_wasm_force_next_refresh && now_ms - last_render_ms < 16.0) {
             return;
         }
+        g_wasm_force_next_refresh = 0;
         last_render_ms = now_ms;
     }
-    /* Apply pending ANTIALIAS toggle on the GL thread. */
-    if (g_antialias != g_antialias_applied) {
+    gfx_video_advance_ticks60(&g_wasm_vs, 1u);
+    /* Re-apply ANTIALIAS filter every frame on GL thread. raylib-emscripten
+     * sometimes loses filter binding between frames on NPOT render textures
+     * (WebGL1/ES2), so force the current mode each tick. Cheap (two glTexParameteri
+     * calls) and ensures ANTIALIAS OFF stays crisp. */
+    {
         int mode = sprite_filter_mode();
         int si;
         pthread_mutex_lock(&g_sprite_mutex);
@@ -2002,12 +2009,34 @@ void wasm_canvas_sync_charset_from_options(void)
     gfx_load_default_charrom(&g_wasm_vs);
 }
 
+/* If #OPTION columns changed g_wasm_vs.cols after wasm_raylib_init_once
+ * already created the 40-col window/render target, resize to match. */
+static void wasm_resize_if_cols_changed(void)
+{
+    int want_cols = g_wasm_vs.cols ? (int)g_wasm_vs.cols : 40;
+    int want_w = want_cols * CELL_W;
+    if (want_w == g_wasm_nat_w) return;
+    UnloadRenderTexture(g_wasm_target);
+    g_wasm_nat_w = want_w;
+    SetWindowSize(g_wasm_nat_w * SCALE, g_wasm_nat_h * SCALE);
+    g_wasm_target = LoadRenderTexture(g_wasm_nat_w, g_wasm_nat_h);
+    SetTextureFilter(g_wasm_target.texture, sprite_filter_mode());
+}
+
+/* Forced-refresh flag: bypasses the 60Hz rate-limit in wasm_gfx_refresh_js
+ * so the end-of-run frame always commits (otherwise short programs whose
+ * last PRINT hits the screen within 16ms of the prior budget-tick render
+ * leave the final text invisible — fileio_basics, adventure banners, etc.). */
+int g_wasm_force_next_refresh = 0;
+
 EMSCRIPTEN_KEEPALIVE
 void basic_load_and_run_gfx(const char *path)
 {
     wasm_raylib_init_once();
     basic_load(path);
+    wasm_resize_if_cols_changed();
     basic_run(path, 0, NULL);
+    g_wasm_force_next_refresh = 1;
     wasm_gfx_refresh_js();
 }
 
@@ -2031,8 +2060,10 @@ int basic_load_and_run_gfx_argline(const char *argline)
         while (*p == ' ' || *p == '\t') p++;
         if (!*p) return -1;
         basic_load(p);
+        wasm_resize_if_cols_changed();
         basic_run(p, 0, NULL);
     }
+    g_wasm_force_next_refresh = 1;
     wasm_gfx_refresh_js();
     return 0;
 }

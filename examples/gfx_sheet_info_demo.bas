@@ -6,7 +6,7 @@
 7 REM for animators, TILE COUNT for tilemap authors, SHEET * for
 8 REM grid geometry.
 9 REM =========================================================
-10 PRINT CHR$(14)
+10 REM default upper+lower charset; no CHR$(14) needed
 20 SPRITE LOAD 0, "ship.png", 32, 32
 30 SPRITE LOAD 1, "tile_sheet.png", 32, 32
 40 PRINT "{CLR}SHEET METADATA"

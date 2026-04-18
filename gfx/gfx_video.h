@@ -47,7 +47,8 @@ typedef struct GfxVideoState {
     uint16_t mem_key;
     uint16_t mem_bitmap;
     uint8_t screen[GFX_TEXT_SIZE];          /* Screen codes (40x25 or 80x25) */
-    uint8_t color[GFX_COLOR_SIZE];          /* Colour indices (0-15 per cell) */
+    uint8_t color[GFX_COLOR_SIZE];          /* Foreground colour indices (0-15 per cell) */
+    uint8_t bgcolor[GFX_COLOR_SIZE];        /* Per-cell background colour indices (0-15). Set by PRINT, PAPER, CLS. */
     uint8_t chars[GFX_CHAR_SIZE];           /* Character ROM / UDGs */
     uint8_t bitmap[GFX_BITMAP_BYTES];       /* 320x200 1bpp bitmap */
     uint8_t key_state[256];                 /* Simple keyboard state, 1 = down */
