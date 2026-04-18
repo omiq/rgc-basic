@@ -45,17 +45,17 @@
 1130 REM border row: corner + dashes + corner, all white on black
 1140 LOCATE 6, 5
 1150 PAPER 0 : COLOR 1 : PRINT "┌";
-1160 FOR I = 1 TO 26 : PRINT "─"; : NEXT I
+1160 FOR I = 1 TO 24 : PRINT "─"; : NEXT I
 1170 PRINT "┐"
 1180 REM menu items: selected row uses PAPER 1 (white bg) per-row
 1190 FOR I = 0 TO 4
-1200 LOCATE 6, 7 + I
+1200 LOCATE 6, 6 + I
 1210 IF I = SEL THEN GOSUB 1400 ELSE GOSUB 1500
 1220 NEXT I
 1230 REM bottom border
-1240 LOCATE 6, 13
+1240 LOCATE 6, 11
 1250 PAPER 0 : COLOR 1 : PRINT "└";
-1260 FOR I = 1 TO 26 : PRINT "─"; : NEXT I
+1260 FOR I = 1 TO 24 : PRINT "─"; : NEXT I
 1270 PRINT "┘"
 1280 REM footer: per-character tint on hint
 1290 LOCATE 4, 20
@@ -82,3 +82,4 @@
 1550 FOR J = 1 TO 21 - L : PRINT " "; : NEXT J
 1560 PAPER 0 : COLOR 1 : PRINT "│"
 1570 RETURN
+
