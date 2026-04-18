@@ -13,6 +13,13 @@
 #include "gfx_images.h"
 #include "gfx_video.h"
 
+/* STB_IMAGE_STATIC makes the stb_image symbols file-local so they
+ * don't collide with the copy raylib's libraylib.a already links
+ * (rtextures.o defines stbi_* globally on MinGW/Windows). File-scope
+ * static is fine here — only gfx_image_load() inside this TU uses
+ * stbi_load; other translation units that want stbi bring their own
+ * static copy the same way (see gfx_software_sprites.c). */
+#define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 

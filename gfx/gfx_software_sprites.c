@@ -11,8 +11,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* STB_IMAGE_IMPLEMENTATION now lives in gfx_images.c so the loader is
- * linked in every GFX target (not just canvas/WASM). */
+/* Own file-local copy of stb_image — gfx_images.c has a separate
+ * static copy for IMAGE LOAD. STB_IMAGE_STATIC keeps both confined
+ * to their translation unit so raylib's own stbi (linked globally
+ * from libraylib.a on MinGW) doesn't collide. */
+#define STB_IMAGE_STATIC
+#define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
 #define GFX_SPRITE_MAX_SLOTS 64
