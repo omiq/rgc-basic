@@ -40,5 +40,5 @@
 310 NEXT I
 320 REM player (persistent position — only one instance)
 330 DRAWSPRITE 1, PLX, PLY, 100
-340 SLEEP 1
+340 VSYNC
 350 GOTO 150

@@ -475,8 +475,19 @@ typedef struct {
     int sx, sy, sw, sh;
 } GfxTilemapCell;
 
-static GfxTilemapCell g_tm_cells[GFX_TILEMAP_MAX_CELLS];
-static int g_tm_count = 0;
+/* Double-buffered cell list. BASIC appends to g_tm_build; the
+ * compositor reads g_tm_show. gfx_cells_flip() atomically copies
+ * build → show, so the renderer never sees a half-populated frame
+ * regardless of when its snapshot lands relative to BASIC's STAMP
+ * loop. */
+static GfxTilemapCell g_tm_build[GFX_TILEMAP_MAX_CELLS];
+static int g_tm_build_count = 0;
+static GfxTilemapCell g_tm_show[GFX_TILEMAP_MAX_CELLS];
+static int g_tm_show_count = 0;
+/* Legacy aliases for code that still reads the "old" names. Removed in
+ * a subsequent cleanup. */
+#define g_tm_cells g_tm_build
+#define g_tm_count g_tm_build_count
 
 /* TILEMAP DRAW and SPRITE STAMP both append to g_tm_cells; the
  * compositor drains the list each render pass. So a program that
@@ -524,13 +535,30 @@ void gfx_draw_tilemap(int slot, float x0, float y0, int cols, int rows, int z,
     pthread_mutex_unlock(&g_sprite_mutex);
 }
 
-/* Clear the per-frame cell list. Called by CLS (and any other "start
- * of frame" resets) so stale stamps don't persist when the user is
- * actively rebuilding the scene each tick. */
+/* Clear the BUILD buffer only (the list BASIC is writing to). Used by
+ * CLS so the program starts each tick with an empty scene. The SHOW
+ * buffer is untouched — the renderer keeps displaying the previous
+ * committed frame until VSYNC swaps. */
 void gfx_cells_clear(void)
 {
     pthread_mutex_lock(&g_sprite_mutex);
-    g_tm_count = 0;
+    g_tm_build_count = 0;
+    pthread_mutex_unlock(&g_sprite_mutex);
+}
+
+/* Commit build → show atomically. VSYNC calls this after the program
+ * has finished assembling a frame; the renderer now displays the new
+ * cell list as a consistent unit. Build is left populated (the new
+ * frame has been handed off); CLS at the top of the next tick wipes
+ * it for the fresh rebuild. */
+void gfx_cells_flip(void)
+{
+    pthread_mutex_lock(&g_sprite_mutex);
+    g_tm_show_count = g_tm_build_count;
+    if (g_tm_show_count > 0) {
+        memcpy(g_tm_show, g_tm_build,
+               (size_t)g_tm_show_count * sizeof(GfxTilemapCell));
+    }
     pthread_mutex_unlock(&g_sprite_mutex);
 }
 
@@ -1128,7 +1156,7 @@ static void gfx_sprite_composite_range(const GfxVideoState *vs, RenderTexture2D 
     /* Peek at tilemap cell count so we enter the render block even when
      * no per-slot sprites are active — TILEMAP DRAW alone must still draw. */
     pthread_mutex_lock(&g_sprite_mutex);
-    int tm_have = (g_tm_count > 0);
+    int tm_have = (g_tm_show_count > 0);
     pthread_mutex_unlock(&g_sprite_mutex);
     if (nd <= 0 && !tm_have) {
         return;
@@ -1152,9 +1180,9 @@ static void gfx_sprite_composite_range(const GfxVideoState *vs, RenderTexture2D 
         GfxTilemapCell local[GFX_TILEMAP_MAX_CELLS];
         int tn, ti;
         pthread_mutex_lock(&g_sprite_mutex);
-        tn = g_tm_count;
+        tn = g_tm_show_count;
         if (tn > GFX_TILEMAP_MAX_CELLS) tn = GFX_TILEMAP_MAX_CELLS;
-        if (tn > 0) memcpy(local, g_tm_cells, (size_t)tn * sizeof(GfxTilemapCell));
+        if (tn > 0) memcpy(local, g_tm_show, (size_t)tn * sizeof(GfxTilemapCell));
         pthread_mutex_unlock(&g_sprite_mutex);
         if (tn > 1) qsort(local, (size_t)tn, sizeof(GfxTilemapCell), cmp_tm_cell_z);
         for (ti = 0; ti < tn; ti++) {
