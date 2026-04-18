@@ -329,6 +329,35 @@ int gfx_sprite_slot_tile_count(int slot)
     return g_sprite_slots[slot].tile_count;
 }
 
+int gfx_sprite_slot_sheet_cols(int slot)
+{
+    gfx_sprite_process_queue();
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) return 0;
+    if (!g_sprite_slots[slot].loaded) return 0;
+    return g_sprite_slots[slot].tiles_x;
+}
+int gfx_sprite_slot_sheet_rows(int slot)
+{
+    gfx_sprite_process_queue();
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) return 0;
+    if (!g_sprite_slots[slot].loaded) return 0;
+    return g_sprite_slots[slot].tiles_y;
+}
+int gfx_sprite_slot_sheet_cell_w(int slot)
+{
+    gfx_sprite_process_queue();
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) return 0;
+    if (!g_sprite_slots[slot].loaded) return 0;
+    return g_sprite_slots[slot].tile_w;
+}
+int gfx_sprite_slot_sheet_cell_h(int slot)
+{
+    gfx_sprite_process_queue();
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) return 0;
+    if (!g_sprite_slots[slot].loaded) return 0;
+    return g_sprite_slots[slot].tile_h;
+}
+
 int gfx_sprite_tile_source_rect(int slot, int tile_index_1based, int *sx, int *sy, int *sw, int *sh)
 {
     GfxSpriteSlot *sl;
