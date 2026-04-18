@@ -22,7 +22,7 @@ Unlike emulators, this is a BASIC interpreter that can already do real work: rea
 
 The project started as an expansion on an original LLM-generated demo project by [David Plummer](https://github.com/davepl/pdpsrc/tree/main/bsd/basic). As I played with it, and added to it, I had fun. That's enough reason for me, and nobody is going to take your favourite toolchain away because this exists so calm down, sheesh.
 
-Current release: **1.5.0** (2026-03-18). See `CHANGELOG.md` for the full versioned history.
+Current release: **1.9.0** (2026-04-18) — **Graphics 1.0** milestone (full 2-D primitive set, blitter Phase 1, tilemap renderer, VSYNC pipeline, keyboard intrinsics, anti-alias toggle, two-word SPRITE/TILE/SHEET/IMAGE family). Next: **2.0** with sound. See `CHANGELOG.md` for the full versioned history and `docs/release-graphics-1.0.html` for the 1.9.0 announcement.
 
 ## 💾 DOWNLOADS
 
