@@ -10775,6 +10775,18 @@ static void execute_statement(char **p)
         statement_timer(p);
         return;
     }
+#ifdef GFX_VIDEO
+    /* Two-word alias: TILE DRAW → DRAWSPRITETILE. `q` scratch pattern. */
+    if (c == 'T' && starts_with_kw(*p, "TILE")) {
+        char *q = *p + 4;
+        skip_spaces(&q);
+        if (starts_with_kw(q, "DRAW")) {
+            *p = q + 4;
+            statement_drawspritetile(p);
+            return;
+        }
+    }
+#endif
     if (c == 'G' && starts_with_kw(*p, "GET")) {
         *p += 3;
         skip_spaces(p);
@@ -10913,6 +10925,34 @@ static void execute_statement(char **p)
             *p += 10;
             statement_spritecopy(p);
             return;
+        }
+        /* Two-word aliases: SPRITE LOAD / DRAW / FRAME / FREE.
+         * Rewrites to existing handlers. `q` is a scratch pointer so
+         * *p is only advanced on a real match — lets non-matching
+         * input (e.g. user var `SPRITE = 5`) fall through unharmed. */
+        if (starts_with_kw(*p, "SPRITE")) {
+            char *q = *p + 6;
+            skip_spaces(&q);
+            if (starts_with_kw(q, "LOAD")) {
+                *p = q + 4;
+                statement_loadsprite(p);
+                return;
+            }
+            if (starts_with_kw(q, "DRAW")) {
+                *p = q + 4;
+                statement_drawsprite(p);
+                return;
+            }
+            if (starts_with_kw(q, "FRAME")) {
+                *p = q + 5;
+                statement_spriteframe(p);
+                return;
+            }
+            if (starts_with_kw(q, "FREE")) {
+                *p = q + 4;
+                statement_unloadsprite(p);
+                return;
+            }
         }
 #endif
         if (starts_with_kw(*p, "SLEEP")) {
