@@ -1,0 +1,175 @@
+/* gfx_images.c — 1bpp off-screen bitmap surfaces (blitter Phase 1). */
+
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include "gfx_images.h"
+#include "gfx_video.h"
+
+typedef struct {
+    int loaded;
+    int w, h;
+    int stride;      /* bytes per row = (w + 7) / 8 */
+    uint8_t *pixels; /* stride * h bytes */
+    int owned;       /* 1 = allocated by us (must free); 0 = borrowed (visible) */
+} GfxImageSlot;
+
+static GfxImageSlot g_slots[GFX_IMAGE_MAX_SLOTS];
+
+void gfx_image_bind_visible(GfxVideoState *s)
+{
+    GfxImageSlot *sl = &g_slots[GFX_IMAGE_SLOT_VISIBLE];
+    if (sl->owned && sl->pixels) {
+        free(sl->pixels);
+        sl->pixels = NULL;
+    }
+    sl->loaded = (s != NULL);
+    sl->w = s ? (int)GFX_BITMAP_WIDTH : 0;
+    sl->h = s ? (int)GFX_BITMAP_HEIGHT : 0;
+    sl->stride = s ? (int)(GFX_BITMAP_WIDTH / 8u) : 0;
+    sl->pixels = s ? s->bitmap : NULL;
+    sl->owned = 0;
+}
+
+int gfx_image_new(int slot, int w, int h)
+{
+    GfxImageSlot *sl;
+    int stride;
+    if (slot <= GFX_IMAGE_SLOT_VISIBLE || slot >= GFX_IMAGE_MAX_SLOTS) return -1;
+    if (w <= 0 || h <= 0) return -1;
+    sl = &g_slots[slot];
+    if (sl->owned && sl->pixels) {
+        free(sl->pixels);
+        sl->pixels = NULL;
+    }
+    stride = (w + 7) / 8;
+    sl->pixels = (uint8_t *)calloc((size_t)stride * (size_t)h, 1);
+    if (!sl->pixels) {
+        sl->loaded = 0;
+        return -1;
+    }
+    sl->loaded = 1;
+    sl->w = w;
+    sl->h = h;
+    sl->stride = stride;
+    sl->owned = 1;
+    return 0;
+}
+
+int gfx_image_free(int slot)
+{
+    GfxImageSlot *sl;
+    if (slot < 0 || slot >= GFX_IMAGE_MAX_SLOTS) return -1;
+    if (slot == GFX_IMAGE_SLOT_VISIBLE) return 0; /* never free visible */
+    sl = &g_slots[slot];
+    if (sl->owned && sl->pixels) free(sl->pixels);
+    sl->pixels = NULL;
+    sl->loaded = 0;
+    sl->w = sl->h = sl->stride = 0;
+    sl->owned = 0;
+    return 0;
+}
+
+int gfx_image_width(int slot)
+{
+    if (slot < 0 || slot >= GFX_IMAGE_MAX_SLOTS) return 0;
+    return g_slots[slot].loaded ? g_slots[slot].w : 0;
+}
+
+int gfx_image_height(int slot)
+{
+    if (slot < 0 || slot >= GFX_IMAGE_MAX_SLOTS) return 0;
+    return g_slots[slot].loaded ? g_slots[slot].h : 0;
+}
+
+static int img_get_pixel(const GfxImageSlot *sl, int x, int y)
+{
+    int byte, bit;
+    if (x < 0 || y < 0 || x >= sl->w || y >= sl->h) return 0;
+    byte = y * sl->stride + (x >> 3);
+    bit = 7 - (x & 7);
+    return (sl->pixels[byte] >> bit) & 1;
+}
+
+static void img_set_pixel(GfxImageSlot *sl, int x, int y, int on)
+{
+    int byte, bit;
+    uint8_t mask;
+    if (x < 0 || y < 0 || x >= sl->w || y >= sl->h) return;
+    byte = y * sl->stride + (x >> 3);
+    bit = 7 - (x & 7);
+    mask = (uint8_t)(1u << bit);
+    if (on) sl->pixels[byte] |= mask;
+    else    sl->pixels[byte] &= (uint8_t)~mask;
+}
+
+int gfx_image_copy(int src_slot, int sx, int sy, int sw, int sh,
+                   int dst_slot, int dx, int dy)
+{
+    GfxImageSlot *src, *dst;
+    int x, y;
+    int overlapping;
+    uint8_t *rowbuf = NULL;
+
+    if (src_slot < 0 || src_slot >= GFX_IMAGE_MAX_SLOTS) return -1;
+    if (dst_slot < 0 || dst_slot >= GFX_IMAGE_MAX_SLOTS) return -1;
+    src = &g_slots[src_slot];
+    dst = &g_slots[dst_slot];
+    if (!src->loaded || !dst->loaded) return -1;
+    if (sw <= 0 || sh <= 0) return 0;
+
+    /* Clip source rect to source bounds. */
+    if (sx < 0) { sw += sx; dx -= sx; sx = 0; }
+    if (sy < 0) { sh += sy; dy -= sy; sy = 0; }
+    if (sx + sw > src->w) sw = src->w - sx;
+    if (sy + sh > src->h) sh = src->h - sy;
+    /* Clip dest rect to dest bounds. */
+    if (dx < 0) { sw += dx; sx -= dx; dx = 0; }
+    if (dy < 0) { sh += dy; sy -= dy; dy = 0; }
+    if (dx + sw > dst->w) sw = dst->w - dx;
+    if (dy + sh > dst->h) sh = dst->h - dy;
+    if (sw <= 0 || sh <= 0) return 0;
+
+    /* Overlap handling: if same slot and rects overlap, stage one row at
+     * a time through a scratch buffer. Simple; cost is one malloc. */
+    overlapping = (src == dst) &&
+                  !(dx + sw <= sx || sx + sw <= dx ||
+                    dy + sh <= sy || sy + sh <= dy);
+    if (overlapping) {
+        rowbuf = (uint8_t *)malloc((size_t)sw);
+        if (!rowbuf) return -1;
+    }
+
+    /* Choose row iteration direction so overlapping copies in the same
+     * column still work if caller avoids a full rect overlap. For the
+     * general overlapping case we already stage through rowbuf. */
+    if (overlapping && dy > sy) {
+        /* bottom-up */
+        for (y = sh - 1; y >= 0; y--) {
+            for (x = 0; x < sw; x++) {
+                rowbuf[x] = (uint8_t)img_get_pixel(src, sx + x, sy + y);
+            }
+            for (x = 0; x < sw; x++) {
+                img_set_pixel(dst, dx + x, dy + y, rowbuf[x]);
+            }
+        }
+    } else if (overlapping) {
+        for (y = 0; y < sh; y++) {
+            for (x = 0; x < sw; x++) {
+                rowbuf[x] = (uint8_t)img_get_pixel(src, sx + x, sy + y);
+            }
+            for (x = 0; x < sw; x++) {
+                img_set_pixel(dst, dx + x, dy + y, rowbuf[x]);
+            }
+        }
+    } else {
+        for (y = 0; y < sh; y++) {
+            for (x = 0; x < sw; x++) {
+                img_set_pixel(dst, dx + x, dy + y, img_get_pixel(src, sx + x, sy + y));
+            }
+        }
+    }
+
+    if (rowbuf) free(rowbuf);
+    return 0;
+}

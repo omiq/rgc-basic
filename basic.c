@@ -4955,6 +4955,86 @@ static void statement_tilemap_draw(char **p)
     free(buf);
 }
 
+/* IMAGE NEW slot, w, h — allocate a 1bpp off-screen surface. Slot 0
+ * (visible) is reserved and cannot be reallocated. */
+static void statement_image_new(char **p)
+{
+    struct value v;
+    int slot, w, h;
+    skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); slot = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("IMAGE NEW expects slot, w, h", NULL); return; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); w = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("IMAGE NEW expects slot, w, h", NULL); return; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); h = (int)v.num;
+    skip_spaces(p);
+    if (gfx_image_new(slot, w, h) != 0) {
+        runtime_error_hint("IMAGE NEW failed",
+                           "Slot must be 1..31; w and h must be > 0; check free memory.");
+    }
+}
+
+/* IMAGE FREE slot — release an off-screen surface. Slot 0 is a no-op. */
+static void statement_image_free(char **p)
+{
+    struct value v;
+    int slot;
+    skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); slot = (int)v.num;
+    skip_spaces(p);
+    gfx_image_free(slot);
+}
+
+/* IMAGE COPY src, sx, sy, sw, sh TO dst, dx, dy — rectangular 1bpp blit. */
+static void statement_image_copy(char **p)
+{
+    struct value v;
+    int src_slot, sx, sy, sw, sh, dst_slot, dx, dy;
+    skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); src_slot = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("IMAGE COPY expects src, sx, sy, sw, sh TO dst, dx, dy", NULL); return; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); sx = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("IMAGE COPY: missing sy", NULL); return; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); sy = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("IMAGE COPY: missing sw", NULL); return; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); sw = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("IMAGE COPY: missing sh", NULL); return; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); sh = (int)v.num;
+    skip_spaces(p);
+    if (!starts_with_kw(*p, "TO")) {
+        runtime_error_hint("IMAGE COPY: missing TO",
+                           "Syntax: IMAGE COPY src, sx, sy, sw, sh TO dst, dx, dy");
+        return;
+    }
+    *p += 2; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); dst_slot = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("IMAGE COPY: missing dx", NULL); return; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); dx = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("IMAGE COPY: missing dy", NULL); return; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); dy = (int)v.num;
+    skip_spaces(p);
+    if (gfx_image_copy(src_slot, sx, sy, sw, sh, dst_slot, dx, dy) != 0) {
+        runtime_error_hint("IMAGE COPY failed",
+                           "Both source and dest slots must be loaded (IMAGE NEW first).");
+    }
+}
+
 /* DRAWSPRITE slot, x, y [, z [, sx, sy [, sw, sh ]]] — z higher = on top; alpha from PNG. */
 static void statement_drawsprite(char **p)
 {
@@ -10924,6 +11004,16 @@ static void execute_statement(char **p)
         statement_input(p);
         return;
     }
+#ifdef GFX_VIDEO
+    /* IMAGE NEW / IMAGE FREE / IMAGE COPY — blitter Phase 1. */
+    if (c == 'I' && starts_with_kw(*p, "IMAGE")) {
+        char *q = *p + 5;
+        skip_spaces(&q);
+        if (starts_with_kw(q, "NEW"))  { *p = q + 3; statement_image_new(p);  return; }
+        if (starts_with_kw(q, "FREE")) { *p = q + 4; statement_image_free(p); return; }
+        if (starts_with_kw(q, "COPY")) { *p = q + 4; statement_image_copy(p); return; }
+    }
+#endif
     if (c == 'L') {
         if (starts_with_kw(*p, "LINE")) {
             *p += 4;
@@ -12276,6 +12366,7 @@ int basic_halted(void) { return halted; }
 void basic_set_video(GfxVideoState *vs)
 {
     gfx_vs = vs;
+    gfx_image_bind_visible(vs); /* slot 0 = visible bitmap for IMAGE COPY */
     if (vs) {
         gfx_mouse_init();
         vs->cols = (print_width >= 80) ? 80 : 40;
