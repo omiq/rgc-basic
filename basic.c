@@ -2695,6 +2695,8 @@ static void statement_rect(char **p);
 static void statement_fillrect(char **p);
 static void statement_circle(char **p);
 static void statement_fillcircle(char **p);
+static void statement_ellipse(char **p);
+static void statement_fillellipse(char **p);
 static void statement_drawtext(char **p);
 static void statement_vsync(char **p);
 static void statement_bitmapclear(char **p);
@@ -3045,7 +3047,7 @@ static const char *const reserved_words[] = {
     "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET",     "PRINT", "PUTBYTE",
     "XOR",
     "READ", "RECT", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITECOPY", "SPRITEFRAME", "SPRITEMODIFY", "SPRITEMODULATE", "SPRITETILES", "SPRITEVISIBLE",
-    "FILLRECT", "CIRCLE", "FILLCIRCLE", "VSYNC",
+    "FILLRECT", "CIRCLE", "FILLCIRCLE", "ELLIPSE", "FILLELLIPSE", "VSYNC",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
     "DRAWSPRITE", "DRAWSPRITETILE", "DRAWTEXT", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
@@ -4607,6 +4609,142 @@ static void statement_fillcircle(char **p)
         if (d <= 0) d += 4 * x + 6;
         else { d += 4 * (x - y) + 10; y--; }
         x++;
+    }
+#endif
+}
+
+/* Parse `x, y, rx, ry` for ELLIPSE / FILLELLIPSE. */
+#ifdef GFX_VIDEO
+static int parse_ellipse_coords(char **p, int *cx, int *cy, int *rx, int *ry)
+{
+    struct value v;
+    skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); *cx = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("Expected ',' after x", "Use ELLIPSE x, y, rx, ry"); return -1; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); *cy = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("Expected ',' after y", "Use ELLIPSE x, y, rx, ry"); return -1; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); *rx = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("Expected ',' after rx", "Use ELLIPSE x, y, rx, ry"); return -1; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); *ry = (int)v.num;
+    return 0;
+}
+
+/* 4-way symmetric plot helper for the midpoint ellipse rasteriser. */
+static void ellipse_plot4(int cx, int cy, int dx, int dy)
+{
+    gfx_bitmap_set_pixel(gfx_vs, cx + dx, cy + dy, 1);
+    gfx_bitmap_set_pixel(gfx_vs, cx - dx, cy + dy, 1);
+    gfx_bitmap_set_pixel(gfx_vs, cx + dx, cy - dy, 1);
+    gfx_bitmap_set_pixel(gfx_vs, cx - dx, cy - dy, 1);
+}
+#endif
+
+/* ELLIPSE x, y, rx, ry — axis-aligned ellipse outline via midpoint algorithm. */
+static void statement_ellipse(char **p)
+{
+#ifndef GFX_VIDEO
+    (void)p;
+    runtime_error_hint("ELLIPSE is only available in basic-gfx",
+                       "ELLIPSE draws in bitmap mode (basic-gfx or canvas WASM).");
+#else
+    int cx, cy, rx, ry;
+    long rx2, ry2, twoRx2, twoRy2;
+    long x, y, px, py, d;
+    if (parse_ellipse_coords(p, &cx, &cy, &rx, &ry) != 0) return;
+    if (!gfx_vs || rx < 0 || ry < 0) return;
+    if (rx == 0 && ry == 0) { gfx_bitmap_set_pixel(gfx_vs, cx, cy, 1); return; }
+    rx2 = (long)rx * rx;
+    ry2 = (long)ry * ry;
+    twoRx2 = 2 * rx2;
+    twoRy2 = 2 * ry2;
+    /* Region 1: slope > -1 (walk x). */
+    x = 0; y = ry; px = 0; py = twoRx2 * y;
+    ellipse_plot4(cx, cy, (int)x, (int)y);
+    d = (long)(ry2 - rx2 * ry + 0.25 * rx2);
+    while (px < py) {
+        x++;
+        px += twoRy2;
+        if (d < 0) {
+            d += ry2 + px;
+        } else {
+            y--;
+            py -= twoRx2;
+            d += ry2 + px - py;
+        }
+        ellipse_plot4(cx, cy, (int)x, (int)y);
+    }
+    /* Region 2: slope < -1 (walk y). */
+    d = (long)(ry2 * (x + 0.5) * (x + 0.5) + rx2 * (y - 1) * (y - 1) - rx2 * ry2);
+    while (y > 0) {
+        y--;
+        py -= twoRx2;
+        if (d > 0) {
+            d += rx2 - py;
+        } else {
+            x++;
+            px += twoRy2;
+            d += rx2 - py + px;
+        }
+        ellipse_plot4(cx, cy, (int)x, (int)y);
+    }
+#endif
+}
+
+/* FILLELLIPSE x, y, rx, ry — solid ellipse via hlines between the
+ * mirrored contour points each midpoint step. */
+static void statement_fillellipse(char **p)
+{
+#ifndef GFX_VIDEO
+    (void)p;
+    runtime_error_hint("FILLELLIPSE is only available in basic-gfx",
+                       "FILLELLIPSE draws in bitmap mode (basic-gfx or canvas WASM).");
+#else
+    int cx, cy, rx, ry;
+    long rx2, ry2, twoRx2, twoRy2;
+    long x, y, px, py, d;
+    if (parse_ellipse_coords(p, &cx, &cy, &rx, &ry) != 0) return;
+    if (!gfx_vs || rx < 0 || ry < 0) return;
+    if (rx == 0 && ry == 0) { gfx_bitmap_set_pixel(gfx_vs, cx, cy, 1); return; }
+    rx2 = (long)rx * rx;
+    ry2 = (long)ry * ry;
+    twoRx2 = 2 * rx2;
+    twoRy2 = 2 * ry2;
+    x = 0; y = ry; px = 0; py = twoRx2 * y;
+    gfx_bitmap_line(gfx_vs, cx - (int)x, cy + (int)y, cx + (int)x, cy + (int)y, 1);
+    gfx_bitmap_line(gfx_vs, cx - (int)x, cy - (int)y, cx + (int)x, cy - (int)y, 1);
+    d = (long)(ry2 - rx2 * ry + 0.25 * rx2);
+    while (px < py) {
+        x++;
+        px += twoRy2;
+        if (d < 0) {
+            d += ry2 + px;
+        } else {
+            y--;
+            py -= twoRx2;
+            d += ry2 + px - py;
+        }
+        gfx_bitmap_line(gfx_vs, cx - (int)x, cy + (int)y, cx + (int)x, cy + (int)y, 1);
+        gfx_bitmap_line(gfx_vs, cx - (int)x, cy - (int)y, cx + (int)x, cy - (int)y, 1);
+    }
+    d = (long)(ry2 * (x + 0.5) * (x + 0.5) + rx2 * (y - 1) * (y - 1) - rx2 * ry2);
+    while (y > 0) {
+        y--;
+        py -= twoRx2;
+        if (d > 0) {
+            d += rx2 - py;
+        } else {
+            x++;
+            px += twoRy2;
+            d += rx2 - py + px;
+        }
+        gfx_bitmap_line(gfx_vs, cx - (int)x, cy + (int)y, cx + (int)x, cy + (int)y, 1);
+        gfx_bitmap_line(gfx_vs, cx - (int)x, cy - (int)y, cx + (int)x, cy - (int)y, 1);
     }
 #endif
 }
@@ -11891,6 +12029,11 @@ static void execute_statement(char **p)
         return;
     }
     if (c == 'E') {
+        if (starts_with_kw(*p, "ELLIPSE")) {
+            *p += 7;
+            statement_ellipse(p);
+            return;
+        }
         if (starts_with_kw(*p, "EXIT")) {
             *p += 4;  /* consume EXIT */
             statement_exit_do(p);
@@ -11937,6 +12080,11 @@ static void execute_statement(char **p)
         if (starts_with_kw(*p, "FILLCIRCLE")) {
             *p += 10;
             statement_fillcircle(p);
+            return;
+        }
+        if (starts_with_kw(*p, "FILLELLIPSE")) {
+            *p += 11;
+            statement_fillellipse(p);
             return;
         }
     }
