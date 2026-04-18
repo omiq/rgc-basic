@@ -5287,11 +5287,11 @@ static void statement_sprite_stamp(char **p)
 {
     struct value v;
     int slot, frame = 0, z = 0;
-    float x, y;
+    float x, y, rot = 0.0f;
     skip_spaces(p);
     v = eval_expr(p); ensure_num(&v); slot = (int)v.num;
     skip_spaces(p);
-    if (**p != ',') { runtime_error_hint("SPRITE STAMP expects slot, x, y [, frame [, z]]", NULL); return; }
+    if (**p != ',') { runtime_error_hint("SPRITE STAMP expects slot, x, y [, frame [, z [, rot]]]", NULL); return; }
     (*p)++; skip_spaces(p);
     v = eval_expr(p); ensure_num(&v); x = (float)v.num;
     skip_spaces(p);
@@ -5306,13 +5306,18 @@ static void statement_sprite_stamp(char **p)
         if (**p == ',') {
             (*p)++; skip_spaces(p);
             v = eval_expr(p); ensure_num(&v); z = (int)v.num;
+            skip_spaces(p);
+            if (**p == ',') {
+                (*p)++; skip_spaces(p);
+                v = eval_expr(p); ensure_num(&v); rot = (float)v.num;
+            }
         }
     }
     if (!gfx_vs) {
         runtime_error_hint("SPRITE STAMP requires basic-gfx or canvas WASM", NULL);
         return;
     }
-    gfx_sprite_stamp(slot, x, y, frame, z);
+    gfx_sprite_stamp(slot, x, y, frame, z, rot);
 }
 
 /* IMAGE NEW slot, w, h — allocate a 1bpp off-screen surface. Slot 0
