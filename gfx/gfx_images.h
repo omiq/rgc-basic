@@ -39,4 +39,9 @@ int gfx_image_copy(int src_slot, int sx, int sy, int sw, int sh,
 int gfx_image_width(int slot);
 int gfx_image_height(int slot);
 
+/* Save a slot to a 24-bit BMP file. 1bpp pixels get expanded: bit=1
+ * writes 0xFFFFFF (white), bit=0 writes 0x000000 (black). Returns 0
+ * on success, -1 on error (slot unloaded, can't open file, etc.). */
+int gfx_image_save_bmp(int slot, const char *path);
+
 #endif /* GFX_IMAGES_H */

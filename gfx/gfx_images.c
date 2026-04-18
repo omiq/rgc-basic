@@ -1,10 +1,24 @@
 /* gfx_images.c — 1bpp off-screen bitmap surfaces (blitter Phase 1). */
 
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "gfx_images.h"
 #include "gfx_video.h"
+
+static void bmp_put_u16(uint8_t *dst, uint16_t v)
+{
+    dst[0] = (uint8_t)(v & 0xFF);
+    dst[1] = (uint8_t)((v >> 8) & 0xFF);
+}
+static void bmp_put_u32(uint8_t *dst, uint32_t v)
+{
+    dst[0] = (uint8_t)(v & 0xFF);
+    dst[1] = (uint8_t)((v >> 8) & 0xFF);
+    dst[2] = (uint8_t)((v >> 16) & 0xFF);
+    dst[3] = (uint8_t)((v >> 24) & 0xFF);
+}
 
 typedef struct {
     int loaded;
@@ -81,6 +95,7 @@ int gfx_image_height(int slot)
     if (slot < 0 || slot >= GFX_IMAGE_MAX_SLOTS) return 0;
     return g_slots[slot].loaded ? g_slots[slot].h : 0;
 }
+
 
 static int img_get_pixel(const GfxImageSlot *sl, int x, int y)
 {
@@ -171,5 +186,65 @@ int gfx_image_copy(int src_slot, int sx, int sy, int sw, int sh,
     }
 
     if (rowbuf) free(rowbuf);
+    return 0;
+}
+
+int gfx_image_save_bmp(int slot, const char *path)
+{
+    GfxImageSlot *sl;
+    FILE *f;
+    uint8_t header[54];
+    uint8_t *row;
+    int row_size, padded;
+    int x, y;
+    int w, h;
+
+    if (slot < 0 || slot >= GFX_IMAGE_MAX_SLOTS) return -1;
+    sl = &g_slots[slot];
+    if (!sl->loaded || !sl->pixels) return -1;
+    if (!path || !path[0]) return -1;
+    w = sl->w;
+    h = sl->h;
+    if (w <= 0 || h <= 0) return -1;
+
+    /* BMP row size is 3*w rounded up to a multiple of 4. */
+    row_size = 3 * w;
+    padded = (row_size + 3) & ~3;
+
+    memset(header, 0, sizeof(header));
+    header[0] = 'B'; header[1] = 'M';
+    bmp_put_u32(&header[2], (uint32_t)(54 + (uint32_t)padded * (uint32_t)h));
+    bmp_put_u32(&header[10], 54); /* pixel data offset */
+    bmp_put_u32(&header[14], 40); /* DIB header size */
+    bmp_put_u32(&header[18], (uint32_t)w);
+    bmp_put_u32(&header[22], (uint32_t)h); /* positive → bottom-up */
+    bmp_put_u16(&header[26], 1);  /* planes */
+    bmp_put_u16(&header[28], 24); /* bpp */
+    /* compression, image size, x/y ppm, colors used, important colors — all 0 */
+
+    f = fopen(path, "wb");
+    if (!f) return -1;
+    if (fwrite(header, 1, sizeof(header), f) != sizeof(header)) {
+        fclose(f);
+        return -1;
+    }
+    row = (uint8_t *)calloc((size_t)padded, 1);
+    if (!row) { fclose(f); return -1; }
+    /* BMP rows are written bottom-up. */
+    for (y = h - 1; y >= 0; y--) {
+        for (x = 0; x < w; x++) {
+            int on = img_get_pixel(sl, x, y);
+            uint8_t v = on ? 0xFF : 0x00;
+            row[x * 3 + 0] = v; /* B */
+            row[x * 3 + 1] = v; /* G */
+            row[x * 3 + 2] = v; /* R */
+        }
+        if (fwrite(row, 1, (size_t)padded, f) != (size_t)padded) {
+            free(row); fclose(f);
+            return -1;
+        }
+    }
+    free(row);
+    fclose(f);
     return 0;
 }

@@ -5300,6 +5300,27 @@ static void statement_image_free(char **p)
     gfx_image_free(slot);
 }
 
+/* IMAGE SAVE slot, "path.bmp" — export a surface as 24-bit BMP.
+ * pen=1 pixels become white, pen=0 black. Keeps the implementation
+ * dependency-free (no PNG encoder); callers who need PNG can convert
+ * externally. */
+static void statement_image_save(char **p)
+{
+    struct value vslot, vpath;
+    int slot;
+    skip_spaces(p);
+    vslot = eval_expr(p); ensure_num(&vslot); slot = (int)vslot.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("IMAGE SAVE expects slot, path$", NULL); return; }
+    (*p)++; skip_spaces(p);
+    vpath = eval_expr(p); ensure_str(&vpath);
+    skip_spaces(p);
+    if (gfx_image_save_bmp(slot, vpath.str) != 0) {
+        runtime_error_hint("IMAGE SAVE failed",
+                           "Check slot is loaded and the path is writable; file written as 24-bit BMP.");
+    }
+}
+
 /* IMAGE COPY src, sx, sy, sw, sh TO dst, dx, dy — rectangular 1bpp blit. */
 static void statement_image_copy(char **p)
 {
@@ -11457,13 +11478,14 @@ static void execute_statement(char **p)
         return;
     }
 #ifdef GFX_VIDEO
-    /* IMAGE NEW / IMAGE FREE / IMAGE COPY — blitter Phase 1. */
+    /* IMAGE NEW / IMAGE FREE / IMAGE COPY / IMAGE SAVE — blitter Phase 1. */
     if (c == 'I' && starts_with_kw(*p, "IMAGE")) {
         char *q = *p + 5;
         skip_spaces(&q);
         if (starts_with_kw(q, "NEW"))  { *p = q + 3; statement_image_new(p);  return; }
         if (starts_with_kw(q, "FREE")) { *p = q + 4; statement_image_free(p); return; }
         if (starts_with_kw(q, "COPY")) { *p = q + 4; statement_image_copy(p); return; }
+        if (starts_with_kw(q, "SAVE")) { *p = q + 4; statement_image_save(p); return; }
     }
 #endif
     if (c == 'L') {
