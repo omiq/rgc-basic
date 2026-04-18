@@ -19,9 +19,7 @@
 70 DIM WORLD(WW*WH-1)
 80 REM deterministic pattern so the scroll effect is visible
 90 FOR I = 0 TO WW*WH-1
-95 R = (I*17+3) MOD 9
-100 WORLD(I) = 1
-105 IF R = 0 THEN WORLD(I) = 2
+100 IF (I*17+3) MOD 9 = 0 THEN WORLD(I) = 2 ELSE WORLD(I) = 1
 110 NEXT I
 120 PX = WW*TW/2 : PY = WH*TH/2          : REM player world-pixel pos
 130 CX = PX - VW/2 : CY = PY - VH/2      : REM camera (top-left in world)

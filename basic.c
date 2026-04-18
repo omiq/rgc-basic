@@ -1494,6 +1494,9 @@ static unsigned g_buffer_next_id = 0;
 
 static int current_line = 0;
 static char *statement_pos = NULL;
+/* Declared here so run_until_udf_return() can reset it on line transitions.
+ * Defined near statement_if along with its helpers. */
+static int inline_if_then_active;
 static volatile int halted = 0;
 static int print_col = 0;
 
@@ -7655,6 +7658,7 @@ static void run_until_udf_return(void)
         if (*p == '\0') {
             current_line++;
             statement_pos = NULL;
+            inline_if_then_active = 0;
             continue;
         }
         statement_pos = p;
@@ -7670,6 +7674,7 @@ static void run_until_udf_return(void)
         if (*statement_pos == '\0') {
             current_line++;
             statement_pos = NULL;
+            inline_if_then_active = 0;
         }
     }
 }
@@ -8214,16 +8219,39 @@ static int eval_simple_condition(char **p)
         *p += 3;
         return !eval_simple_condition(p);
     }
-    /* Leading '(': either "(expr) relop rhs" e.g. (1+1)=2, or boolean group "(J=F OR ...)" */
+    /* Leading '(': either "(expr) relop rhs" e.g. (1+1)=2, or boolean group "(J=F OR ...)",
+     * or arithmetic grouping where the paren only scopes part of the left operand
+     * (e.g. (a+b) MOD c = 0 — the '(' closes before MOD, but MOD belongs to the left). */
     if (**p == '(') {
+        char *save_open = *p;
         char *after_open;
         (*p)++;
         after_open = *p;
         left = eval_expr(p);
         skip_spaces(p);
         if (**p == ')') {
+            char *peek;
             (*p)++;
             skip_spaces(p);
+            /* If the character after ')' is an arithmetic continuation
+             * (MOD, *, /, +, -, AND keyword consumed separately by caller, etc.)
+             * then the '(' was just grouping the first term of the left operand
+             * — rewind to before the '(' and re-parse the whole left expression.
+             * Relational ops (<, >, =) and end-of-condition markers (':', '\0',
+             * THEN, AND, OR) keep the original (expr) relop rhs shape. */
+            peek = *p;
+            if (*peek == '*' || *peek == '/' || *peek == '+' || *peek == '-') {
+                *p = save_open;
+                left = eval_expr(p);
+                skip_spaces(p);
+            } else if ((peek[0]|0x20) == 'm' && (peek[1]|0x20) == 'o' &&
+                       (peek[2]|0x20) == 'd' &&
+                       (peek[3] == ' ' || peek[3] == '\t' || peek[3] == '(' ||
+                        peek[3] == '\0' || peek[3] == ':')) {
+                *p = save_open;
+                left = eval_expr(p);
+                skip_spaces(p);
+            }
             op1 = **p;
             op2 = *(*p + 1);
             if (op1 == '<' || op1 == '>' || op1 == '=' ||
@@ -10246,6 +10274,40 @@ static void skip_while_to_wend(char **p)
     runtime_error_hint("WEND expected", "WHILE … WEND blocks must close with WEND; check nesting.");
 }
 
+/* inline_if_then_active is declared earlier (near statement_pos) so the
+ * run loop can reset it at line transitions. Incremented when
+ * statement_if takes the THEN branch AND an ELSE follows on the same
+ * line; decremented when statement_else is reached. Resets at every
+ * line transition so a short-circuit (GOTO, END, runtime error inside
+ * the THEN half) doesn't leak across lines. */
+
+/* Find start of the ELSE keyword at the same syntactic level in the
+ * remainder of a single line. Skips string literals. Does not track
+ * nested inline IFs — a nested `IF ... THEN ... ELSE ...` inside the
+ * THEN branch will make the outer IF pair with the inner ELSE. Use
+ * block IF/ELSE/END IF for those cases. */
+static char *find_inline_else(char *start)
+{
+    char *p = start;
+    while (*p) {
+        if (*p == '"') {
+            p++;
+            while (*p && *p != '"') p++;
+            if (*p == '"') p++;
+            continue;
+        }
+        if ((p[0]|0x20) == 'e' && (p[1]|0x20) == 'l' &&
+            (p[2]|0x20) == 's' && (p[3]|0x20) == 'e' &&
+            (p[4] == '\0' || p[4] == ' ' || p[4] == '\t' || p[4] == ':')) {
+            if (p == start || p[-1] == ' ' || p[-1] == '\t' || p[-1] == ':') {
+                return p;
+            }
+        }
+        p++;
+    }
+    return NULL;
+}
+
 static void statement_if(char **p)
 {
     int cond_true;
@@ -10273,9 +10335,26 @@ static void statement_if(char **p)
         }
         return;
     }
+    /* Inline single-line IF: check for ELSE on the same line so we can
+     * route execution correctly. When the condition is false we want to
+     * skip to after ELSE (or end-of-line if absent); when true we let
+     * the rest of the line run, and statement_else will stop execution
+     * at the ELSE boundary via inline_if_then_active. */
     if (!cond_true) {
+        char *el = find_inline_else(*p);
+        if (el) {
+            *p = el + 4;
+            skip_spaces(p);
+            statement_pos = *p;
+            return;
+        }
         *p += strlen(*p);
         return;
+    }
+    /* cond_true: if an ELSE follows on this line, arm the counter so the
+     * ELSE statement short-circuits to end-of-line instead of erroring. */
+    if (find_inline_else(*p) != NULL) {
+        inline_if_then_active++;
     }
     if (isdigit((unsigned char)**p)) {
         int target;
@@ -10301,6 +10380,13 @@ static void statement_if(char **p)
 
 static void statement_else(char **p)
 {
+    if (inline_if_then_active > 0) {
+        /* THEN branch of an inline `IF … THEN … ELSE …` reached ELSE
+         * — consume the rest of the line to skip the ELSE half. */
+        inline_if_then_active--;
+        *p += strlen(*p);
+        return;
+    }
     if (if_depth <= 0) {
         runtime_error_hint("ELSE without IF", "ELSE belongs inside a block IF … THEN … ELSE … END IF.");
         return;
