@@ -2806,7 +2806,9 @@ enum func_code {
      * (rising edge — returns 1 exactly once per press). */
     FN_KEYDOWN = 69,
     FN_KEYUP = 70,
-    FN_KEYPRESS = 71
+    FN_KEYPRESS = 71,
+    /* Time-based animation frame selector. */
+    FN_ANIMFRAME = 72
 };
 
 /* Report an error and halt further execution.
@@ -3940,6 +3942,9 @@ static int function_lookup(const char *name, int len)
     case 'A':
         if (len == 3 && name[0] == 'A' && name[1] == 'B' && name[2] == 'S') return FN_ABS;
         if (len == 3 && name[0] == 'A' && name[1] == 'S' && name[2] == 'C') return FN_ASC;
+        if (len == 9 && name[0] == 'A' && name[1] == 'N' && name[2] == 'I' && name[3] == 'M' &&
+            name[4] == 'F' && name[5] == 'R' && name[6] == 'A' && name[7] == 'M' && name[8] == 'E')
+            return FN_ANIMFRAME;
         if (len == 4 && name[0] == 'A' && name[1] == 'R' && name[2] == 'G' && name[3] == 'C') return FN_ARGC;
         if ((len == 3 && name[0] == 'A' && name[1] == 'R' && name[2] == 'G') ||
             (len == 4 && name[0] == 'A' && name[1] == 'R' && name[2] == 'G' && name[3] == '$')) return FN_ARG;
@@ -6639,6 +6644,45 @@ static struct value eval_function(const char *name, char **p)
         if (code == FN_KEYUP) down = !down;
         return make_num((double)down);
     }
+    if (code == FN_ANIMFRAME) {
+        /* ANIMFRAME(first, last, jiffies_per_frame)
+         * Returns a 1-based frame index cycling between first and last
+         * (inclusive), advancing every `jiffies_per_frame` ticks. Uses
+         * gfx_vs->ticks60 when present (basic-gfx / canvas WASM) or
+         * wall-clock-derived jiffies in the terminal build. */
+        struct value va, vb, vc;
+        int first, last, per, span, idx;
+        uint32_t t;
+        skip_spaces(p);
+        va = eval_expr(p); ensure_num(&va); first = (int)va.num;
+        skip_spaces(p);
+        if (**p != ',') { runtime_error_hint("ANIMFRAME expects first, last, jiffies_per_frame", NULL); return make_num(0.0); }
+        (*p)++; skip_spaces(p);
+        vb = eval_expr(p); ensure_num(&vb); last = (int)vb.num;
+        skip_spaces(p);
+        if (**p != ',') { runtime_error_hint("ANIMFRAME expects first, last, jiffies_per_frame", NULL); return make_num(0.0); }
+        (*p)++; skip_spaces(p);
+        vc = eval_expr(p); ensure_num(&vc); per = (int)vc.num;
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("Missing ')'", "ANIMFRAME(first, last, jiffies_per_frame)");
+            return make_num(0.0);
+        }
+        (*p)++; skip_spaces(p);
+        if (per <= 0) per = 1;
+        span = last - first + 1;
+        if (span <= 0) return make_num((double)first);
+#ifdef GFX_VIDEO
+        if (gfx_vs) {
+            t = gfx_vs->ticks60;
+        } else
+#endif
+        {
+            t = (uint32_t)((unsigned long)time(NULL) * 60u);
+        }
+        idx = first + (int)((t / (uint32_t)per) % (uint32_t)span);
+        return make_num((double)idx);
+    }
     if (code == FN_SPRITEFRAME) {
         struct value vs;
         int slot, fr;
@@ -8298,7 +8342,7 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "ISMOUSEOVERSPRITE") ||
             starts_with_kw(*p, "BUFFERLEN") || starts_with_kw(*p, "BUFFERPATH") ||
             starts_with_kw(*p, "KEYDOWN") || starts_with_kw(*p, "KEYUP") ||
-            starts_with_kw(*p, "KEYPRESS") ||
+            starts_with_kw(*p, "KEYPRESS") || starts_with_kw(*p, "ANIMFRAME") ||
             starts_with_two_words(*p, "SPRITE", "FRAMES") ||
             starts_with_two_words(*p, "TILE", "COUNT") ||
             starts_with_two_words(*p, "SHEET", "COLS") ||
