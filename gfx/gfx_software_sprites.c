@@ -207,9 +207,11 @@ void gfx_sprite_enqueue_draw(int slot, float x, float y, int z, int sx, int sy, 
     c.sh = sh;
     (void)sprite_q_push(&c);
 
-    /* Hit-test cache (see gfx_raylib.c for rationale). */
+    /* Hit-test cache (see gfx_raylib.c for rationale). Apply SPRITEMODULATE
+     * scale so the cached rect matches the rendered destination. */
     {
         int rw = sw, rh = sh;
+        float msx, msy;
         if (rw <= 0 || rh <= 0) {
             int tsx, tsy, tsw, tsh;
             tsx = sx; tsy = sy; tsw = rw; tsh = rh;
@@ -218,10 +220,14 @@ void gfx_sprite_enqueue_draw(int slot, float x, float y, int z, int sx, int sy, 
                 if (rh <= 0) rh = tsh;
             }
         }
+        msx = g_sprite_slots[slot].mod_sx;
+        msy = g_sprite_slots[slot].mod_sy;
+        if (msx <= 0.0f) msx = 1.0f;
+        if (msy <= 0.0f) msy = 1.0f;
         g_sprite_draw_pos[slot].x = x;
         g_sprite_draw_pos[slot].y = y;
-        g_sprite_draw_pos[slot].w = rw > 0 ? rw : 0;
-        g_sprite_draw_pos[slot].h = rh > 0 ? rh : 0;
+        g_sprite_draw_pos[slot].w = rw > 0 ? (int)((float)rw * msx + 0.5f) : 0;
+        g_sprite_draw_pos[slot].h = rh > 0 ? (int)((float)rh * msy + 0.5f) : 0;
         g_sprite_draw_pos[slot].z = z;
         g_sprite_draw_pos[slot].has_draw = (rw > 0 && rh > 0) ? 1 : 0;
     }
