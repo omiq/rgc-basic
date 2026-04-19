@@ -470,6 +470,201 @@ common case with three lines of BASIC.
   Heavier work (per-statement bookkeeping in `execute_statement`);
   log but don't ship until a concrete use case appears.
 
+## Dictionary intrinsics — Tier 2 record storage (proposed, 2026-04-19)
+
+Unlock hash tables, config blobs, linked lists, small databases
+without committing to full `TYPE`/`END TYPE` struct grammar. Slot-based
+API mirrors the existing sprite / image / buffer conventions.
+
+### Capacity — no 256-entry cap
+
+- **Slots:** 64 concurrent dicts (namespace, not capacity).
+- **Keys per slot:** **unbounded in practice** — backed by a
+  heap-grown chained hash map. Grows until the process runs out of
+  memory. Browser WASM already has `-s ALLOW_MEMORY_GROWTH=1`
+  (`Makefile:122`), so the linear heap expands to browser limits
+  (modern Chrome/Firefox: ~2 GB per tab). Target ≥1M entries at small
+  key/value sizes.
+- **Value per entry (normal API):** up to `MAX_STR_LEN` (4096 default;
+  `#OPTION maxstr` only reduces this — deliberate).
+- **Value per entry (buffer-backed API):** up to the size of the
+  referenced BUFFER slot — lets you stash HTTP payloads, images, big
+  JSON blobs keyed against a short string without the 4 KB ceiling.
+- **Key length:** up to `MAX_STR_LEN` when set from BASIC.
+
+### Statements
+
+| Statement | Effect |
+|-----------|--------|
+| **`DICT NEW slot`** | Allocate an empty dict in `slot` (0..63). Replaces any existing dict in the same slot. |
+| **`DICT FREE slot`** | Release all entries + free the slot. |
+| **`DICT SET slot, key$, value$`** | Insert or replace the string value at `key`. Overwrites silently. |
+| **`DICT SETBUFFER slot, key$, buffer_slot`** | Insert/replace a buffer-backed value — the dict stores a reference to the BUFFER slot. |
+| **`DICT DELETE slot, key$`** | Remove the entry for `key` if present. No-op if missing. |
+| **`DICT CLEAR slot`** | Remove every entry but keep the slot allocated. |
+| **`DICT SAVE slot, "path"`** | Serialize slot to disk as JSON (`{"key":"value",...}`). Buffer-backed values write their bytes inline (base64 optional, decide in impl). |
+| **`DICT LOAD slot, "path"`** | Replace slot contents by parsing a JSON object from `path`. |
+| **`DICT ITER slot`** | Rewind an iterator cursor on the slot. |
+
+### Functions
+
+| Function | Returns | Notes |
+|----------|---------|-------|
+| **`DICT$(slot, key$)`** | string | Value at `key`, or `""` if missing. String-typed API (`VAL` to numeric as needed). |
+| **`DICTGETBUFFER(slot, key$)`** | number | BUFFER slot number referenced by `key`, or `-1` if not buffer-backed / missing. |
+| **`DICTHAS(slot, key$)`** | number | `1` if the key exists, `0` otherwise. Distinguishes "missing" from "set to empty string". |
+| **`DICTLEN(slot)`** | number | Current entry count. |
+| **`DICT NEXT(slot, keyvar$, valvar$)`** | number | Iterator step. Advances the cursor set by `DICT ITER`, writes the next key/value into the supplied string vars, returns `1` if an entry was written, `0` when exhausted. O(1) memory — no snapshot. |
+
+### Iteration patterns
+
+Single-entry iterator (large-dict safe):
+
+```basic
+DICT ITER 1
+DO WHILE DICT NEXT(1, K$, V$)
+  PRINT K$; " = "; V$
+LOOP
+```
+
+Key-array snapshot (when you need random access by index; costs
+O(N) memory for the key list):
+
+```basic
+' Available once FOREACH + DICTKEYS$ land
+FOREACH K$ IN DICTKEYS$(1)
+  PRINT K$; " = "; DICT$(1, K$)
+NEXT K$
+```
+
+The snapshot path is optional extra API; the single-entry iterator
+is mandatory and the scaling-safe default.
+
+### Linked list via chained slots
+
+Pattern for user-built linked lists (no native list type needed):
+
+```basic
+' Each node lives in its own dict slot. "next" holds the slot
+' number of the following node, or -1 at the tail.
+FUNCTION NewNode(value$)
+  SLOT = FindFreeSlot()              ' scan DICTLEN(s) style
+  DICT NEW SLOT
+  DICT SET SLOT, "value", value$
+  DICT SET SLOT, "next",  "-1"
+  RETURN SLOT
+END FUNCTION
+```
+
+Fragile (relies on user-level slot bookkeeping) but workable for
+tutorial-grade linked lists. A future Tier 3 `TYPE` with pointer-
+style references would make this cleaner — revisit if demand shows up.
+
+### Implementation sketch
+
+- `GfxDictSlot`:
+  ```c
+  typedef struct DictEntry {
+      char *key;                  /* heap; free on delete */
+      char *value;                /* heap; NULL if buffer-backed */
+      int   buffer_slot;          /* -1 unless buffer-backed */
+      struct DictEntry *next;     /* bucket chain */
+  } DictEntry;
+
+  typedef struct {
+      int loaded;
+      size_t nbuckets;            /* grow by 2x when load factor > 0.75 */
+      size_t nentries;
+      DictEntry **buckets;
+      /* iterator cursor */
+      size_t it_bucket;
+      DictEntry *it_node;
+  } GfxDictSlot;
+  ```
+- Hash: FNV-1a on key bytes (simple, fast, good enough for our scale).
+- Grow: resize-in-place at load factor 0.75, rehash all.
+- File format for `DICT SAVE`: JSON object, one key per line for
+  diff-friendliness; values are quoted strings, buffer-backed entries
+  emit a conventional wrapper like `{"$buf": <length>, "$data": "..."}`.
+- New file: `gfx/rgc_dict.c` + `.h`. Does NOT depend on GFX — linked
+  into terminal `basic` too so dicts work everywhere.
+
+### Tests
+
+- `tests/dict_basic.bas` — NEW / SET / GET / DELETE / HAS / LEN
+- `tests/dict_iter.bas` — ITER + NEXT across an empty, 1-entry, and
+  10k-entry dict (timed via `TICKUS()` once that lands)
+- `tests/dict_collision.bas` — force many keys to same bucket
+- `tests/dict_saveload.bas` — round-trip via DICT SAVE / DICT LOAD
+- `tests/dict_buffer.bas` — SETBUFFER + GETBUFFER with a real buffer
+
+### Dicts ARE pseudo-structs (why Tier 3 is deferred)
+
+rgc-basic has no strict typing — `VAL` / `STR$` bridge numeric and
+string freely — and `SPLIT` already converts delimited strings into
+arrays. Stack that with Tier 2 dicts and the "struct" shape falls out
+naturally:
+
+**A single instance** — dict-as-record:
+
+```basic
+DICT NEW 1
+DICT SET 1, "name", "Alice"
+DICT SET 1, "hp",   "100"
+DICT SET 1, "x",    "50"
+DICT SET 1, "y",    "50"
+
+' Read back — dict values are strings, VAL() for numerics.
+HP = VAL(DICT$(1, "hp"))
+```
+
+**An array of records** — compound keys in one slot, or a slot per
+instance:
+
+```basic
+' Compound keys ("<index>.<field>") in slot 1 = single-dict form.
+' Works cleanly with FOREACH over a fixed index range.
+DICT NEW 1
+FOR I = 0 TO N - 1
+  DICT SET 1, STR$(I) + ".name", "Player " + STR$(I)
+  DICT SET 1, STR$(I) + ".hp",   "100"
+NEXT I
+
+' Or: slot-per-instance, links via "next" key = linked list / tree.
+' See the NewNode() sketch above.
+```
+
+**Packed record via `SPLIT`** — saves N `DICT SET` calls if you
+already have a CSV-shaped string:
+
+```basic
+DICT SET 1, "player0", "Alice,100,50,50"
+SPLIT DICT$(1, "player0"), "," INTO F$
+PRINT F$(0); " HP="; VAL(F$(1))
+```
+
+The three patterns cover field access, arrays-of-records, and
+serialisation without adding grammar. Tier 3 (`TYPE` / dotted fields /
+by-ref args) remains worth it only when a concrete example shows the
+dict/SPLIT idiom becomes materially harder to read or too slow in a
+per-frame loop. Until then, Tier 2 plus the existing SPLIT/JOIN +
+VAL/STR$ bridge IS the struct system.
+
+### Deferred (Tier 3 trigger)
+
+If any of these actually come up:
+
+- **Dotted-field syntax** (`p.hp`, `p.name$`) — the moment readable
+  code demands it.
+- **By-ref FUNCTION arguments** — needed for non-trivial mutation
+  patterns inside helpers.
+- **Arrays of records** (`DIM party(10) AS Player`) — when iteration
+  over N homogeneous records of M fields becomes too awkward with
+  parallel arrays or compound-keyed dicts.
+
+Revisit full `TYPE` / `END TYPE` at that point. Until then, Tier 2
+dicts + existing parallel arrays cover the space.
+
 Dropped from the original proposal:
 - ~~`SCREEN OFFSET`, `SCREEN ZONE`, `SCREEN SCROLL`~~ — `IMAGE COPY`
   already covers scrolling and parallax; see
