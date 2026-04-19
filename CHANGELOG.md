@@ -1,5 +1,44 @@
 ## Changelog
 
+### 1.9.3 – 2026-04-19
+
+**`FILEEXISTS` + `DOWNLOAD` + WASM-raylib IMAGE GRAB fix.**
+
+- **WASM-raylib deadlock fix.** `IMAGE GRAB` in the browser (raylib
+  backend, the default) hung the tab because it tried to `pthread_cond_wait`
+  for the render thread to service the grab — but browser WASM is
+  single-threaded (Asyncify), so nothing could ever signal the CV.
+  `gfx_grab_visible_rgba` now takes an `#ifdef __EMSCRIPTEN__` inline
+  path that runs `LoadImageFromTexture(g_wasm_target)` from the
+  interpreter directly — the most recent `VSYNC` already composited
+  the target, so its pixels are current. The readback helper is shared
+  with the desktop render-thread service.
+
+- **`FILEEXISTS(path$)` intrinsic.** Returns `1` if `path$` opens for
+  reading, `0` otherwise. Works against MEMFS in browser WASM and the
+  host filesystem natively. Pairs cleanly with `IMAGE SAVE` so programs
+  can verify the write landed before telling the user / triggering a
+  download:
+
+  ```basic
+  IMAGE SAVE 1, P$
+  IF FILEEXISTS(P$) THEN PRINT "SAVED: "; P$ : DOWNLOAD P$
+  ```
+
+- **`DOWNLOAD path$` statement.** Browser WASM reads the file from
+  MEMFS, wraps the bytes in a `Blob` with a guessed MIME type (png /
+  bmp / jpg / gif / wav / txt / bas → `image/png`, etc.), creates an
+  object URL, and fires a synthetic click on an `<a download>` anchor —
+  the user gets a real file on disk. Kept as a separate statement
+  (not folded into `IMAGE SAVE`) so per-frame recorders can write 300
+  frames to MEMFS without spamming 300 download prompts. On native
+  builds it's a no-op that prints a one-shot hint on stderr.
+
+- **`examples/gfx_screenshot_demo.bas` updated** to verify with
+  `FILEEXISTS` after `IMAGE SAVE` and call `DOWNLOAD` on success.
+  Prints `SAVED: screenshot_0001.png` (or `SAVE FAILED:` on error) as
+  on-screen confirmation.
+
 ### 1.9.2 – 2026-04-19
 
 **IMAGE GRAB + IMAGE SAVE: full-colour PNG screenshots / video frames.**

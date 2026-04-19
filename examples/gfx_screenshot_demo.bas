@@ -50,14 +50,22 @@ END
 
 TakeScreenshot:
   ' One VSYNC ensures the frame being saved includes the current
-  ' sprite and text. Grab services on the render thread, reads the
-  ' composited target, writes RGBA into slot 1. SAVE picks PNG from
-  ' the .png extension and writes the slot's RGBA buffer direct.
+  ' sprite and text. Grab services on the render thread (desktop) or
+  ' runs inline (WASM). SAVE picks PNG from the .png extension and
+  ' writes the slot's RGBA buffer directly.
   VSYNC
   IMAGE GRAB 1, 0, 0, 320, 200
   SHOT = SHOT + 1
   PATH$ = "screenshot_" + RIGHT$("0000" + STR$(SHOT), 4) + ".png"
   IMAGE SAVE 1, PATH$
+  ' Verify it actually landed and tell the user.
+  IF FILEEXISTS(PATH$) THEN
+    ' Trigger a browser download in WASM; no-op on native.
+    DOWNLOAD PATH$
+    PRINT "{HOME}SAVED: "; PATH$; "              "
+  ELSE
+    PRINT "{HOME}{RED}SAVE FAILED:{WHITE} "; PATH$; "   "
+  END IF
   ' Small debounce so a held key doesn't fire 60 shots/sec
   FOR D = 1 TO 20 : VSYNC : NEXT D
 RETURN

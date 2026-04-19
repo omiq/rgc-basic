@@ -40,13 +40,22 @@ QuickBASIC `PAINT` with tile brush; modern raylib `DrawTexturePoly`.
   cells, full palette and alpha. Desktop basic-gfx reads back the
   raylib RenderTexture on the render thread (interpreter cond_waits).
   Canvas WASM composites CPU-side via `gfx_canvas_render_full_frame`.
+  WASM-raylib does an inline `LoadImageFromTexture` on `g_wasm_target`
+  — no cond_wait (asyncify is single-threaded, cond_wait would deadlock).
   `IMAGE SAVE` auto-routes on extension: `.png` = 32-bit RGBA (prefers
   the RGBA buffer from GRAB if present; otherwise slot 0 resolves via
   current `COLOR`/`BACKGROUND`, slots 1..31 become a transparent-off
   mask); anything else = 24-bit BMP (RGBA slots are alpha-premultiplied
-  on write since BMP has no alpha channel). Remaining gap: WASM-raylib
-  build still falls through to legacy 1bpp copy — needs a parallel
-  render-thread grab hook when that becomes the default web renderer.
+  on write since BMP has no alpha channel).
+- `FILEEXISTS(path$)` intrinsic (shipped): 1 if the path is openable
+  for reading, 0 otherwise. Works against MEMFS in browser WASM and the
+  host filesystem natively — idiomatic post-save verification:
+  `IMAGE SAVE 1, P$ : IF FILEEXISTS(P$) THEN PRINT "SAVED"; DOWNLOAD P$`.
+- `DOWNLOAD path$` statement (shipped): in browser WASM, reads MEMFS
+  and triggers an `<a download>` click with a guessed MIME type so the
+  file actually lands on the user's disk. On native builds it's a
+  no-op (prints a one-shot hint on stderr) — real files are already
+  on the host filesystem.
 
 Dropped from the original proposal:
 - ~~`SCREEN OFFSET`, `SCREEN ZONE`, `SCREEN SCROLL`~~ — `IMAGE COPY`
