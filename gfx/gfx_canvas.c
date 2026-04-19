@@ -117,7 +117,7 @@ static void render_bitmap_layer(const GfxVideoState *s, uint8_t *rgba, int fb_w,
             if (dx < 0 || dx >= fb_w || dy < 0 || dy >= fb_h) {
                 continue;
             }
-            on = gfx_bitmap_get_pixel(s, (unsigned)x, (unsigned)y);
+            on = gfx_bitmap_get_show_pixel(s, (unsigned)x, (unsigned)y);
             off = ((size_t)dy * (size_t)fb_w + (size_t)dx) * 4u;
             if (on) {
                 rgba[off + 0] = fg_rgb[0];

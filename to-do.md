@@ -974,7 +974,63 @@ Surfaced while rewriting old-style `examples/*.bas` into modern form (labels, `F
 - **`POKE` is a no-op in terminal `basic`** (functional only in `basic-gfx`). Terminal demos that illustrated screen RAM pokes can't be directly modernised without a `basic-gfx` dependency — the `gfx_poke_demo.bas` remains `basic-gfx`-only.
 - **`CLS` clears screen but not colour state.** Modernised files that set `COLOR`/`BACKGROUND` once at the top then `CLS` mid-program keep the previous palette, which is usually what's wanted; flag if that ever surprises.
 
-## Bitmap plane not double-buffered (2026-04-19)
+## Bitmap plane double-buffer — SHIPPED 1.9.5 (2026-04-19)
+
+`DOUBLEBUFFER ON` / `DOUBLEBUFFER OFF` now exposes a bitmap-plane
+back-buffer. BASIC writes to `bitmap[]` as before; the renderer reads
+`bitmap_show[]` when the mode is on, and `VSYNC` atomically flips
+(memcpys build → show). Default OFF keeps CBM-era programs working
+unchanged. Combined with the always-double-buffered cell list, the
+canonical per-frame pattern no longer flickers. Example:
+`examples/gfx_doublebuffer_demo.bas`. See 1.9.5 CHANGELOG entry.
+
+Remaining gaps moved to follow-up work below.
+
+## Multiple screen buffers (proposed, next 2026-04-19)
+
+Now that the bitmap plane has one back-buffer, the natural extension
+is user-selectable buffers: draw into one while another displays,
+flip, draw in a third, etc. Use cases:
+
+- AMOS-style **dual playfield**: static world pre-rendered into one
+  buffer, dynamic overlays drawn into another each frame.
+- **Flipbook animation**: pre-render N keyframes, cycle which one
+  is shown.
+- **Triple-buffer** for expensive composites that can't finish in one
+  jiffy — draw in buffer 2 over several frames while 0 displays.
+
+### API sketch
+
+```basic
+SCREEN BUFFER n            ' allocate bitmap buffer slot `n` (0..7)
+SCREEN DRAW   n            ' subsequent bitmap writes target buffer `n`
+SCREEN SHOW   n            ' display buffer `n` (flip target)
+SCREEN FREE   n            ' release buffer `n`
+SCREEN SWAP   a, b         ' atomic swap DRAW and SHOW indices
+```
+
+- Buffer 0 is the current `bitmap` (always present).
+- Buffer 1 is the existing `bitmap_show` back-buffer (auto-allocated
+  when `DOUBLEBUFFER ON`).
+- Buffers 2..7 are caller-allocated `SCREEN BUFFER n` — each is a
+  `GFX_BITMAP_BYTES` block on heap.
+- Write path: every BASIC bitmap statement (`PSET`, `LINE`, `RECT`,
+  `CLS`, `DRAWTEXT`, ...) indexes the draw buffer instead of the
+  fixed `bitmap[]`. Single indirection.
+- Display path: renderer reads the show buffer.
+- `DOUBLEBUFFER ON` reinterpreted as `SCREEN BUFFER 1 : SCREEN DRAW 0 : SCREEN SHOW 1`
+  plus auto-flip on VSYNC. Keeps source backwards compatible.
+
+### Implementation cost
+
+Medium. Changes: one pointer indirection for every bitmap statement
+(already localised in `gfx_bitmap_get_pixel` / `gfx_bitmap_set_pixel`
+in `gfx_video.c`), a small `uint8_t *screen_buffers[MAX_SB]` table
+on `GfxVideoState`, and the new `SCREEN BUFFER/DRAW/SHOW/FREE/SWAP`
+dispatch in `basic.c`. Tests per spawn/swap/free scenario. Plan to
+ship alongside or just after music/sound work.
+
+## Bitmap plane not double-buffered — historical note (2026-04-19, shipped)
 
 `VSYNC` (`gfx_raylib.c:578 gfx_cells_flip`) only flips the cell list used by `SPRITE STAMP` and `TILEMAP DRAW`. The bitmap plane — everything written by `CLS`, `RECT`, `FILLRECT`, `FILLCIRCLE`, `CIRCLE`, `LINE`, `PSET`, `ELLIPSE`, `TRIANGLE`, `FILLTRIANGLE`, `POLYGON`, `DRAWTEXT` — writes direct to the single displayed texture, so the renderer can sample mid-update. Programs that `CLS` + redraw the whole scene each tick flicker; `gfx_ball_demo.bas` (2026-04-19) is the canonical repro.
 

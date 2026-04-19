@@ -1623,7 +1623,9 @@ static void render_bitmap_screen(const GfxVideoState *s, RenderTexture2D target,
             continue;
         }
         for (x = 0; x < (int)GFX_BITMAP_WIDTH; x++) {
-            int on = gfx_bitmap_get_pixel(s, (unsigned)x, (unsigned)y);
+            /* Display plane: reads bitmap_show[] when the program
+             * enabled DOUBLEBUFFER ON, otherwise bitmap[]. */
+            int on = gfx_bitmap_get_show_pixel(s, (unsigned)x, (unsigned)y);
             int px = off_x + x - sx;
             if (px < 0 || px >= fb_w) {
                 continue;

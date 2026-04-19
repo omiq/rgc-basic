@@ -1,5 +1,49 @@
 ## Changelog
 
+### 1.9.5 – 2026-04-19
+
+**Bitmap-plane double-buffering (`DOUBLEBUFFER ON | OFF`).**
+
+The bitmap plane now has a committed back-buffer. With `DOUBLEBUFFER
+ON`, BASIC keeps drawing to `bitmap[]` but the renderer displays
+`bitmap_show[]`; `VSYNC` `memcpy`s build → show atomically. Combined
+with the always-double-buffered sprite cell list, a canonical per-
+frame loop
+
+```basic
+DOUBLEBUFFER ON
+DO
+  CLS
+  FILLCIRCLE BX, BY, BR
+  DRAWTEXT 12, 182, "BOUNCES " + STR$(BOUNCES)
+  SPRITE STAMP 0, PX, PY, 0, 10
+  VSYNC
+LOOP
+```
+
+never shows a half-drawn frame — no more partial-erase idiom required
+for simple scenes. See `examples/gfx_doublebuffer_demo.bas` (SPACE
+toggles the mode in-flight so you can see the flicker disappear).
+
+Mechanics:
+
+- New `bitmap_show[GFX_BITMAP_BYTES]` + `double_buffer` flag on
+  `GfxVideoState`.
+- Two new `gfx/gfx_video.c` helpers: `gfx_bitmap_get_show_pixel`
+  (renderer-side reader) and `gfx_video_bitmap_flip` (build → show
+  memcpy; no-op when disabled).
+- Renderers in `gfx_raylib.c` (desktop + WASM-raylib) and
+  `gfx_canvas.c` (canvas WASM) read via the new show-pixel helper.
+- `VSYNC` now calls both `gfx_cells_flip` and `gfx_video_bitmap_flip`
+  so the two planes commit as one unit.
+- Default is **OFF** so CBM-era "draw-as-you-go" programs keep
+  working unchanged. Enabling eagerly promotes the current bitmap
+  into `bitmap_show` so the first frame isn't blank.
+
+Still queued (in `to-do.md`): user-selectable **screen buffers** —
+multiple bitmap planes selectable for draw-target vs display (AMOS
+dual-playfield / flipbook / triple-buffer use cases).
+
 ### 1.9.4 – 2026-04-19
 
 **Compound assignment + increment / decrement.**

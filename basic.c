@@ -2730,6 +2730,9 @@ static void statement_join(char **p);
 static void statement_open(char **p);
 static void statement_close(char **p);
 static void statement_download(char **p);
+#ifdef GFX_VIDEO
+static void statement_doublebuffer(char **p);
+#endif
 static void statement_print_hash(char **p);
 static void statement_input_hash(char **p);
 static void statement_get_hash(char **p);
@@ -3111,7 +3114,7 @@ static const char *const reserved_words[] = {
     "FILLRECT", "CIRCLE", "FILLCIRCLE", "ELLIPSE", "FILLELLIPSE", "TRIANGLE", "FILLTRIANGLE", "FLOODFILL", "POLYGON", "FILLPOLYGON", "VSYNC", "ANTIALIAS",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
-    "DRAWSPRITE", "DRAWSPRITETILE", "DRAWTEXT", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
+    "DOUBLEBUFFER", "DRAWSPRITE", "DRAWSPRITETILE", "DRAWTEXT", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
     "DO", "LOOP", "UNTIL", "EXIT",
     "GETBYTE",
     /* Named colour constants (C64 palette 0-15) and boolean/math constants */
@@ -5865,12 +5868,63 @@ static void statement_antialias(char **p)
  *     DRAWSPRITE ...
  *     VSYNC                : REM commit the frame, wait one tick
  *     GOTO loop */
+#ifdef GFX_VIDEO
+/* DOUBLEBUFFER ON | OFF — toggle bitmap-plane double-buffering.
+ *
+ *  OFF (default): renderer reads `bitmap[]` live. PSET / LINE / CLS /
+ *  etc. become visible as they run — matches CBM BASIC v2 semantics
+ *  and avoids surprising legacy programs.
+ *
+ *  ON: renderer reads `bitmap_show[]`. BASIC still writes to
+ *  `bitmap[]`, but the display only updates when the program calls
+ *  VSYNC — which memcpys `bitmap` to `bitmap_show`. Combined with
+ *  the always-double-buffered sprite cell list, a full
+ *      CLS : RECT ... : FILLCIRCLE ... : DRAWTEXT ... : SPRITE STAMP ... : VSYNC
+ *  loop never shows a half-drawn frame.
+ *
+ *  Switching from OFF to ON eagerly copies the current bitmap into
+ *  the show plane so the first frame isn't blank. */
+static void statement_doublebuffer(char **p)
+{
+    int want;
+    skip_spaces(p);
+    if (starts_with_kw(*p, "ON")) {
+        *p += 2;
+        want = 1;
+    } else if (starts_with_kw(*p, "OFF")) {
+        *p += 3;
+        want = 0;
+    } else {
+        runtime_error_hint("DOUBLEBUFFER expects ON or OFF",
+                             "Usage: DOUBLEBUFFER ON | DOUBLEBUFFER OFF");
+        return;
+    }
+    skip_spaces(p);
+    if (!gfx_vs) {
+        runtime_error_hint("DOUBLEBUFFER requires basic-gfx or canvas WASM", NULL);
+        return;
+    }
+    if (want && !gfx_vs->double_buffer) {
+        memcpy(gfx_vs->bitmap_show, gfx_vs->bitmap, sizeof(gfx_vs->bitmap));
+    }
+    gfx_vs->double_buffer = (uint8_t)want;
+}
+#endif
+
 static void statement_vsync(char **p)
 {
     (void)p;
 #ifdef GFX_VIDEO
     if (gfx_vs) {
+        /* Atomic frame commit: flip the cell list (SPRITE STAMP /
+         * TILEMAP DRAW) AND the bitmap plane (when DOUBLEBUFFER ON).
+         * The two-plane commit means a program that does
+         *   CLS : FILLCIRCLE ... : DRAWTEXT ... : VSYNC
+         * never shows a half-drawn frame. `gfx_video_bitmap_flip` is
+         * a no-op when double_buffer is 0, so legacy single-buffered
+         * programs see no behaviour change. */
         gfx_cells_flip();
+        gfx_video_bitmap_flip(gfx_vs);
     }
 #endif
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
@@ -12650,6 +12704,13 @@ static void execute_statement(char **p)
             statement_download(p);
             return;
         }
+#ifdef GFX_VIDEO
+        if (starts_with_kw(*p, "DOUBLEBUFFER")) {
+            *p += 12;
+            statement_doublebuffer(p);
+            return;
+        }
+#endif
         if (starts_with_kw(*p, "DO")) {
             *p += 2;
             statement_do(p);
