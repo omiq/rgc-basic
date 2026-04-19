@@ -1,52 +1,51 @@
-REM --- Paste into canvas.html; click canvas before GET tests ---
-REM --- Use Stop if a phase hangs; note which phase in bug reports ---
+' Canvas-WASM hang probe — runs tight string work that has previously
+' stalled the browser main thread. Should finish with "OK B" on every build.
+' Paste into canvas.html and click Run. If it freezes, note the phase
+' in the bug report; other phases are kept commented below for quick triage.
 
-REM Phase A: GET echo (one key per line; should NOT skip prompts)
-REM 10 PRINT "PHASE A: type 3 keys (e.g. a b c), each should print once"
-REM 20 GET K$
-REM 30 IF K$="" THEN 20
-REM 40 PRINT K$
-REM 50 GOTO 20
+' --- Phase B: MID$ x2000 — exercises the trek-style SRS inner loop ---
+PRINT "PHASE B: MID$ x2000 - should finish without freezing"
+Q$ = STRING$(200, "x")
+FOR I = 1 TO 2000
+  A$ = MID$(Q$, 1, 1)
+NEXT I
+PRINT "OK B"
 
-REM Phase B2: string concat like trek GOSUB 5440 (LEFT$+A$+RIGHT$)
-REM 10 Q$=STRING$(190," ")
-REM 20 A$="   "
-REM 30 FOR I=1 TO 400
-REM 40 Q$=LEFT$(Q$,80)+A$+RIGHT$(Q$,107)
-REM 50 NEXT I
-REM 60 PRINT "OK B2"
-REM 70 END
+' --- Alternative phases (uncomment one at a time to triage) ------------
 
-REM Phase B: MID$ storm (similar workload to trek SRS inner loop)
-10 PRINT "PHASE B: MID$ x2000 — should finish without freezing"
-20 Q$=STRING$(200,"x")
-30 FOR I=1 TO 2000
-40 A$=MID$(Q$,1,1)
-50 NEXT I
-60 PRINT "OK B"
-70 END
+' ' Phase A: GET echo (one key per line; should NOT skip prompts)
+' PRINT "PHASE A: type 3 keys (e.g. a b c), each should print once"
+' DO
+'   GET K$
+'   IF K$ <> "" THEN PRINT K$
+'   SLEEP 1
+' LOOP
 
-REM Phase C: STRING$ + PRINT (gfx_put_byte yields)
-REM 10 PRINT "PHASE C: long PRINT"
-REM 20 PRINT STRING$(3000,".")
-REM 30 PRINT "OK C"
-REM 40 END
+' ' Phase B2: string concat like trek GOSUB 5440 (LEFT$ + A$ + RIGHT$)
+' Q$ = STRING$(190, " ")
+' A$ = "   "
+' FOR I = 1 TO 400
+'   Q$ = LEFT$(Q$, 80) + A$ + RIGHT$(Q$, 107)
+' NEXT I
+' PRINT "OK B2"
 
-REM Phase D: tight FOR no PRINT (statement-level yields only)
-REM 10 PRINT "PHASE D: FOR 2M POKE only"
-REM 20 FOR I=1 TO 2000000
-REM 30 POKE 1024,(I AND 255)
-REM 40 NEXT I
-REM 50 PRINT "OK D"
-REM 60 END
+' ' Phase C: STRING$ + PRINT (gfx_put_byte yields)
+' PRINT "PHASE C: long PRINT"
+' PRINT STRING$(3000, ".")
+' PRINT "OK C"
 
-REM Phase F: nested FOR + DIM + PRINT (see examples/nested_dim_print.bas)
-REM Same idea as user IDE repro; if only canvas hangs, suspect missing yields on path.
+' ' Phase D: tight FOR with no PRINT (statement-level yields only)
+' PRINT "PHASE D: FOR 2M POKE only"
+' FOR I = 1 TO 2000000
+'   POKE 1024, (I AND 255)
+' NEXT I
+' PRINT "OK D"
 
-REM Phase E: trek-style GET loop (press RETURN to exit)
-REM 10 PRINT "PHASE E: press RETURN once to continue"
-REM 20 GET K$
-REM 30 IF K$="" THEN 20
-REM 40 IF ASC(K$)<>13 THEN 20
-REM 50 PRINT "OK E"
-REM 60 END
+' ' Phase E: trek-style GET loop (press RETURN to exit)
+' PRINT "PHASE E: press RETURN once to continue"
+' DO
+'   GET K$
+'   IF K$ <> "" AND ASC(K$) = 13 THEN EXIT
+'   SLEEP 1
+' LOOP
+' PRINT "OK E"

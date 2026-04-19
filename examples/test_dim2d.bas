@@ -1,14 +1,15 @@
-10 DIM A(2,3)
-20 FOR I=0 TO 1
-30 FOR J=0 TO 2
-40 A(I,J)=I*10+J
-50 NEXT J
-60 NEXT I
-70 FOR I=0 TO 1
-80 FOR J=0 TO 2
-90 PRINT I;",";J;"=";A(I,J)
-100 NEXT J
-110 NEXT I
-120 END
+' 2-D array DIM/assign/read demo
 
+DIM A(2, 3)
 
+FOR I = 0 TO 1
+  FOR J = 0 TO 2
+    A(I, J) = I * 10 + J
+  NEXT J
+NEXT I
+
+FOR I = 0 TO 1
+  FOR J = 0 TO 2
+    PRINT I; ","; J; "="; A(I, J)
+  NEXT J
+NEXT I

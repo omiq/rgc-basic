@@ -1,0 +1,7 @@
+{
+  // RGC-BASIC uses ' for line comments (like VB). Default BASIC grammars often
+  // do not; use vb until a dedicated TextMate grammar / extension exists.
+  "files.associations": {
+    "*.bas": "vb"
+  }
+}

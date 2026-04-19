@@ -336,3 +336,38 @@ Result so far: programs that `PRINT` a HUD, score, or status line in `SCREEN 1` 
 
 * **Resolved open questions** (from the spec): PETSCII normalisation applies only to the character-set path (inherits from PRINT's existing flow); `DRAWTEXT` never normalises. Cursor in bitmap mode is a no-op for now — character-set-scope only, trivial XOR-stamp revival if anyone asks. 80-col is text-mode only; bitmap character-set path is forever 40×25.
 
+## Modernisation-pass syntax gaps (2026-04-19)
+
+Surfaced while rewriting old-style `examples/*.bas` into modern form (labels, `FUNCTION`, `DO/LOOP`, `COLOR`/`BACKGROUND`/`CLS`). Not blockers — noted so future examples can be even cleaner.
+
+- **No standalone `REVERSE ON`/`REVERSE OFF` statement.** Programs still emit reverse video via `PRINT CHR$(18)`/`CHR$(146)` or the `{RVS ON}`/`{RVS OFF}` string tokens. A first-class statement would match the `COLOR`/`BACKGROUND`/`CLS` ergonomics.
+- **`COLOR`/`BACKGROUND` take only numeric index (0–15).** No named form (e.g. `COLOR RED`). The `{RED}` token works inside strings, but a bare `COLOR RED` would read better in modernised examples.
+- **`FUNCTION` has no `LOCAL` vars, no `EXIT FUNCTION`, no optional params** (documented non-goals for v1 in `docs/user-functions-plan.md`). Examples that want early-return from a helper still need an `IF/END IF` wrap.
+- **`POKE` is a no-op in terminal `basic`** (functional only in `basic-gfx`). Terminal demos that illustrated screen RAM pokes can't be directly modernised without a `basic-gfx` dependency — the `gfx_poke_demo.bas` remains `basic-gfx`-only.
+- **`CLS` clears screen but not colour state.** Modernised files that set `COLOR`/`BACKGROUND` once at the top then `CLS` mid-program keep the previous palette, which is usually what's wanted; flag if that ever surprises.
+
+## Bitmap plane not double-buffered (2026-04-19)
+
+`VSYNC` (`gfx_raylib.c:578 gfx_cells_flip`) only flips the cell list used by `SPRITE STAMP` and `TILEMAP DRAW`. The bitmap plane — everything written by `CLS`, `RECT`, `FILLRECT`, `FILLCIRCLE`, `CIRCLE`, `LINE`, `PSET`, `ELLIPSE`, `TRIANGLE`, `FILLTRIANGLE`, `POLYGON`, `DRAWTEXT` — writes direct to the single displayed texture, so the renderer can sample mid-update. Programs that `CLS` + redraw the whole scene each tick flicker; `gfx_ball_demo.bas` (2026-04-19) is the canonical repro.
+
+Options:
+
+1. **Double-buffer the bitmap plane** (proper fix). Matches the cell-list model: BASIC writes to `bitmap_build`, renderer reads from `bitmap_show`, `gfx_cells_flip` (or a parallel `gfx_bitmap_flip`) copies build→show under the sprite mutex. Lets the existing `CLS` + full-redraw pattern work without flicker.
+2. **Document the "partial erase" idiom** (interim workaround, already in `gfx_hud_demo` / `gfx_showcase`): avoid full `CLS` inside the loop, `FILLRECT` only the changed regions. Readable for small HUDs, awkward for anything bigger.
+
+### Proposed: `CLS` with optional clear-rectangle
+
+Extend `CLS` to accept an optional pixel region so partial erase is as ergonomic as a full clear, using the current paper colour:
+
+```basic
+CLS                                 ' full-screen clear (unchanged)
+CLS x, y TO x2, y2                  ' clear rectangle in current PAPER/BACKGROUND
+```
+
+Implementation sketch:
+
+- `statement_cls` already takes `(char **p)` but currently ignores it; parse optional `x, y TO x2, y2` after the keyword.
+- Delegate to `gfx_video_fill_rect_bg` (or equivalent) so the existing paper colour logic is reused — no new colour arg needed.
+- Terminal build: fall back to clearing just that many character cells via ANSI, or ignore the region and clear-screen as today.
+- Reads naturally alongside `FILLRECT`: `CLS` = paper colour; `FILLRECT` = pen colour.
+
