@@ -151,6 +151,93 @@ void gfx_video_init(GfxVideoState *s)
     s->screen_mode = GFX_SCREEN_TEXT;
     s->scroll_x = 0;
     s->scroll_y = 0;
+    /* Multi-plane table: slots 0 and 1 always reference the inline bitmaps;
+     * slots 2..7 are empty until SCREEN BUFFER n allocates them. Defaults
+     * match pre-multiplane behaviour (draw and show both target bitmap[]). */
+    s->screen_buffers[0] = s->bitmap;
+    s->screen_buffers[1] = s->bitmap_show;
+    s->screen_draw = 0;
+    s->screen_show = 0;
+}
+
+uint8_t *gfx_video_draw_plane(GfxVideoState *s)
+{
+    uint8_t *p;
+    if (!s) return NULL;
+    p = s->screen_buffers[s->screen_draw & (GFX_MAX_SCREEN_BUFFERS - 1u)];
+    return p ? p : s->bitmap;
+}
+
+const uint8_t *gfx_video_show_plane(const GfxVideoState *s)
+{
+    const uint8_t *p;
+    if (!s) return NULL;
+    p = s->screen_buffers[s->screen_show & (GFX_MAX_SCREEN_BUFFERS - 1u)];
+    return p ? p : s->bitmap;
+}
+
+int gfx_video_screen_buffer_alloc(GfxVideoState *s, int slot)
+{
+    if (!s) return -1;
+    if (slot < 2 || slot >= (int)GFX_MAX_SCREEN_BUFFERS) return -1;
+    if (s->screen_buffers[slot]) return 0;             /* already live */
+    s->screen_buffers[slot] = (uint8_t *)calloc(GFX_BITMAP_BYTES, 1u);
+    if (!s->screen_buffers[slot]) return -1;
+    s->screen_buffer_owned[slot] = 1u;
+    return 0;
+}
+
+int gfx_video_screen_buffer_free(GfxVideoState *s, int slot)
+{
+    if (!s) return -1;
+    if (slot < 2 || slot >= (int)GFX_MAX_SCREEN_BUFFERS) return -1;
+    if ((int)s->screen_draw == slot || (int)s->screen_show == slot) return -1;
+    if (s->screen_buffer_owned[slot] && s->screen_buffers[slot]) {
+        free(s->screen_buffers[slot]);
+    }
+    s->screen_buffers[slot] = NULL;
+    s->screen_buffer_owned[slot] = 0u;
+    return 0;
+}
+
+int gfx_video_screen_set_draw(GfxVideoState *s, int slot)
+{
+    if (!s) return -1;
+    if (slot < 0 || slot >= (int)GFX_MAX_SCREEN_BUFFERS) return -1;
+    if (!s->screen_buffers[slot]) return -1;
+    s->screen_draw = (uint8_t)slot;
+    return 0;
+}
+
+int gfx_video_screen_set_show(GfxVideoState *s, int slot)
+{
+    if (!s) return -1;
+    if (slot < 0 || slot >= (int)GFX_MAX_SCREEN_BUFFERS) return -1;
+    if (!s->screen_buffers[slot]) return -1;
+    s->screen_show = (uint8_t)slot;
+    return 0;
+}
+
+int gfx_video_screen_swap(GfxVideoState *s, int draw_slot, int show_slot)
+{
+    if (!s) return -1;
+    if (draw_slot < 0 || draw_slot >= (int)GFX_MAX_SCREEN_BUFFERS) return -1;
+    if (show_slot < 0 || show_slot >= (int)GFX_MAX_SCREEN_BUFFERS) return -1;
+    if (!s->screen_buffers[draw_slot] || !s->screen_buffers[show_slot]) return -1;
+    s->screen_draw = (uint8_t)draw_slot;
+    s->screen_show = (uint8_t)show_slot;
+    return 0;
+}
+
+int gfx_video_screen_copy(GfxVideoState *s, int src, int dst)
+{
+    if (!s) return -1;
+    if (src < 0 || src >= (int)GFX_MAX_SCREEN_BUFFERS) return -1;
+    if (dst < 0 || dst >= (int)GFX_MAX_SCREEN_BUFFERS) return -1;
+    if (!s->screen_buffers[src] || !s->screen_buffers[dst]) return -1;
+    if (src == dst) return 0;
+    memcpy(s->screen_buffers[dst], s->screen_buffers[src], GFX_BITMAP_BYTES);
+    return 0;
 }
 
 void gfx_video_clear(GfxVideoState *s)
@@ -199,7 +286,8 @@ static uint8_t peek_bitmap(const GfxVideoState *s, uint16_t addr)
 {
     uint16_t offset = addr - s->mem_bitmap;
     if (offset < GFX_BITMAP_BYTES) {
-        return s->bitmap[offset];
+        const uint8_t *plane = s->screen_buffers[s->screen_draw];
+        return (plane ? plane : s->bitmap)[offset];
     }
     return 0;
 }
@@ -303,7 +391,8 @@ static void poke_bitmap(GfxVideoState *s, uint16_t addr, uint8_t value)
 {
     uint16_t offset = addr - s->mem_bitmap;
     if (offset < GFX_BITMAP_BYTES) {
-        s->bitmap[offset] = value;
+        uint8_t *plane = s->screen_buffers[s->screen_draw];
+        (plane ? plane : s->bitmap)[offset] = value;
     }
 }
 
@@ -345,13 +434,16 @@ void gfx_poke(GfxVideoState *s, uint16_t addr, uint8_t value)
 int gfx_bitmap_get_pixel(const GfxVideoState *s, unsigned x, unsigned y)
 {
     unsigned byte_off, bit;
+    const uint8_t *plane;
 
     if (!s) return 0;
     if (x >= GFX_BITMAP_WIDTH || y >= GFX_BITMAP_HEIGHT) return 0;
     byte_off = y * (GFX_BITMAP_WIDTH / 8u) + (x / 8u);
     if (byte_off >= GFX_BITMAP_BYTES) return 0;
     bit = 7u - (x % 8u);
-    return (s->bitmap[byte_off] >> bit) & 1u;
+    plane = s->screen_buffers[s->screen_draw];
+    if (!plane) plane = s->bitmap;
+    return (plane[byte_off] >> bit) & 1u;
 }
 
 int gfx_bitmap_get_show_pixel(const GfxVideoState *s, unsigned x, unsigned y)
@@ -364,15 +456,21 @@ int gfx_bitmap_get_show_pixel(const GfxVideoState *s, unsigned x, unsigned y)
     byte_off = y * (GFX_BITMAP_WIDTH / 8u) + (x / 8u);
     if (byte_off >= GFX_BITMAP_BYTES) return 0;
     bit = 7u - (x % 8u);
-    src = s->double_buffer ? s->bitmap_show : s->bitmap;
+    src = gfx_video_show_plane(s);
+    if (!src) src = s->bitmap;
     return (src[byte_off] >> bit) & 1u;
 }
 
 void gfx_video_bitmap_flip(GfxVideoState *s)
 {
+    uint8_t *draw, *show;
     if (!s) return;
     if (!s->double_buffer) return;
-    memcpy(s->bitmap_show, s->bitmap, sizeof(s->bitmap));
+    if (s->screen_draw == s->screen_show) return;
+    draw = s->screen_buffers[s->screen_draw];
+    show = s->screen_buffers[s->screen_show];
+    if (!draw || !show) return;
+    memcpy(show, draw, GFX_BITMAP_BYTES);
 }
 
 void gfx_bitmap_set_pixel(GfxVideoState *s, int x, int y, int on)
@@ -380,6 +478,7 @@ void gfx_bitmap_set_pixel(GfxVideoState *s, int x, int y, int on)
     unsigned byte_off, bit;
     unsigned ux, uy;
     uint8_t mask;
+    uint8_t *plane;
 
     if (!s) return;
     if (x < 0 || y < 0) return;
@@ -390,17 +489,22 @@ void gfx_bitmap_set_pixel(GfxVideoState *s, int x, int y, int on)
     if (byte_off >= GFX_BITMAP_BYTES) return;
     bit = 7u - (ux % 8u);
     mask = (uint8_t)(1u << bit);
+    plane = gfx_video_draw_plane(s);
+    if (!plane) return;
     if (on) {
-        s->bitmap[byte_off] |= mask;
+        plane[byte_off] |= mask;
     } else {
-        s->bitmap[byte_off] &= (uint8_t)~mask;
+        plane[byte_off] &= (uint8_t)~mask;
     }
 }
 
 void gfx_video_bitmap_clear(GfxVideoState *s)
 {
+    uint8_t *plane;
     if (!s) return;
-    memset(s->bitmap, 0, sizeof(s->bitmap));
+    plane = gfx_video_draw_plane(s);
+    if (!plane) return;
+    memset(plane, 0, GFX_BITMAP_BYTES);
 }
 
 /* Character-set-in-bitmap-mode glyph stamper.
@@ -423,9 +527,12 @@ void gfx_video_bitmap_stamp_glyph_px(GfxVideoState *s,
                                      uint8_t screencode)
 {
     const uint8_t *glyph;
+    uint8_t *plane;
     int gr;
     unsigned row_bytes = GFX_BITMAP_WIDTH / 8u;
     if (!s) return;
+    plane = gfx_video_draw_plane(s);
+    if (!plane) return;
     glyph = &s->chars[(unsigned)screencode * 8u];
     for (gr = 0; gr < 8; gr++) {
         int py = y + gr;
@@ -437,10 +544,42 @@ void gfx_video_bitmap_stamp_glyph_px(GfxVideoState *s,
         byte_off = (unsigned)py * row_bytes + (unsigned)byte_left_x;
         shift = x & 7;
         if (byte_left_x >= 0 && (unsigned)byte_left_x < row_bytes) {
-            s->bitmap[byte_off] |= (uint8_t)(bits >> shift);
+            plane[byte_off] |= (uint8_t)(bits >> shift);
         }
         if (shift != 0 && byte_left_x + 1 >= 0 && (unsigned)(byte_left_x + 1) < row_bytes) {
-            s->bitmap[byte_off + 1] |= (uint8_t)(bits << (8 - shift));
+            plane[byte_off + 1] |= (uint8_t)(bits << (8 - shift));
+        }
+    }
+}
+
+void gfx_video_bitmap_stamp_glyph_px_scaled(GfxVideoState *s,
+                                            int x, int y,
+                                            uint8_t screencode,
+                                            int scale)
+{
+    const uint8_t *glyph;
+    int gr, gc;
+    if (!s) return;
+    if (scale <= 1) { gfx_video_bitmap_stamp_glyph_px(s, x, y, screencode); return; }
+    if (scale > 8) scale = 8;
+    if (!gfx_video_draw_plane(s)) return;
+    glyph = &s->chars[(unsigned)screencode * 8u];
+    /* Per-source-pixel expansion: walk the 8x8 source, and for each set bit
+     * fill a scale×scale block via gfx_bitmap_set_pixel. Uses the current
+     * draw plane because set_pixel routes through it. */
+    for (gr = 0; gr < 8; gr++) {
+        uint8_t bits = glyph[gr];
+        for (gc = 0; gc < 8; gc++) {
+            if ((bits >> (7 - gc)) & 1u) {
+                int px0 = x + gc * scale;
+                int py0 = y + gr * scale;
+                int dx, dy;
+                for (dy = 0; dy < scale; dy++) {
+                    for (dx = 0; dx < scale; dx++) {
+                        gfx_bitmap_set_pixel(s, px0 + dx, py0 + dy, 1);
+                    }
+                }
+            }
         }
     }
 }
@@ -451,12 +590,15 @@ void gfx_video_bitmap_stamp_glyph(GfxVideoState *s,
                                   int solid_bg)
 {
     const uint8_t *glyph;
+    uint8_t *plane;
     int glyph_row;
 
     if (!s) return;
     if (col < 0 || col >= 40) return;
     if (row < 0 || row >= 25) return;
 
+    plane = gfx_video_draw_plane(s);
+    if (!plane) return;
     glyph = &s->chars[(unsigned)screencode * 8u];
 
     for (glyph_row = 0; glyph_row < 8; glyph_row++) {
@@ -465,9 +607,9 @@ void gfx_video_bitmap_stamp_glyph(GfxVideoState *s,
         uint8_t bits = glyph[glyph_row];
         if (byte_off >= GFX_BITMAP_BYTES) continue;
         if (solid_bg) {
-            s->bitmap[byte_off] = bits;
+            plane[byte_off] = bits;
         } else {
-            s->bitmap[byte_off] |= bits;
+            plane[byte_off] |= bits;
         }
     }
 }
@@ -485,10 +627,13 @@ void gfx_video_bitmap_scroll_up_cell(GfxVideoState *s)
     const size_t cell_rows  = 8u;
     const size_t cell_bytes = cell_rows * row_bytes;   /* 320 */
     const size_t keep_bytes = GFX_BITMAP_BYTES - cell_bytes; /* 7680 */
+    uint8_t *plane;
 
     if (!s) return;
-    memmove(&s->bitmap[0], &s->bitmap[cell_bytes], keep_bytes);
-    memset(&s->bitmap[keep_bytes], 0, cell_bytes);
+    plane = gfx_video_draw_plane(s);
+    if (!plane) return;
+    memmove(&plane[0], &plane[cell_bytes], keep_bytes);
+    memset(&plane[keep_bytes], 0, cell_bytes);
 }
 
 void gfx_bitmap_line(GfxVideoState *s, int x0, int y0, int x1, int y1, int on)
