@@ -324,9 +324,15 @@ void gfx_sprite_enqueue_draw(int slot, float x, float y, int z, int sx, int sy, 
     /* Mirror position into interpreter-thread cache for ISMOUSEOVERSPRITE.
      * sw/sh <= 0 means "use the slot's full sub-texture from (sx,sy)"; we
      * fall back to gfx_sprite_effective_source_rect to resolve that to a
-     * real size (grabs mutex internally, so don't hold any lock here). */
+     * real size (grabs mutex internally, so don't hold any lock here).
+     *
+     * The renderer draws at dest = (src_w * mod_sx, src_h * mod_sy) (see
+     * the DrawTexturePro call in gfx_sprite_render_cell_list), so the
+     * hit-test cache has to match that scale — otherwise the bbox hangs
+     * off the top-left and misses the visible pixels. */
     {
         int rw = sw, rh = sh;
+        float msx, msy;
         if (rw <= 0 || rh <= 0) {
             int tsx, tsy, tsw, tsh;
             tsx = sx; tsy = sy; tsw = rw; tsh = rh;
@@ -335,10 +341,16 @@ void gfx_sprite_enqueue_draw(int slot, float x, float y, int z, int sx, int sy, 
                 if (rh <= 0) rh = tsh;
             }
         }
+        pthread_mutex_lock(&g_sprite_mutex);
+        msx = g_sprite_slots[slot].mod_sx;
+        msy = g_sprite_slots[slot].mod_sy;
+        pthread_mutex_unlock(&g_sprite_mutex);
+        if (msx <= 0.0f) msx = 1.0f;
+        if (msy <= 0.0f) msy = 1.0f;
         g_sprite_draw_pos[slot].x = x;
         g_sprite_draw_pos[slot].y = y;
-        g_sprite_draw_pos[slot].w = rw > 0 ? rw : 0;
-        g_sprite_draw_pos[slot].h = rh > 0 ? rh : 0;
+        g_sprite_draw_pos[slot].w = rw > 0 ? (int)((float)rw * msx + 0.5f) : 0;
+        g_sprite_draw_pos[slot].h = rh > 0 ? (int)((float)rh * msy + 0.5f) : 0;
         g_sprite_draw_pos[slot].z = z;
         g_sprite_draw_pos[slot].has_draw = (rw > 0 && rh > 0) ? 1 : 0;
     }
@@ -1868,7 +1880,10 @@ int main(int argc, char **argv)
             if (!IsWindowFullscreen()) {
                 ToggleFullscreen();
             }
-            HideCursor();
+            /* Don't hide the system cursor automatically — programs that
+             * want a clean retro screen still call HIDECURSOR, but
+             * mouse-driven UIs (SPRITEAT drag-and-drop, menu buttons)
+             * need the pointer visible in fullscreen too. */
         }
     }
 
