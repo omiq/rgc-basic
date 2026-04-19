@@ -23,6 +23,41 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+/* stb_image_write (PNG/BMP/JPG writer). STATIC for the same symbol-
+ * collision reason as stb_image above. Only gfx_image_save_png uses
+ * it; keeping the writer file-local avoids double-definitions when
+ * raylib's libraylib.a also pulls the stbiw_ symbols in. */
+#define STB_IMAGE_WRITE_STATIC
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
+/* Local copy of the 16-entry C64 palette (RGBA). Mirrors the table in
+ * gfx_raylib.c:1337 so gfx_image_save_png can resolve indices without
+ * reaching across translation units (slot 0 palette lookup is the only
+ * caller). Keep in sync if the renderer's palette ever changes. */
+static const uint8_t c64_png_palette[16][4] = {
+    { 0x00, 0x00, 0x00, 0xFF },   /*  0  Black       */
+    { 0xFF, 0xFF, 0xFF, 0xFF },   /*  1  White       */
+    { 0x88, 0x00, 0x00, 0xFF },   /*  2  Red         */
+    { 0xAA, 0xFF, 0xEE, 0xFF },   /*  3  Cyan        */
+    { 0xCC, 0x44, 0xCC, 0xFF },   /*  4  Purple      */
+    { 0x00, 0xCC, 0x55, 0xFF },   /*  5  Green       */
+    { 0x00, 0x00, 0xAA, 0xFF },   /*  6  Blue        */
+    { 0xEE, 0xEE, 0x77, 0xFF },   /*  7  Yellow      */
+    { 0xDD, 0x88, 0x55, 0xFF },   /*  8  Orange      */
+    { 0x66, 0x44, 0x00, 0xFF },   /*  9  Brown       */
+    { 0xFF, 0x77, 0x77, 0xFF },   /* 10  Light Red   */
+    { 0x33, 0x33, 0x33, 0xFF },   /* 11  Dark Gray   */
+    { 0x77, 0x77, 0x77, 0xFF },   /* 12  Medium Gray */
+    { 0xAA, 0xFF, 0x66, 0xFF },   /* 13  Light Green */
+    { 0x00, 0x88, 0xFF, 0xFF },   /* 14  Light Blue  */
+    { 0xBB, 0xBB, 0xBB, 0xFF },   /* 15  Light Gray  */
+};
+
+/* Remembered video state for slot-0 palette resolution. Populated by
+ * gfx_image_bind_visible; NULL before basic-gfx wires the state in. */
+static GfxVideoState *g_visible_state = NULL;
+
 static void bmp_put_u16(uint8_t *dst, uint16_t v)
 {
     dst[0] = (uint8_t)(v & 0xFF);
@@ -59,6 +94,7 @@ void gfx_image_bind_visible(GfxVideoState *s)
     sl->stride = s ? (int)(GFX_BITMAP_WIDTH / 8u) : 0;
     sl->pixels = s ? s->bitmap : NULL;
     sl->owned = 0;
+    g_visible_state = s;
 }
 
 int gfx_image_new(int slot, int w, int h)
@@ -263,6 +299,89 @@ int gfx_image_save_bmp(int slot, const char *path)
     free(row);
     fclose(f);
     return 0;
+}
+
+/* Does `path` end with ".png" (case-insensitive)? Used by gfx_image_save
+ * to route between PNG and BMP writers. */
+static int path_has_png_ext(const char *path)
+{
+    size_t n;
+    if (!path) return 0;
+    n = strlen(path);
+    if (n < 4) return 0;
+    {
+        char c0 = path[n - 4], c1 = path[n - 3], c2 = path[n - 2], c3 = path[n - 1];
+        if (c0 != '.') return 0;
+        if ((c1 == 'p' || c1 == 'P') &&
+            (c2 == 'n' || c2 == 'N') &&
+            (c3 == 'g' || c3 == 'G')) return 1;
+    }
+    return 0;
+}
+
+int gfx_image_save_png(int slot, const char *path)
+{
+    GfxImageSlot *sl;
+    uint8_t *rgba;
+    int w, h, x, y;
+    int rc;
+
+    if (slot < 0 || slot >= GFX_IMAGE_MAX_SLOTS) return -1;
+    sl = &g_slots[slot];
+    if (!sl->loaded || !sl->pixels) return -1;
+    if (!path || !path[0]) return -1;
+    w = sl->w;
+    h = sl->h;
+    if (w <= 0 || h <= 0) return -1;
+
+    rgba = (uint8_t *)malloc((size_t)w * (size_t)h * 4u);
+    if (!rgba) return -1;
+
+    if (slot == GFX_IMAGE_SLOT_VISIBLE && g_visible_state != NULL) {
+        /* Slot 0: resolve bitmap bit via current COLOR / BACKGROUND.
+         * Bitmap mode uses a single pen (bitmap_fg) and single paper
+         * (bg_color), matching render_bitmap_screen's output. Solid
+         * alpha = full screenshot of the bitmap plane.
+         * Sprites drawn this frame live in the cell list and aren't
+         * part of the bitmap buffer, so they are NOT in this PNG —
+         * use a compositor-side screenshot for full scene capture. */
+        const uint8_t *fg = c64_png_palette[g_visible_state->bitmap_fg & 0x0F];
+        const uint8_t *bg = c64_png_palette[g_visible_state->bg_color  & 0x0F];
+        for (y = 0; y < h; y++) {
+            for (x = 0; x < w; x++) {
+                int on = img_get_pixel(sl, x, y);
+                uint8_t *p = rgba + ((size_t)y * (size_t)w + (size_t)x) * 4u;
+                const uint8_t *c = on ? fg : bg;
+                p[0] = c[0]; p[1] = c[1]; p[2] = c[2]; p[3] = 0xFF;
+            }
+        }
+    } else {
+        /* Slots 1..31 (or slot 0 before video state is bound): treat
+         * as 1bpp mask. On = opaque white, off = fully transparent —
+         * exports cleanly as a reusable sprite/panel PNG. */
+        for (y = 0; y < h; y++) {
+            for (x = 0; x < w; x++) {
+                int on = img_get_pixel(sl, x, y);
+                uint8_t *p = rgba + ((size_t)y * (size_t)w + (size_t)x) * 4u;
+                if (on) {
+                    p[0] = 0xFF; p[1] = 0xFF; p[2] = 0xFF; p[3] = 0xFF;
+                } else {
+                    p[0] = 0x00; p[1] = 0x00; p[2] = 0x00; p[3] = 0x00;
+                }
+            }
+        }
+    }
+
+    rc = stbi_write_png(path, w, h, 4, rgba, w * 4);
+    free(rgba);
+    return rc ? 0 : -1;
+}
+
+int gfx_image_save(int slot, const char *path)
+{
+    if (!path || !path[0]) return -1;
+    if (path_has_png_ext(path)) return gfx_image_save_png(slot, path);
+    return gfx_image_save_bmp(slot, path);
 }
 
 int gfx_image_load(int slot, const char *path)

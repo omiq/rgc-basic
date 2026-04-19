@@ -34,8 +34,10 @@ QuickBASIC `PAINT` with tile brush; modern raylib `DrawTexturePoly`.
 - `TILE DRAW`, `TILE COUNT(...)`
 - `TILEMAP DRAW`
 - `SHEET COLS(...)`, `SHEET ROWS(...)`, `SHEET WIDTH(...)`, `SHEET HEIGHT(...)`
-- `IMAGE NEW`, `IMAGE FREE`, `IMAGE COPY` (shipped); `IMAGE SAVE`,
-  `IMAGE GRAB` (planned, Phase 2/3 of blitter spec)
+- `IMAGE NEW`, `IMAGE FREE`, `IMAGE COPY`, `IMAGE GRAB`, `IMAGE SAVE`
+  (shipped). `IMAGE SAVE` auto-routes on extension: `.png` = 32-bit
+  RGBA (slot 0 solid-alpha using current `COLOR`/`BACKGROUND`, slots
+  1..31 mask with transparent off-pixels); anything else = 24-bit BMP.
 
 Dropped from the original proposal:
 - ~~`SCREEN OFFSET`, `SCREEN ZONE`, `SCREEN SCROLL`~~ — `IMAGE COPY`
