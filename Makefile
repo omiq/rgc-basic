@@ -115,7 +115,7 @@ basic-wasm-raylib: $(RAYLIB_WEB_LIB)
 	$(EMCC) -w -O2 -s WASM=1 -DGFX_VIDEO -DGFX_USE_RAYLIB -Igfx -I$(RAYLIB_WEB_SRC) \
 		-s USE_GLFW=3 -s FULL_ES2=1 -s ALLOW_MEMORY_GROWTH=1 \
 		-s EXPORTED_FUNCTIONS='["_basic_apply_arg_string","_basic_load_and_run_gfx","_basic_load_and_run_gfx_argline","_wasm_push_key","_wasm_gfx_key_state_set","_wasm_gfx_key_state_clear","_wasm_gfx_key_state_ptr","_wasm_gamepad_buttons_ptr","_wasm_gamepad_axes_ptr","_malloc"]' \
-		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","HEAPU8","HEAP16","wasmMemory","getValue"]' \
+		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","HEAPU8","HEAP16","HEAPF32","wasmMemory","getValue"]' \
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
 		-s INITIAL_MEMORY=67108864 \
 		-s STACK_SIZE=524288 \
