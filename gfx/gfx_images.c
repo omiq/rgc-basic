@@ -74,8 +74,11 @@ static void bmp_put_u32(uint8_t *dst, uint32_t v)
 typedef struct {
     int loaded;
     int w, h;
-    int stride;      /* bytes per row = (w + 7) / 8 */
-    uint8_t *pixels; /* stride * h bytes */
+    int stride;      /* bytes per row = (w + 7) / 8 — 1bpp plane */
+    uint8_t *pixels; /* stride * h bytes; may be NULL if slot is RGBA-only */
+    uint8_t *rgba;   /* w * h * 4 bytes; NULL unless populated by IMAGE GRAB
+                      * from the composited framebuffer. Takes priority over
+                      * `pixels` in IMAGE SAVE paths. */
     int owned;       /* 1 = allocated by us (must free); 0 = borrowed (visible) */
 } GfxImageSlot;
 
@@ -88,6 +91,10 @@ void gfx_image_bind_visible(GfxVideoState *s)
         free(sl->pixels);
         sl->pixels = NULL;
     }
+    if (sl->rgba) {
+        free(sl->rgba);
+        sl->rgba = NULL;
+    }
     sl->loaded = (s != NULL);
     sl->w = s ? (int)GFX_BITMAP_WIDTH : 0;
     sl->h = s ? (int)GFX_BITMAP_HEIGHT : 0;
@@ -95,6 +102,42 @@ void gfx_image_bind_visible(GfxVideoState *s)
     sl->pixels = s ? s->bitmap : NULL;
     sl->owned = 0;
     g_visible_state = s;
+}
+
+/* Allocate an RGBA buffer for a slot. Replaces any existing RGBA buffer
+ * AND existing 1bpp buffer (slot becomes RGBA-only). Used by IMAGE GRAB
+ * against the visible framebuffer (via the render-thread grab in
+ * gfx_raylib.c) so the captured frame keeps sprites + full palette + alpha. */
+int gfx_image_new_rgba(int slot, int w, int h)
+{
+    GfxImageSlot *sl;
+    if (slot <= GFX_IMAGE_SLOT_VISIBLE || slot >= GFX_IMAGE_MAX_SLOTS) return -1;
+    if (w <= 0 || h <= 0) return -1;
+    sl = &g_slots[slot];
+    if (sl->owned && sl->pixels) { free(sl->pixels); sl->pixels = NULL; }
+    if (sl->rgba) { free(sl->rgba); sl->rgba = NULL; }
+    sl->rgba = (uint8_t *)calloc((size_t)w * (size_t)h * 4u, 1);
+    if (!sl->rgba) { sl->loaded = 0; return -1; }
+    sl->loaded = 1;
+    sl->w = w;
+    sl->h = h;
+    sl->stride = 0;                 /* no 1bpp plane */
+    sl->owned = 1;
+    return 0;
+}
+
+uint8_t *gfx_image_rgba_buffer(int slot)
+{
+    if (slot < 0 || slot >= GFX_IMAGE_MAX_SLOTS) return NULL;
+    return g_slots[slot].rgba;
+}
+
+/* Backends (gfx_canvas.c, gfx_raylib.c) need the video state handle
+ * during gfx_grab_visible_rgba. Expose what was cached at bind time
+ * rather than routing a second pointer through every call site. */
+struct GfxVideoState *gfx_image_get_visible_state(void)
+{
+    return g_visible_state;
 }
 
 int gfx_image_new(int slot, int w, int h)
@@ -129,7 +172,9 @@ int gfx_image_free(int slot)
     if (slot == GFX_IMAGE_SLOT_VISIBLE) return 0; /* never free visible */
     sl = &g_slots[slot];
     if (sl->owned && sl->pixels) free(sl->pixels);
+    if (sl->rgba) free(sl->rgba);
     sl->pixels = NULL;
+    sl->rgba = NULL;
     sl->loaded = 0;
     sl->w = sl->h = sl->stride = 0;
     sl->owned = 0;
@@ -253,7 +298,7 @@ int gfx_image_save_bmp(int slot, const char *path)
 
     if (slot < 0 || slot >= GFX_IMAGE_MAX_SLOTS) return -1;
     sl = &g_slots[slot];
-    if (!sl->loaded || !sl->pixels) return -1;
+    if (!sl->loaded || (!sl->pixels && !sl->rgba)) return -1;
     if (!path || !path[0]) return -1;
     w = sl->w;
     h = sl->h;
@@ -282,14 +327,30 @@ int gfx_image_save_bmp(int slot, const char *path)
     }
     row = (uint8_t *)calloc((size_t)padded, 1);
     if (!row) { fclose(f); return -1; }
-    /* BMP rows are written bottom-up. */
+    /* BMP rows are written bottom-up. Prefer the RGBA buffer if a grab
+     * populated it (alpha is flattened onto the file's implicit black
+     * background — 24-bit BMP has no alpha channel). Fallback to the
+     * 1bpp pen=white/off=black expansion. */
     for (y = h - 1; y >= 0; y--) {
-        for (x = 0; x < w; x++) {
-            int on = img_get_pixel(sl, x, y);
-            uint8_t v = on ? 0xFF : 0x00;
-            row[x * 3 + 0] = v; /* B */
-            row[x * 3 + 1] = v; /* G */
-            row[x * 3 + 2] = v; /* R */
+        if (sl->rgba) {
+            const uint8_t *src = sl->rgba + (size_t)y * (size_t)w * 4u;
+            for (x = 0; x < w; x++) {
+                uint8_t r = src[x * 4 + 0];
+                uint8_t g = src[x * 4 + 1];
+                uint8_t b = src[x * 4 + 2];
+                uint8_t a = src[x * 4 + 3];
+                row[x * 3 + 0] = (uint8_t)((b * a) / 255); /* B */
+                row[x * 3 + 1] = (uint8_t)((g * a) / 255); /* G */
+                row[x * 3 + 2] = (uint8_t)((r * a) / 255); /* R */
+            }
+        } else {
+            for (x = 0; x < w; x++) {
+                int on = img_get_pixel(sl, x, y);
+                uint8_t v = on ? 0xFF : 0x00;
+                row[x * 3 + 0] = v;
+                row[x * 3 + 1] = v;
+                row[x * 3 + 2] = v;
+            }
         }
         if (fwrite(row, 1, (size_t)padded, f) != (size_t)padded) {
             free(row); fclose(f);
@@ -328,11 +389,19 @@ int gfx_image_save_png(int slot, const char *path)
 
     if (slot < 0 || slot >= GFX_IMAGE_MAX_SLOTS) return -1;
     sl = &g_slots[slot];
-    if (!sl->loaded || !sl->pixels) return -1;
+    if (!sl->loaded || (!sl->pixels && !sl->rgba)) return -1;
     if (!path || !path[0]) return -1;
     w = sl->w;
     h = sl->h;
     if (w <= 0 || h <= 0) return -1;
+
+    /* Fast path: slot already holds RGBA (populated by IMAGE GRAB of
+     * the visible framebuffer). Write it direct — full colour + alpha,
+     * sprites included. */
+    if (sl->rgba) {
+        rc = stbi_write_png(path, w, h, 4, sl->rgba, w * 4);
+        return rc ? 0 : -1;
+    }
 
     rgba = (uint8_t *)malloc((size_t)w * (size_t)h * 4u);
     if (!rgba) return -1;

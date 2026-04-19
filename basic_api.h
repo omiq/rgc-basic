@@ -114,6 +114,16 @@ int gfx_image_save_bmp(int slot, const char *path);
 int gfx_image_save_png(int slot, const char *path);
 int gfx_image_save(int slot, const char *path);
 int gfx_image_load(int slot, const char *path);
+int gfx_image_new_rgba(int slot, int w, int h);
+unsigned char *gfx_image_rgba_buffer(int slot);
+
+/* Request a synchronous grab of a region of the currently-displayed
+ * framebuffer (visible slot 0) into slot. Blocks the caller (interpreter
+ * thread) until the render thread fulfils the grab with the fully
+ * composited frame — bitmap + text + sprites + tilemap cells all
+ * included, full palette + alpha. Returns 0 on success, -1 otherwise.
+ * Desktop basic-gfx only; other builds should use the 1bpp fallback. */
+int gfx_grab_visible_rgba(int slot, int sx, int sy, int sw, int sh);
 
 /* ANTIALIAS toggle (raylib only). Sets the texture-filter mode used
  * by subsequently-loaded sprites and the render target. 0 = nearest

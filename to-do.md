@@ -35,9 +35,18 @@ QuickBASIC `PAINT` with tile brush; modern raylib `DrawTexturePoly`.
 - `TILEMAP DRAW`
 - `SHEET COLS(...)`, `SHEET ROWS(...)`, `SHEET WIDTH(...)`, `SHEET HEIGHT(...)`
 - `IMAGE NEW`, `IMAGE FREE`, `IMAGE COPY`, `IMAGE GRAB`, `IMAGE SAVE`
-  (shipped). `IMAGE SAVE` auto-routes on extension: `.png` = 32-bit
-  RGBA (slot 0 solid-alpha using current `COLOR`/`BACKGROUND`, slots
-  1..31 mask with transparent off-pixels); anything else = 24-bit BMP.
+  (shipped). `IMAGE GRAB` from the visible framebuffer captures the
+  fully-composited frame as RGBA — bitmap + text + sprites + tilemap
+  cells, full palette and alpha. Desktop basic-gfx reads back the
+  raylib RenderTexture on the render thread (interpreter cond_waits).
+  Canvas WASM composites CPU-side via `gfx_canvas_render_full_frame`.
+  `IMAGE SAVE` auto-routes on extension: `.png` = 32-bit RGBA (prefers
+  the RGBA buffer from GRAB if present; otherwise slot 0 resolves via
+  current `COLOR`/`BACKGROUND`, slots 1..31 become a transparent-off
+  mask); anything else = 24-bit BMP (RGBA slots are alpha-premultiplied
+  on write since BMP has no alpha channel). Remaining gap: WASM-raylib
+  build still falls through to legacy 1bpp copy — needs a parallel
+  render-thread grab hook when that becomes the default web renderer.
 
 Dropped from the original proposal:
 - ~~`SCREEN OFFSET`, `SCREEN ZONE`, `SCREEN SCROLL`~~ — `IMAGE COPY`

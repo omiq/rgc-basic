@@ -26,6 +26,23 @@ void gfx_image_bind_visible(GfxVideoState *s);
  * Replaces whatever was there. Returns 0 on success, -1 on bad args. */
 int gfx_image_new(int slot, int w, int h);
 
+/* Allocate an RGBA surface (w * h * 4 bytes) in the given slot.
+ * Replaces whatever was there — the slot becomes RGBA-only (its 1bpp
+ * buffer is freed). Caller fills via gfx_image_rgba_buffer() — used by
+ * the render-thread grab in gfx_raylib.c. */
+int gfx_image_new_rgba(int slot, int w, int h);
+
+/* Direct pointer to a slot's RGBA buffer (NULL if the slot has none).
+ * Used by gfx_raylib.c's render-thread grab to memcpy from the
+ * composited RenderTexture into the slot. */
+uint8_t *gfx_image_rgba_buffer(int slot);
+
+/* Opaque pointer to the GfxVideoState last bound by gfx_image_bind_visible.
+ * Backends call this from gfx_grab_visible_rgba. Forward-declared so
+ * callers that don't need the full gfx_video.h keep include surface small. */
+struct GfxVideoState;
+struct GfxVideoState *gfx_image_get_visible_state(void);
+
 /* Free an off-screen surface. Slot 0 is a no-op; never frees the visible
  * bitmap. Returns 0 on success, -1 if slot out of range. */
 int gfx_image_free(int slot);

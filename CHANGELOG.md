@@ -1,5 +1,65 @@
 ## Changelog
 
+### 1.9.2 – 2026-04-19
+
+**IMAGE GRAB + IMAGE SAVE: full-colour PNG screenshots / video frames.**
+
+- **`IMAGE GRAB slot, sx, sy, sw, sh` now captures the composited
+  framebuffer as RGBA** — bitmap plane + text plane + sprites +
+  tilemap cells, full 16-colour palette with alpha. Previously the
+  grab was a 1bpp copy of the bitmap plane, which dropped colour and
+  sprites entirely.
+  - **Desktop basic-gfx:** interpreter posts a grab request under a
+    new mutex/cond var (`g_grab_mtx` / `g_grab_cv` in `gfx_raylib.c`);
+    the render thread, right after `gfx_sprite_composite_range`, reads
+    back the RenderTexture via `LoadImageFromTexture`, y-flips to match
+    top-left coords, and memcpys the sub-rect into the slot's new RGBA
+    buffer. Worst-case block ≈ one display frame (~16 ms).
+  - **Canvas WASM:** single-threaded, so the grab composites inline via
+    `gfx_canvas_render_full_frame` (already used by the normal renderer)
+    and crops into the slot. No mutex needed.
+  - **WASM-raylib build:** not yet wired — falls through to the legacy
+    1bpp copy. Planned alongside that backend becoming the default web
+    renderer.
+
+- **`IMAGE SAVE slot, "path"` auto-routes on extension.** `.png` writes
+  32-bit RGBA; anything else keeps the existing 24-bit BMP writer.
+  The PNG path is extension-insensitive (`.PNG` / `.Png` / `.png` all
+  work) and uses a file-scope-static `stb_image_write` so linking
+  against `libraylib.a` (which also pulls `stbiw_*` symbols) stays
+  collision-free.
+  - **RGBA grab:** PNG writes the buffer directly — composited frame,
+    alpha preserved.
+  - **Slot 0 without a grab:** falls back to the current-palette
+    resolve (on-pixel = `bitmap_fg` entry in the palette, off-pixel =
+    `bg_color`, alpha = 255).
+  - **Slots 1..31 that are still 1bpp:** written as a transparent-off
+    mask (on = opaque white, off = `rgba(0,0,0,0)`).
+  - **BMP on an RGBA slot:** premultiplies alpha against black (BMP has
+    no alpha channel), keeping existing behaviour for the mono path.
+
+- **Video / animated-GIF pipeline.** Grab one frame per tick, save as
+  sequenced PNGs, feed to ffmpeg. See the new
+  `examples/gfx_screenshot_demo.bas` for a single-key screenshot capture
+  plus a commented-out per-frame recorder block.
+
+- **Slot model:** `GfxImageSlot` gained an optional `rgba` buffer
+  alongside the existing 1bpp `pixels` buffer. `gfx_image_new_rgba`
+  allocates (used by the grab path); `gfx_image_free` releases both.
+  `gfx_image_get_visible_state()` now exposes the cached video-state
+  pointer so backends can reach it during a grab without re-routing the
+  handle through every call site.
+
+- **Renames / new API surface:** `gfx_grab_visible_rgba`,
+  `gfx_image_save_png`, `gfx_image_save` (extension dispatcher),
+  `gfx_image_new_rgba`, `gfx_image_rgba_buffer`,
+  `gfx_image_get_visible_state`. All declared in `basic_api.h`.
+
+- **to-do.md:** IMAGE GRAB / IMAGE SAVE entries moved from "planned"
+  to shipped; new note on bitmap-plane flicker (VSYNC covers the cell
+  list only — partial-erase idiom already in `gfx_hud_demo.bas` and
+  `gfx_showcase.bas`, newly applied to `gfx_ball_demo.bas`).
+
 ### 1.9.1 – 2026-04-18
 
 **Post-Graphics-1.0 polish pass.** Small features + a pile of fixes
