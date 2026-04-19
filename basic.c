@@ -2729,6 +2729,7 @@ static void statement_split(char **p);
 static void statement_join(char **p);
 static void statement_open(char **p);
 static void statement_close(char **p);
+static void statement_download(char **p);
 static void statement_print_hash(char **p);
 static void statement_input_hash(char **p);
 static void statement_get_hash(char **p);
@@ -2865,7 +2866,12 @@ enum func_code {
     FN_KEYUP = 70,
     FN_KEYPRESS = 71,
     /* Time-based animation frame selector. */
-    FN_ANIMFRAME = 72
+    FN_ANIMFRAME = 72,
+    /* Filesystem probe: FILEEXISTS(path$) returns 1 if path is openable
+     * for reading, 0 otherwise. Works against MEMFS in browser WASM
+     * and the host filesystem natively — lets programs verify an IMAGE
+     * SAVE / PRINT# landed before offering a DOWNLOAD / playback. */
+    FN_FILEEXISTS = 73
 };
 
 /* Report an error and halt further execution.
@@ -4128,6 +4134,10 @@ static int function_lookup(const char *name, int len)
         if ((len == 5 && name[0] == 'F' && name[1] == 'I' && name[2] == 'E' && name[3] == 'L' && name[4] == 'D') ||
             (len == 6 && name[0] == 'F' && name[1] == 'I' && name[2] == 'E' && name[3] == 'L' && name[4] == 'D' && name[5] == '$'))
             return FN_FIELD;
+        if (len == 10 && name[0] == 'F' && name[1] == 'I' && name[2] == 'L' && name[3] == 'E' &&
+            name[4] == 'E' && name[5] == 'X' && name[6] == 'I' && name[7] == 'S' &&
+            name[8] == 'T' && name[9] == 'S')
+            return FN_FILEEXISTS;
         return FN_NONE;
     case 'G':
         if (len == 9 && name[0] == 'G' && name[1] == 'E' && name[2] == 'T' && name[3] == 'M' && name[4] == 'O' &&
@@ -6379,6 +6389,73 @@ static void statement_mouseshow(char **p)
 }
 #endif /* GFX_VIDEO */
 
+#ifdef __EMSCRIPTEN__
+/* Browser WASM: read a MEMFS file and offer it to the user as a real
+ * download via an <a download> click. Fail-safe: if the path isn't
+ * readable, log a warning and return — keeps the BASIC side going. */
+EM_JS(void, rgc_wasm_trigger_download, (const char *path), {
+    var p = UTF8ToString(path);
+    try {
+        var data = FS.readFile(p);
+        var name = p.split('/').pop();
+        var ext  = (name.split('.').pop() || '').toLowerCase();
+        var mime = 'application/octet-stream';
+        if (ext === 'png') mime = 'image/png';
+        else if (ext === 'bmp') mime = 'image/bmp';
+        else if (ext === 'jpg' || ext === 'jpeg') mime = 'image/jpeg';
+        else if (ext === 'gif') mime = 'image/gif';
+        else if (ext === 'wav') mime = 'audio/wav';
+        else if (ext === 'txt' || ext === 'bas') mime = 'text/plain';
+        var blob = new Blob([data.buffer], { type: mime });
+        var url  = URL.createObjectURL(blob);
+        var a    = document.createElement('a');
+        a.href     = url;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+    } catch (e) {
+        console.warn('DOWNLOAD ' + p + ' failed:', e);
+    }
+});
+#endif
+
+/* DOWNLOAD path$
+ *
+ *   Browser WASM: reads MEMFS at `path`, wraps it in a Blob with a
+ *   guessed MIME type, and triggers a normal browser download so the
+ *   file actually lands on the user's disk. No-op if the path isn't
+ *   readable (JS side logs a warning).
+ *
+ *   Desktop native: stub that prints a hint once. Real disk files are
+ *   already on the filesystem — `cp`/Finder/etc. take it from there.
+ *
+ *   Intended companion to IMAGE SAVE (PRINT# to a log file, audio
+ *   capture, etc.). Kept as a separate statement so per-frame
+ *   recorders don't spam download prompts. */
+static void statement_download(char **p)
+{
+    struct value vpath;
+    skip_spaces(p);
+    vpath = eval_expr(p); ensure_str(&vpath);
+    skip_spaces(p);
+#ifdef __EMSCRIPTEN__
+    rgc_wasm_trigger_download(vpath.str);
+#else
+    {
+        static int warned_once = 0;
+        if (!warned_once) {
+            fprintf(stderr,
+                    "DOWNLOAD is a no-op on native builds (path '%s' already "
+                    "lives on the host filesystem).\n",
+                    vpath.str);
+            warned_once = 1;
+        }
+    }
+#endif
+}
+
 /* UNLOADSPRITE slot — free texture and clear draw state (basic-gfx only). */
 static void statement_unloadsprite(char **p)
 {
@@ -8291,6 +8368,20 @@ static struct value eval_function(const char *name, char **p)
         sprintf(outbuf, "%lX", v);
         return make_str(outbuf);
     }
+    case FN_FILEEXISTS: {
+        /* FILEEXISTS(path$): 1 if the path can be opened for reading,
+         * 0 otherwise. Works against MEMFS in browser WASM and the host
+         * filesystem natively. Idiomatic use:
+         *   IMAGE SAVE 1, P$ : IF FILEEXISTS(P$) THEN PRINT "SAVED: "; P$
+         */
+        FILE *probe;
+        ensure_str(&arg);
+        if (!arg.str[0]) return make_num(0.0);
+        probe = fopen(arg.str, "rb");
+        if (!probe) return make_num(0.0);
+        fclose(probe);
+        return make_num(1.0);
+    }
     case FN_STRINGFN: {
         /* STRING$(n, char$) or STRING$(n, code) */
         struct value v_count = arg;
@@ -9014,7 +9105,7 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "UCASE") || starts_with_kw(*p, "LCASE") ||
             starts_with_kw(*p, "INSTR") || starts_with_kw(*p, "DEC") || starts_with_kw(*p, "HEX") ||
             starts_with_kw(*p, "REPLACE") || starts_with_kw(*p, "TRIM") || starts_with_kw(*p, "LTRIM") || starts_with_kw(*p, "RTRIM") ||
-            starts_with_kw(*p, "FIELD") || starts_with_kw(*p, "INDEXOF") || starts_with_kw(*p, "LASTINDEXOF") ||
+            starts_with_kw(*p, "FIELD") || starts_with_kw(*p, "FILEEXISTS") || starts_with_kw(*p, "INDEXOF") || starts_with_kw(*p, "LASTINDEXOF") ||
             starts_with_kw(*p, "ENV") || starts_with_kw(*p, "EVAL") || starts_with_kw(*p, "PLATFORM") || starts_with_kw(*p, "JSON") ||
             starts_with_kw(*p, "HTTPSTATUS") || starts_with_kw(*p, "HTTPFETCH") || starts_with_kw(*p, "HTTP$") ||
             starts_with_kw(*p, "ARGC") || starts_with_kw(*p, "ARG") ||
@@ -12469,6 +12560,11 @@ static void execute_statement(char **p)
             return;
         }
 #endif
+        if (starts_with_kw(*p, "DOWNLOAD")) {
+            *p += 8;
+            statement_download(p);
+            return;
+        }
         if (starts_with_kw(*p, "DO")) {
             *p += 2;
             statement_do(p);
