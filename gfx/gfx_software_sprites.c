@@ -241,6 +241,40 @@ int gfx_sprite_hit_rect(int slot, int wx, int wy)
     return (wx >= x && wx < x + w && wy >= y && wy < y + h) ? 1 : 0;
 }
 
+int gfx_sprite_hit_pixel(int slot, int wx, int wy, int alpha_cutoff)
+{
+    GfxSpriteDrawPos *d;
+    GfxSpriteSlot *sl;
+    int x, y, w, h;
+    int src_x, src_y, src_w, src_h;
+    int local_x, local_y, sx, sy;
+    int idx;
+    int a;
+
+    if (!gfx_sprite_hit_rect(slot, wx, wy)) return 0;
+    d = &g_sprite_draw_pos[slot];
+    x = (int)d->x;
+    y = (int)d->y;
+    w = d->w;
+    h = d->h;
+    if (w <= 0 || h <= 0) return 0;
+    src_x = 0; src_y = 0; src_w = 0; src_h = 0;
+    if (gfx_sprite_effective_source_rect(slot, &src_x, &src_y, &src_w, &src_h) != 0) return 0;
+    if (src_w <= 0 || src_h <= 0) return 0;
+    local_x = wx - x;
+    local_y = wy - y;
+    sx = src_x + (local_x * src_w) / w;
+    sy = src_y + (local_y * src_h) / h;
+    sl = &g_sprite_slots[slot];
+    if (!sl->loaded || !sl->rgba || sl->w <= 0 || sl->h <= 0) return 1;
+    if (sx < 0 || sx >= sl->w || sy < 0 || sy >= sl->h) return 0;
+    if (alpha_cutoff < 0) alpha_cutoff = 0;
+    if (alpha_cutoff > 255) alpha_cutoff = 255;
+    idx = (sy * sl->w + sx) * 4 + 3;
+    a = (int)sl->rgba[idx];
+    return (a > alpha_cutoff) ? 1 : 0;
+}
+
 int gfx_sprite_at(int wx, int wy)
 {
     int i, best = -1, best_z = 0;

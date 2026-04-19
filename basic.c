@@ -7733,13 +7733,26 @@ static struct value eval_function(const char *name, char **p)
         struct value vs_arg;
         int slot;
         int wx, wy;
+        int alpha_cutoff = -1;  /* -1 = bbox mode, >=0 = pixel-perfect */
         skip_spaces(p);
         vs_arg = eval_expr(p);
         ensure_num(&vs_arg);
         slot = (int)vs_arg.num;
         skip_spaces(p);
+        if (**p == ',') {
+            struct value va;
+            (*p)++; skip_spaces(p);
+            va = eval_expr(p); ensure_num(&va);
+            /* 0 keeps legacy pure-alpha=1 semantics while still triggering
+             * the pixel-perfect path; positive values double as the cutoff
+             * threshold (ISMOUSEOVERSPRITE(s, 16) skips PNG edge dust). */
+            alpha_cutoff = (int)va.num;
+            if (alpha_cutoff < 0) alpha_cutoff = 0;
+        }
+        skip_spaces(p);
         if (**p != ')') {
-            runtime_error_hint("Missing ')'", "ISMOUSEOVERSPRITE takes one argument: the sprite slot.");
+            runtime_error_hint("Missing ')'",
+                                 "ISMOUSEOVERSPRITE(slot [, alpha_cutoff]) — optional cutoff selects pixel-perfect.");
             return make_num(0.0);
         }
         (*p)++;
@@ -7751,6 +7764,9 @@ static struct value eval_function(const char *name, char **p)
          * convention SPRITECOLLIDE uses internally. */
         wx = gfx_mouse_x() + (int)gfx_vs->scroll_x;
         wy = gfx_mouse_y() + (int)gfx_vs->scroll_y;
+        if (alpha_cutoff >= 0) {
+            return make_num((double)gfx_sprite_hit_pixel(slot, wx, wy, alpha_cutoff));
+        }
         return make_num((double)gfx_sprite_hit_rect(slot, wx, wy));
     }
     if (code == FN_SPRITEAT) {
