@@ -44,6 +44,20 @@ int gfx_image_height(int slot);
  * on success, -1 on error (slot unloaded, can't open file, etc.). */
 int gfx_image_save_bmp(int slot, const char *path);
 
+/* Save a slot to a 32-bit RGBA PNG.
+ *   - Slot 0 (visible bitmap): on-pixels take the current foreground
+ *     palette entry (bitmap_fg), off-pixels take the current background
+ *     (bg_color). Alpha = 255 everywhere (full screenshot).
+ *   - Slots 1..31 (off-screen 1bpp masks): on-pixels become opaque
+ *     white; off-pixels become fully transparent (alpha = 0). Useful
+ *     for exporting a drawn sprite/UI panel with a transparent cut-out.
+ * Returns 0 on success, -1 on error. */
+int gfx_image_save_png(int slot, const char *path);
+
+/* Extension-dispatched saver. Chooses PNG if path ends ".png", BMP
+ * otherwise. Case-insensitive. */
+int gfx_image_save(int slot, const char *path);
+
 /* Load a PNG / BMP / JPG / etc. into the given slot as a 1bpp mask.
  * Pixels with luminance >= 128 become pen; others become background.
  * Alpha = 0 always maps to background. slot must be 1..MAX-1 (slot 0

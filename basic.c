@@ -6016,10 +6016,11 @@ static void statement_image_load(char **p)
     }
 }
 
-/* IMAGE SAVE slot, "path.bmp" — export a surface as 24-bit BMP.
- * pen=1 pixels become white, pen=0 black. Keeps the implementation
- * dependency-free (no PNG encoder); callers who need PNG can convert
- * externally. */
+/* IMAGE SAVE slot, "path"
+ *   path ending in .png → 32-bit RGBA PNG (slot 0 uses current COLOR
+ *                         / BACKGROUND, slots 1..31 are mask: on=opaque
+ *                         white, off=transparent).
+ *   any other extension  → 24-bit BMP (pen=1 white, pen=0 black). */
 static void statement_image_save(char **p)
 {
     struct value vslot, vpath;
@@ -6031,9 +6032,11 @@ static void statement_image_save(char **p)
     (*p)++; skip_spaces(p);
     vpath = eval_expr(p); ensure_str(&vpath);
     skip_spaces(p);
-    if (gfx_image_save_bmp(slot, vpath.str) != 0) {
+    if (gfx_image_save(slot, vpath.str) != 0) {
         runtime_error_hint("IMAGE SAVE failed",
-                           "Check slot is loaded and the path is writable; file written as 24-bit BMP.");
+                           "Check slot is loaded and the path is writable. "
+                           "Extension .png writes RGBA PNG (alpha retained for slots 1..31); "
+                           "anything else writes 24-bit BMP.");
     }
 }
 

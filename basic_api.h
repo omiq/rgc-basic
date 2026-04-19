@@ -111,6 +111,8 @@ int gfx_image_copy(int src_slot, int sx, int sy, int sw, int sh,
 int gfx_image_width(int slot);
 int gfx_image_height(int slot);
 int gfx_image_save_bmp(int slot, const char *path);
+int gfx_image_save_png(int slot, const char *path);
+int gfx_image_save(int slot, const char *path);
 int gfx_image_load(int slot, const char *path);
 
 /* ANTIALIAS toggle (raylib only). Sets the texture-filter mode used
