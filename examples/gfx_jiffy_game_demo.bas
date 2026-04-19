@@ -1,74 +1,74 @@
-1 REM GFX JIFFY CLOCK DEMO: smooth player + simple enemy motion
-2 REM Run with: ./basic-gfx -petscii examples/gfx_jiffy_game_demo.bas
-3 REM Canvas WASM: TI is wall-clock jiffies; use SLEEP 1 + simple loop (no TI bucket wait).
-4 REM Controls: hold W/A/S/D to move, ESC to quit
-5 REM
-10 SCR = 1024
-20 COL = 55296
-30 WIDTH = 40
-40 HEIGHT = 25
-50 KEYBASE = 56320
-60 BACKGROUND 6
-70 COLOR 14
-80 PRINT "{CLR}{WHITE}JIFFY CLOCK DEMO  (WASD MOVE, ESC QUITS)"
-90 PRINT "{CYAN}PLAYER IS '@'   ENEMY IS 'X' (SINE WAVE)"
+' ============================================================
+'  GFX JIFFY CLOCK DEMO - smooth player + sine-wave enemy
+'  Run:  ./basic-gfx -petscii examples/gfx_jiffy_game_demo.bas
+'  Canvas WASM: TI is wall-clock jiffies; loop on SLEEP 1 (no TI bucket wait).
+'  Controls: hold W/A/S/D to move, ESC to quit.
+' ============================================================
 
-100 REM Player / enemy
-110 PX = 5
-120 PY = 12
-130 PCOL = 1
-140 EX0 = 20
-150 EY = 12
-160 ECOL = 2
-170 AMP = 4
-180 PERIOD = 180
-185 ECH = 160
-190 EX = EX0
+SCR     = 1024
+COL     = 55296
+W       = 40
+H       = 25
+KEYBASE = 56320
 
-200 REM Initial draw
-210 POKE SCR + PY*WIDTH + PX, 0
-220 POKE COL + PY*WIDTH + PX, PCOL
-230 POKE SCR + EY*WIDTH + EX, ECH
-240 POKE COL + EY*WIDTH + EX, ECOL
-250 LXE = EX
+BACKGROUND 6
+COLOR 14
+PRINT "{CLR}{WHITE}JIFFY CLOCK DEMO  (WASD MOVE, ESC QUITS)"
+PRINT "{CYAN}PLAYER IS '@'   ENEMY IS 'X' (SINE WAVE)"
 
-300 REM Main loop
-310 IF PEEK(KEYBASE+27) <> 0 THEN END
-320 T = TI
-330 SLEEP 1
+' Player / enemy state
+PX = 5  : PY = 12 : PCOL = 1
+EX0 = 20 : EY = 12 : ECOL = 2
+AMP    = 4
+PERIOD = 180
+ECH    = 160
+EX     = EX0
+LXE    = EX
 
-340 REM Enemy: phase from jiffy clock TI (updates every frame after SLEEP)
-350 Q = INT(T / PERIOD)
-360 PH = T - Q * PERIOD
-370 EX = EX0 + INT(AMP * SIN(6.28318 * (PH / PERIOD)))
-380 IF EX < 0 THEN EX = 0
-390 IF EX > 39 THEN EX = 39
+' Initial draw
+POKE SCR + PY * W + PX, 0
+POKE COL + PY * W + PX, PCOL
+POKE SCR + EY * W + EX, ECH
+POKE COL + EY * W + EX, ECOL
 
-400 REM Player: read keys every frame (no TI gate — works in canvas + basic-gfx)
-410 NX = PX
-420 NY = PY
-430 IF PEEK(KEYBASE+87) <> 0 THEN NY = PY - 1
-440 IF PEEK(KEYBASE+83) <> 0 THEN NY = PY + 1
-450 IF PEEK(KEYBASE+65) <> 0 THEN NX = PX - 1
-460 IF PEEK(KEYBASE+68) <> 0 THEN NX = PX + 1
-470 IF NX < 0 THEN NX = 0
-480 IF NX > 39 THEN NX = 39
-490 IF NY < 2 THEN NY = 2
-500 IF NY > 24 THEN NY = 24
+DO
+  IF PEEK(KEYBASE + 27) <> 0 THEN EXIT
 
-510 REM Redraw when moved
-520 IF NX <> PX OR NY <> PY THEN POKE SCR + PY*WIDTH + PX, 32
-530 IF NX <> PX OR NY <> PY THEN PX = NX : PY = NY
-540 POKE SCR + PY*WIDTH + PX, 0
-550 POKE COL + PY*WIDTH + PX, PCOL
+  T = TI
+  SLEEP 1
 
-560 POKE SCR + EY*WIDTH + EX, ECH
-570 POKE COL + EY*WIDTH + EX, ECOL
-580 IF EX <> LXE THEN POKE SCR + EY*WIDTH + LXE, 32
+  ' Enemy: phase from jiffy clock TI (no MOD operator, so subtract the quotient)
+  Q  = INT(T / PERIOD)
+  PH = T - Q * PERIOD
+  EX = EX0 + INT(AMP * SIN(6.28318 * (PH / PERIOD)))
+  IF EX < 0  THEN EX = 0
+  IF EX > 39 THEN EX = 39
 
-590 REM HUD under banner (rows 2-3)
-600 TEXTAT 0,2,"TI$=" + TI$ + "  "
-610 TEXTAT 0,3,"TI=" + STR$(TI) + "    "
+  ' Player: poll keys every frame
+  NX = PX : NY = PY
+  IF PEEK(KEYBASE + 87) <> 0 THEN NY = PY - 1
+  IF PEEK(KEYBASE + 83) <> 0 THEN NY = PY + 1
+  IF PEEK(KEYBASE + 65) <> 0 THEN NX = PX - 1
+  IF PEEK(KEYBASE + 68) <> 0 THEN NX = PX + 1
+  IF NX < 0  THEN NX = 0
+  IF NX > 39 THEN NX = 39
+  IF NY < 2  THEN NY = 2
+  IF NY > 24 THEN NY = 24
 
-620 LXE = EX
-630 GOTO 310
+  IF NX <> PX OR NY <> PY THEN
+    POKE SCR + PY * W + PX, 32         ' erase old
+    PX = NX : PY = NY
+  END IF
+  POKE SCR + PY * W + PX, 0            ' redraw player
+  POKE COL + PY * W + PX, PCOL
+
+  POKE SCR + EY * W + EX, ECH          ' redraw enemy
+  POKE COL + EY * W + EX, ECOL
+  IF EX <> LXE THEN POKE SCR + EY * W + LXE, 32
+
+  ' HUD under the banner (rows 2-3)
+  TEXTAT 0, 2, "TI$=" + TI$ + "  "
+  TEXTAT 0, 3, "TI=" + STR$(TI) + "    "
+
+  LXE = EX
+LOOP

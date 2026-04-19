@@ -1,2 +1,3 @@
-10 PRINT UCASE$("hello "); LCASE$("WORLD")
-20 END
+' UCASE$ / LCASE$ demo
+
+PRINT UCASE$("hello "); LCASE$("WORLD")
