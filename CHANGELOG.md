@@ -1,5 +1,38 @@
 ## Changelog
 
+### 1.9.8 – 2026-04-19
+
+**`SPRITEAT(x, y)` + SCROLL-aware `ISMOUSEOVERSPRITE`.**
+
+Finishes the non-pixel-perfect half of
+`docs/mouse-over-sprite-plan.md`:
+
+- **`SPRITEAT(x, y)`** — topmost visible sprite whose last-drawn rect
+  contains world-space `(x, y)`, or `-1`. Ties broken by `Z`
+  (passed to `DRAWSPRITE`) then slot index. Lets "click to select
+  from a pile" drop out of one call.
+- **`ISMOUSEOVERSPRITE` now respects `SCROLL`.** Sprite positions
+  are stored in world space; mouse coordinates come back in screen
+  space. The engine transforms by `scroll_x/y` before the rect
+  test so hits line up with what the user sees. Same convention
+  `SPRITECOLLIDE` uses internally.
+- **Z cached in the per-slot draw-pos table.** New `z` field on the
+  interpreter-thread hit-test cache in both `gfx/gfx_raylib.c` and
+  `gfx/gfx_software_sprites.c` (canvas / WASM parity).
+
+New C helpers: `gfx_sprite_hit_rect(slot, wx, wy)` and
+`gfx_sprite_at(wx, wy)`. Existing `gfx_sprite_is_mouse_over(slot)`
+kept as a thin wrapper (raw-mouse, SCROLL-unaware) for C-side
+callers; BASIC-level `ISMOUSEOVERSPRITE` uses the world-space path.
+
+Example: `examples/gfx_sprite_at_demo.bas` — three sprites stacked
+with explicit Z, click-to-pick-topmost with drag-and-drop that bumps
+the grabbed slot to the front of the stack on pick-up.
+
+Pixel-perfect alpha sampling (step 3 of the plan) still outstanding
+— needs a CPU-side RGBA buffer kept alongside the GPU texture, which
+is larger surgery; deferred to a follow-up tick.
+
 ### 1.9.7 – 2026-04-19
 
 **`CLS x, y TO x2, y2` partial clear + `DRAWTEXT` integer scale.**

@@ -930,11 +930,14 @@ Full design in **`docs/mouse-over-sprite-plan.md`**. Summary: today a BASIC-leve
 
 Implementation sequence in the plan doc: (1) per-slot `last_x/y/w/h` cache updated at `DRAWSPRITE`/`DRAWSPRITETILE` enqueue time, (2) `ISMOUSEOVERSPRITE` bounding-rect mode + keyword wiring + RTS-button demo, (3) pixel-perfect mode, (4) `SPRITEAT` iteration with z-sort, (5) drag-and-drop example (pure BASIC on top of the new API), (6) canvas WASM parity.
 
-**Shipped (unreleased):**
+**Shipped (1.9.8, 2026-04-19):**
 
 * ~**Steps 1 + 2 + 6 — per-slot position cache + `ISMOUSEOVERSPRITE(slot)` bounding-rect hit test, native and canvas WASM.**~ `g_sprite_draw_pos[]` written on the interpreter thread inside `gfx_sprite_enqueue_draw` (so it doesn't race the worker-thread consumer); sw/sh ≤ 0 resolved via `gfx_sprite_effective_source_rect` for SPRITEFRAME / tilemap slots; `UNLOADSPRITE` clears the entry. `basic.c`: `FN_ISMOUSEOVERSPRITE = 62`, name lookup, `eval_factor` dispatch, `starts_with_kw` allow-list. Example: `examples/ismouseoversprite_demo.bas`.
+* ~**Step 4 — `SPRITEAT(x, y)` axis-aligned Z-sorted lookup.**~ New `gfx_sprite_at` iterates the pos cache, highest `Z` wins (ties broken by slot index). `FN_SPRITEAT = 74` wired in `basic.c` + reserved word. Canvas/WASM parity via `gfx_software_sprites.c`.
+* ~**SCROLL-space consistency.**~ `ISMOUSEOVERSPRITE` and `SPRITEAT` now transform mouse coords by `gfx_vs->scroll_x/y` before the bbox test so sprite world-space positions hit-test correctly under a scrolled viewport. New C helper `gfx_sprite_hit_rect(slot, wx, wy)` accepts world coords directly; `gfx_sprite_is_mouse_over` kept as a raw-mouse thin wrapper.
+* ~**Step 5 — drag-and-drop example (`gfx_sprite_at_demo.bas`).**~ Three overlapping sprites with explicit Z; click picks the topmost, drag moves it, pick-up bumps its Z so the grabbed slot is always on top, release drops.
 
-**Still outstanding:** pixel-perfect mode (step 3), `SPRITEAT` (step 4), drag-and-drop example (step 5), SCROLL-space consistency, rotation/scale pivot handling.
+**Still outstanding:** pixel-perfect alpha mode (step 3 — needs CPU-side RGBA kept alongside GPU texture; larger surgery, deferred), rotation/scale pivot handling.
 
 Open questions in the doc: alpha cutoff threshold, source-rect vs destination-rect sampling for scaled sprites, last-draw persistence across non-drawn frames, rotation/transform future-proofing.
 

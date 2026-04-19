@@ -166,6 +166,16 @@ int gfx_sprite_slots_overlap_aabb(int slot_a, int slot_b);
  * interpreter thread inside gfx_sprite_enqueue_draw, so the result reflects
  * the most recent DRAWSPRITE without waiting for the render thread. */
 int gfx_sprite_is_mouse_over(int slot);
+
+/* Axis-aligned bounding hit test at an arbitrary world point — caller
+ * passes (wx, wy) already compensated for SCROLL if relevant (sprite
+ * positions are stored in world space, matching SPRITECOLLIDE). */
+int gfx_sprite_hit_rect(int slot, int wx, int wy);
+
+/* Topmost visible slot whose rect contains the world point, or -1.
+ * Same bounding-box semantics as gfx_sprite_hit_rect; ties broken by
+ * the highest Z of the last enqueued DRAWSPRITE (then slot index). */
+int gfx_sprite_at(int wx, int wy);
 #endif
 
 #endif /* BASIC_API_H */
