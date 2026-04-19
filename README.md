@@ -170,8 +170,8 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
 - **`SCREEN BUFFER n` / `SCREEN DRAW n` / `SCREEN SHOW n` / `SCREEN FREE n` / `SCREEN SWAP a, b` / `SCREEN COPY src, dst`** *(basic-gfx / canvas WASM)*: multi-plane bitmap buffers (AMOS-style). Up to eight slots; 0 = live bitmap, 1 = `DOUBLEBUFFER` back-buffer, 2..7 = user-allocated. `SCREEN DRAW n` retargets all bitmap writes (PSET, LINE, RECT, CLS, DRAWTEXT, etc.) to slot `n`; `SCREEN SHOW n` moves the renderer to that slot. `DOUBLEBUFFER ON` now implies `SCREEN DRAW 0 : SCREEN SHOW 1` plus auto-flip on `VSYNC`. Useful for flipbook animation, dual-playfield backgrounds, or triple-buffering expensive composites. See `examples/gfx_screen_buffer_demo.bas`.
 - `LOCATE` and `TEXTAT`: screen cursor positioning and absolute text placement (see below).
 - `CURSOR ON` / `CURSOR OFF`: show or hide the terminal cursor using ANSI escape codes (`ESC[?25h` / `ESC[?25l`).
-- `COLOR n` / `COLOUR n`: set the text **foreground** colour using a C64-style palette index `0–15`, mapped to ANSI SGR colours (approximate CBM palette).
-- `BACKGROUND n`: set the text **background** colour using the same C64-style palette index `0–15`, mapped to ANSI background SGR codes (e.g. 0=black, 1=white, 2=red, 3=cyan, etc.).
+- `COLOR n` / `COLOUR n`: set the text **foreground** colour using a C64-style palette index `0–15`, mapped to ANSI SGR colours (approximate CBM palette). Named constants resolve too: `COLOR RED`, `COLOR YELLOW`, `COLOR LIGHTBLUE`, etc. — full set `BLACK WHITE RED CYAN PURPLE GREEN BLUE YELLOW ORANGE BROWN PINK DARKGRAY MEDGRAY LIGHTGREEN LIGHTBLUE LIGHTGRAY` (plus `DARKGREY/MEDGREY/LIGHTGREY` spellings). Same names work with `BACKGROUND` and (in basic-gfx) `PAPER`.
+- `BACKGROUND n`: set the text **background** colour using the same C64-style palette index `0–15`, mapped to ANSI background SGR codes (e.g. 0=black, 1=white, 2=red, 3=cyan, etc.). Accepts the same named constants as `COLOR`.
 
 ### Tokenised PETSCII shortcuts inside strings
 
