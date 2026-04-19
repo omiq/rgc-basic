@@ -83,7 +83,7 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
     - If a key is waiting, `K$` becomes a 1‑character string.
     - If no key is waiting, `K$` becomes `""`.
     - Enter/Return is returned as `CHR$(13)` so `ASC(K$)=13` works for “press Enter” checks.
-  - `LET` (optional): assignment; you can also assign with `A=1` without `LET`.
+  - `LET` (optional): assignment; you can also assign with `A=1` without `LET`. **Compound shortcuts** (rgc-basic extension): `A++` / `A--` increment/decrement by 1; `A += expr` / `A -= expr` / `A *= expr` / `A /= expr` are sugar for `A = A op expr`. String vars accept `S$ += "x"` for concatenation; other compound forms raise on strings. Statement-only (not expression).
   - `IF ... THEN` / `IF ... ELSE ... END IF`: conditional execution. Inline `IF X THEN 100` or `IF X THEN PRINT "Y"`; multi-line blocks with `IF X THEN` … `ELSE` … `END IF`. Supports nested blocks.
   - `WHILE` … `WEND`: pre-test loops. `WHILE X < 5` … `WEND`; supports nested WHILE/WEND.
   - `DO` … `LOOP [UNTIL cond]`: post-test / infinite loops. `DO` … `LOOP` repeats until `EXIT`; `DO` … `LOOP UNTIL X>5` exits when the condition is true. `EXIT` leaves the innermost DO loop. Nested DO/LOOP supported.

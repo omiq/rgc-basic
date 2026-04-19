@@ -11230,6 +11230,91 @@ static void statement_let(char **p)
         return;
     }
     skip_spaces(p);
+
+    /* Compound-assignment and increment/decrement shortcuts:
+     *   A++        → A = A + 1
+     *   A--        → A = A - 1
+     *   A += expr  → A = A + expr
+     *   A -= expr  → A = A - expr
+     *   A *= expr  → A = A * expr
+     *   A /= expr  → A = A / expr
+     * String vars accept only += (concatenation); other ops raise.
+     * These are rgc-basic extensions — CBM v2 never had them and no
+     * existing syntactically-valid BASIC program uses them. */
+    if (**p == '+' || **p == '-' || **p == '*' || **p == '/') {
+        char op   = **p;
+        char next = (*p)[1];
+
+        if (op == '+' && next == '+') {
+            (*p) += 2;
+            if (is_string) {
+                runtime_error_hint("++ requires a numeric variable",
+                                     "Use S$ = S$ + \"x\" (or S$ += \"x\") for strings.");
+                return;
+            }
+            ensure_num(vp);
+            vp->num += 1.0;
+            vp->type = VAL_NUM;
+            return;
+        }
+        if (op == '-' && next == '-') {
+            (*p) += 2;
+            if (is_string) {
+                runtime_error_hint("-- requires a numeric variable", NULL);
+                return;
+            }
+            ensure_num(vp);
+            vp->num -= 1.0;
+            vp->type = VAL_NUM;
+            return;
+        }
+        if (next == '=') {
+            (*p) += 2;
+            rhs = eval_expr(p);
+            if (is_string) {
+                size_t la, lb, lim;
+                if (op != '+') {
+                    runtime_error_hint("String variables only support += (concatenation)",
+                                         "Use S$ = S$ + X$ for concat; -=, *=, /= are numeric-only.");
+                    return;
+                }
+                ensure_str(&rhs);
+                ensure_str(vp);
+                la  = strlen(vp->str);
+                lb  = strlen(rhs.str);
+                lim = (size_t)max_str_limit;
+                if (la >= lim - 1) {
+                    vp->str[lim - 1] = '\0';
+                    vp->type = VAL_STR;
+                    return;
+                }
+                if (la + lb >= lim) lb = lim - 1 - la;
+                memcpy(vp->str + la, rhs.str, lb);
+                vp->str[la + lb] = '\0';
+                vp->type = VAL_STR;
+                return;
+            }
+            ensure_num(vp);
+            ensure_num(&rhs);
+            switch (op) {
+                case '+': vp->num += rhs.num; break;
+                case '-': vp->num -= rhs.num; break;
+                case '*': vp->num *= rhs.num; break;
+                case '/':
+                    if (rhs.num == 0.0) {
+                        runtime_error_hint("Division by zero in /=", NULL);
+                        return;
+                    }
+                    vp->num /= rhs.num;
+                    break;
+            }
+            vp->type = VAL_NUM;
+            return;
+        }
+        /* Single + / - / * / / with no second char matching: fall
+         * through to the '=' check so the normal error message fires. */
+    }
+
     if (**p != '=') {
         runtime_error_hint("Expected '='", "Assignment needs = : LET X = 1 or X = 1 (LET is optional).");
         return;

@@ -1,5 +1,30 @@
 ## Changelog
 
+### 1.9.4 – 2026-04-19
+
+**Compound assignment + increment / decrement.**
+
+Added C-style shortcuts at the statement level (sugar over the
+existing implicit-LET path):
+
+| Form | Equivalent |
+|------|------------|
+| `A++` | `A = A + 1` |
+| `A--` | `A = A - 1` |
+| `A += expr` | `A = A + expr` |
+| `A -= expr` | `A = A - expr` |
+| `A *= expr` | `A = A * expr` |
+| `A /= expr` | `A = A / expr` |
+| `S$ += "x"` | `S$ = S$ + "x"` (string concat) |
+
+Statement-only, not expression: `A++B` still means `A + (+B)` as today.
+String variables accept only `+=`; `-= *= /=` raise on strings. Division
+by zero on `/=` raises the same error as plain `/`. No new keywords; no
+tokenizer / normaliser changes. Test: `tests/compound_assign.bas`.
+
+Compat: zero regression risk — all four forms are new syntax that was
+previously rejected by the parser.
+
 ### 1.9.3 – 2026-04-19
 
 **`FILEEXISTS` + `DOWNLOAD` + WASM-raylib IMAGE GRAB fix.**
