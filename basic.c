@@ -44,6 +44,8 @@
 #include <math.h>
 #include <time.h>
 #include <stdint.h>
+#include <unistd.h>
+#include <dirent.h>
 #include "petscii.h"
 
 #ifdef __EMSCRIPTEN__
@@ -952,7 +954,13 @@ static char *normalize_keywords_line(const char *input)
             if (c1 == 'F' && c2 == 'O' && c3 == 'R') {
                 char next = input[i + 3];
                 int prev_ident = (i > 0 && (isalnum((unsigned char)input[i-1]) || input[i-1] == '$' || input[i-1] == '_'));
-                if (!prev_ident && next != '\0' && !isspace((unsigned char)next) && next != ':' ) {
+                /* FOREACH is a single keyword — don't split into FOR EACH. */
+                int is_foreach = (toupper((unsigned char)next) == 'E' &&
+                                  toupper((unsigned char)input[i + 4]) == 'A' &&
+                                  toupper((unsigned char)input[i + 5]) == 'C' &&
+                                  toupper((unsigned char)input[i + 6]) == 'H' &&
+                                  !isalnum((unsigned char)input[i + 7]) && input[i + 7] != '_');
+                if (!prev_ident && !is_foreach && next != '\0' && !isspace((unsigned char)next) && next != ':' ) {
                     if (out.len > 0) {
                         char prev = out.buf[out.len - 1];
                         if (!isspace((unsigned char)prev) && prev != ':' && prev != '(') {
@@ -1279,6 +1287,12 @@ struct for_frame {
     struct value *var;
     /* GOSUB depth when this FOR was entered; RETURN unwinds FOR frames above the new depth (CBM-style). */
     int gosub_depth_at_entry;
+    /* FOREACH fields — zero on a plain FOR. When is_each is set, the frame
+     * iterates each element of `each_array` (1-D, numeric or string).
+     * `each_idx` is the index that will be assigned on the next NEXT. */
+    int is_each;
+    struct var *each_array;
+    int each_idx;
 };
 
 static struct line *program_lines[MAX_LINES];
@@ -2879,7 +2893,26 @@ enum func_code {
      * contains the world-space point (x, y). Returns slot index or -1.
      * Companion to ISMOUSEOVERSPRITE for "click to select from a
      * pile" use cases. Respects SCROLL the same way. */
-    FN_SPRITEAT = 74
+    FN_SPRITEAT = 74,
+    /* Monotonic high-resolution counters — microseconds and milliseconds
+     * since an unspecified (implementation-defined) origin. Differences
+     * between two reads are meaningful; absolute values are not. Native:
+     * clock_gettime(CLOCK_MONOTONIC); browser WASM: performance.now().
+     * Useful for benchmarking BASIC-level helpers before promoting to C. */
+    FN_TICKUS = 75,
+    FN_TICKMS = 76,
+    /* Current working directory. Native: getcwd. Browser WASM: emscripten
+     * FS.cwd(). Returns "" on failure. Pairs with CHDIR statement. */
+    FN_CWD = 77,
+    /* Directory listing as a string: DIR$(path$ [, delim$]). Default
+     * delimiter is "\n" so filenames with commas survive. Returns "" on
+     * failure. File-picker / slideshow / level-pack enumeration. */
+    FN_DIR = 78,
+    /* JSON iteration helpers: JSONLEN(j$, path$) returns count of
+     * array / object entries at path; JSONKEY$(j$, path$, n) returns
+     * 0-based nth key for objects (or "" for arrays / scalars). */
+    FN_JSONLEN = 79,
+    FN_JSONKEY = 80
 };
 
 /* Report an error and halt further execution.
@@ -3116,6 +3149,8 @@ static const char *const reserved_words[] = {
     "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET",     "PRINT", "PUTBYTE",
     "XOR",
     "READ", "RECT", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITEAT", "SPRITECOLLIDE", "SPRITECOPY", "SPRITEFRAME", "SPRITEMODIFY", "SPRITEMODULATE", "SPRITETILES", "SPRITEVISIBLE",
+    "CHDIR", "CWD", "DIR", "JSONLEN", "JSONKEY", "TICKUS", "TICKMS",
+    "FOREACH", "IN",
     "FILLRECT", "CIRCLE", "FILLCIRCLE", "ELLIPSE", "FILLELLIPSE", "TRIANGLE", "FILLTRIANGLE", "FLOODFILL", "POLYGON", "FILLPOLYGON", "VSYNC", "ANTIALIAS",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
@@ -3998,6 +4033,8 @@ static int function_lookup(const char *name, int len)
         if ((len == 3 && name[0] == 'C' && name[1] == 'H' && name[2] == 'R') ||
             (len == 4 && name[0] == 'C' && name[1] == 'H' && name[2] == 'R' && name[3] == '$')) return FN_CHR;
         if (len == 3 && name[0] == 'C' && name[1] == 'O' && name[2] == 'S') return FN_COS;
+        if ((len == 3 && memcmp(name, "CWD", 3) == 0) ||
+            (len == 4 && memcmp(name, "CWD$", 4) == 0)) return FN_CWD;
         return FN_NONE;
     case 'K':
         if (len == 7 && name[0] == 'K' && name[1] == 'E' && name[2] == 'Y' && name[3] == 'D' &&
@@ -4017,6 +4054,8 @@ static int function_lookup(const char *name, int len)
         if (len == 9 && name[0] == 'T' && name[1] == 'I' && name[2] == 'L' && name[3] == 'E' &&
             name[4] == 'C' && name[5] == 'O' && name[6] == 'U' && name[7] == 'N' && name[8] == 'T')
             return FN_SPRITETILES;
+        if (len == 6 && memcmp(name, "TICKUS", 6) == 0) return FN_TICKUS;
+        if (len == 6 && memcmp(name, "TICKMS", 6) == 0) return FN_TICKMS;
         return FN_NONE;
     case 'A':
         if (len == 3 && name[0] == 'A' && name[1] == 'B' && name[2] == 'S') return FN_ABS;
@@ -4037,6 +4076,9 @@ static int function_lookup(const char *name, int len)
             name[4] == 'T' && name[5] == 'I' && name[6] == 'C' && name[7] == 'K') return FN_JOY;
         if (len == 7 && name[0] == 'J' && name[1] == 'O' && name[2] == 'Y' && name[3] == 'A' &&
             name[4] == 'X' && name[5] == 'I' && name[6] == 'S') return FN_JOYAXIS;
+        if (len == 7 && memcmp(name, "JSONLEN", 7) == 0) return FN_JSONLEN;
+        if ((len == 7 && memcmp(name, "JSONKEY", 7) == 0) ||
+            (len == 8 && memcmp(name, "JSONKEY$", 8) == 0)) return FN_JSONKEY;
         return FN_NONE;
     case 'I':
         if (len == 20 && name[0] == 'I' && name[1] == 'S' && name[2] == 'M' && name[3] == 'O' && name[4] == 'U' &&
@@ -4113,6 +4155,8 @@ static int function_lookup(const char *name, int len)
         return FN_NONE;
     case 'D':
         if (len == 3 && name[0] == 'D' && name[1] == 'E' && name[2] == 'C') return FN_DEC;
+        if ((len == 3 && memcmp(name, "DIR", 3) == 0) ||
+            (len == 4 && memcmp(name, "DIR$", 4) == 0)) return FN_DIR;
         return FN_NONE;
     case 'H':
         if ((len == 4 && name[0] == 'H' && name[1] == 'T' && name[2] == 'T' && name[3] == 'P') ||
@@ -6661,6 +6705,126 @@ EM_JS(void, rgc_wasm_trigger_download, (const char *path), {
  *   Intended companion to IMAGE SAVE (PRINT# to a log file, audio
  *   capture, etc.). Kept as a separate statement so per-frame
  *   recorders don't spam download prompts. */
+/* CHDIR path$ — change working directory. Native uses chdir; emscripten
+ * MEMFS also honours chdir via its POSIX layer. Raises a runtime error
+ * if the path is missing/unreadable so programs fail loudly instead of
+ * silently acting against the previous cwd. */
+static void statement_chdir(char **p)
+{
+    struct value vpath;
+    skip_spaces(p);
+    vpath = eval_expr(p); ensure_str(&vpath);
+    skip_spaces(p);
+    if (!vpath.str[0]) {
+        runtime_error_hint("CHDIR requires a path string", "Example: CHDIR \"/tmp\"");
+        return;
+    }
+    if (chdir(vpath.str) != 0) {
+        char hint[256];
+        snprintf(hint, sizeof(hint), "chdir '%s' failed — path must exist and be a directory.", vpath.str);
+        runtime_error_hint("CHDIR failed", hint);
+    }
+}
+
+/* DIR path$ INTO arr$ [, count_var] — enumerate directory entries into
+ * a caller-DIMmed 1-D string array. Hidden files (leading '.') are
+ * excluded. Optional count variable receives the number of entries
+ * written. Mirrors SPLIT … INTO arr$ [, count] shape. */
+static void statement_dir_into(char **p)
+{
+    struct value vpath;
+    struct var *arr_var = NULL;
+    char count_name[VAR_NAME_MAX];
+    int have_count = 0;
+    DIR *dp;
+    struct dirent *de;
+    int i;
+
+    skip_spaces(p);
+    vpath = eval_expr(p); ensure_str(&vpath);
+    skip_spaces(p);
+    if (!starts_with_kw(*p, "INTO")) {
+        runtime_error_hint("DIR expects 'INTO arr$'",
+                             "Use DIR path$ INTO arr$ [, count] — array must be DIMmed as 1-D string.");
+        return;
+    }
+    *p += 4;
+    skip_spaces(p);
+    if (!isalpha((unsigned char)**p)) {
+        runtime_error_hint("DIR INTO: expected array variable",
+                             "After INTO, give the string array name (e.g. NAMES$).");
+        return;
+    }
+    {
+        char namebuf[VAR_NAME_MAX];
+        int is_string = 0;
+        read_identifier(p, namebuf, sizeof(namebuf));
+        uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
+        if (!is_string) {
+            runtime_error_hint("DIR INTO: expected string array",
+                                 "DIR fills a string array (name ends with $).");
+            return;
+        }
+        for (i = 0; i < var_count; i++) {
+            if (strcmp(vars[i].name, namebuf) == 0 && vars[i].is_string) {
+                arr_var = &vars[i];
+                break;
+            }
+        }
+    }
+    if (!arr_var || !arr_var->is_array || !arr_var->array || arr_var->dims != 1) {
+        runtime_error_hint("DIR INTO: requires 1-D string array (DIM first)",
+                             "DIM NAMES$(128) before DIR path$ INTO NAMES$.");
+        return;
+    }
+    skip_spaces(p);
+    count_name[0] = '\0';
+    if (**p == ',') {
+        (*p)++; skip_spaces(p);
+        {
+            int is_s = 0;
+            read_identifier(p, count_name, sizeof(count_name));
+            uppercase_name(count_name, count_name, sizeof(count_name), &is_s);
+            if (count_name[0] == '\0' || is_s) {
+                runtime_error_hint("DIR INTO: count must be a numeric variable",
+                                     "Example: DIR \"/tmp\" INTO NAMES$, N");
+                return;
+            }
+            have_count = 1;
+        }
+    }
+    dp = opendir(vpath.str[0] ? vpath.str : ".");
+    if (!dp) {
+        if (have_count) {
+            struct var *cv = find_or_create_var(count_name, 0, 0, 0, NULL, 0);
+            if (cv) { cv->scalar.type = VAL_NUM; cv->scalar.num = 0.0; cv->scalar.str[0] = '\0'; }
+        }
+        return;
+    }
+    {
+        int cap = arr_var->size;
+        int n = 0;
+        while ((de = readdir(dp))) {
+            size_t len;
+            if (de->d_name[0] == '.') continue;
+            if (n >= cap) break;
+            len = strlen(de->d_name);
+            if (len >= MAX_STR_LEN) len = MAX_STR_LEN - 1;
+            if (len > (size_t)(max_str_limit - 1)) len = (size_t)(max_str_limit - 1);
+            memcpy(arr_var->array[n].str, de->d_name, len);
+            arr_var->array[n].str[len] = '\0';
+            arr_var->array[n].type = VAL_STR;
+            arr_var->array[n].num = 0.0;
+            n++;
+        }
+        closedir(dp);
+        if (have_count) {
+            struct var *cv = find_or_create_var(count_name, 0, 0, 0, NULL, 0);
+            if (cv) { cv->scalar.type = VAL_NUM; cv->scalar.num = (double)n; cv->scalar.str[0] = '\0'; }
+        }
+    }
+}
+
 static void statement_download(char **p)
 {
     struct value vpath;
@@ -7129,6 +7293,118 @@ static int json_array_index(const char **pp, int idx)
     *pp = p;
     return 0;
 }
+/* Walk `path` into `json`, returning a pointer to the start of the
+ * resolved value (whitespace-skipped), or NULL on any miss. Empty path
+ * returns the root. Caller must not free — pointer is into `json`. */
+static const char *json_navigate(const char *json, const char *path)
+{
+    const char *p = json;
+    json_skip_ws(&p);
+    if (!*p) return NULL;
+    if (!path || !*path) return p;
+    for (;;) {
+        const char *seg = path;
+        char keybuf[128];
+        size_t ki = 0;
+        while (*seg && *seg != '.' && *seg != '[' && ki < sizeof(keybuf)-1) {
+            keybuf[ki++] = *seg++;
+        }
+        keybuf[ki] = '\0';
+        if (ki > 0) {
+            if (*p == '{') {
+                if (!json_find_key(&p, keybuf)) return NULL;
+            } else {
+                return NULL;
+            }
+        }
+        if (*seg == '[') {
+            seg++;
+            int idx = 0;
+            while (*seg >= '0' && *seg <= '9') { idx = idx * 10 + (*seg++ - '0'); }
+            if (*seg == ']') seg++;
+            if (!json_array_index(&p, idx)) return NULL;
+        }
+        json_skip_ws(&p);
+        if (!*seg) return p;
+        if (*seg == '.') seg++;
+        path = seg;
+    }
+}
+
+/* Number of entries at the value pointed to by `p` (post-whitespace).
+ * Arrays: element count. Objects: key count. Scalars: 0. */
+static int json_count_entries(const char *p)
+{
+    int n = 0;
+    if (!p) return 0;
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+    if (*p == '[') {
+        p++;
+        for (;;) {
+            while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+            if (*p == ']' || !*p) break;
+            json_skip_value(&p);
+            n++;
+            while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+            if (*p == ',') { p++; continue; }
+            break;
+        }
+        return n;
+    }
+    if (*p == '{') {
+        p++;
+        for (;;) {
+            while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+            if (*p == '}' || !*p) break;
+            if (*p != '\"') break;
+            p++;
+            while (*p && *p != '\"') { if (*p == '\\' && p[1]) p += 2; else p++; }
+            if (*p == '\"') p++;
+            while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+            if (*p == ':') { p++; json_skip_value(&p); }
+            n++;
+            while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+            if (*p == ',') { p++; continue; }
+            break;
+        }
+        return n;
+    }
+    return 0;
+}
+
+/* Copy the Nth (0-based) key of the object at `p` into `out`. Returns
+ * 1 on success, 0 if `p` isn't an object or N is out of range. */
+static int json_nth_key(const char *p, int n, char *out, size_t out_size)
+{
+    int i;
+    if (!p || !out || out_size == 0) return 0;
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+    if (*p != '{') return 0;
+    p++;
+    for (i = 0; ; i++) {
+        size_t ki = 0;
+        while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+        if (*p == '}' || !*p) return 0;
+        if (*p != '\"') return 0;
+        p++;
+        if (i == n) {
+            while (*p && *p != '\"' && ki < out_size - 1) {
+                if (*p == '\\' && p[1]) { out[ki++] = p[1]; p += 2; }
+                else { out[ki++] = *p++; }
+            }
+            out[ki] = '\0';
+            return 1;
+        }
+        while (*p && *p != '\"') { if (*p == '\\' && p[1]) p += 2; else p++; }
+        if (*p == '\"') p++;
+        while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+        if (*p == ':') { p++; json_skip_value(&p); }
+        while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+        if (*p == ',') { p++; continue; }
+        return 0;
+    }
+}
+
 static int json_extract_path(const char *json, const char *path, char *out, size_t out_size)
 {
     const char *p = json;
@@ -7222,6 +7498,46 @@ static struct value eval_function(const char *name, char **p)
         (*p)++;
         skip_spaces(p);
         return make_num((double)script_argc);
+    }
+    if (code == FN_TICKUS || code == FN_TICKMS) {
+        /* TICKUS() / TICKMS() — zero-arg monotonic counters. */
+        double t = 0.0;
+        if (**p != ')') {
+            runtime_error_hint(code == FN_TICKUS ? "TICKUS takes no arguments"
+                                                 : "TICKMS takes no arguments",
+                                 "Use TICKUS() / TICKMS() with empty parentheses.");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+#if defined(__EMSCRIPTEN__)
+        t = emscripten_get_now();
+        if (code == FN_TICKUS) t *= 1000.0;
+#else
+        {
+            struct timespec ts;
+            if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+                if (code == FN_TICKUS) {
+                    t = (double)ts.tv_sec * 1000000.0 + (double)ts.tv_nsec / 1000.0;
+                } else {
+                    t = (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1000000.0;
+                }
+            }
+        }
+#endif
+        return make_num(t);
+    }
+    if (code == FN_CWD) {
+        char buf[1024];
+        if (**p != ')') {
+            runtime_error_hint("CWD$ takes no arguments",
+                                 "Use CWD$() with empty parentheses.");
+            return make_str("");
+        }
+        (*p)++;
+        skip_spaces(p);
+        if (getcwd(buf, sizeof(buf))) return make_str(buf);
+        return make_str("");
     }
     if (code == FN_INKEY) {
         if (**p != ')') {
@@ -8004,7 +8320,8 @@ static struct value eval_function(const char *name, char **p)
      */
     if (code != FN_MID && code != FN_LEFT && code != FN_RIGHT && code != FN_INSTR && code != FN_STRINGFN &&
         code != FN_REPLACE && code != FN_TRIM && code != FN_LTRIM && code != FN_RTRIM &&
-        code != FN_FIELD && code != FN_PLATFORM && code != FN_JSON) {
+        code != FN_FIELD && code != FN_PLATFORM && code != FN_JSON &&
+        code != FN_DIR && code != FN_JSONLEN && code != FN_JSONKEY) {
         if (**p == ')') {
             (*p)++;
         } else {
@@ -8656,6 +8973,99 @@ static struct value eval_function(const char *name, char **p)
         if (!probe) return make_num(0.0);
         fclose(probe);
         return make_num(1.0);
+    }
+    case FN_DIR: {
+        /* DIR$(path$ [, delim$]) — newline-joined (default) list of
+         * non-hidden names in `path$`. Returns "" on failure / empty
+         * directory. Capped at max_str_limit; caller can SPLIT … INTO
+         * arr$ for indexed access. */
+        struct value v_path = arg;
+        char delim[16];
+        struct value v_delim;
+        DIR *dp;
+        struct dirent *de;
+        char out[MAX_STR_LEN];
+        size_t olen = 0;
+        ensure_str(&v_path);
+        delim[0] = '\n'; delim[1] = '\0';
+        skip_spaces(p);
+        if (**p == ',') {
+            (*p)++; skip_spaces(p);
+            v_delim = eval_expr(p);
+            ensure_str(&v_delim);
+            strncpy(delim, v_delim.str, sizeof(delim) - 1);
+            delim[sizeof(delim) - 1] = '\0';
+            skip_spaces(p);
+        }
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        if (!v_path.str[0]) return make_str("");
+        dp = opendir(v_path.str);
+        if (!dp) return make_str("");
+        while ((de = readdir(dp))) {
+            size_t nlen, dlen;
+            if (de->d_name[0] == '.') continue;  /* skip hidden + . / .. */
+            nlen = strlen(de->d_name);
+            dlen = (olen == 0) ? 0 : strlen(delim);
+            if (olen + dlen + nlen >= (size_t)MAX_STR_LEN - 1) break;
+            if (dlen) { memcpy(&out[olen], delim, dlen); olen += dlen; }
+            memcpy(&out[olen], de->d_name, nlen);
+            olen += nlen;
+        }
+        closedir(dp);
+        out[olen] = '\0';
+        return make_str(out);
+    }
+    case FN_JSONLEN: {
+        struct value v_json = arg;
+        struct value v_path;
+        const char *node;
+        ensure_str(&v_json);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("JSONLEN requires 2 arguments",
+                                 "Use JSONLEN(json$, \"path\") — JSON text and a path string.");
+            return make_num(0.0);
+        }
+        (*p)++; skip_spaces(p);
+        v_path = eval_expr(p);
+        ensure_str(&v_path);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        node = json_navigate(v_json.str, v_path.str);
+        if (!node) return make_num(0.0);
+        return make_num((double)json_count_entries(node));
+    }
+    case FN_JSONKEY: {
+        struct value v_json = arg;
+        struct value v_path, v_n;
+        const char *node;
+        char kbuf[256];
+        ensure_str(&v_json);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("JSONKEY$ requires 3 arguments",
+                                 "Use JSONKEY$(json$, \"path\", n) — returns 0-based Nth key of an object.");
+            return make_str("");
+        }
+        (*p)++; skip_spaces(p);
+        v_path = eval_expr(p); ensure_str(&v_path);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("JSONKEY$ requires 3 arguments",
+                                 "Third argument is the 0-based key index.");
+            return make_str("");
+        }
+        (*p)++; skip_spaces(p);
+        v_n = eval_expr(p); ensure_num(&v_n);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        node = json_navigate(v_json.str, v_path.str);
+        if (!node) return make_str("");
+        if (!json_nth_key(node, (int)v_n.num, kbuf, sizeof(kbuf))) return make_str("");
+        return make_str(kbuf);
     }
     case FN_STRINGFN: {
         /* STRING$(n, char$) or STRING$(n, code) */
@@ -9394,6 +9804,11 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "ISMOUSEBUTTONPRESSED") || starts_with_kw(*p, "ISMOUSEBUTTONDOWN") ||
             starts_with_kw(*p, "ISMOUSEBUTTONRELEASED") || starts_with_kw(*p, "ISMOUSEBUTTONUP") ||
             starts_with_kw(*p, "ISMOUSEOVERSPRITE") || starts_with_kw(*p, "SPRITEAT") ||
+            starts_with_kw(*p, "TICKUS") || starts_with_kw(*p, "TICKMS") ||
+            starts_with_kw(*p, "CWD") || starts_with_kw(*p, "CWD$") ||
+            starts_with_kw(*p, "DIR") || starts_with_kw(*p, "DIR$") ||
+            starts_with_kw(*p, "JSONLEN") || starts_with_kw(*p, "JSONKEY") ||
+            starts_with_kw(*p, "JSONKEY$") ||
             starts_with_kw(*p, "BUFFERLEN") || starts_with_kw(*p, "BUFFERPATH") ||
             starts_with_kw(*p, "KEYDOWN") || starts_with_kw(*p, "KEYUP") ||
             starts_with_kw(*p, "KEYPRESS") || starts_with_kw(*p, "ANIMFRAME") ||
@@ -12376,6 +12791,172 @@ static void statement_for(char **p)
 #endif
 }
 
+/* Skip forward to the matching NEXT when a FOREACH over an empty
+ * array should run zero iterations. Handles nested FOR/FOREACH so
+ * inner NEXTs don't close the outer block prematurely. */
+static void skip_foreach_to_next(char **p)
+{
+    int line = current_line;
+    char *pos = *p;
+    int nesting = 1;
+
+    while (line >= 0 && line < line_count && program_lines[line]) {
+        if (!pos) pos = program_lines[line]->text;
+        while (pos && *pos) {
+            char *q = pos;
+            skip_spaces(&q);
+            if (!*q) break;
+            if (starts_with_kw(q, "FOREACH") || starts_with_kw(q, "FOR")) {
+                nesting++;
+                while (*q && *q != ':') q++;
+                pos = (*q == ':') ? q + 1 : q;
+                continue;
+            }
+            if (starts_with_kw(q, "NEXT")) {
+                char *r = q + 4;
+                /* Skip optional loop-var name */
+                while (*r == ' ' || *r == '\t') r++;
+                while (isalnum((unsigned char)*r) || *r == '_' || *r == '$') r++;
+                nesting--;
+                if (nesting == 0) {
+                    if (!*r && line + 1 < line_count) {
+                        current_line = line + 1;
+                        statement_pos = program_lines[line + 1]->text;
+                        *p = statement_pos;
+                    } else {
+                        current_line = line;
+                        statement_pos = r;
+                        *p = r;
+                    }
+                    return;
+                }
+                pos = r;
+                continue;
+            }
+            pos = strchr(pos, ':');
+            pos = pos ? pos + 1 : NULL;
+        }
+        line++;
+        pos = NULL;
+    }
+    runtime_error_hint("NEXT expected", "FOREACH … NEXT must close with NEXT.");
+}
+
+/* FOREACH var IN arr — iterate each element of a 1-D array (numeric or
+ * string). Pushes a FOR frame marked is_each=1. The first element is
+ * loaded immediately; NEXT advances the index and reloads, ending
+ * when the index passes the array's upper inclusive bound. Empty
+ * arrays run zero iterations. */
+static void statement_foreach(char **p)
+{
+    struct value *vp;
+    int is_array;
+    int is_string;
+    char loop_name[VAR_NAME_MAX];
+    struct var *arr_var = NULL;
+    int i;
+
+    skip_spaces(p);
+    vp = get_var_reference(p, &is_array, &is_string, loop_name);
+    if (!vp) return;
+    if (is_array) {
+        runtime_error_hint("FOREACH variable must be scalar",
+                             "FOREACH V IN ARR — V is a simple var, not an array element.");
+        return;
+    }
+    skip_spaces(p);
+    if (!starts_with_kw(*p, "IN")) {
+        runtime_error_hint("Expected IN in FOREACH",
+                             "Use FOREACH var IN arr — IN separates the loop var from the array.");
+        return;
+    }
+    *p += 2;
+    skip_spaces(p);
+    if (!isalpha((unsigned char)**p)) {
+        runtime_error_hint("FOREACH: expected array name after IN", NULL);
+        return;
+    }
+    {
+        char arr_name[VAR_NAME_MAX];
+        int arr_is_string = 0;
+        read_identifier(p, arr_name, sizeof(arr_name));
+        uppercase_name(arr_name, arr_name, sizeof(arr_name), &arr_is_string);
+        /* Optional trailing "()" to match the spec's FOREACH V IN ARR() form. */
+        skip_spaces(p);
+        if (**p == '(') {
+            (*p)++; skip_spaces(p);
+            if (**p == ')') (*p)++;
+        }
+        if (arr_is_string != is_string) {
+            runtime_error_hint("FOREACH: loop variable type must match array",
+                                 "String arrays need a $-suffixed loop variable (and vice versa).");
+            return;
+        }
+        for (i = 0; i < var_count; i++) {
+            if (strcmp(vars[i].name, arr_name) == 0 && vars[i].is_string == arr_is_string) {
+                arr_var = &vars[i];
+                break;
+            }
+        }
+    }
+    if (!arr_var || !arr_var->is_array || !arr_var->array) {
+        runtime_error_hint("FOREACH: array not DIMmed",
+                             "DIM the array first: DIM A(10) or DIM NAMES$(N).");
+        return;
+    }
+    if (arr_var->dims != 1) {
+        runtime_error_hint("FOREACH requires a 1-D array",
+                             "Multi-dim arrays not supported by FOREACH v1.");
+        return;
+    }
+    if (for_top >= MAX_FOR) {
+        runtime_error_hint("FOR stack overflow", "Too many nested FOR loops; reduce nesting.");
+        return;
+    }
+    /* Drop any outstanding FOR/FOREACH for this same loop var (matches
+     * the statement_for cleanup). Keeps re-entering the same FOREACH
+     * from working without ballooning the stack. */
+    if (loop_name[0] != '\0') {
+        for (i = for_top - 1; i >= 0; i--) {
+            if (for_stack[i].name[0] != '\0' &&
+                strcmp(for_stack[i].name, loop_name) == 0) {
+                for_top = i;
+                break;
+            }
+        }
+    }
+    strncpy(for_stack[for_top].name, loop_name, VAR_NAME_MAX - 1);
+    for_stack[for_top].name[VAR_NAME_MAX - 1] = '\0';
+    for_stack[for_top].is_string = is_string;
+    for_stack[for_top].end_value = 0.0;
+    for_stack[for_top].step = 1.0;
+    for_stack[for_top].line_index = current_line;
+    for_stack[for_top].resume_pos = *p;
+    for_stack[for_top].var = vp;
+    for_stack[for_top].gosub_depth_at_entry = gosub_top;
+    for_stack[for_top].is_each = 1;
+    for_stack[for_top].each_array = arr_var;
+    for_stack[for_top].each_idx = 0;
+    if (arr_var->size <= 0) {
+        /* Empty array — don't push a frame, skip ahead to the matching
+         * NEXT so zero iterations happen. */
+        skip_foreach_to_next(p);
+        return;
+    }
+    if (is_string) {
+        vp->type = VAL_STR;
+        strncpy(vp->str, arr_var->array[0].str, MAX_STR_LEN - 1);
+        vp->str[MAX_STR_LEN - 1] = '\0';
+        vp->num = 0.0;
+    } else {
+        vp->type = VAL_NUM;
+        vp->num = arr_var->array[0].num;
+        vp->str[0] = '\0';
+    }
+    for_stack[for_top].each_idx = 1;  /* next index to load on NEXT */
+    for_top++;
+}
+
 /* Recover variable name from FOR stack var pointer (when frame name was empty). */
 static int for_stack_var_name(const struct value *vp, char *out, size_t outsz)
 {
@@ -12450,6 +13031,32 @@ static void statement_next(char **p)
     if (!vp) {
         runtime_error_hint("Loop variable missing",
                            "FOR stack inconsistency; avoid GOTO into NEXT without a matching FOR.");
+        return;
+    }
+    if (for_stack[for_top - 1].is_each) {
+        /* FOREACH: load the next element (if any), else pop the frame. */
+        struct var *arr = for_stack[for_top - 1].each_array;
+        int idx = for_stack[for_top - 1].each_idx;
+        if (!arr || !arr->array || idx >= arr->size) {
+            for_top--;
+            return;
+        }
+        if (for_stack[for_top - 1].is_string) {
+            vp->type = VAL_STR;
+            strncpy(vp->str, arr->array[idx].str, MAX_STR_LEN - 1);
+            vp->str[MAX_STR_LEN - 1] = '\0';
+            vp->num = 0.0;
+        } else {
+            vp->type = VAL_NUM;
+            vp->num = arr->array[idx].num;
+            vp->str[0] = '\0';
+        }
+        for_stack[for_top - 1].each_idx = idx + 1;
+        current_line = for_stack[for_top - 1].line_index;
+        statement_pos = for_stack[for_top - 1].resume_pos;
+#if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
+        wasm_maybe_yield_loop();
+#endif
         return;
     }
     vp->num += for_stack[for_top - 1].step;
@@ -12869,6 +13476,11 @@ static void execute_statement(char **p)
         statement_if(p);
         return;
     }
+    if (c == 'F' && starts_with_kw(*p, "FOREACH")) {
+        *p += 7;
+        statement_foreach(p);
+        return;
+    }
     if (c == 'F' && starts_with_kw(*p, "FOR")) {
         *p += 3;
         statement_for(p);
@@ -12924,6 +13536,17 @@ static void execute_statement(char **p)
             *p += 8;
             statement_download(p);
             return;
+        }
+        if (starts_with_kw(*p, "DIR")) {
+            /* Statement form only — DIR$ expression call goes through
+             * eval_factor like other intrinsics. Disambiguate here so
+             * `DIR$(x)` in statement context (rare) still parses.  */
+            char *peek = *p + 3;
+            if (*peek != '$') {
+                *p += 3;
+                statement_dir_into(p);
+                return;
+            }
         }
 #ifdef GFX_VIDEO
         if (starts_with_kw(*p, "DOUBLEBUFFER")) {
@@ -13180,6 +13803,11 @@ static void execute_statement(char **p)
         if (starts_with_kw(*p, "CURSOR")) {
             *p += 6;
             statement_cursor(p);
+            return;
+        }
+        if (starts_with_kw(*p, "CHDIR")) {
+            *p += 5;
+            statement_chdir(p);
             return;
         }
         if (starts_with_kw(*p, "COLOR") || starts_with_kw(*p, "COLOUR")) {

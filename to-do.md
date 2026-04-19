@@ -57,7 +57,17 @@ QuickBASIC `PAINT` with tile brush; modern raylib `DrawTexturePoly`.
   no-op (prints a one-shot hint on stderr) — real files are already
   on the host filesystem.
 
-## Directory listing (proposed, 2026-04-19)
+## Directory listing — SHIPPED 1.10.0 (2026-04-19)
+
+`DIR$(path$ [, delim$])` returns a delimiter-joined name list (default
+newline). `DIR path$ INTO arr$ [, count]` fills a 1-D string array
+and optionally assigns the count. Hidden files excluded. Native
+`opendir`/`readdir`; MEMFS on browser WASM via the same POSIX layer.
+
+Kept-unshipped: file metadata (FILESIZE / FILEMTIME / ISDIR), glob
+patterns, recursive walk. Shape reference below retained.
+
+## Directory listing — spec (shipped)
 
 Companion to `FILEEXISTS` / `IMAGE SAVE` / `DOWNLOAD`. Programs need to
 enumerate the current working directory (or an arbitrary path) to:
@@ -112,7 +122,16 @@ NEXT I
   filter in BASIC with `INSTR` / `RIGHT$`.
 - Recursive walk: out of scope for v1.
 
-## Working directory (proposed, 2026-04-19)
+## Working directory — SHIPPED 1.10.0 (2026-04-19)
+
+`CWD$()` returns current working directory; `CHDIR path$` changes it
+(raises a runtime error on missing paths). Native `getcwd` / `chdir`;
+MEMFS on browser WASM via the same POSIX layer.
+
+Still deferred: `MKDIR` / `RMDIR` / `DELETE` / `RENAME` — low
+priority for the current workflow.
+
+## Working directory — spec (shipped)
 
 Needed alongside `DIR$` so programs can anchor paths relative to a
 chosen root and walk between them (e.g. switch between `/assets`,
@@ -138,7 +157,18 @@ CHDIR OLD$                    : REM restore
 old$ TO new$`. Not needed for the current screenshot / tutorial
 workflow but a natural follow-up to `DIR$` + `CWD$`.
 
-## JSON by index + length (proposed, 2026-04-19)
+## JSON by index + length — SHIPPED 1.10.0 (2026-04-19)
+
+`JSONLEN(j$, path$)` returns the count of entries at a path resolving
+to an array or object (0 for scalars / missing). `JSONKEY$(j$, path$,
+n)` returns the 0-based Nth key of an object (empty for arrays /
+scalars). Pairs with the existing `JSON$` for `FOR I = 0 TO JSONLEN(…)
+- 1` iteration idioms.
+
+Still deferred: `JSONTYPE$` (only worth adding when a real example
+needs to branch on type).
+
+## JSON by index + length — spec (shipped)
 
 `JSON$(json$, path$)` already handles array indices inside a path
 (`"items[0].name"`, `"[2]"`), but it can't answer "how many entries"
@@ -329,7 +359,19 @@ LOOP
 - **Calendar helpers:** `DAYSINMONTH`, `ISLEAPYEAR`, etc. — cheap
   to add once the component accessors ship.
 
-## FOREACH loop (proposed, 2026-04-19)
+## FOREACH loop — SHIPPED 1.10.0 (2026-04-19)
+
+`FOREACH var IN arr[()] … NEXT var` — iterate each element of a 1-D
+array (numeric or string). Reuses the FOR stack via a new `is_each`
+flag on `struct for_frame`. Empty arrays run zero iterations via
+`skip_foreach_to_next`. Normaliser no longer splits `FOREACH` into
+`FOR EACH`. Tests: `tests/foreach_numeric.bas`,
+`tests/foreach_string.bas`.
+
+Still deferred: multi-dim walk (`FOREACH V IN ARR(ROW)` to iterate a
+single row), mutation-during-iteration guarantees.
+
+## FOREACH loop — spec (shipped)
 
 Iterate an array element-by-element without an explicit index:
 
@@ -396,7 +438,18 @@ Append `FOREACH` to `reserved_words[]` in `basic.c`. Programs using
 - `tests/foreach_nested.bas`
 - `tests/foreach_multidim_error.bas` (expects runtime error)
 
-## Performance measurement primitives (proposed, 2026-04-19)
+## Performance measurement primitives — SHIPPED 1.10.0 (2026-04-19)
+
+`TICKUS()` / `TICKMS()` monotonic counters. Native:
+`clock_gettime(CLOCK_MONOTONIC)`. Browser WASM: `emscripten_get_now()`.
+Use differences between two reads for timing; absolute values are
+implementation-defined.
+
+Still deferred: `BENCHMARK … END BENCHMARK` block timer (plain
+`TICKUS()` diffs cover the common case in three lines), per-statement
+profiler.
+
+## Performance measurement primitives — spec (shipped)
 
 Context: user wants to prototype new intrinsics as BASIC library functions
 first, then measure to decide whether the performance win justifies

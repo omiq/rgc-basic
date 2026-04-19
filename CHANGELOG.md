@@ -1,5 +1,38 @@
 ## Changelog
 
+### 1.10.0 – 2026-04-19
+
+**Non-gfx utility batch: filesystem, timing, JSON iteration, FOREACH.**
+
+Five features that were proposed in `to-do.md` and now ship together.
+None are gfx; they round out the "scripting in basic" story.
+
+| Feature | Shape |
+|---------|-------|
+| **`TICKUS()` / `TICKMS()`** | Monotonic high-resolution counters (µs / ms). Native: `clock_gettime(CLOCK_MONOTONIC)`. Browser WASM: `emscripten_get_now()`. Unblocks BASIC-level benchmarking of user helpers before promoting to C. |
+| **`CWD$()` / `CHDIR path$`** | Current working directory + change directory. Native `getcwd`/`chdir`; MEMFS on browser WASM via the same POSIX layer. `CHDIR` raises a runtime error on missing paths. |
+| **`DIR$(path$ [, delim$])` + `DIR path$ INTO arr$ [, count]`** | Directory listing, both string and array forms. Default delim is newline. Hidden files (leading `.`) excluded. 1-D string-array target; optional count var. |
+| **`JSONLEN(j$, path$)` / `JSONKEY$(j$, path$, n)`** | Iterate JSON. `JSONLEN` returns count of entries at a path resolving to an array/object. `JSONKEY$` returns the 0-based Nth key of an object (empty for arrays/scalars). Pairs with the existing `JSON$` for `FOR I = 0 TO JSONLEN(...) - 1` patterns. |
+| **`FOREACH var IN arr[()] ... NEXT var`** | Iterate each element of a 1-D array (numeric or string). Reuses the FOR stack via a new `is_each` flag on `struct for_frame`. Empty arrays run zero iterations via `skip_foreach_to_next`. `EXIT` works the same as inside FOR. |
+
+Mechanics:
+
+- Single-arg TICKUS / TICKMS / CWD$ dispatch early in `eval_factor`
+  before the standard `eval_expr(p)` call — they take no args.
+- DIR$ / JSONLEN / JSONKEY$ handle their own `)` close so they can
+  take variable arg counts.
+- `statement_dir_into` mirrors `statement_split` (reads array via
+  `vars[]`, writes filenames in place, optional count var stored via
+  `find_or_create_var`).
+- `statement_foreach` assigns first element before pushing the FOR
+  frame; `statement_next` branches on `is_each` to load the next
+  element or pop.
+- Normaliser no longer splits `FOREACH` into `FOR EACH` (one-line
+  guard in `normalize_keywords_line`).
+- Added to `reserved_words[]`: `TICKUS TICKMS CWD DIR CHDIR JSONLEN JSONKEY FOREACH IN`.
+
+Tests: `tests/foreach_numeric.bas`, `tests/foreach_string.bas`.
+
 ### 1.9.9 – 2026-04-19
 
 **Pixel-perfect `ISMOUSEOVERSPRITE`.**
