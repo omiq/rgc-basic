@@ -221,6 +221,114 @@ PRINT JSONFILE$("/tmp/resp.json", "users[0].name")
 `JSONKEY$` should grow file-backed variants (`JSONFILELEN`, etc.) at
 the same time so the iteration pattern works on big files too.
 
+## DateTime primitives (proposed, 2026-04-19)
+
+Today: `TI` / `TI$` give a 60 Hz jiffy counter and an `HHMMSS` wall-
+clock string. Nothing handles dates or timezones. Programs that fetch
+real time via `HTTP$` (see `examples/http_time_london.bas`) can parse
+the response but can't push it back into the interpreter as a
+persistent "current datetime" — every `TI$` read still comes from the
+local wall clock.
+
+Goal: one canonical datetime register that programs can read, format,
+set from HTTP, and use as the basis for world-clock / countdown /
+scheduling demos.
+
+### Model
+
+Store one **internal epoch** (64-bit seconds since 1970-01-01 UTC)
+plus a **timezone offset in minutes** from UTC. Both settable. `TI`
+stays as-is (jiffy counter); the new register is independent.
+
+```c
+static int64_t g_datetime_epoch_s = 0;   /* UTC seconds */
+static int32_t g_datetime_tz_min  = 0;   /* minutes east of UTC */
+```
+
+On interpreter init: seed `g_datetime_epoch_s` from `time(NULL)` and
+`g_datetime_tz_min` from `localtime`'s `tm_gmtoff`. Browser WASM does
+the same via `Date.now()` + `getTimezoneOffset()` in an `EM_JS`.
+
+### Intrinsics
+
+| Call | Returns | Notes |
+|------|---------|-------|
+| **`NOW()`** | epoch seconds (number) | Current epoch after any `DATETIME SET` override. |
+| **`DATE$()`** | `"YYYY-MM-DD"` | In current TZ. |
+| **`TIME$()`** | `"HH:MM:SS"` | In current TZ. Named so it does NOT collide with `TI$` (jiffy-derived). |
+| **`DATETIME$()`** | `"YYYY-MM-DD HH:MM:SS"` | ISO-like, no `T`, current TZ. |
+| **`DATETIMEUTC$()`** | `"YYYY-MM-DDTHH:MM:SSZ"` | Canonical ISO-8601 UTC. |
+| **`DAY()`** / **`MONTH()`** / **`YEAR()`** | number | Components in current TZ. |
+| **`HOUR()`** / **`MINUTE()`** / **`SECOND()`** | number | Components in current TZ. |
+| **`DAYOFWEEK()`** | 0 = Sunday … 6 = Saturday | In current TZ. |
+| **`FORMATDATE$(fmt$)`** | formatted string | strftime-style tokens: `%Y %m %d %H %M %S %A %a %B %b %Z`, plus literal text. |
+| **`PARSEDATE(s$)`** | epoch seconds | Accept `"YYYY-MM-DD HH:MM:SS"`, `"YYYY-MM-DDTHH:MM:SSZ"`, and a short `"HH:MM"` fallback. `0` on parse failure. |
+
+### Statements
+
+| Statement | Effect |
+|-----------|--------|
+| **`DATETIME SET epoch`** | Override `g_datetime_epoch_s` — `NOW() / DATE$ / TIME$` read from this value plus elapsed monotonic time since the set. |
+| **`DATETIME SET s$`** | Convenience: same as `DATETIME SET PARSEDATE(s$)`. |
+| **`DATETIME TZ minutes`** | Set timezone offset in minutes east of UTC (e.g. `0` UTC, `60` CET, `-300` EST). Affects every component accessor. |
+| **`DATETIME RESET`** | Restore epoch + TZ to host defaults (re-read host clock). |
+
+### Drift model
+
+After `DATETIME SET`, we want subsequent reads to advance in real time
+— we're not freezing the clock, just offsetting it. Track:
+
+```c
+static double g_datetime_set_monotonic_s = 0.0;  /* host time at SET */
+static int    g_datetime_is_overridden   = 0;
+```
+
+Each `NOW()` returns `g_datetime_epoch_s + (host_now - g_datetime_set_monotonic_s)`
+when overridden, else host epoch.
+
+### Example: `examples/world_clock.bas`
+
+```basic
+' Sync to authoritative source
+J$ = HTTP$("http://worldtimeapi.org/api/timezone/Europe/London")
+EPOCH = VAL(JSON$(J$, "unixtime"))
+OFFSET_MIN = VAL(JSON$(J$, "raw_offset")) / 60
+DATETIME SET EPOCH
+DATETIME TZ OFFSET_MIN
+
+' World-clock UI, one row per zone
+DIM ZONES$(5)
+DIM OFFSETS(5)
+ZONES$(0) = "UTC"      : OFFSETS(0) = 0
+ZONES$(1) = "London"   : OFFSETS(1) = OFFSET_MIN
+ZONES$(2) = "New York" : OFFSETS(2) = -240       ' DST
+ZONES$(3) = "Tokyo"    : OFFSETS(3) = 540
+ZONES$(4) = "Sydney"   : OFFSETS(4) = 600
+ZONES$(5) = "Auckland" : OFFSETS(5) = 780
+
+DO
+  CLS
+  FOR I = 0 TO 5
+    DATETIME TZ OFFSETS(I)
+    LOCATE 0, I * 2
+    PRINT ZONES$(I); ": "; DATETIME$()
+  NEXT I
+  VSYNC
+LOOP
+```
+
+### Deferred
+
+- **Durations / arithmetic:** `ADDSECONDS(epoch, n)`, `ADDDAYS(...)`,
+  `DIFFSECONDS(a, b)`. Implementable in BASIC on top of `NOW()` but
+  intrinsics would read better.
+- **Locale-aware month / weekday names:** English-only for v1.
+- **`TIMER` integration:** currently interval-based; a `TIMER AT
+  epoch, FnName` form would fire once at a specific datetime —
+  useful for alarms / schedulers.
+- **Calendar helpers:** `DAYSINMONTH`, `ISLEAPYEAR`, etc. — cheap
+  to add once the component accessors ship.
+
 Dropped from the original proposal:
 - ~~`SCREEN OFFSET`, `SCREEN ZONE`, `SCREEN SCROLL`~~ — `IMAGE COPY`
   already covers scrolling and parallax; see
