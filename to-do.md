@@ -986,49 +986,37 @@ canonical per-frame pattern no longer flickers. Example:
 
 Remaining gaps moved to follow-up work below.
 
-## Multiple screen buffers (proposed, next 2026-04-19)
+## Multiple screen buffers — SHIPPED 1.9.6 (2026-04-19)
 
-Now that the bitmap plane has one back-buffer, the natural extension
-is user-selectable buffers: draw into one while another displays,
-flip, draw in a third, etc. Use cases:
+`SCREEN BUFFER n` / `SCREEN DRAW n` / `SCREEN SHOW n` / `SCREEN FREE n` /
+`SCREEN SWAP a, b` / `SCREEN COPY src, dst` now expose 8 bitmap
+planes. Slot 0 is `bitmap[]`, slot 1 is `bitmap_show[]` (the
+DOUBLEBUFFER back-buffer), and slots 2..7 are caller-allocated on
+heap (`GFX_BITMAP_BYTES` each). BASIC writes target the current draw
+slot; the renderer samples the current show slot.
 
-- AMOS-style **dual playfield**: static world pre-rendered into one
-  buffer, dynamic overlays drawn into another each frame.
-- **Flipbook animation**: pre-render N keyframes, cycle which one
-  is shown.
-- **Triple-buffer** for expensive composites that can't finish in one
-  jiffy — draw in buffer 2 over several frames while 0 displays.
+`DOUBLEBUFFER ON` is now shorthand for `SCREEN DRAW 0 : SCREEN SHOW 1`
+plus auto-flip on VSYNC; `DOUBLEBUFFER OFF` folds both indices back to
+slot 0. Existing programs unaffected.
 
-### API sketch
+Mechanics: `GfxVideoState` gains `screen_buffers[8]`,
+`screen_buffer_owned[8]`, `screen_draw`, `screen_show`. Every
+bitmap-write site in `gfx_video.c` now routes through
+`gfx_video_draw_plane(s)`; `gfx_bitmap_get_show_pixel` reads
+`gfx_video_show_plane(s)`. New C helpers:
+`gfx_video_screen_buffer_alloc/free`, `gfx_video_screen_set_draw/show`,
+`gfx_video_screen_swap`, `gfx_video_screen_copy`. Tests per
+spawn/swap/free/flip scenario in `tests/gfx_video_test.c`. Example:
+`examples/gfx_screen_buffer_demo.bas` (pre-rendered flipbook).
 
-```basic
-SCREEN BUFFER n            ' allocate bitmap buffer slot `n` (0..7)
-SCREEN DRAW   n            ' subsequent bitmap writes target buffer `n`
-SCREEN SHOW   n            ' display buffer `n` (flip target)
-SCREEN FREE   n            ' release buffer `n`
-SCREEN SWAP   a, b         ' atomic swap DRAW and SHOW indices
-```
+Follow-up ideas (not yet scoped):
 
-- Buffer 0 is the current `bitmap` (always present).
-- Buffer 1 is the existing `bitmap_show` back-buffer (auto-allocated
-  when `DOUBLEBUFFER ON`).
-- Buffers 2..7 are caller-allocated `SCREEN BUFFER n` — each is a
-  `GFX_BITMAP_BYTES` block on heap.
-- Write path: every BASIC bitmap statement (`PSET`, `LINE`, `RECT`,
-  `CLS`, `DRAWTEXT`, ...) indexes the draw buffer instead of the
-  fixed `bitmap[]`. Single indirection.
-- Display path: renderer reads the show buffer.
-- `DOUBLEBUFFER ON` reinterpreted as `SCREEN BUFFER 1 : SCREEN DRAW 0 : SCREEN SHOW 1`
-  plus auto-flip on VSYNC. Keeps source backwards compatible.
-
-### Implementation cost
-
-Medium. Changes: one pointer indirection for every bitmap statement
-(already localised in `gfx_bitmap_get_pixel` / `gfx_bitmap_set_pixel`
-in `gfx_video.c`), a small `uint8_t *screen_buffers[MAX_SB]` table
-on `GfxVideoState`, and the new `SCREEN BUFFER/DRAW/SHOW/FREE/SWAP`
-dispatch in `basic.c`. Tests per spawn/swap/free scenario. Plan to
-ship alongside or just after music/sound work.
+- **Per-layer** scroll offsets so background slot, tile slot, and HUD
+  slot can each have an independent `SCROLL dx, dy`.
+- **Named buffer aliases** (`SCREEN BUFFER "bg" ... SCREEN SHOW "bg"`)
+  once naming feels natural.
+- **Dirty-rect tracking** inside each slot so `SCREEN COPY` can
+  restrict to changed regions.
 
 ## Bitmap plane not double-buffered — historical note (2026-04-19, shipped)
 
@@ -1039,19 +1027,27 @@ Options:
 1. **Double-buffer the bitmap plane** (proper fix). Matches the cell-list model: BASIC writes to `bitmap_build`, renderer reads from `bitmap_show`, `gfx_cells_flip` (or a parallel `gfx_bitmap_flip`) copies build→show under the sprite mutex. Lets the existing `CLS` + full-redraw pattern work without flicker.
 2. **Document the "partial erase" idiom** (interim workaround, already in `gfx_hud_demo` / `gfx_showcase`): avoid full `CLS` inside the loop, `FILLRECT` only the changed regions. Readable for small HUDs, awkward for anything bigger.
 
-### Proposed: `CLS` with optional clear-rectangle
+### `CLS` with optional clear-rectangle — SHIPPED 1.9.7 (2026-04-19)
 
-Extend `CLS` to accept an optional pixel region so partial erase is as ergonomic as a full clear, using the current paper colour:
+`CLS x, y TO x2, y2` clears only the specified pixel rectangle in the
+current draw plane (erases bits, same shape as `FILLRECT` with
+`COLOR 0`). Bare `CLS` still full-clears. `statement_cls` parses the
+optional rect and delegates to `gfx_bitmap_line` per-row; the cell
+list is only cleared on the full-screen path so partial-erase frames
+inside `DOUBLEBUFFER` / `SCREEN BUFFER` loops don't wipe sprite/tile
+stamps.
 
-```basic
-CLS                                 ' full-screen clear (unchanged)
-CLS x, y TO x2, y2                  ' clear rectangle in current PAPER/BACKGROUND
-```
+Terminal build still full-clears (region ignored) — no per-cell paper
+logic in ANSI land.
 
-Implementation sketch:
+### `DRAWTEXT` integer scale — SHIPPED 1.9.7 (2026-04-19)
 
-- `statement_cls` already takes `(char **p)` but currently ignores it; parse optional `x, y TO x2, y2` after the keyword.
-- Delegate to `gfx_video_fill_rect_bg` (or equivalent) so the existing paper colour logic is reused — no new colour arg needed.
-- Terminal build: fall back to clearing just that many character cells via ANSI, or ignore the region and clear-screen as today.
-- Reads naturally alongside `FILLRECT`: `CLS` = paper colour; `FILLRECT` = pen colour.
+`DRAWTEXT x, y, text$ [, scale]` — optional trailing integer scale
+(1..8, clamped) pixel-doubles each source glyph pixel into a
+scale×scale block against the existing 8×8 chargen. No Font system
+required for this path. `gfx_video_bitmap_stamp_glyph_px_scaled`
+added in `gfx/gfx_video.c`; scale ≤ 1 delegates to the existing fast
+path. Per-call fg/bg colour still deferred to step 5 of the Font plan
+(`docs/bitmap-text-plan.md`). Example:
+`examples/gfx_drawtext_scale_demo.bas`.
 

@@ -404,6 +404,117 @@ int main(void)
         gfx_video_bitmap_scroll_up_cell(NULL);
     }
 
+    /* Multi-plane screen buffers: SCREEN BUFFER / DRAW / SHOW / FREE / SWAP / COPY. */
+    {
+        GfxVideoState b;
+        gfx_video_init(&b);
+
+        /* Defaults: slot 0 is bitmap[], slot 1 is bitmap_show[]; others NULL. */
+        assert(b.screen_buffers[0] == b.bitmap);
+        assert(b.screen_buffers[1] == b.bitmap_show);
+        assert(b.screen_buffers[2] == NULL);
+        assert(b.screen_draw == 0);
+        assert(b.screen_show == 0);
+
+        /* Allocation bounds: slots 0 and 1 are reserved, 2..7 only. */
+        assert(gfx_video_screen_buffer_alloc(&b, 0) == -1);
+        assert(gfx_video_screen_buffer_alloc(&b, 1) == -1);
+        assert(gfx_video_screen_buffer_alloc(&b, 8) == -1);
+        assert(gfx_video_screen_buffer_alloc(&b, 2) == 0);
+        assert(b.screen_buffers[2] != NULL);
+        assert(b.screen_buffer_owned[2] == 1);
+        /* Idempotent. */
+        assert(gfx_video_screen_buffer_alloc(&b, 2) == 0);
+
+        /* Draw into slot 2 — bitmap[] must stay untouched. */
+        assert(gfx_video_screen_set_draw(&b, 2) == 0);
+        gfx_bitmap_set_pixel(&b, 5, 7, 1);
+        assert(b.screen_buffers[2][7 * 40 + 0] == 0x04);
+        assert(b.bitmap[7 * 40 + 0] == 0x00);
+        assert(gfx_bitmap_get_pixel(&b, 5, 7) == 1);
+
+        /* SHOW slot 2 — show plane reads slot 2. */
+        assert(gfx_video_screen_set_show(&b, 2) == 0);
+        assert(gfx_bitmap_get_show_pixel(&b, 5, 7) == 1);
+
+        /* Retarget DRAW back to slot 0; show still reads slot 2. */
+        assert(gfx_video_screen_set_draw(&b, 0) == 0);
+        gfx_bitmap_set_pixel(&b, 0, 0, 1);
+        assert(b.bitmap[0] == 0x80);
+        assert(gfx_bitmap_get_show_pixel(&b, 0, 0) == 0); /* shown buffer unchanged */
+
+        /* COPY slot 2 to slot 0 — merge the offscreen plane into the visible one. */
+        assert(gfx_video_screen_copy(&b, 2, 0) == 0);
+        assert(b.bitmap[7 * 40 + 0] == 0x04);
+
+        /* SWAP draw, show atomically. */
+        assert(gfx_video_screen_swap(&b, 2, 0) == 0);
+        assert(b.screen_draw == 2);
+        assert(b.screen_show == 0);
+
+        /* FREE must refuse slot 0, 1, 8, or the active draw/show slot. */
+        assert(gfx_video_screen_buffer_free(&b, 0) == -1);
+        assert(gfx_video_screen_buffer_free(&b, 1) == -1);
+        assert(gfx_video_screen_buffer_free(&b, 2) == -1); /* still draw */
+        /* Move draw off slot 2, then free should succeed. */
+        assert(gfx_video_screen_set_draw(&b, 0) == 0);
+        assert(gfx_video_screen_buffer_free(&b, 2) == 0);
+        assert(b.screen_buffers[2] == NULL);
+        assert(b.screen_buffer_owned[2] == 0);
+
+        /* VSYNC flip: with double_buffer and slots 0/1, draw -> show. */
+        b.double_buffer = 1;
+        gfx_video_screen_set_draw(&b, 0);
+        gfx_video_screen_set_show(&b, 1);
+        memset(b.bitmap, 0xAB, GFX_BITMAP_BYTES);
+        memset(b.bitmap_show, 0x00, GFX_BITMAP_BYTES);
+        gfx_video_bitmap_flip(&b);
+        assert(b.bitmap_show[0] == 0xAB);
+        assert(b.bitmap_show[GFX_BITMAP_BYTES - 1] == 0xAB);
+
+        /* When draw == show, flip is a no-op (no self-copy). */
+        gfx_video_screen_set_show(&b, 0);
+        memset(b.bitmap, 0xCD, 1);
+        gfx_video_bitmap_flip(&b);
+        assert(b.bitmap[0] == 0xCD);
+    }
+
+    /* Scaled glyph stamp: a glyph that is solid in the top-left pixel
+     * should fill a `scale × scale` block after stamp_glyph_px_scaled. */
+    {
+        GfxVideoState b;
+        gfx_video_init(&b);
+        /* Put a glyph whose top row is 0x80 (MSB only -> x=0 pixel set). */
+        b.chars[0] = 0x80;
+        b.chars[1] = 0x00;
+        b.chars[2] = 0x00;
+        b.chars[3] = 0x00;
+        b.chars[4] = 0x00;
+        b.chars[5] = 0x00;
+        b.chars[6] = 0x00;
+        b.chars[7] = 0x00;
+        gfx_video_bitmap_stamp_glyph_px_scaled(&b, 0, 0, 0, 3);
+        /* Expect a 3x3 block of set pixels at (0..2, 0..2) and zero beyond. */
+        assert(gfx_bitmap_get_pixel(&b, 0, 0) == 1);
+        assert(gfx_bitmap_get_pixel(&b, 2, 0) == 1);
+        assert(gfx_bitmap_get_pixel(&b, 0, 2) == 1);
+        assert(gfx_bitmap_get_pixel(&b, 2, 2) == 1);
+        assert(gfx_bitmap_get_pixel(&b, 3, 0) == 0);
+        assert(gfx_bitmap_get_pixel(&b, 0, 3) == 0);
+
+        /* Scale clamps upward: 100 collapses to 8 without crashing. */
+        memset(b.bitmap, 0, GFX_BITMAP_BYTES);
+        gfx_video_bitmap_stamp_glyph_px_scaled(&b, 0, 0, 0, 100);
+        assert(gfx_bitmap_get_pixel(&b, 7, 7) == 1);
+        assert(gfx_bitmap_get_pixel(&b, 8, 0) == 0);
+
+        /* Scale <= 1 delegates to non-scaled path (identity). */
+        memset(b.bitmap, 0, GFX_BITMAP_BYTES);
+        gfx_video_bitmap_stamp_glyph_px_scaled(&b, 0, 0, 0, 1);
+        assert(gfx_bitmap_get_pixel(&b, 0, 0) == 1);
+        assert(gfx_bitmap_get_pixel(&b, 1, 0) == 0);
+    }
+
     printf("gfx_video_test OK\n");
     return 0;
 }

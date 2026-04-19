@@ -5189,7 +5189,7 @@ static void statement_fillpolygon(char **p)
 #endif
 }
 
-/* DRAWTEXT x, y, text$
+/* DRAWTEXT x, y, text$ [, scale]
  *
  * Stamp a string onto the visible bitmap at arbitrary pixel (x, y),
  * using the active character-set glyphs. Unlike PRINT / TEXTAT this
@@ -5198,10 +5198,11 @@ static void statement_fillpolygon(char **p)
  * bitmap mode. Bytes of text$ are converted via petscii_to_screencode
  * so `DRAWTEXT 10, 10, "HP: 99"` renders the letters as expected.
  *
- * Minimal v1: transparent background (OR), current pen, 8x8 glyphs,
- * no scale, no Font slot. The full DRAWTEXT spec in
- * docs/bitmap-text-plan.md adds fg/bg colour + scale + Font slots —
- * all deferred until the Font system lands. */
+ * Optional trailing integer `scale` (1..8) pixel-doubles each source
+ * pixel into a scale×scale block, giving 16×16 / 24×24 / ... glyphs
+ * against the existing 8×8 chargen. Defaults to 1. Per-call fg/bg
+ * colour and Font-slot selection still wait on the Font system — see
+ * docs/bitmap-text-plan.md. */
 static void statement_drawtext(char **p)
 {
 #ifndef GFX_VIDEO
@@ -5210,17 +5211,26 @@ static void statement_drawtext(char **p)
                        "DRAWTEXT renders to the bitmap (basic-gfx or canvas WASM).");
 #else
     struct value vx, vy, vt;
-    int x, y, i;
+    int x, y, i, scale = 1;
     skip_spaces(p);
     vx = eval_expr(p); ensure_num(&vx);
     skip_spaces(p);
-    if (**p != ',') { runtime_error_hint("DRAWTEXT expects x, y, text$", NULL); return; }
+    if (**p != ',') { runtime_error_hint("DRAWTEXT expects x, y, text$ [, scale]", NULL); return; }
     (*p)++; skip_spaces(p);
     vy = eval_expr(p); ensure_num(&vy);
     skip_spaces(p);
-    if (**p != ',') { runtime_error_hint("DRAWTEXT expects x, y, text$", NULL); return; }
+    if (**p != ',') { runtime_error_hint("DRAWTEXT expects x, y, text$ [, scale]", NULL); return; }
     (*p)++; skip_spaces(p);
     vt = eval_expr(p); ensure_str(&vt);
+    skip_spaces(p);
+    if (**p == ',') {
+        struct value vs;
+        (*p)++; skip_spaces(p);
+        vs = eval_expr(p); ensure_num(&vs);
+        scale = (int)vs.num;
+        if (scale < 1) scale = 1;
+        if (scale > 8) scale = 8;
+    }
     if (!gfx_vs) {
         runtime_error_hint("DRAWTEXT is only available in basic-gfx",
                            "Bitmap DRAWTEXT needs basic-gfx or canvas WASM.");
@@ -5228,9 +5238,17 @@ static void statement_drawtext(char **p)
     }
     x = (int)vx.num;
     y = (int)vy.num;
-    for (i = 0; vt.str[i] && i < MAX_STR_LEN; i++) {
-        unsigned char sc = petscii_to_screencode((unsigned char)vt.str[i]);
-        gfx_video_bitmap_stamp_glyph_px(gfx_vs, x + i * 8, y, sc);
+    if (scale == 1) {
+        for (i = 0; vt.str[i] && i < MAX_STR_LEN; i++) {
+            unsigned char sc = petscii_to_screencode((unsigned char)vt.str[i]);
+            gfx_video_bitmap_stamp_glyph_px(gfx_vs, x + i * 8, y, sc);
+        }
+    } else {
+        int step = 8 * scale;
+        for (i = 0; vt.str[i] && i < MAX_STR_LEN; i++) {
+            unsigned char sc = petscii_to_screencode((unsigned char)vt.str[i]);
+            gfx_video_bitmap_stamp_glyph_px_scaled(gfx_vs, x + i * step, y, sc, scale);
+        }
     }
 #endif
 }
@@ -5281,6 +5299,115 @@ static void statement_scroll(char **p)
 #endif
 }
 
+#ifdef GFX_VIDEO
+/* Sub-verb dispatch for SCREEN BUFFER / DRAW / SHOW / FREE / SWAP / COPY.
+ * Each sub-verb reads a small slot expression (or two for SWAP / COPY)
+ * and calls the matching gfx_video_screen_* helper. All refuse when
+ * gfx_vs is unset (terminal build). */
+static int parse_slot_arg(char **p)
+{
+    struct value v;
+    skip_spaces(p);
+    v = eval_expr(p);
+    ensure_num(&v);
+    return (int)v.num;
+}
+
+static void statement_screen_buffer(char **p)
+{
+    int slot;
+    if (!gfx_vs) {
+        runtime_error_hint("SCREEN BUFFER requires basic-gfx or canvas WASM", NULL);
+        return;
+    }
+    slot = parse_slot_arg(p);
+    if (gfx_video_screen_buffer_alloc(gfx_vs, slot) != 0) {
+        runtime_error_hint("SCREEN BUFFER: slot must be 2..7 and allocation must succeed",
+                             "Slots 0 and 1 are always present; 2..7 are user-allocated.");
+    }
+}
+
+static void statement_screen_free(char **p)
+{
+    int slot;
+    if (!gfx_vs) {
+        runtime_error_hint("SCREEN FREE requires basic-gfx or canvas WASM", NULL);
+        return;
+    }
+    slot = parse_slot_arg(p);
+    if (gfx_video_screen_buffer_free(gfx_vs, slot) != 0) {
+        runtime_error_hint("SCREEN FREE: slot must be 2..7 and not the active draw/show slot",
+                             "Use SCREEN DRAW / SCREEN SHOW to move off the slot first.");
+    }
+}
+
+static void statement_screen_draw(char **p)
+{
+    int slot;
+    if (!gfx_vs) {
+        runtime_error_hint("SCREEN DRAW requires basic-gfx or canvas WASM", NULL);
+        return;
+    }
+    slot = parse_slot_arg(p);
+    if (gfx_video_screen_set_draw(gfx_vs, slot) != 0) {
+        runtime_error_hint("SCREEN DRAW: slot must be 0..7 and allocated", NULL);
+    }
+}
+
+static void statement_screen_show(char **p)
+{
+    int slot;
+    if (!gfx_vs) {
+        runtime_error_hint("SCREEN SHOW requires basic-gfx or canvas WASM", NULL);
+        return;
+    }
+    slot = parse_slot_arg(p);
+    if (gfx_video_screen_set_show(gfx_vs, slot) != 0) {
+        runtime_error_hint("SCREEN SHOW: slot must be 0..7 and allocated", NULL);
+    }
+}
+
+static void statement_screen_swap(char **p)
+{
+    int a, b;
+    if (!gfx_vs) {
+        runtime_error_hint("SCREEN SWAP requires basic-gfx or canvas WASM", NULL);
+        return;
+    }
+    a = parse_slot_arg(p);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("SCREEN SWAP expects two slot indices: SCREEN SWAP draw, show", NULL);
+        return;
+    }
+    (*p)++;
+    b = parse_slot_arg(p);
+    if (gfx_video_screen_swap(gfx_vs, a, b) != 0) {
+        runtime_error_hint("SCREEN SWAP: both slots must be 0..7 and allocated", NULL);
+    }
+}
+
+static void statement_screen_copy(char **p)
+{
+    int src, dst;
+    if (!gfx_vs) {
+        runtime_error_hint("SCREEN COPY requires basic-gfx or canvas WASM", NULL);
+        return;
+    }
+    src = parse_slot_arg(p);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("SCREEN COPY expects two slot indices: SCREEN COPY src, dst", NULL);
+        return;
+    }
+    (*p)++;
+    dst = parse_slot_arg(p);
+    if (gfx_video_screen_copy(gfx_vs, src, dst) != 0) {
+        runtime_error_hint("SCREEN COPY: both slots must be 0..7 and allocated", NULL);
+    }
+}
+#endif
+
 static void statement_screen(char **p)
 {
 #ifndef GFX_VIDEO
@@ -5288,11 +5415,19 @@ static void statement_screen(char **p)
     runtime_error_hint("SCREEN is only available in basic-gfx",
                          "SCREEN 0/1 switches text vs bitmap in basic-gfx/canvas.");
 #else
-    /* SCREEN 0: 40/80-column text. SCREEN 1: 320×200 monochrome bitmap. */
+    /* SCREEN BUFFER/DRAW/SHOW/FREE/SWAP/COPY — multi-plane buffer ops.
+     * Otherwise SCREEN 0 = text mode, SCREEN 1 = bitmap mode. */
     struct value v;
     int mode;
 
     skip_spaces(p);
+    if (starts_with_kw(*p, "BUFFER"))   { *p += 6; statement_screen_buffer(p); return; }
+    if (starts_with_kw(*p, "DRAW"))     { *p += 4; statement_screen_draw(p);   return; }
+    if (starts_with_kw(*p, "SHOW"))     { *p += 4; statement_screen_show(p);   return; }
+    if (starts_with_kw(*p, "FREE"))     { *p += 4; statement_screen_free(p);   return; }
+    if (starts_with_kw(*p, "SWAP"))     { *p += 4; statement_screen_swap(p);   return; }
+    if (starts_with_kw(*p, "COPY"))     { *p += 4; statement_screen_copy(p);   return; }
+
     v = eval_expr(p);
     ensure_num(&v);
     mode = (int)v.num;
@@ -5361,9 +5496,26 @@ static void statement_bitmapclear(char **p)
  * (delegates to gfx_clear_screen, which respects SCREEN mode). */
 static void statement_cls(char **p)
 {
-    (void)p;
 #ifdef GFX_VIDEO
+    /* CLS with no args: full-screen clear (legacy). CLS x,y TO x2,y2:
+     * clear only that pixel rectangle in the current draw plane — handy
+     * for HUD redraws under SCREEN BUFFER / DOUBLEBUFFER idioms. Only
+     * honoured in basic-gfx; terminal build falls back to full clear. */
     if (gfx_vs) {
+        char *save;
+        skip_spaces(p);
+        save = *p;
+        if (**p && **p != ':') {
+            int x0, y0, x1, y1, y;
+            if (parse_rect_coords(p, &x0, &y0, &x1, &y1, "CLS") != 0) return;
+            if (x0 > x1) { int t = x0; x0 = x1; x1 = t; }
+            if (y0 > y1) { int t = y0; y0 = y1; y1 = t; }
+            for (y = y0; y <= y1; y++) {
+                gfx_bitmap_line(gfx_vs, x0, y, x1, y, 0);
+            }
+            return;
+        }
+        (void)save;
         gfx_clear_screen();
         /* Also clear the per-frame TILEMAP / SPRITE STAMP cell list so
          * programs that do `CLS : ...STAMP : ...STAMP : ...` get a
@@ -5373,6 +5525,8 @@ static void statement_cls(char **p)
         gfx_cells_clear();
         return;
     }
+#else
+    (void)p;
 #endif
     OUTS("\033[2J\033[H");
 }
@@ -5904,8 +6058,20 @@ static void statement_doublebuffer(char **p)
         runtime_error_hint("DOUBLEBUFFER requires basic-gfx or canvas WASM", NULL);
         return;
     }
-    if (want && !gfx_vs->double_buffer) {
-        memcpy(gfx_vs->bitmap_show, gfx_vs->bitmap, sizeof(gfx_vs->bitmap));
+    if (want) {
+        /* DOUBLEBUFFER ON is shorthand for "draw slot 0, show slot 1, auto-flip
+         * on VSYNC". Prime slot 1 from slot 0 so the first displayed frame
+         * isn't blank. SCREEN DRAW / SCREEN SHOW can override after this. */
+        if (!gfx_vs->double_buffer) {
+            memcpy(gfx_vs->bitmap_show, gfx_vs->bitmap, sizeof(gfx_vs->bitmap));
+        }
+        gfx_video_screen_set_draw(gfx_vs, 0);
+        gfx_video_screen_set_show(gfx_vs, 1);
+    } else {
+        /* DOUBLEBUFFER OFF: fold draw and show back to slot 0 so the renderer
+         * samples the live bitmap, matching pre-1.9.5 behaviour. */
+        gfx_video_screen_set_draw(gfx_vs, 0);
+        gfx_video_screen_set_show(gfx_vs, 0);
     }
     gfx_vs->double_buffer = (uint8_t)want;
 }

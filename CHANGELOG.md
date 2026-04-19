@@ -1,5 +1,91 @@
 ## Changelog
 
+### 1.9.7 – 2026-04-19
+
+**`CLS x, y TO x2, y2` partial clear + `DRAWTEXT` integer scale.**
+
+Two bite-sized ergonomics wins that compose cleanly with 1.9.6's
+multi-plane buffers:
+
+- `CLS x, y TO x2, y2` — clear only the specified pixel rectangle in
+  the current draw plane (erases bits, matches `FILLRECT` with
+  `COLOR 0`). Bare `CLS` still does a full screen clear. Especially
+  handy inside `DOUBLEBUFFER`/`SCREEN BUFFER` loops that only need
+  to wipe a HUD band each frame.
+- `DRAWTEXT x, y, text$, scale` — optional trailing integer `scale`
+  (clamped to 1..8) pixel-doubles each source glyph pixel into a
+  `scale × scale` block, giving 16×16 / 24×24 / ... text against the
+  existing 8×8 chargen. No Font system required. Per-call fg/bg
+  colour still wait on the Font work (`docs/bitmap-text-plan.md`).
+
+Example: `examples/gfx_drawtext_scale_demo.bas` — four title rows at
+scales 1..4 plus a bottom HUD band redrawn via `CLS rect` each frame.
+
+Mechanics:
+
+- `statement_cls` in `basic.c` now parses an optional `x,y TO x2,y2`
+  and delegates to `gfx_bitmap_line` (per-row, pixel-clear) when
+  present; the cell-list clear only runs on the full-screen path.
+- `gfx_video_bitmap_stamp_glyph_px_scaled` in `gfx/gfx_video.c` —
+  new helper that expands each glyph bit to a scale×scale block via
+  `gfx_bitmap_set_pixel`. scale ≤ 1 falls through to the existing
+  fast path; scale > 8 clamps. Unit tests in `tests/gfx_video_test.c`.
+- `statement_drawtext` accepts and clamps the scale arg; positions
+  each glyph at `x + i * 8 * scale` so the caller's coordinate space
+  is pixel-accurate at every scale.
+
+### 1.9.6 – 2026-04-19
+
+**Multi-plane screen buffers (`SCREEN BUFFER / DRAW / SHOW / FREE / SWAP / COPY`).**
+
+Promoted the 1.9.5 double-buffer from a hardcoded two-plane pair into
+a general buffer table. Up to eight bitmap planes are addressable by
+index (slots 0..7): slot 0 is the live `bitmap[]`, slot 1 is the
+existing `bitmap_show[]` reserved for DOUBLEBUFFER, and slots 2..7 are
+caller-allocated via `SCREEN BUFFER n`. BASIC writes target the
+current draw slot; the renderer samples the current show slot. Typical
+flipbook / dual-playfield pattern:
+
+```basic
+SCREEN BUFFER 2                ' alloc slot 2
+SCREEN BUFFER 3                ' alloc slot 3
+SCREEN DRAW 2 : CLS : FILLRECT 40,40 TO 280,160   ' scene A
+SCREEN DRAW 3 : CLS : FILLCIRCLE 160,100,60       ' scene B
+SCREEN DRAW 0
+SCREEN SHOW 2                  ' show scene A - costs nothing per frame
+IF KEYPRESS(ASC(" ")) THEN SCREEN SHOW 3
+```
+
+Statements:
+
+| Form | Effect |
+|------|--------|
+| `SCREEN BUFFER n` | Allocate slot `n` (2..7) as an offscreen bitmap plane. |
+| `SCREEN DRAW n` | Retarget all bitmap writes (`PSET`/`LINE`/`CLS`/`DRAWTEXT`/...) to slot `n`. |
+| `SCREEN SHOW n` | Renderer samples slot `n` on the next composite. |
+| `SCREEN FREE n` | Release slot `n` (refused if currently draw or show). |
+| `SCREEN SWAP a, b` | Atomic `draw = a, show = b`. |
+| `SCREEN COPY src, dst` | Blit one plane into another. |
+
+`DOUBLEBUFFER ON` is now shorthand for `SCREEN DRAW 0 : SCREEN SHOW 1
++ auto-flip on VSYNC`; `DOUBLEBUFFER OFF` folds both indices back to
+slot 0. Existing programs are unaffected. See
+`examples/gfx_screen_buffer_demo.bas` for a pre-rendered flipbook.
+
+Mechanics:
+
+- `GfxVideoState` gains `screen_buffers[GFX_MAX_SCREEN_BUFFERS]`,
+  ownership flags, and `screen_draw` / `screen_show` indices.
+- Every `gfx_video.c` write site (PSET, line, clear, glyph stamp,
+  scroll, POKE to bitmap region) now routes through
+  `gfx_video_draw_plane(s)`; `gfx_bitmap_get_show_pixel` reads
+  through `gfx_video_show_plane(s)`.
+- `gfx_video_bitmap_flip` memcpys draw → show when `double_buffer`
+  is on and the two slots differ (no-op otherwise).
+- New helpers on the C side: `gfx_video_screen_buffer_alloc/free`,
+  `gfx_video_screen_set_draw/show`, `gfx_video_screen_swap`,
+  `gfx_video_screen_copy`. Unit tests in `tests/gfx_video_test.c`.
+
 ### 1.9.5 – 2026-04-19
 
 **Bitmap-plane double-buffering (`DOUBLEBUFFER ON | OFF`).**

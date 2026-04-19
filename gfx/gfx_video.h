@@ -37,6 +37,14 @@
 #define GFX_SCREEN_TEXT   0u
 #define GFX_SCREEN_BITMAP 1u
 
+/* Multi-plane screen buffers (AMOS-style). Slot 0 is always the inline
+ * `bitmap[]`; slot 1 is the inline `bitmap_show[]` used by DOUBLEBUFFER;
+ * slots 2..GFX_MAX_SCREEN_BUFFERS-1 are caller-allocated via
+ * `SCREEN BUFFER n`. BASIC writes land in whichever slot is currently
+ * the draw target (`screen_draw`); the renderer samples the slot
+ * selected by `screen_show`. */
+#define GFX_MAX_SCREEN_BUFFERS 8u
+
 typedef struct GfxVideoState {
     /* Virtual POKE/PEEK bases (defaults match C64-style layout). Regions may overlap in
      * 16-bit space; gfx_peek() uses fixed priority (keyboard before colour when ranges
@@ -75,6 +83,14 @@ typedef struct GfxVideoState {
     /* Viewport scroll (pixels): content is shifted left/up by these amounts when compositing. */
     int16_t scroll_x;
     int16_t scroll_y;
+    /* Multi-plane screen buffer table. Slot 0 always points at `bitmap[]`;
+     * slot 1 always points at `bitmap_show[]`; slots 2..7 are NULL until
+     * SCREEN BUFFER n allocates a GFX_BITMAP_BYTES block on heap.
+     * `screen_buffer_owned[n]` is 1 when we malloc'd the slot (needs free). */
+    uint8_t *screen_buffers[GFX_MAX_SCREEN_BUFFERS];
+    uint8_t  screen_buffer_owned[GFX_MAX_SCREEN_BUFFERS];
+    uint8_t  screen_draw;                   /* slot index: BASIC writes target this plane */
+    uint8_t  screen_show;                   /* slot index: renderer samples this plane */
 } GfxVideoState;
 
 /* Advance 60 Hz jiffy counter (TI / TI$); wraps every 24h like C64. */
@@ -136,10 +152,37 @@ int gfx_bitmap_get_pixel(const GfxVideoState *s, unsigned x, unsigned y);
  * in-flight draws stay hidden until the next VSYNC. */
 int gfx_bitmap_get_show_pixel(const GfxVideoState *s, unsigned x, unsigned y);
 
-/* Copy the build plane to the show plane. Called by VSYNC (and only
- * does work when `double_buffer` is 1). Safe to call before any draws
- * to force an initial promote. */
+/* Copy the draw plane to the show plane. Called by VSYNC (and only
+ * does work when `double_buffer` is 1 and draw != show). Safe to call
+ * before any draws to force an initial promote. */
 void gfx_video_bitmap_flip(GfxVideoState *s);
+
+/* Return the current draw / show plane pointer. Never NULL for slot 0
+ * after gfx_video_init. Caller should not free. */
+uint8_t       *gfx_video_draw_plane(GfxVideoState *s);
+const uint8_t *gfx_video_show_plane(const GfxVideoState *s);
+
+/* SCREEN BUFFER n — allocate slot `n` (2..7). Slots 0 and 1 are
+ * always present and cannot be reallocated. Returns 0 on success,
+ * -1 if slot is out of range or malloc fails. Re-allocating an
+ * already-owned slot is a no-op (returns 0). */
+int  gfx_video_screen_buffer_alloc(GfxVideoState *s, int slot);
+
+/* SCREEN FREE n — release slot `n` (2..7). Refuses slots 0/1, the
+ * current draw slot, or the current show slot. Returns 0 on success. */
+int  gfx_video_screen_buffer_free(GfxVideoState *s, int slot);
+
+/* SCREEN DRAW n / SCREEN SHOW n — retarget writes / reads. Fails
+ * if slot is unallocated. Returns 0 on success. */
+int  gfx_video_screen_set_draw(GfxVideoState *s, int slot);
+int  gfx_video_screen_set_show(GfxVideoState *s, int slot);
+
+/* SCREEN SWAP a, b — atomic draw=a, show=b (both slots must exist). */
+int  gfx_video_screen_swap(GfxVideoState *s, int draw_slot, int show_slot);
+
+/* SCREEN COPY src, dst — memcpy buffer[src] into buffer[dst]. Both
+ * slots must be allocated. */
+int  gfx_video_screen_copy(GfxVideoState *s, int src, int dst);
 /* Set (on=1) or clear (on=0) one pixel; coordinates outside the bitmap are ignored. */
 void gfx_bitmap_set_pixel(GfxVideoState *s, int x, int y, int on);
 /* Bresenham line; each point is clipped (same semantics as PSET/PRESET). */
@@ -173,10 +216,19 @@ void gfx_video_bitmap_stamp_glyph(GfxVideoState *s,
 
 /* Pixel-space glyph stamp — arbitrary (x, y) in pixel coordinates
  * rather than character-cell row/col. Transparent background (OR).
- * Used by the DRAWTEXT statement. */
+ * Used by the DRAWTEXT statement. Identical to the _scaled variant
+ * with scale=1. */
 void gfx_video_bitmap_stamp_glyph_px(GfxVideoState *s,
                                      int x, int y,
                                      uint8_t screencode);
+
+/* Same as gfx_video_bitmap_stamp_glyph_px but each source glyph pixel
+ * expands to a `scale x scale` block. Clipped to the bitmap; scale
+ * clamped to [1, 8]. Used by DRAWTEXT x, y, text$, scale. */
+void gfx_video_bitmap_stamp_glyph_px_scaled(GfxVideoState *s,
+                                            int x, int y,
+                                            uint8_t screencode,
+                                            int scale);
 
 /* Scroll the bitmap plane up by one character cell (8 pixel rows).
  * The top 8 pixel rows are discarded; the bottom 8 pixel rows are
