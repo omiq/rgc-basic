@@ -1341,10 +1341,30 @@ static void gfx_sprite_composite_range(const GfxVideoState *vs, RenderTexture2D 
  * Blocks until the render thread fulfils the grab, which happens right
  * after the next gfx_sprite_composite_range (i.e. with the fully-
  * composited target: bitmap + text + sprites + tilemap cells). */
+/* Forward decl so the WASM inline path can share the readback helper. */
+static int gfx_raylib_readback_into_slot(RenderTexture2D target,
+                                         int slot, int sx, int sy, int sw, int sh);
+
+#ifdef __EMSCRIPTEN__
+/* Forward: defined after g_wasm_target / g_wasm_inited are declared
+ * further down the file. Keeps the WASM inline-grab path's texture
+ * readback using the canonical globals without needing to reorder
+ * their (static) definitions. */
+static int gfx_wasm_inline_grab_into_slot(int slot, int sx, int sy, int sw, int sh);
+#endif
+
 int gfx_grab_visible_rgba(int slot, int sx, int sy, int sw, int sh)
 {
     int rc;
     if (sw <= 0 || sh <= 0) return -1;
+#ifdef __EMSCRIPTEN__
+    /* Browser WASM is single-threaded (Asyncify). The interpreter and
+     * the render loop run on the same thread, so a cond_wait here would
+     * deadlock — the service callback could never fire. Instead, read
+     * back from g_wasm_target right now; the most recent VSYNC has
+     * already composited the target, so its pixels are current. */
+    return gfx_wasm_inline_grab_into_slot(slot, sx, sy, sw, sh);
+#else
     pthread_mutex_lock(&g_grab_mtx);
     g_grab_slot = slot;
     g_grab_sx = sx; g_grab_sy = sy;
@@ -1357,26 +1377,14 @@ int gfx_grab_visible_rgba(int slot, int sx, int sy, int sw, int sh)
     rc = g_grab_result;
     pthread_mutex_unlock(&g_grab_mtx);
     return rc;
+#endif
 }
 
-/* Called on the render thread after sprite composite, before the
- * window draw. If a grab is pending, read target's pixels into the
- * requested slot's RGBA buffer. */
-static void gfx_raylib_service_grab(RenderTexture2D target, int nat_w, int nat_h)
+/* Shared GPU → slot.rgba readback (desktop service + WASM inline). */
+static int gfx_raylib_readback_into_slot(RenderTexture2D target,
+                                         int slot, int sx, int sy, int sw, int sh)
 {
-    pthread_mutex_lock(&g_grab_mtx);
-    if (!g_grab_pending) {
-        pthread_mutex_unlock(&g_grab_mtx);
-        return;
-    }
-    int slot = g_grab_slot;
-    int sx = g_grab_sx, sy = g_grab_sy;
-    int sw = g_grab_sw, sh = g_grab_sh;
     int rc = -1;
-
-    /* LoadImageFromTexture reads the GPU texture back to CPU. Target
-     * textures are OpenGL-bottom-up; flip vertically so our (0,0) is
-     * top-left like every other IMAGE / PSET coordinate in rgc-basic. */
     Image img = LoadImageFromTexture(target.texture);
     if (img.data) {
         if (img.format != PIXELFORMAT_UNCOMPRESSED_R8G8B8A8) {
@@ -1391,8 +1399,8 @@ static void gfx_raylib_service_grab(RenderTexture2D target, int nat_w, int nat_h
             memset(dst, 0, (size_t)sw * (size_t)sh * 4u);
             for (y = 0; y < sh; y++) {
                 int isy = sy + y;
-                if (isy < 0 || isy >= img.height) continue;
                 int x0 = sx, x1 = sx + sw;
+                if (isy < 0 || isy >= img.height) continue;
                 if (x0 < 0) x0 = 0;
                 if (x1 > img.width) x1 = img.width;
                 if (x1 <= x0) continue;
@@ -1404,7 +1412,25 @@ static void gfx_raylib_service_grab(RenderTexture2D target, int nat_w, int nat_h
         }
         UnloadImage(img);
     }
+    return rc;
+}
 
+/* Called on the render thread after sprite composite, before the
+ * window draw. Desktop-only: if a grab is pending, fulfil it via the
+ * shared readback helper. WASM path runs the same helper inline from
+ * the interpreter in gfx_grab_visible_rgba (single thread, no wait). */
+#ifndef __EMSCRIPTEN__
+static void gfx_raylib_service_grab(RenderTexture2D target, int nat_w, int nat_h)
+{
+    pthread_mutex_lock(&g_grab_mtx);
+    if (!g_grab_pending) {
+        pthread_mutex_unlock(&g_grab_mtx);
+        return;
+    }
+    int slot = g_grab_slot;
+    int sx = g_grab_sx, sy = g_grab_sy;
+    int sw = g_grab_sw, sh = g_grab_sh;
+    int rc = gfx_raylib_readback_into_slot(target, slot, sx, sy, sw, sh);
     g_grab_result = rc;
     g_grab_pending = 0;
     pthread_cond_signal(&g_grab_cv);
@@ -1412,6 +1438,7 @@ static void gfx_raylib_service_grab(RenderTexture2D target, int nat_w, int nat_h
     (void)nat_w;
     (void)nat_h;
 }
+#endif
 #endif /* GFX_VIDEO */
 
 /* ── Screen geometry ──────────────────────────────────────────────── */
@@ -1885,8 +1912,11 @@ int main(int argc, char **argv)
         gfx_sprite_composite_range(&vs, target, nat_w, nat_h, -32768, 32767, 1);
 
         /* Fulfil any pending IMAGE GRAB now that target holds the fully
-         * composited frame. */
+         * composited frame. Desktop-only: WASM does the readback inline
+         * from the interpreter (single thread, no cond_wait). */
+#ifndef __EMSCRIPTEN__
         gfx_raylib_service_grab(target, nat_w, nat_h);
+#endif
 
         /* Compute destination rect for this frame.
          * Fullscreen: letterbox — preserve nat_w:nat_h aspect, black/border bars.
@@ -1985,6 +2015,17 @@ static RenderTexture2D g_wasm_target;
 static int g_wasm_inited = 0;
 static int g_wasm_nat_w = NATIVE_W;
 static int g_wasm_nat_h = NATIVE_H;
+
+/* WASM IMAGE GRAB: synchronous readback from g_wasm_target. Safe
+ * because the browser is single-threaded (Asyncify) — the most recent
+ * VSYNC already composited the target before control returned to the
+ * interpreter. Declared forward at the top of the file; definition
+ * lives here so it can see the static globals. */
+static int gfx_wasm_inline_grab_into_slot(int slot, int sx, int sy, int sw, int sh)
+{
+    if (!g_wasm_inited) return -1;
+    return gfx_raylib_readback_into_slot(g_wasm_target, slot, sx, sy, sw, sh);
+}
 
 static void wasm_raylib_init_once(void)
 {
