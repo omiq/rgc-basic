@@ -1,5 +1,63 @@
 ## Changelog
 
+### 1.11.0 – 2026-04-19
+
+**Sound MVP: single-voice WAV playback.**
+
+Ships the minimum useful surface from
+`docs/rgc-sound-sample-spec.md` in both the native **basic-gfx** and
+the experimental **basic-wasm-raylib** targets. Canvas WASM stays
+frozen (per its 2026-04-17 policy) and raises a teachable runtime
+error if these verbs are used there.
+
+| Verb | Effect |
+|------|--------|
+| **`LOADSOUND slot, "path.wav"`** | Decode a WAV into slot (0..31). Replaces existing slot contents; stops playback on that slot first. Paths resolve relative to the BASIC file. |
+| **`PLAYSOUND slot`** | Non-blocking playback. Starting a new slot stops whichever voice was already audible (single-voice rule). |
+| **`STOPSOUND`** | Halt the active voice. |
+| **`UNLOADSOUND slot`** | Free a slot (stops playback first if playing). |
+| **`SOUNDPLAYING()`** | 1 while audible, 0 when idle. Self-clears at natural end-of-sample so programs don't need `STOPSOUND` after a one-shot. |
+
+```basic
+LOADSOUND 0, "blip.wav"
+LOADSOUND 1, "boom.wav"
+DO
+  IF KEYPRESS(ASC("B")) THEN PLAYSOUND 0
+  IF KEYPRESS(ASC("X")) THEN PLAYSOUND 1
+  SLEEP 1
+LOOP
+```
+
+Example: `examples/gfx_sound_demo.bas` with bundled
+`examples/blip.wav` (880 Hz pluck) and `examples/boom.wav` (low
+thump) generated as stand-in SFX.
+
+Mechanics:
+
+- `gfx/gfx_sound.{c,h}` — thin wrapper over raylib `Sound` +
+  `PlaySound` / `StopSound` / `IsSoundPlaying` / `UnloadSound`.
+  32-slot table, single `g_active_slot`. Raylib's miniaudio backend
+  is thread-safe for Play/Stop/IsPlaying, and `LoadSound` does only
+  file I/O + alloc, so every entry point runs directly from the
+  interpreter thread — no command queue needed.
+- `InitAudioDevice()` is called lazily on first `LOADSOUND` /
+  `PLAYSOUND`; `CloseAudioDevice()` + `UnloadSound` for every slot
+  runs from the Raylib render loop teardown alongside sprite
+  shutdown.
+- `basic.c` dispatches LOADSOUND / UNLOADSOUND / PLAYSOUND /
+  STOPSOUND statements and the `SOUNDPLAYING()` function. Non-
+  Raylib builds (`__EMSCRIPTEN__` without `GFX_USE_RAYLIB`, and
+  terminal `basic`) stub to clear errors so the parser can still
+  skip past unavailable statements in `IF ... THEN ... : ...`.
+- Gesture policy: browsers keep `AudioContext` suspended until a
+  user gesture. Programs should gate the first `PLAYSOUND` on
+  `KEYPRESS` / `ISMOUSEBUTTONPRESSED` (which the demo does).
+- Reserved words: `LOADSOUND UNLOADSOUND PLAYSOUND STOPSOUND
+  SOUNDPLAYING`.
+
+Still deferred: `PAUSESOUND` / `RESUMESOUND`, `SOUNDVOL`, looping,
+second voice / mixing, canvas-WASM sound backend, MP3/OGG formats.
+
 ### 1.10.0 – 2026-04-19
 
 **Non-gfx utility batch: filesystem, timing, JSON iteration, FOREACH.**
