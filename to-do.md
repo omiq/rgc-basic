@@ -57,6 +57,170 @@ QuickBASIC `PAINT` with tile brush; modern raylib `DrawTexturePoly`.
   no-op (prints a one-shot hint on stderr) — real files are already
   on the host filesystem.
 
+## Directory listing (proposed, 2026-04-19)
+
+Companion to `FILEEXISTS` / `IMAGE SAVE` / `DOWNLOAD`. Programs need to
+enumerate the current working directory (or an arbitrary path) to:
+
+- present a file-picker UI inside a BASIC program
+- iterate saved screenshots for a slideshow / upload loop
+- auto-discover level packs, sound samples, tutorial chapters
+- build a viewer that lists PNGs in MEMFS so the IDE's "click thumbnail"
+  path has something to show even if the sidebar and MEMFS drift.
+
+### Options
+
+| Shape | Call | Pro | Con |
+|-------|------|-----|-----|
+| **A. String returned** | `DIR$(path$ [, delim$])` returns `"a.bas|b.bas|c.png"` | Tiny API. Reuses `SPLIT … INTO arr$` for indexed access. One intrinsic. | Length-capped by `MAXSTR` (default 4096). A bigger `MEMFS` / `examples/` blows the limit. Delimiter collides with filenames if not chosen carefully. |
+| **B. Into array** | `DIR path$ INTO arr$ [, count]` like `SPLIT` | No string-size ceiling — array grows as needed (or caller pre-DIMs). Clean for iteration: `FOR I = 0 TO count - 1 : PRINT arr$(I) : NEXT I`. | New statement keyword. Two-signature form (count optional). |
+| **C. JSON returned** | `DIR$(path$)` returns `["a.bas","b.bas"]` | Self-describes; user indexes with `JSON$(DIR$(p$), "[0]")`. Extensible: later add `[{"name":"a.bas","size":123,"dir":0}]`. | Overkill for a pure-filename listing. Still bounded by `MAXSTR`. |
+| **D. `READ`-like iterator** | `DIR OPEN path$` then `DIR NEXT name$` until empty, `DIR CLOSE` | Streams — zero ceiling, minimal memory. | Three statements instead of one; stateful interpretation (easy to leak the handle). |
+
+### Recommendation
+
+Ship **A + B together**:
+
+```basic
+REM quick: comma-string + SPLIT
+F$ = DIR$(".", ",")
+SPLIT F$, "," INTO NAMES$
+
+REM ergonomic: direct-into-array
+DIR "/tmp" INTO FILES$, N
+FOR I = 0 TO N - 1
+  PRINT I; ": "; FILES$(I)
+NEXT I
+```
+
+- `DIR$(path$)` (no delim) defaults to newline-separated so it survives
+  filenames that contain commas.
+- Entries are **names only**, no path prefix, no `.`/`..`.
+- Hidden files (leading `.`) are excluded by default; add a second
+  arg `DIR$(path, delim$, include_hidden)` if/when needed.
+- `DIR … INTO arr$ [, count]` mirrors `SPLIT … INTO arr$ [, count]`
+  so the `count` output var is familiar.
+- Backed by `opendir` / `readdir` natively; MEMFS via `FS.readdir`
+  in `EM_JS` on browser WASM (same pattern as `rgc_wasm_trigger_download`).
+
+### Deferred
+
+- File metadata (size, mtime, is-dir): later `FILESIZE(path$)`,
+  `FILEMTIME(path$)`, `ISDIR(path$)` intrinsics — or the JSON form
+  above if we want one call to carry everything.
+- Glob patterns (`DIR$("*.png")`): keep the API path-based; user can
+  filter in BASIC with `INSTR` / `RIGHT$`.
+- Recursive walk: out of scope for v1.
+
+## Working directory (proposed, 2026-04-19)
+
+Needed alongside `DIR$` so programs can anchor paths relative to a
+chosen root and walk between them (e.g. switch between `/assets`,
+`/tmp`, a user's project folder). Two primitives:
+
+- **`CWD$()`** — returns the current working directory as a string.
+  Native: `getcwd`. Browser WASM: emscripten tracks cwd per module;
+  fall through to `FS.cwd()` via `EM_JS`.
+- **`CHDIR path$`** — change the cwd. Native: `chdir` (returns error
+  on missing path; raise `runtime_error_hint`). WASM: `FS.chdir(p)`
+  in `EM_JS`.
+
+Idiomatic use:
+
+```basic
+OLD$ = CWD$()
+CHDIR "/tmp"
+IMAGE SAVE 1, "shot.png"      : REM writes /tmp/shot.png
+CHDIR OLD$                    : REM restore
+```
+
+**Deferred**: `MKDIR path$`, `RMDIR path$`, `DELETE path$`, `RENAME
+old$ TO new$`. Not needed for the current screenshot / tutorial
+workflow but a natural follow-up to `DIR$` + `CWD$`.
+
+## JSON by index + length (proposed, 2026-04-19)
+
+`JSON$(json$, path$)` already handles array indices inside a path
+(`"items[0].name"`, `"[2]"`), but it can't answer "how many entries"
+or "give me the Nth key of this object without knowing its name".
+Two new intrinsics cover iteration:
+
+- **`JSONLEN(json$, path$)`** — number of entries at `path$` if it
+  resolves to an array or object; `0` for scalars / missing paths.
+  Pairs with a `FOR I = 0 TO JSONLEN(j$, "items") - 1` loop.
+- **`JSONKEY$(json$, path$, n)`** — 0-based Nth key at `path$` when
+  it resolves to an object; `""` for arrays or scalars. Lets a
+  program enumerate a record without hard-coding field names.
+
+Index form of the existing getter is already covered:
+`JSON$(j$, "items[" + STR$(I) + "]")` works today; the new length and
+key-by-index helpers complete the iteration story.
+
+Example — iterate an array of records:
+
+```basic
+J$ = HTTP$("https://api.example.com/users")
+N = JSONLEN(J$, "users")
+FOR I = 0 TO N - 1
+  P$ = "users[" + STR$(I) + "]"
+  PRINT JSON$(J$, P$ + ".name"); " "; JSON$(J$, P$ + ".age")
+NEXT I
+```
+
+Example — iterate keys of an unknown-shape object:
+
+```basic
+N = JSONLEN(J$, "config")
+FOR I = 0 TO N - 1
+  K$ = JSONKEY$(J$, "config", I)
+  V$ = JSON$(J$, "config." + K$)
+  PRINT K$; " = "; V$
+NEXT I
+```
+
+**Deferred**: `JSONTYPE$(json$, path$)` returning `"string"` / `"num"` /
+`"bool"` / `"array"` / `"object"` / `"null"`. Only worth adding when a
+real example needs to branch on type; for now `VAL()` + string prefix
+checks are enough.
+
+## JSON payloads larger than `MAXSTR` (2026-04-19)
+
+`JSON$` input and output are both `struct value` strings — hard-capped
+at `MAX_STR_LEN` = 4096 bytes (the `#OPTION maxstr N` knob only reduces
+this; `basic.c:2476` rejects anything above 4096). Any JSON body above
+~4 KB gets silently truncated on the way in, breaking the parse.
+
+Impact hits the common case: `HTTP$` → `JSON$` for real-world APIs
+regularly exceeds 4 KB; `HTTPFETCH` streams bigger payloads to MEMFS,
+but no current intrinsic reads JSON from a file path.
+
+### Options
+
+| Shape | Notes |
+|-------|-------|
+| **A. `JSONLOAD slot, path$`** — parse a JSON file on disk into a buffer slot, then `JSON$(BUFFERPATH$(slot), "path")` via a re-entrant form that reads from the buffer. | Reuses the buffer mechanism already built for binary data. Needs a `JSON$(slot_or_string, path)` overload that detects a slot number vs. inline string. |
+| **B. New intrinsic `JSONFILE$(path$, path_expr$)`** — like `JSON$` but the first arg is a filesystem path, streamed in chunks by the parser so only the extracted value has to fit in `MAX_STR_LEN`. | Cleanest call site. Parser needs to handle streaming (fgetc-driven) which is more work than the in-memory path. |
+| **C. Bump `MAX_STR_LEN` to e.g. 65536 globally** | Trivial to implement. Memory cost per `struct value` is real — `value`s live on C stack in eval paths, 64 KB stack frames are a risk under recursion. Would need moving `.str` to heap with a length field. |
+
+### Recommendation
+
+Ship **B** (`JSONFILE$`) as the new entrypoint; keep `JSON$` semantics
+unchanged. Internally the existing `json_parse_value` already walks a
+`const char **` — swap to a file-buffered iterator that reads a small
+window at a time. Only the final extracted leaf has to fit in 4 KB,
+which matches most real-world "get me this one field" flows.
+
+Pair it with `HTTPFETCH` cleanly:
+
+```basic
+HTTPFETCH 1, "https://api.example.com/huge-response", "/tmp/resp.json"
+PRINT JSONFILE$("/tmp/resp.json", "users[0].name")
+```
+
+**Deferred** (tied to the JSON iteration task above): `JSONLEN` and
+`JSONKEY$` should grow file-backed variants (`JSONFILELEN`, etc.) at
+the same time so the iteration pattern works on big files too.
+
 Dropped from the original proposal:
 - ~~`SCREEN OFFSET`, `SCREEN ZONE`, `SCREEN SCROLL`~~ — `IMAGE COPY`
   already covers scrolling and parallax; see
