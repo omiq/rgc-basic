@@ -972,7 +972,14 @@ Result so far: programs that `PRINT` a HUD, score, or status line in `SCREEN 1` 
 Surfaced while rewriting old-style `examples/*.bas` into modern form (labels, `FUNCTION`, `DO/LOOP`, `COLOR`/`BACKGROUND`/`CLS`). Not blockers — noted so future examples can be even cleaner.
 
 - **No standalone `REVERSE ON`/`REVERSE OFF` statement.** Programs still emit reverse video via `PRINT CHR$(18)`/`CHR$(146)` or the `{RVS ON}`/`{RVS OFF}` string tokens. A first-class statement would match the `COLOR`/`BACKGROUND`/`CLS` ergonomics.
-- **`COLOR`/`BACKGROUND` take only numeric index (0–15).** No named form (e.g. `COLOR RED`). The `{RED}` token works inside strings, but a bare `COLOR RED` would read better in modernised examples.
+- ~**`COLOR`/`BACKGROUND` take only numeric index (0–15).**~ Named
+  form already works — identifiers like `RED`, `YELLOW`, `LIGHTBLUE`
+  resolve through `eval_expr`'s constant table (line 9336+ in
+  `basic.c`: `BLACK/WHITE/RED/CYAN/PURPLE/GREEN/BLUE/YELLOW/ORANGE/
+  BROWN/PINK/DARKGRAY/MEDGRAY/LIGHTGREEN/LIGHTBLUE/LIGHTGRAY` plus
+  `DARKGREY/MEDGREY/LIGHTGREY` spellings). `COLOR RED`,
+  `BACKGROUND YELLOW`, `PAPER LIGHTBLUE` all work. Was just
+  undocumented; README + retrodocs language.md updated 2026-04-19.
 - **`FUNCTION` has no `LOCAL` vars, no `EXIT FUNCTION`, no optional params** (documented non-goals for v1 in `docs/user-functions-plan.md`). Examples that want early-return from a helper still need an `IF/END IF` wrap.
 - **`POKE` is a no-op in terminal `basic`** (functional only in `basic-gfx`). Terminal demos that illustrated screen RAM pokes can't be directly modernised without a `basic-gfx` dependency — the `gfx_poke_demo.bas` remains `basic-gfx`-only.
 - **`CLS` clears screen but not colour state.** Modernised files that set `COLOR`/`BACKGROUND` once at the top then `CLS` mid-program keep the previous palette, which is usually what's wanted; flag if that ever surprises.
