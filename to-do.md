@@ -937,7 +937,11 @@ Implementation sequence in the plan doc: (1) per-slot `last_x/y/w/h` cache updat
 * ~**SCROLL-space consistency.**~ `ISMOUSEOVERSPRITE` and `SPRITEAT` now transform mouse coords by `gfx_vs->scroll_x/y` before the bbox test so sprite world-space positions hit-test correctly under a scrolled viewport. New C helper `gfx_sprite_hit_rect(slot, wx, wy)` accepts world coords directly; `gfx_sprite_is_mouse_over` kept as a raw-mouse thin wrapper.
 * ~**Step 5 — drag-and-drop example (`gfx_sprite_at_demo.bas`).**~ Three overlapping sprites with explicit Z; click picks the topmost, drag moves it, pick-up bumps its Z so the grabbed slot is always on top, release drops.
 
-**Still outstanding:** pixel-perfect alpha mode (step 3 — needs CPU-side RGBA kept alongside GPU texture; larger surgery, deferred), rotation/scale pivot handling.
+**Shipped (1.9.9, 2026-04-19):**
+
+* ~**Step 3 — pixel-perfect alpha mode.**~ `ISMOUSEOVERSPRITE(slot, alpha_cutoff)` — optional trailing arg flips the hit test into alpha-aware mode. Raylib load path retains an `Image` alongside the GPU `Texture2D`; `SPRITECOPY` uses `ImageCopy` so dst gets an independent CPU buffer. Canvas WASM reuses the existing `rgba` buffer. `gfx_sprite_hit_pixel(slot, wx, wy, alpha_cutoff)` inverse-scales the point back into the sprite's source rect (respects `SPRITEFRAME` / tile grid / `SPRITEMODULATE` scale) and samples the alpha channel. Slots without CPU pixels fall back to bbox. Updated `examples/gfx_sprite_at_demo.bas` to use `ISMOUSEOVERSPRITE(HIT, 16)` so transparent PNG corners no longer grab.
+
+**Still outstanding:** rotation/scale pivot handling (transformed sprites break axis-aligned bbox), pixel-perfect `SPRITEAT` variant.
 
 Open questions in the doc: alpha cutoff threshold, source-rect vs destination-rect sampling for scaled sprites, last-draw persistence across non-drawn frames, rotation/transform future-proofing.
 

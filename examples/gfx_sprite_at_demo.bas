@@ -49,15 +49,20 @@ DO
   MX = GETMOUSEX()
   MY = GETMOUSEY()
 
-  ' Begin drag: pick topmost sprite under the pointer.
+  ' Begin drag: pick topmost sprite whose opaque pixel is under the
+  ' pointer. SPRITEAT gives the Z-ordered bbox candidate; the follow-up
+  ' ISMOUSEOVERSPRITE(slot, 16) check rejects transparent PNG corners
+  ' so the user can't grab a sprite by its edge halo.
   IF DRAGGING = 0 AND ISMOUSEBUTTONPRESSED(0) THEN
     HIT = SPRITEAT(MX, MY)
     IF HIT >= 1 AND HIT <= 3 THEN
-      DRAGGING = HIT
-      OFFX = MX - SX(HIT)
-      OFFY = MY - SY(HIT)
-      TOPZ = TOPZ + 1
-      SZ(HIT) = TOPZ
+      IF ISMOUSEOVERSPRITE(HIT, 16) THEN
+        DRAGGING = HIT
+        OFFX = MX - SX(HIT)
+        OFFY = MY - SY(HIT)
+        TOPZ = TOPZ + 1
+        SZ(HIT) = TOPZ
+      END IF
     END IF
   END IF
 

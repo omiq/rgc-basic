@@ -172,6 +172,15 @@ int gfx_sprite_is_mouse_over(int slot);
  * positions are stored in world space, matching SPRITECOLLIDE). */
 int gfx_sprite_hit_rect(int slot, int wx, int wy);
 
+/* Pixel-perfect hit test: same inputs, plus inverse-scales the point
+ * back into the sprite's source rect and samples the alpha channel of
+ * the stored CPU-side pixel buffer. `alpha_cutoff` in [0, 255] — a
+ * pixel passes if alpha > alpha_cutoff. Typical values: 0 (any
+ * non-zero alpha), 16 (ignore PNG edge softening dust). Returns 1
+ * when the bounding rect AND the alpha test pass, else 0. Sprites
+ * loaded without CPU-side pixel data fall back to the bbox result. */
+int gfx_sprite_hit_pixel(int slot, int wx, int wy, int alpha_cutoff);
+
 /* Topmost visible slot whose rect contains the world point, or -1.
  * Same bounding-box semantics as gfx_sprite_hit_rect; ties broken by
  * the highest Z of the last enqueued DRAWSPRITE (then slot index). */

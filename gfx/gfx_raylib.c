@@ -49,6 +49,7 @@ typedef struct {
 
 typedef struct {
     Texture2D tex;
+    Image     src_image;  /* CPU-side copy for pixel-perfect hit tests; .data = NULL if absent */
     int loaded;
     int visible;
     int tile_w, tile_h;   /* 0 = single image */
@@ -355,6 +356,66 @@ int gfx_sprite_hit_rect(int slot, int wx, int wy)
     w = d->w;
     h = d->h;
     return (wx >= x && wx < x + w && wy >= y && wy < y + h) ? 1 : 0;
+}
+
+/* Pixel-perfect companion to gfx_sprite_hit_rect. Samples the sprite's
+ * source alpha channel at the mouse-relative pixel (after inverse
+ * scaling from drawn rect back to source rect, including SPRITEFRAME
+ * / tile crop). Returns 1 if the rect test passes AND
+ * alpha > alpha_cutoff, else 0. alpha_cutoff in [0, 255]; 0 means
+ * "any non-fully-transparent pixel counts", 16 is a common value that
+ * ignores PNG edge dust. Slots that didn't load with CPU-side pixels
+ * (LoadImage failed) fall back to the bounding-rect result. */
+int gfx_sprite_hit_pixel(int slot, int wx, int wy, int alpha_cutoff)
+{
+    GfxSpriteDrawPos *d;
+    int x, y, w, h;
+    int src_x, src_y, src_w, src_h;
+    int local_x, local_y;
+    int sx, sy;
+    Color c;
+
+    if (!gfx_sprite_hit_rect(slot, wx, wy)) return 0;
+    d = &g_sprite_draw_pos[slot];
+    x = (int)d->x;
+    y = (int)d->y;
+    w = d->w;
+    h = d->h;
+    if (w <= 0 || h <= 0) return 0;
+
+    /* Resolve the active source rect (respects SPRITEFRAME / tile grid
+     * / explicit crop). Always valid if the slot is loaded. */
+    src_x = 0; src_y = 0; src_w = 0; src_h = 0;
+    if (gfx_sprite_effective_source_rect(slot, &src_x, &src_y, &src_w, &src_h) != 0) return 0;
+    if (src_w <= 0 || src_h <= 0) return 0;
+
+    /* Drawn rect (w, h) may differ from source rect (src_w, src_h) when
+     * SPRITEMODULATE applies a non-1 scale — invert the scale here so we
+     * sample the right source pixel. Integer nearest-neighbour is fine
+     * for a hit test; bilinear antialiasing doesn't change alpha enough
+     * at the sub-pixel scale to matter. */
+    local_x = wx - x;
+    local_y = wy - y;
+    sx = src_x + (local_x * src_w) / w;
+    sy = src_y + (local_y * src_h) / h;
+
+    pthread_mutex_lock(&g_sprite_mutex);
+    if (!g_sprite_slots[slot].loaded || !g_sprite_slots[slot].src_image.data) {
+        /* No CPU-side pixels: fall back to bounding rect (already
+         * verified true above). */
+        pthread_mutex_unlock(&g_sprite_mutex);
+        return 1;
+    }
+    if (sx < 0 || sx >= g_sprite_slots[slot].src_image.width ||
+        sy < 0 || sy >= g_sprite_slots[slot].src_image.height) {
+        pthread_mutex_unlock(&g_sprite_mutex);
+        return 0;
+    }
+    c = GetImageColor(g_sprite_slots[slot].src_image, sx, sy);
+    pthread_mutex_unlock(&g_sprite_mutex);
+    if (alpha_cutoff < 0) alpha_cutoff = 0;
+    if (alpha_cutoff > 255) alpha_cutoff = 255;
+    return ((int)c.a > alpha_cutoff) ? 1 : 0;
 }
 
 int gfx_sprite_at(int wx, int wy)
@@ -920,10 +981,31 @@ static void gfx_sprite_process_queue(void)
             pthread_mutex_lock(&g_sprite_mutex);
             if (g_sprite_slots[c->slot].loaded) {
                 UnloadTexture(g_sprite_slots[c->slot].tex);
+                if (g_sprite_slots[c->slot].src_image.data) {
+                    UnloadImage(g_sprite_slots[c->slot].src_image);
+                    g_sprite_slots[c->slot].src_image.data = NULL;
+                }
                 g_sprite_slots[c->slot].loaded = 0;
             }
             pthread_mutex_unlock(&g_sprite_mutex);
-            t = LoadTexture(full);
+            {
+                /* Load via Image so we keep CPU-side pixels for
+                 * pixel-perfect ISMOUSEOVERSPRITE; texture is made
+                 * from the image so GPU and CPU share one decode. */
+                Image img = LoadImage(full);
+                if (img.data) {
+                    t = LoadTextureFromImage(img);
+                    if (t.id == 0) { UnloadImage(img); img.data = NULL; }
+                    pthread_mutex_lock(&g_sprite_mutex);
+                    g_sprite_slots[c->slot].src_image = img;
+                    pthread_mutex_unlock(&g_sprite_mutex);
+                } else {
+                    t.id = 0;
+                    pthread_mutex_lock(&g_sprite_mutex);
+                    g_sprite_slots[c->slot].src_image.data = NULL;
+                    pthread_mutex_unlock(&g_sprite_mutex);
+                }
+            }
             pthread_mutex_lock(&g_sprite_mutex);
             if (t.id != 0) {
                 /* Bilinear so PNG sprites scale smoothly (matches Canvas2D
@@ -991,6 +1073,10 @@ static void gfx_sprite_process_queue(void)
             pthread_mutex_lock(&g_sprite_mutex);
             if (g_sprite_slots[c->slot].loaded) {
                 UnloadTexture(g_sprite_slots[c->slot].tex);
+                if (g_sprite_slots[c->slot].src_image.data) {
+                    UnloadImage(g_sprite_slots[c->slot].src_image);
+                    g_sprite_slots[c->slot].src_image.data = NULL;
+                }
                 g_sprite_slots[c->slot].loaded = 0;
                 g_sprite_slots[c->slot].visible = 0;
                 g_sprite_slots[c->slot].draw_active = 0;
@@ -1064,13 +1150,24 @@ static void gfx_sprite_process_queue(void)
                 }
             }
             new_tex = LoadTextureFromImage(img);
+            /* Keep CPU-side pixel data for pixel-perfect ISMOUSEOVERSPRITE
+             * on the copied slot. ImageCopy gives us an independent buffer
+             * so src and dst don't share storage when src == dst. */
+            Image dst_img = img.data ? ImageCopy(img) : (Image){0};
             UnloadImage(img);
-            if (new_tex.id == 0) break;
+            if (new_tex.id == 0) {
+                if (dst_img.data) UnloadImage(dst_img);
+                break;
+            }
             SetTextureFilter(new_tex, sprite_filter_mode());
 
             pthread_mutex_lock(&g_sprite_mutex);
             if (g_sprite_slots[dst].loaded) {
                 UnloadTexture(g_sprite_slots[dst].tex);
+                if (g_sprite_slots[dst].src_image.data) {
+                    UnloadImage(g_sprite_slots[dst].src_image);
+                    g_sprite_slots[dst].src_image.data = NULL;
+                }
             }
             /* Preserve any mods/scale explicitly set on dst by SPRITEMODULATE
              * after the copy was enqueued (interpreter runs ahead of render).
@@ -1087,6 +1184,11 @@ static void gfx_sprite_process_queue(void)
             int   dst_mb = g_sprite_slots[dst].mod_b;
             g_sprite_slots[dst]          = src_snap;
             g_sprite_slots[dst].tex      = new_tex;
+            /* src_snap.src_image pointed at src's CPU buffer; replace with
+             * our independent ImageCopy so src can unload without
+             * dangling dst's hit-test buffer. dst_img may be {0} if the
+             * source image was unavailable — keep data=NULL in that case. */
+            g_sprite_slots[dst].src_image = dst_img;
             g_sprite_slots[dst].draw_active = 0;
             /* Scale priority: dst explicit (SPRITEMODULATE ran on dst) > cmd
              * snapshot (captured from src at enqueue time). */
@@ -1163,6 +1265,10 @@ static void gfx_sprite_shutdown(void)
     for (i = 0; i < GFX_SPRITE_MAX_SLOTS; i++) {
             if (g_sprite_slots[i].loaded) {
             UnloadTexture(g_sprite_slots[i].tex);
+            if (g_sprite_slots[i].src_image.data) {
+                UnloadImage(g_sprite_slots[i].src_image);
+                g_sprite_slots[i].src_image.data = NULL;
+            }
             g_sprite_slots[i].loaded = 0;
             g_sprite_slots[i].visible = 0;
             g_sprite_slots[i].draw_active = 0;

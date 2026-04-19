@@ -1,5 +1,48 @@
 ## Changelog
 
+### 1.9.9 – 2026-04-19
+
+**Pixel-perfect `ISMOUSEOVERSPRITE`.**
+
+Closes step 3 of `docs/mouse-over-sprite-plan.md`:
+
+```basic
+IF ISMOUSEOVERSPRITE(slot, 16) THEN ...    ' alpha > 16 passes
+IF ISMOUSEOVERSPRITE(slot, 0) THEN ...     ' any non-zero alpha
+IF ISMOUSEOVERSPRITE(slot) THEN ...        ' legacy bbox only
+```
+
+Optional trailing `alpha_cutoff` (0..255) flips the hit test into
+alpha-aware mode: the engine inverse-scales the mouse coord back into
+the sprite's source rect (honouring `SPRITEFRAME` / tile grid /
+`SPRITEMODULATE` scale) and only returns 1 when the sampled source
+alpha exceeds the cutoff. No arg = bbox behaviour unchanged.
+
+Typical values:
+- `0` — purist: ignore fully-transparent pixels only.
+- `16` — forgiving: skips PNG edge-softening dust (recommended).
+- `128` — only count firmly-opaque pixels; useful for gradient art.
+
+Mechanics:
+
+- `GfxSpriteSlot` in `gfx/gfx_raylib.c` gains `Image src_image` — the
+  load path now does `LoadImage` + `LoadTextureFromImage` and keeps
+  both so CPU-side pixel data stays live for hit tests. `UNLOAD`
+  and shutdown free the image alongside the texture.
+- `SPRITECOPY` carries the copied pixels into the destination slot
+  via `ImageCopy` so src and dst have independent CPU buffers
+  (protects against dangling aliases if src unloads first).
+- Canvas WASM / software path (`gfx/gfx_software_sprites.c`) reuses
+  the existing `rgba` buffer — no extra memory cost there.
+- New C helper `gfx_sprite_hit_pixel(slot, wx, wy, alpha_cutoff)` in
+  both back-ends. The BASIC `ISMOUSEOVERSPRITE` dispatcher in
+  `basic.c` picks bbox vs pixel-perfect based on arg count. Slots
+  without CPU pixels fall back to bbox.
+
+`examples/gfx_sprite_at_demo.bas` now combines `SPRITEAT` with
+`ISMOUSEOVERSPRITE(hit, 16)` so transparent PNG corners no longer
+grab the wrong sprite.
+
 ### 1.9.8 – 2026-04-19
 
 **`SPRITEAT(x, y)` + SCROLL-aware `ISMOUSEOVERSPRITE`.**
