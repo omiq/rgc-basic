@@ -50,7 +50,12 @@ typedef struct GfxVideoState {
     uint8_t color[GFX_COLOR_SIZE];          /* Foreground colour indices (0-15 per cell) */
     uint8_t bgcolor[GFX_COLOR_SIZE];        /* Per-cell background colour indices (0-15). Set by PRINT, PAPER, CLS. */
     uint8_t chars[GFX_CHAR_SIZE];           /* Character ROM / UDGs */
-    uint8_t bitmap[GFX_BITMAP_BYTES];       /* 320x200 1bpp bitmap */
+    uint8_t bitmap[GFX_BITMAP_BYTES];       /* 320x200 1bpp bitmap — BASIC writes here */
+    uint8_t bitmap_show[GFX_BITMAP_BYTES];  /* Double-buffer front: renderer reads this when
+                                             * `double_buffer` is 1. VSYNC memcpys bitmap ->
+                                             * bitmap_show. When `double_buffer` is 0 the
+                                             * renderer reads bitmap[] directly for legacy
+                                             * "draw-as-you-go" behaviour. */
     uint8_t key_state[256];                 /* Simple keyboard state, 1 = down */
     uint8_t key_queue[64];                  /* Keypress FIFO (bytes), for INKEY$ */
     uint8_t key_q_head;
@@ -58,6 +63,11 @@ typedef struct GfxVideoState {
     uint32_t ticks60;                       /* 60 Hz tick counter (TI), wraps at 24h */
     uint8_t bg_color;                       /* Background colour index (0-15) */
     uint8_t bitmap_fg;                      /* Hi-res bitmap “pen” (0-15), COLOR in gfx build */
+    uint8_t double_buffer;                  /* 0 = single-buffered (renderer reads bitmap[] live),
+                                             * 1 = double-buffered (renderer reads bitmap_show[]).
+                                             * Set via `DOUBLEBUFFER ON` / `DOUBLEBUFFER OFF`.
+                                             * Only affects the bitmap plane; cell list (SPRITE
+                                             * STAMP / TILEMAP DRAW) is always double-buffered. */
     uint8_t charset_lowercase;              /* 0=upper/graphics, 1=lower/upper */
     uint8_t charrom_family;                 /* 0=C64 ROM, 1=PET-style alt (pet_uppercase/lowercase_64c) */
     uint8_t cols;                           /* 40 or 80; columns per row */
@@ -120,6 +130,16 @@ void gfx_poke(GfxVideoState *s, uint16_t addr, uint8_t value);
 
 /* Hi-res bitmap: 320×200, row-major, 40 bytes per row, MSB = left pixel in each byte. */
 int gfx_bitmap_get_pixel(const GfxVideoState *s, unsigned x, unsigned y);
+
+/* Read the pixel the renderer should display. With double-buffer off
+ * this just reads bitmap[]; with it on, it reads bitmap_show[] so
+ * in-flight draws stay hidden until the next VSYNC. */
+int gfx_bitmap_get_show_pixel(const GfxVideoState *s, unsigned x, unsigned y);
+
+/* Copy the build plane to the show plane. Called by VSYNC (and only
+ * does work when `double_buffer` is 1). Safe to call before any draws
+ * to force an initial promote. */
+void gfx_video_bitmap_flip(GfxVideoState *s);
 /* Set (on=1) or clear (on=0) one pixel; coordinates outside the bitmap are ignored. */
 void gfx_bitmap_set_pixel(GfxVideoState *s, int x, int y, int on);
 /* Bresenham line; each point is clipped (same semantics as PSET/PRESET). */

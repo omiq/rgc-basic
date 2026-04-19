@@ -354,6 +354,27 @@ int gfx_bitmap_get_pixel(const GfxVideoState *s, unsigned x, unsigned y)
     return (s->bitmap[byte_off] >> bit) & 1u;
 }
 
+int gfx_bitmap_get_show_pixel(const GfxVideoState *s, unsigned x, unsigned y)
+{
+    unsigned byte_off, bit;
+    const uint8_t *src;
+
+    if (!s) return 0;
+    if (x >= GFX_BITMAP_WIDTH || y >= GFX_BITMAP_HEIGHT) return 0;
+    byte_off = y * (GFX_BITMAP_WIDTH / 8u) + (x / 8u);
+    if (byte_off >= GFX_BITMAP_BYTES) return 0;
+    bit = 7u - (x % 8u);
+    src = s->double_buffer ? s->bitmap_show : s->bitmap;
+    return (src[byte_off] >> bit) & 1u;
+}
+
+void gfx_video_bitmap_flip(GfxVideoState *s)
+{
+    if (!s) return;
+    if (!s->double_buffer) return;
+    memcpy(s->bitmap_show, s->bitmap, sizeof(s->bitmap));
+}
+
 void gfx_bitmap_set_pixel(GfxVideoState *s, int x, int y, int on)
 {
     unsigned byte_off, bit;

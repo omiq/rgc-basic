@@ -166,6 +166,7 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
   - `TIMER ON id` — re-enable a stopped timer.
   - `TIMER CLEAR id` — remove entirely.
   - Timers are reset at the start of each run. Re-entrancy is skipped (not queued). Works in terminal, basic-gfx, and WASM builds. See `examples/timer_demo.bas` and `examples/timer_clock.bas`.
+- **`DOUBLEBUFFER ON` / `DOUBLEBUFFER OFF`** *(basic-gfx / canvas WASM)*: toggle bitmap-plane double-buffering. Default **OFF** (legacy-compatible draw-as-you-go). With `ON`, the renderer reads a committed back-buffer and only updates on `VSYNC`, matching the always-double-buffered cell list so `CLS : RECT ... : FILLCIRCLE ... : DRAWTEXT ... : SPRITE STAMP ... : VSYNC` never shows a half-drawn frame. Toggling on eagerly promotes the current bitmap so the first displayed frame isn't blank. See `examples/gfx_doublebuffer_demo.bas`.
 - `LOCATE` and `TEXTAT`: screen cursor positioning and absolute text placement (see below).
 - `CURSOR ON` / `CURSOR OFF`: show or hide the terminal cursor using ANSI escape codes (`ESC[?25h` / `ESC[?25l`).
 - `COLOR n` / `COLOUR n`: set the text **foreground** colour using a C64-style palette index `0–15`, mapped to ANSI SGR colours (approximate CBM palette).
