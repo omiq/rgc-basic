@@ -329,6 +329,147 @@ LOOP
 - **Calendar helpers:** `DAYSINMONTH`, `ISLEAPYEAR`, etc. — cheap
   to add once the component accessors ship.
 
+## FOREACH loop (proposed, 2026-04-19)
+
+Iterate an array element-by-element without an explicit index:
+
+```basic
+FOREACH V IN ARR()
+  PRINT V
+NEXT V
+
+FOREACH S$ IN NAMES$()
+  PRINT S$
+NEXT S$
+```
+
+### Implementation sketch
+
+- Single keyword `FOREACH` (not two-word `FOR EACH`) to sidestep the
+  normaliser's `FOR`-follows-letter splitter.
+- Reuse the existing `for_stack`:
+  ```c
+  enum for_kind { FOR_COUNT, FOR_EACH };
+  struct for_frame {
+      enum for_kind kind;
+      char var[VAR_NAME_MAX];
+      /* COUNT fields (stop, step) OR EACH fields (array_ref, idx, bound) */
+  };
+  ```
+- `statement_foreach` parses `var IN arrname()`, resolves the array via
+  `get_var_reference`, reads `dim_sizes[0] + 1` as the upper bound
+  (rgc-basic is 0-based with inclusive upper, so `DIM A(10)` gives 11
+  slots), seeds idx = 0, assigns `arr(0)` into `var`.
+- `NEXT var`: look up frame by name; if `FOR_EACH`, increment idx; if
+  `idx > bound` pop + fall through; else assign `arr(idx)` into var
+  and jump back to the body.
+- `EXIT` path: same as `EXIT FOR` — pop the innermost frame regardless
+  of kind.
+
+### Edge cases
+
+- **Empty array** (`DIM A(-1)` or not yet DIM'd): run zero iterations
+  (bound < 0 → immediate pop).
+- **Multi-dim array**: raise "FOREACH requires a 1-D array" in v1.
+  Two-word `FOREACH V IN ARR(ROW)` to walk a single row is a possible
+  v2 extension.
+- **Mutation during iteration**: document as undefined; matches FOR.
+- **Label-only block with no NEXT**: existing FOR "unclosed loop"
+  diagnostic catches this.
+
+### Normaliser guard
+
+Add one condition to the existing `FORI=1TO9 -> FOR I=1TO9` splitter
+in `normalize_keywords_line`: don't split if the 4th character is
+another letter, so `FOREACH` stays intact. One-line diff.
+
+### Reserved-word table
+
+Append `FOREACH` to `reserved_words[]` in `basic.c`. Programs using
+`FOREACH` as a variable name break at load — low likelihood.
+
+### Tests
+
+- `tests/foreach_numeric.bas`
+- `tests/foreach_string.bas`
+- `tests/foreach_empty.bas`
+- `tests/foreach_nested.bas`
+- `tests/foreach_multidim_error.bas` (expects runtime error)
+
+## Performance measurement primitives (proposed, 2026-04-19)
+
+Context: user wants to prototype new intrinsics as BASIC library functions
+first, then measure to decide whether the performance win justifies
+promoting them to C. Today:
+
+- **`TI`** — 60 Hz jiffy counter. 16.67 ms granularity. Useless for
+  tight loops where a whole function might take <1 ms.
+- **`EXEC$("date +%s%N")`** — works on desktop Linux but not macOS or
+  WASM. Not portable.
+
+### Primitive
+
+- **`TICKUS()`** — monotonic microseconds since program start (or
+  host epoch start; unspecified origin, but differences are meaningful).
+  Returns a 64-bit float (holds ~285 years of µs without precision
+  loss in the mantissa).
+  - Native: `clock_gettime(CLOCK_MONOTONIC, ...)` → µs.
+  - Browser WASM: `performance.now()` × 1000 via `EM_JS`.
+- **`TICKMS()`** — same but milliseconds, for larger spans where µs is
+  noise.
+
+### Idiom
+
+```basic
+FUNCTION FastHypot(x, y)
+  RETURN SQR(x * x + y * y)
+END FUNCTION
+
+N = 100000
+T0 = TICKUS()
+FOR I = 1 TO N
+  D = FastHypot(I, I * 2)
+NEXT I
+ELAPSED = TICKUS() - T0
+PRINT N; " calls in "; ELAPSED; " us  ("; ELAPSED / N; " us/call)"
+```
+
+Same pattern runs against a C-implemented `HYPOT(x, y)` intrinsic to
+compare. If BASIC-version overhead is dominated by FOR loop dispatch
+rather than the function body, promotion to C probably won't help.
+If the body itself is the cost centre, promote.
+
+### Decision heuristics (to add to docs)
+
+- **<100 ns/call in C vs >10 µs in BASIC:** clear promotion candidate.
+- **Pure arithmetic on existing intrinsics:** stay in BASIC — user can
+  always read the source and verify.
+- **Called in tight per-frame loops (60 Hz × N objects):** promote if
+  the BASIC cost × N exceeds a frame budget at the expected N.
+- **String-manipulation helpers:** watch `MAX_STR_LEN` — C intrinsics
+  can stream through larger buffers, BASIC is capped at 4096.
+
+### Optional: block-timer statement
+
+Further sugar if plain `TICKUS()` bookkeeping gets verbose:
+
+```basic
+BENCHMARK "hypot BASIC" 100000
+  D = FastHypot(I, I * 2)
+END BENCHMARK
+```
+
+Prints `hypot BASIC: 1234567 us (12.3 us/call)` automatically. Can
+wait until we actually need it — plain `TICKUS()` diffs cover the
+common case with three lines of BASIC.
+
+### Related to-do
+
+- **Per-statement profiler:** count dispatches per statement type
+  across a program run. Expose via `PROFILE START` / `PROFILE DUMP`.
+  Heavier work (per-statement bookkeeping in `execute_statement`);
+  log but don't ship until a concrete use case appears.
+
 Dropped from the original proposal:
 - ~~`SCREEN OFFSET`, `SCREEN ZONE`, `SCREEN SCROLL`~~ — `IMAGE COPY`
   already covers scrolling and parallax; see
