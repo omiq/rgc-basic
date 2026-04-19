@@ -86,6 +86,7 @@ typedef struct {
     int   has_draw;
     float x, y;
     int   w, h;
+    int   z;
 } GfxSpriteDrawPos;
 static GfxSpriteDrawPos g_sprite_draw_pos[GFX_SPRITE_MAX_SLOTS];
 
@@ -221,29 +222,44 @@ void gfx_sprite_enqueue_draw(int slot, float x, float y, int z, int sx, int sy, 
         g_sprite_draw_pos[slot].y = y;
         g_sprite_draw_pos[slot].w = rw > 0 ? rw : 0;
         g_sprite_draw_pos[slot].h = rh > 0 ? rh : 0;
+        g_sprite_draw_pos[slot].z = z;
         g_sprite_draw_pos[slot].has_draw = (rw > 0 && rh > 0) ? 1 : 0;
     }
 }
 
-int gfx_sprite_is_mouse_over(int slot)
+int gfx_sprite_hit_rect(int slot, int wx, int wy)
 {
     GfxSpriteDrawPos *d;
-    int mx, my;
     int x, y, w, h;
-    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) {
-        return 0;
-    }
+    if (slot < 0 || slot >= GFX_SPRITE_MAX_SLOTS) return 0;
     d = &g_sprite_draw_pos[slot];
-    if (!d->has_draw || d->w <= 0 || d->h <= 0) {
-        return 0;
-    }
-    mx = gfx_mouse_x();
-    my = gfx_mouse_y();
+    if (!d->has_draw || d->w <= 0 || d->h <= 0) return 0;
     x = (int)d->x;
     y = (int)d->y;
     w = d->w;
     h = d->h;
-    return (mx >= x && mx < x + w && my >= y && my < y + h) ? 1 : 0;
+    return (wx >= x && wx < x + w && wy >= y && wy < y + h) ? 1 : 0;
+}
+
+int gfx_sprite_at(int wx, int wy)
+{
+    int i, best = -1, best_z = 0;
+    for (i = 0; i < GFX_SPRITE_MAX_SLOTS; i++) {
+        GfxSpriteDrawPos *d = &g_sprite_draw_pos[i];
+        if (!d->has_draw || d->w <= 0 || d->h <= 0) continue;
+        if (wx < (int)d->x || wx >= (int)d->x + d->w) continue;
+        if (wy < (int)d->y || wy >= (int)d->y + d->h) continue;
+        if (best < 0 || d->z > best_z || (d->z == best_z && i > best)) {
+            best = i;
+            best_z = d->z;
+        }
+    }
+    return best;
+}
+
+int gfx_sprite_is_mouse_over(int slot)
+{
+    return gfx_sprite_hit_rect(slot, gfx_mouse_x(), gfx_mouse_y());
 }
 
 void gfx_sprite_set_modulate(int slot, int alpha, int r, int g, int b, float scale_x, float scale_y)

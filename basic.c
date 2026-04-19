@@ -2874,7 +2874,12 @@ enum func_code {
      * for reading, 0 otherwise. Works against MEMFS in browser WASM
      * and the host filesystem natively — lets programs verify an IMAGE
      * SAVE / PRINT# landed before offering a DOWNLOAD / playback. */
-    FN_FILEEXISTS = 73
+    FN_FILEEXISTS = 73,
+    /* SPRITEAT(x, y) — topmost visible sprite whose last-drawn rect
+     * contains the world-space point (x, y). Returns slot index or -1.
+     * Companion to ISMOUSEOVERSPRITE for "click to select from a
+     * pile" use cases. Respects SCROLL the same way. */
+    FN_SPRITEAT = 74
 };
 
 /* Report an error and halt further execution.
@@ -3110,7 +3115,7 @@ static const char *const reserved_words[] = {
     "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LINE", "LOAD", "LOADSPRITE", "LOCATE", "LOG",
     "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET",     "PRINT", "PUTBYTE",
     "XOR",
-    "READ", "RECT", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITECOLLIDE", "SPRITECOPY", "SPRITEFRAME", "SPRITEMODIFY", "SPRITEMODULATE", "SPRITETILES", "SPRITEVISIBLE",
+    "READ", "RECT", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITEAT", "SPRITECOLLIDE", "SPRITECOPY", "SPRITEFRAME", "SPRITEMODIFY", "SPRITEMODULATE", "SPRITETILES", "SPRITEVISIBLE",
     "FILLRECT", "CIRCLE", "FILLCIRCLE", "ELLIPSE", "FILLELLIPSE", "TRIANGLE", "FILLTRIANGLE", "FLOODFILL", "POLYGON", "FILLPOLYGON", "VSYNC", "ANTIALIAS",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
@@ -3975,6 +3980,8 @@ static int function_lookup(const char *name, int len)
             name[4] == 'L' && name[5] == 'L' && name[6] == 'X') return FN_SCROLLX;
         if (len == 7 && name[0] == 'S' && name[1] == 'C' && name[2] == 'R' && name[3] == 'O' &&
             name[4] == 'L' && name[5] == 'L' && name[6] == 'Y') return FN_SCROLLY;
+        if (len == 8 && name[0] == 'S' && name[1] == 'P' && name[2] == 'R' && name[3] == 'I' &&
+            name[4] == 'T' && name[5] == 'E' && name[6] == 'A' && name[7] == 'T') return FN_SPRITEAT;
         return FN_NONE;
     case 'B':
         if (len == 9 && name[0] == 'B' && name[1] == 'U' && name[2] == 'F' && name[3] == 'F' &&
@@ -7725,6 +7732,7 @@ static struct value eval_function(const char *name, char **p)
     if (code == FN_ISMOUSEOVERSPRITE) {
         struct value vs_arg;
         int slot;
+        int wx, wy;
         skip_spaces(p);
         vs_arg = eval_expr(p);
         ensure_num(&vs_arg);
@@ -7736,10 +7744,41 @@ static struct value eval_function(const char *name, char **p)
         }
         (*p)++;
         skip_spaces(p);
-        if (!gfx_vs) {
-            return make_num(0.0);
+        if (!gfx_vs) return make_num(0.0);
+        /* Sprite positions are stored in world space (pre-SCROLL), mouse
+         * coords come back in screen space — transform to world before the
+         * bbox test so the hit rect matches what the user sees. Same
+         * convention SPRITECOLLIDE uses internally. */
+        wx = gfx_mouse_x() + (int)gfx_vs->scroll_x;
+        wy = gfx_mouse_y() + (int)gfx_vs->scroll_y;
+        return make_num((double)gfx_sprite_hit_rect(slot, wx, wy));
+    }
+    if (code == FN_SPRITEAT) {
+        struct value vx, vy;
+        int wx, wy;
+        skip_spaces(p);
+        vx = eval_expr(p); ensure_num(&vx);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("SPRITEAT expects (x, y)",
+                                 "SPRITEAT(GETMOUSEX(), GETMOUSEY()) picks topmost sprite under a point.");
+            return make_num(-1.0);
         }
-        return make_num((double)gfx_sprite_is_mouse_over(slot));
+        (*p)++; skip_spaces(p);
+        vy = eval_expr(p); ensure_num(&vy);
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("Missing ')'", "SPRITEAT takes two arguments: x and y in screen pixels.");
+            return make_num(-1.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        if (!gfx_vs) return make_num(-1.0);
+        /* x,y come in screen space (matches GETMOUSEX/Y); transform to
+         * world space before iterating the pos cache. */
+        wx = (int)vx.num + (int)gfx_vs->scroll_x;
+        wy = (int)vy.num + (int)gfx_vs->scroll_y;
+        return make_num((double)gfx_sprite_at(wx, wy));
     }
 #endif
     if (code == FN_BUFFERLEN) {
@@ -9338,7 +9377,7 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "GETMOUSEX") || starts_with_kw(*p, "GETMOUSEY") ||
             starts_with_kw(*p, "ISMOUSEBUTTONPRESSED") || starts_with_kw(*p, "ISMOUSEBUTTONDOWN") ||
             starts_with_kw(*p, "ISMOUSEBUTTONRELEASED") || starts_with_kw(*p, "ISMOUSEBUTTONUP") ||
-            starts_with_kw(*p, "ISMOUSEOVERSPRITE") ||
+            starts_with_kw(*p, "ISMOUSEOVERSPRITE") || starts_with_kw(*p, "SPRITEAT") ||
             starts_with_kw(*p, "BUFFERLEN") || starts_with_kw(*p, "BUFFERPATH") ||
             starts_with_kw(*p, "KEYDOWN") || starts_with_kw(*p, "KEYUP") ||
             starts_with_kw(*p, "KEYPRESS") || starts_with_kw(*p, "ANIMFRAME") ||
