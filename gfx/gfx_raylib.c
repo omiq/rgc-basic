@@ -86,6 +86,22 @@ static pthread_cond_t g_sprite_gpu_cv = PTHREAD_COND_INITIALIZER;
 static uint64_t g_sprite_gpu_issue_seq = 0;
 static uint64_t g_sprite_gpu_done_seq = 0;
 
+/* ── IMAGE GRAB from visible framebuffer (cross-thread) ─────────────
+ *
+ * BASIC's IMAGE GRAB slot, sx, sy, sw, sh runs on the interpreter
+ * thread, but LoadImageFromTexture needs the GL context that only the
+ * render thread owns. Interpreter posts a grab request + cond_waits;
+ * render thread, right after sprite composite, pulls pixels off the
+ * composited RenderTexture into the slot's RGBA buffer, then signals.
+ *
+ * Worst-case block = time to next render tick (~16 ms at 60 Hz). */
+static pthread_mutex_t g_grab_mtx = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t  g_grab_cv  = PTHREAD_COND_INITIALIZER;
+static int g_grab_pending = 0;
+static int g_grab_slot    = 0;
+static int g_grab_sx, g_grab_sy, g_grab_sw, g_grab_sh;
+static int g_grab_result  = -1;
+
 static char g_sprite_base_dir[GFX_SPRITE_PATH_MAX];
 static GfxSpriteSlot g_sprite_slots[GFX_SPRITE_MAX_SLOTS];
 
@@ -1318,6 +1334,84 @@ static void gfx_sprite_composite_range(const GfxVideoState *vs, RenderTexture2D 
     (void)nat_w;
     (void)nat_h;
 }
+
+/* ── IMAGE GRAB from visible framebuffer ───────────────────────────
+ *
+ * Called from the BASIC interpreter thread (via statement_image_grab).
+ * Blocks until the render thread fulfils the grab, which happens right
+ * after the next gfx_sprite_composite_range (i.e. with the fully-
+ * composited target: bitmap + text + sprites + tilemap cells). */
+int gfx_grab_visible_rgba(int slot, int sx, int sy, int sw, int sh)
+{
+    int rc;
+    if (sw <= 0 || sh <= 0) return -1;
+    pthread_mutex_lock(&g_grab_mtx);
+    g_grab_slot = slot;
+    g_grab_sx = sx; g_grab_sy = sy;
+    g_grab_sw = sw; g_grab_sh = sh;
+    g_grab_pending = 1;
+    g_grab_result = -1;
+    while (g_grab_pending) {
+        pthread_cond_wait(&g_grab_cv, &g_grab_mtx);
+    }
+    rc = g_grab_result;
+    pthread_mutex_unlock(&g_grab_mtx);
+    return rc;
+}
+
+/* Called on the render thread after sprite composite, before the
+ * window draw. If a grab is pending, read target's pixels into the
+ * requested slot's RGBA buffer. */
+static void gfx_raylib_service_grab(RenderTexture2D target, int nat_w, int nat_h)
+{
+    pthread_mutex_lock(&g_grab_mtx);
+    if (!g_grab_pending) {
+        pthread_mutex_unlock(&g_grab_mtx);
+        return;
+    }
+    int slot = g_grab_slot;
+    int sx = g_grab_sx, sy = g_grab_sy;
+    int sw = g_grab_sw, sh = g_grab_sh;
+    int rc = -1;
+
+    /* LoadImageFromTexture reads the GPU texture back to CPU. Target
+     * textures are OpenGL-bottom-up; flip vertically so our (0,0) is
+     * top-left like every other IMAGE / PSET coordinate in rgc-basic. */
+    Image img = LoadImageFromTexture(target.texture);
+    if (img.data) {
+        if (img.format != PIXELFORMAT_UNCOMPRESSED_R8G8B8A8) {
+            ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+        }
+        ImageFlipVertical(&img);
+
+        if (gfx_image_new_rgba(slot, sw, sh) == 0) {
+            uint8_t *dst = gfx_image_rgba_buffer(slot);
+            const uint8_t *src = (const uint8_t *)img.data;
+            int y;
+            memset(dst, 0, (size_t)sw * (size_t)sh * 4u);
+            for (y = 0; y < sh; y++) {
+                int isy = sy + y;
+                if (isy < 0 || isy >= img.height) continue;
+                int x0 = sx, x1 = sx + sw;
+                if (x0 < 0) x0 = 0;
+                if (x1 > img.width) x1 = img.width;
+                if (x1 <= x0) continue;
+                memcpy(dst + ((size_t)y * (size_t)sw + (size_t)(x0 - sx)) * 4u,
+                       src + ((size_t)isy * (size_t)img.width + (size_t)x0) * 4u,
+                       (size_t)(x1 - x0) * 4u);
+            }
+            rc = 0;
+        }
+        UnloadImage(img);
+    }
+
+    g_grab_result = rc;
+    g_grab_pending = 0;
+    pthread_cond_signal(&g_grab_cv);
+    pthread_mutex_unlock(&g_grab_mtx);
+    (void)nat_w;
+    (void)nat_h;
+}
 #endif /* GFX_VIDEO */
 
 /* ── Screen geometry ──────────────────────────────────────────────── */
@@ -1789,6 +1883,10 @@ int main(int argc, char **argv)
         /* All sprites draw on top (z-sorted among themselves).
          * Negative z = behind positive z, but all are above text. */
         gfx_sprite_composite_range(&vs, target, nat_w, nat_h, -32768, 32767, 1);
+
+        /* Fulfil any pending IMAGE GRAB now that target holds the fully
+         * composited frame. */
+        gfx_raylib_service_grab(target, nat_w, nat_h);
 
         /* Compute destination rect for this frame.
          * Fullscreen: letterbox — preserve nat_w:nat_h aspect, black/border bars.

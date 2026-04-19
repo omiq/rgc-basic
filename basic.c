@@ -5988,6 +5988,13 @@ static void statement_image_grab(char **p)
     v = eval_expr(p); ensure_num(&v); sh = (int)v.num;
     skip_spaces(p);
     if (sw <= 0 || sh <= 0) return;
+    /* Prefer a full RGBA grab of the composited framebuffer (bitmap +
+     * text + sprites + tilemap cells). On desktop basic-gfx this
+     * blocks the interpreter until the render thread services the
+     * request (one frame worst-case). If the RGBA path isn't available
+     * on this build, fall through to the legacy 1bpp copy so existing
+     * programs that only grabbed the bitmap plane still work. */
+    if (gfx_grab_visible_rgba(slot, sx, sy, sw, sh) == 0) return;
     if (gfx_image_new(slot, sw, sh) != 0) {
         runtime_error_hint("IMAGE GRAB: could not allocate slot", NULL);
         return;

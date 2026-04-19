@@ -19,6 +19,8 @@
 #include "gfx_canvas.h"
 #include "gfx_charrom.h"
 #include "gfx_software_sprites.h"
+#include "gfx_images.h"
+#include <stdlib.h>
 #include <string.h>
 
 #define CELL_W 8
@@ -185,4 +187,51 @@ void gfx_canvas_render_full_frame(const GfxVideoState *s, uint8_t *rgba, size_t 
         /* Still need to drain the command queue so slot state stays current. */
         gfx_sprite_process_queue();
     }
+}
+
+/* IMAGE GRAB from the visible framebuffer into slot, returning a full
+ * RGBA snapshot (bitmap + text + sprites, resolved through gfx_canvas's
+ * CPU compositor). Matches the semantics of gfx_raylib.c's cross-thread
+ * grab: caller gets colour + alpha, not a 1bpp mask. Canvas build is
+ * single-threaded (asyncify) so we can composite inline — no mutex. */
+int gfx_grab_visible_rgba(int slot, int sx, int sy, int sw, int sh)
+{
+    struct GfxVideoState *s = gfx_image_get_visible_state();
+    int fb_w, fb_h;
+    int cols;
+    uint8_t *frame;
+    uint8_t *dst;
+    int y;
+
+    if (!s) return -1;
+    if (sw <= 0 || sh <= 0) return -1;
+    cols = (s->cols == 40 || s->cols == 80) ? (int)s->cols : 40;
+    fb_w = cols * CELL_W;
+    fb_h = SCREEN_ROWS * CELL_H;
+
+    frame = (uint8_t *)malloc((size_t)fb_w * (size_t)fb_h * 4u);
+    if (!frame) return -1;
+    gfx_canvas_render_full_frame(s, frame, (size_t)fb_w * (size_t)fb_h * 4u);
+
+    if (gfx_image_new_rgba(slot, sw, sh) != 0) {
+        free(frame);
+        return -1;
+    }
+    dst = gfx_image_rgba_buffer(slot);
+    memset(dst, 0, (size_t)sw * (size_t)sh * 4u);
+    for (y = 0; y < sh; y++) {
+        int isy = sy + y;
+        int x0, x1;
+        if (isy < 0 || isy >= fb_h) continue;
+        x0 = sx;
+        x1 = sx + sw;
+        if (x0 < 0) x0 = 0;
+        if (x1 > fb_w) x1 = fb_w;
+        if (x1 <= x0) continue;
+        memcpy(dst + ((size_t)y * (size_t)sw + (size_t)(x0 - sx)) * 4u,
+               frame + ((size_t)isy * (size_t)fb_w + (size_t)x0) * 4u,
+               (size_t)(x1 - x0) * 4u);
+    }
+    free(frame);
+    return 0;
 }
