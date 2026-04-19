@@ -12,6 +12,7 @@
 #include "raylib.h"
 #include "gfx_video.h"
 #include "gfx_mouse.h"
+#include "gfx_sound.h"
 #include "../petscii.h"
 #include <string.h>
 #include <stdio.h>
@@ -2124,6 +2125,7 @@ int main(int argc, char **argv)
     closed_by_user = WindowShouldClose() && !basic_halted();
 
     gfx_sprite_shutdown();
+    gfx_sound_shutdown();
     pixbuf_shutdown();
     UnloadRenderTexture(target);
     CloseWindow();

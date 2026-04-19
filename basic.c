@@ -390,6 +390,11 @@ static int http_fetch_to_file_impl(const char *url, const char *path, const char
 #include "gfx_gamepad.h"
 #include "gfx_mouse.h"
 #include "basic_api.h"
+/* Sound is compiled into Raylib-backed targets only (native basic-gfx
+ * and basic-wasm-raylib). Canvas WASM is frozen + has no raylib audio. */
+#if !defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB)
+#include "gfx_sound.h"
+#endif
 #if defined(__EMSCRIPTEN__)
 #include "gfx_canvas.h"
 #include "gfx_software_sprites.h"
@@ -2746,6 +2751,10 @@ static void statement_close(char **p);
 static void statement_download(char **p);
 #ifdef GFX_VIDEO
 static void statement_doublebuffer(char **p);
+static void statement_loadsound(char **p);
+static void statement_unloadsound(char **p);
+static void statement_playsound(char **p);
+static void statement_stopsound(char **p);
 #endif
 static void statement_print_hash(char **p);
 static void statement_input_hash(char **p);
@@ -2901,6 +2910,10 @@ enum func_code {
      * Useful for benchmarking BASIC-level helpers before promoting to C. */
     FN_TICKUS = 75,
     FN_TICKMS = 76,
+    /* SOUNDPLAYING() — 1 while the current single-voice sample is
+     * audible; 0 when idle. Returns 0 when the sound backend is
+     * absent (terminal / canvas WASM builds). */
+    FN_SOUNDPLAYING = 81,
     /* Current working directory. Native: getcwd. Browser WASM: emscripten
      * FS.cwd(). Returns "" on failure. Pairs with CHDIR statement. */
     FN_CWD = 77,
@@ -3151,6 +3164,7 @@ static const char *const reserved_words[] = {
     "READ", "RECT", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITEAT", "SPRITECOLLIDE", "SPRITECOPY", "SPRITEFRAME", "SPRITEMODIFY", "SPRITEMODULATE", "SPRITETILES", "SPRITEVISIBLE",
     "CHDIR", "CWD", "DIR", "JSONLEN", "JSONKEY", "TICKUS", "TICKMS",
     "FOREACH", "IN",
+    "LOADSOUND", "UNLOADSOUND", "PLAYSOUND", "STOPSOUND", "SOUNDPLAYING",
     "FILLRECT", "CIRCLE", "FILLCIRCLE", "ELLIPSE", "FILLELLIPSE", "TRIANGLE", "FILLTRIANGLE", "FLOODFILL", "POLYGON", "FILLPOLYGON", "VSYNC", "ANTIALIAS",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
@@ -4017,6 +4031,7 @@ static int function_lookup(const char *name, int len)
             name[4] == 'L' && name[5] == 'L' && name[6] == 'Y') return FN_SCROLLY;
         if (len == 8 && name[0] == 'S' && name[1] == 'P' && name[2] == 'R' && name[3] == 'I' &&
             name[4] == 'T' && name[5] == 'E' && name[6] == 'A' && name[7] == 'T') return FN_SPRITEAT;
+        if (len == 12 && memcmp(name, "SOUNDPLAYING", 12) == 0) return FN_SOUNDPLAYING;
         return FN_NONE;
     case 'B':
         if (len == 9 && name[0] == 'B' && name[1] == 'U' && name[2] == 'F' && name[3] == 'F' &&
@@ -6825,6 +6840,73 @@ static void statement_dir_into(char **p)
     }
 }
 
+/* LOADSOUND slot, "path.wav" — preload a WAV sample into a slot.
+ * Only implemented when the sound backend is compiled in (native
+ * basic-gfx or basic-wasm-raylib); terminal + frozen canvas WASM
+ * raise a teachable runtime error. */
+static void statement_loadsound(char **p)
+{
+    struct value vslot, vpath;
+    int slot;
+    skip_spaces(p);
+    vslot = eval_expr(p); ensure_num(&vslot);
+    slot = (int)vslot.num;
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("LOADSOUND expects slot, \"path.wav\"",
+                             "Example: LOADSOUND 0, \"laser.wav\"");
+        return;
+    }
+    (*p)++; skip_spaces(p);
+    vpath = eval_expr(p); ensure_str(&vpath);
+    skip_spaces(p);
+#if defined(GFX_VIDEO) && (!defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB))
+    if (gfx_sound_load(slot, vpath.str) != 0) {
+        char hint[256];
+        snprintf(hint, sizeof(hint), "Could not open '%s' as a WAV. Check the path and format.", vpath.str);
+        runtime_error_hint("LOADSOUND failed", hint);
+    }
+#else
+    runtime_error_hint("LOADSOUND requires basic-gfx or basic-wasm-raylib",
+                         "Sound support is compiled in only for the Raylib-backed targets.");
+#endif
+}
+
+static void statement_unloadsound(char **p)
+{
+    struct value vslot;
+    skip_spaces(p);
+    vslot = eval_expr(p); ensure_num(&vslot);
+#if defined(GFX_VIDEO) && (!defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB))
+    gfx_sound_unload((int)vslot.num);
+#endif
+}
+
+static void statement_playsound(char **p)
+{
+    struct value vslot;
+    skip_spaces(p);
+    vslot = eval_expr(p); ensure_num(&vslot);
+    skip_spaces(p);
+#if defined(GFX_VIDEO) && (!defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB))
+    if (gfx_sound_play((int)vslot.num) != 0) {
+        runtime_error_hint("PLAYSOUND: slot not loaded",
+                             "Call LOADSOUND slot, \"file.wav\" before PLAYSOUND slot.");
+    }
+#else
+    runtime_error_hint("PLAYSOUND requires basic-gfx or basic-wasm-raylib",
+                         "Sound is only compiled into the Raylib-backed targets.");
+#endif
+}
+
+static void statement_stopsound(char **p)
+{
+    (void)p;
+#if defined(GFX_VIDEO) && (!defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB))
+    gfx_sound_stop();
+#endif
+}
+
 static void statement_download(char **p)
 {
     struct value vpath;
@@ -7538,6 +7620,20 @@ static struct value eval_function(const char *name, char **p)
         skip_spaces(p);
         if (getcwd(buf, sizeof(buf))) return make_str(buf);
         return make_str("");
+    }
+    if (code == FN_SOUNDPLAYING) {
+        if (**p != ')') {
+            runtime_error_hint("SOUNDPLAYING takes no arguments",
+                                 "Use SOUNDPLAYING() with empty parentheses.");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+#if defined(GFX_VIDEO) && (!defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB))
+        return make_num((double)gfx_sound_is_playing());
+#else
+        return make_num(0.0);
+#endif
     }
     if (code == FN_INKEY) {
         if (**p != ')') {
@@ -9809,6 +9905,7 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "DIR") || starts_with_kw(*p, "DIR$") ||
             starts_with_kw(*p, "JSONLEN") || starts_with_kw(*p, "JSONKEY") ||
             starts_with_kw(*p, "JSONKEY$") ||
+            starts_with_kw(*p, "SOUNDPLAYING") ||
             starts_with_kw(*p, "BUFFERLEN") || starts_with_kw(*p, "BUFFERPATH") ||
             starts_with_kw(*p, "KEYDOWN") || starts_with_kw(*p, "KEYUP") ||
             starts_with_kw(*p, "KEYPRESS") || starts_with_kw(*p, "ANIMFRAME") ||
@@ -13321,6 +13418,13 @@ static void execute_statement(char **p)
             statement_pset(p, 0);
             return;
         }
+#ifdef GFX_VIDEO
+        if (starts_with_kw(*p, "PLAYSOUND")) {
+            *p += 9;
+            statement_playsound(p);
+            return;
+        }
+#endif
     }
     if (c == 'I' && starts_with_kw(*p, "INPUT")) {
         *p += 5;
@@ -13366,6 +13470,11 @@ static void execute_statement(char **p)
         if (starts_with_kw(*p, "LOADSPRITE")) {
             *p += 10;
             statement_loadsprite(p);
+            return;
+        }
+        if (starts_with_kw(*p, "LOADSOUND")) {
+            *p += 9;
+            statement_loadsound(p);
             return;
         }
 #endif
@@ -13683,6 +13792,13 @@ static void execute_statement(char **p)
         statement_unloadsprite(p);
         return;
     }
+#ifdef GFX_VIDEO
+    if (c == 'U' && starts_with_kw(*p, "UNLOADSOUND")) {
+        *p += 11;
+        statement_unloadsound(p);
+        return;
+    }
+#endif
     if (c == 'E') {
         if (starts_with_kw(*p, "ELLIPSE")) {
             *p += 7;
@@ -13767,6 +13883,13 @@ static void execute_statement(char **p)
     if (c == 'A' && starts_with_kw(*p, "ANTIALIAS")) {
         *p += 9;
         statement_antialias(p);
+        return;
+    }
+#endif
+#ifdef GFX_VIDEO
+    if (c == 'S' && starts_with_kw(*p, "STOPSOUND")) {
+        *p += 9;
+        statement_stopsound(p);
         return;
     }
 #endif
@@ -14493,6 +14616,9 @@ static void load_program(const char *path)
         gfx_vs->cols = (print_width >= 80) ? 80 : 40;
     }
     gfx_set_sprite_base_dir(base_dir);
+#if !defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB)
+    gfx_sound_set_base_dir(base_dir);
+#endif
 #endif
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
     /* Canvas JS resizes framebuffer from this after #OPTION columns in file. */
