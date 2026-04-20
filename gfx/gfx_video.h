@@ -181,9 +181,14 @@ int gfx_bitmap_get_show_pixel(const GfxVideoState *s, unsigned x, unsigned y);
  * `double_buffer` is on and draw/show slots differ. */
 int gfx_bitmap_get_show_color(const GfxVideoState *s, unsigned x, unsigned y);
 
-/* 16-entry C64-style palette table shared by SCREEN 1 renderers and
- * the SCREEN 2 COLOR → RGBA translation. Indexed 0..15. */
-extern const uint8_t gfx_c64_palette_rgb[16][3];
+/* 16-entry palette, writable. Defaults to C64 hex values with
+ * alpha=255. Shared by SCREEN 1 renderer + SCREEN 2 COLOR→RGBA
+ * translation, so PALETTESET / PALETTERESET immediately affect both.
+ * Indexed 0..15; channels 0..3 = R/G/B/A. */
+extern uint8_t gfx_c64_palette_rgb[16][4];
+
+/* Reset palette to the built-in C64 defaults. */
+void gfx_palette_reset(void);
 
 /* SCREEN 2 RGBA plane helpers ---------------------------------------- */
 
