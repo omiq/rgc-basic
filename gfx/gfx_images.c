@@ -488,3 +488,81 @@ int gfx_image_load(int slot, const char *path)
     stbi_image_free(pixels);
     return 0;
 }
+
+/* Nearest palette entry for (r,g,b). Searches full 256 entries with
+ * squared-Euclidean distance. Ignores alpha channel in the palette. */
+static int nearest_palette_index(uint8_t r, uint8_t g, uint8_t b)
+{
+    int best = 0;
+    long best_d = 1L << 30;
+    int i;
+    for (i = 0; i < 256; i++) {
+        int dr = (int)r - (int)gfx_c64_palette_rgb[i][0];
+        int dg = (int)g - (int)gfx_c64_palette_rgb[i][1];
+        int db = (int)b - (int)gfx_c64_palette_rgb[i][2];
+        long d = (long)dr * dr + (long)dg * dg + (long)db * db;
+        if (d < best_d) {
+            best_d = d;
+            best = i;
+            if (d == 0) break;
+        }
+    }
+    return best;
+}
+
+int gfx_load_png_to_indexed(GfxVideoState *s, const char *path, int dx, int dy)
+{
+    int w, h, channels;
+    unsigned char *pixels;
+    int x, y;
+    if (!s || !path || !path[0]) return -1;
+    pixels = stbi_load(path, &w, &h, &channels, 4);
+    if (!pixels) return -1;
+    for (y = 0; y < h; y++) {
+        int py = y + dy;
+        if (py < 0 || py >= (int)GFX_BITMAP_HEIGHT) continue;
+        for (x = 0; x < w; x++) {
+            int px = x + dx;
+            unsigned char *p;
+            uint8_t idx;
+            if (px < 0 || px >= (int)GFX_BITMAP_WIDTH) continue;
+            p = pixels + ((size_t)y * (size_t)w + (size_t)x) * 4u;
+            if (p[3] < 128) {
+                idx = s->bg_color;
+            } else {
+                idx = (uint8_t)nearest_palette_index(p[0], p[1], p[2]);
+            }
+            s->bitmap_color[(unsigned)py * GFX_BITMAP_WIDTH + (unsigned)px] = idx;
+        }
+    }
+    stbi_image_free(pixels);
+    return 0;
+}
+
+int gfx_load_png_to_rgba(GfxVideoState *s, const char *path, int dx, int dy)
+{
+    int w, h, channels;
+    unsigned char *pixels;
+    int x, y;
+    if (!s || !s->bitmap_rgba || !path || !path[0]) return -1;
+    pixels = stbi_load(path, &w, &h, &channels, 4);
+    if (!pixels) return -1;
+    for (y = 0; y < h; y++) {
+        int py = y + dy;
+        if (py < 0 || py >= (int)GFX_BITMAP_HEIGHT) continue;
+        for (x = 0; x < w; x++) {
+            int px = x + dx;
+            unsigned char *p;
+            unsigned off;
+            if (px < 0 || px >= (int)GFX_BITMAP_WIDTH) continue;
+            p = pixels + ((size_t)y * (size_t)w + (size_t)x) * 4u;
+            off = ((unsigned)py * GFX_BITMAP_WIDTH + (unsigned)px) * 4u;
+            s->bitmap_rgba[off + 0] = p[0];
+            s->bitmap_rgba[off + 1] = p[1];
+            s->bitmap_rgba[off + 2] = p[2];
+            s->bitmap_rgba[off + 3] = p[3];
+        }
+    }
+    stbi_image_free(pixels);
+    return 0;
+}

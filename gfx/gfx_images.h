@@ -81,4 +81,19 @@ int gfx_image_save(int slot, const char *path);
  * is the visible bitmap and can't be reallocated by this path). */
 int gfx_image_load(int slot, const char *path);
 
+/* Load a PNG / BMP / JPG etc. into the SCREEN 3 indexed plane
+ * (s->bitmap_color[]). Quantises each source pixel to the nearest
+ * palette entry (Euclidean distance in RGB). Clips to 320×200 at
+ * offset (dx, dy) — out-of-bounds pixels are dropped.
+ *
+ * Alpha < 128 maps to the current bg_color index. Returns 0 on
+ * success, -1 on load / arg failure. */
+int gfx_load_png_to_indexed(GfxVideoState *s, const char *path, int dx, int dy);
+
+/* Load a PNG / BMP / JPG etc. into the SCREEN 2 RGBA plane
+ * (s->bitmap_rgba). Clips to 320×200 at (dx, dy). Plane must be
+ * allocated (SCREEN 2 was entered). Returns 0 on success, -1 on
+ * load / arg failure. */
+int gfx_load_png_to_rgba(GfxVideoState *s, const char *path, int dx, int dy);
+
 #endif /* GFX_IMAGES_H */
