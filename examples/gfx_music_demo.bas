@@ -9,16 +9,16 @@
 '  MUSICVOLUME slot, 0.0 .. 1.0    per-slot gain
 '  MUSICPLAYING(slot)              1 while audible, 0 idle
 '
-'  Browsers block audio until the user clicks or presses a key —
-'  the demo waits for a keypress before LOADMUSIC / PLAYMUSIC so
-'  Chrome's autoplay policy sees a real user gesture first.
+'  Browsers block audio until the user clicks or presses a key,
+'  so the demo waits for a keypress before touching raudio. Only
+'  one track is loaded at a time (switching tracks unloads the
+'  previous slot then loads the next) so Chrome's autoplay policy
+'  sees a clean gesture-driven init.
 '
 '  All three bundled modules are Public Domain (see
 '  examples/music/LICENSES.md).
 '
-'  Keys (after the gesture gate):
-'    1/2/3 switch track, SPACE pause/resume, S stop,
-'    L toggle loop, + / - volume, Q quit
+'  Keys: 1/2/3 switch, SPACE pause, S stop, L loop, +/- volume, Q quit
 ' ============================================================
 
 SCREEN 4
@@ -28,88 +28,77 @@ CLS
 COLORRGB 240, 240, 255
 DRAWTEXT 16, 32, "RGC-BASIC MUSIC TRACKER DEMO", 1, -1, 0, 2
 COLORRGB 255, 220, 120
-DRAWTEXT 16, 80,  "Press any key to enable audio"
+DRAWTEXT 16, 80,  "Press 1, 2 or 3 to load + play a track"
 COLORRGB 180, 180, 220
 DRAWTEXT 16, 104, "(browsers block autoplay until a user gesture)"
+DRAWTEXT 16, 140, "1  AI Renaissance     - Drozerix"
+DRAWTEXT 16, 156, "2  8-bit Castle"
+DRAWTEXT 16, 172, "3  Highway Encounter  - Jam"
+DRAWTEXT 16, 204, "SPACE pause   S stop   L loop   + / - volume   Q quit"
+DRAWTEXT 16, 240, "All three tracks are Public Domain"
+DRAWTEXT 16, 256, "(see examples/music/LICENSES.md)"
 
-' Gesture gate — wait for any keypress before touching raudio.
-' Without this Chrome logs "AudioContext was not allowed to start"
-' and LoadMusicStream either runs silently or stalls the frame loop.
-DO
-  K$ = INKEY$()
-  IF K$ <> "" THEN EXIT
-  SLEEP 1
-LOOP
-
-CLS
-COLORRGB 240, 240, 255
-DRAWTEXT 16, 16, "RGC-BASIC MUSIC TRACKER DEMO", 1, -1, 0, 2
-
-COLORRGB 180, 180, 220
-DRAWTEXT 16, 56,  "Loading tracks..."
-
-LOADMUSIC 0, "music/drozerix_ai_renaissance.mod"
-LOADMUSIC 1, "music/8bit_castle.mod"
-LOADMUSIC 2, "music/jam_highway_encounter.mod"
-
-MUSICLOOP 0, 1 : MUSICVOLUME 0, 0.8
-MUSICLOOP 1, 1 : MUSICVOLUME 1, 0.8
-MUSICLOOP 2, 1 : MUSICVOLUME 2, 0.8
-
-CURRENT = 0
+CURRENT = -1
 VOL     = 0.8
 PAUSED  = 0
 LOOPING = 1
 
-PLAYMUSIC CURRENT
-
-COLORRGB 16, 16, 32 : FILLRECT 0, 56 TO 639, 70
-COLORRGB 180, 180, 220
-DRAWTEXT 16, 56,  "1  AI Renaissance        - Drozerix"
-DRAWTEXT 16, 72,  "2  8-bit Castle"
-DRAWTEXT 16, 88,  "3  Highway Encounter     - Jam"
-DRAWTEXT 16, 120, "SPACE  pause / resume"
-DRAWTEXT 16, 136, "S      stop (rewind)"
-DRAWTEXT 16, 152, "L      toggle loop"
-DRAWTEXT 16, 168, "+ / -  volume"
-DRAWTEXT 16, 184, "Q      quit"
-DRAWTEXT 16, 220, "All three tracks are Public Domain"
-DRAWTEXT 16, 236, "(see examples/music/LICENSES.md)"
-
 DO
   IF KEYDOWN(ASC("Q")) THEN EXIT
   IF KEYPRESS(27) THEN EXIT
-  IF KEYPRESS(ASC("1")) THEN STOPMUSIC CURRENT : CURRENT = 0 : PAUSED = 0 : PLAYMUSIC CURRENT
-  IF KEYPRESS(ASC("2")) THEN STOPMUSIC CURRENT : CURRENT = 1 : PAUSED = 0 : PLAYMUSIC CURRENT
-  IF KEYPRESS(ASC("3")) THEN STOPMUSIC CURRENT : CURRENT = 2 : PAUSED = 0 : PLAYMUSIC CURRENT
-  IF KEYPRESS(ASC(" ")) THEN
-    IF PAUSED = 0 THEN PAUSEMUSIC CURRENT : PAUSED = 1 ELSE RESUMEMUSIC CURRENT : PAUSED = 0
-  END IF
-  IF KEYPRESS(ASC("S")) THEN STOPMUSIC CURRENT : PAUSED = 0
-  IF KEYPRESS(ASC("L")) THEN
-    IF LOOPING = 1 THEN LOOPING = 0 ELSE LOOPING = 1
-    MUSICLOOP CURRENT, LOOPING
-  END IF
-  IF KEYPRESS(ASC("+")) OR KEYPRESS(ASC("=")) THEN
-    VOL = VOL + 0.1 : IF VOL > 1.0 THEN VOL = 1.0
+
+  NEW_TRACK = -1
+  IF KEYPRESS(ASC("1")) THEN NEW_TRACK = 0
+  IF KEYPRESS(ASC("2")) THEN NEW_TRACK = 1
+  IF KEYPRESS(ASC("3")) THEN NEW_TRACK = 2
+
+  IF NEW_TRACK <> -1 AND NEW_TRACK <> CURRENT THEN
+    IF CURRENT <> -1 THEN
+      STOPMUSIC CURRENT
+      UNLOADMUSIC CURRENT
+    END IF
+    CURRENT = NEW_TRACK
+    IF CURRENT = 0 THEN LOADMUSIC 0, "music/drozerix_ai_renaissance.mod"
+    IF CURRENT = 1 THEN LOADMUSIC 1, "music/8bit_castle.mod"
+    IF CURRENT = 2 THEN LOADMUSIC 2, "music/jam_highway_encounter.mod"
+    MUSICLOOP   CURRENT, LOOPING
     MUSICVOLUME CURRENT, VOL
-  END IF
-  IF KEYPRESS(ASC("-")) THEN
-    VOL = VOL - 0.1 : IF VOL < 0.0 THEN VOL = 0.0
-    MUSICVOLUME CURRENT, VOL
+    PLAYMUSIC   CURRENT
+    PAUSED = 0
   END IF
 
-  ' Status line — clear + redraw each frame so state stays current.
+  IF CURRENT <> -1 THEN
+    IF KEYPRESS(ASC(" ")) THEN
+      IF PAUSED = 0 THEN PAUSEMUSIC CURRENT : PAUSED = 1 ELSE RESUMEMUSIC CURRENT : PAUSED = 0
+    END IF
+    IF KEYPRESS(ASC("S")) THEN STOPMUSIC CURRENT : PAUSED = 0
+    IF KEYPRESS(ASC("L")) THEN
+      IF LOOPING = 1 THEN LOOPING = 0 ELSE LOOPING = 1
+      MUSICLOOP CURRENT, LOOPING
+    END IF
+    IF KEYPRESS(ASC("+")) OR KEYPRESS(ASC("=")) THEN
+      VOL = VOL + 0.1 : IF VOL > 1.0 THEN VOL = 1.0
+      MUSICVOLUME CURRENT, VOL
+    END IF
+    IF KEYPRESS(ASC("-")) THEN
+      VOL = VOL - 0.1 : IF VOL < 0.0 THEN VOL = 0.0
+      MUSICVOLUME CURRENT, VOL
+    END IF
+  END IF
+
   COLORRGB 16, 16, 32 : FILLRECT 0, 360 TO 639, 399
   COLORRGB 200, 255, 200
-  MSG$ = "TRACK " + STR$(CURRENT) + "   VOL " + STR$(VOL)
-  IF PAUSED = 1 THEN MSG$ = MSG$ + "   [PAUSED]"
-  IF LOOPING = 1 THEN MSG$ = MSG$ + "   LOOP" ELSE MSG$ = MSG$ + "   ONE-SHOT"
-  IF MUSICPLAYING(CURRENT) = 1 THEN MSG$ = MSG$ + "   PLAYING" ELSE MSG$ = MSG$ + "   IDLE"
-  DRAWTEXT 16, 372, MSG$
-  SLEEP 2
+  IF CURRENT = -1 THEN
+    DRAWTEXT 16, 372, "IDLE - press 1, 2 or 3"
+  ELSE
+    MSG$ = "TRACK " + STR$(CURRENT) + "   VOL " + STR$(VOL)
+    IF PAUSED = 1 THEN MSG$ = MSG$ + "   [PAUSED]"
+    IF LOOPING = 1 THEN MSG$ = MSG$ + "   LOOP" ELSE MSG$ = MSG$ + "   ONE-SHOT"
+    IF MUSICPLAYING(CURRENT) = 1 THEN MSG$ = MSG$ + "   PLAYING" ELSE MSG$ = MSG$ + "   IDLE"
+    DRAWTEXT 16, 372, MSG$
+  END IF
+
+  SLEEP 3
 LOOP
 
-STOPMUSIC 0
-STOPMUSIC 1
-STOPMUSIC 2
+IF CURRENT <> -1 THEN STOPMUSIC CURRENT
