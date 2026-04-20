@@ -600,6 +600,27 @@ int main(void)
         assert(gfx_c64_palette_rgb[1][1] == 0xFF);
         assert(gfx_c64_palette_rgb[1][2] == 0xFF);
         assert(gfx_c64_palette_rgb[1][3] == 0xFF);
+
+        /* Palette rotate: +1 shifts entries toward higher indices;
+         * last wraps around to first. Negative step rotates backward. */
+        gfx_c64_palette_rgb[16][0] = 10;
+        gfx_c64_palette_rgb[17][0] = 20;
+        gfx_c64_palette_rgb[18][0] = 30;
+        gfx_palette_rotate(16, 18, 1);
+        assert(gfx_c64_palette_rgb[16][0] == 30);  /* wrapped from 18 */
+        assert(gfx_c64_palette_rgb[17][0] == 10);
+        assert(gfx_c64_palette_rgb[18][0] == 20);
+        gfx_palette_rotate(16, 18, -1);
+        assert(gfx_c64_palette_rgb[16][0] == 10);
+        assert(gfx_c64_palette_rgb[17][0] == 20);
+        assert(gfx_c64_palette_rgb[18][0] == 30);
+        /* step == range-size is a no-op */
+        gfx_palette_rotate(16, 18, 3);
+        assert(gfx_c64_palette_rgb[16][0] == 10);
+        /* Clamp + swap first>last. */
+        gfx_palette_rotate(18, 16, 1);
+        assert(gfx_c64_palette_rgb[16][0] == 30);
+        gfx_palette_reset();
     }
 
     /* SCREEN 3: set_pixel writes full 8-bit pen into bitmap_color,

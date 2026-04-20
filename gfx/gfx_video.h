@@ -197,6 +197,12 @@ extern uint8_t gfx_c64_palette_rgb[256][4];
  * to the HSV rainbow generated on init. */
 void gfx_palette_reset(void);
 
+/* Rotate palette entries [first..last] (inclusive, 0..255) by `step`.
+ * Positive step shifts entries forward (toward higher indices),
+ * negative rotates backward. step==0 is a no-op. Indices outside
+ * the range are untouched. Clamps first/last into 0..255. */
+void gfx_palette_rotate(int first, int last, int step);
+
 /* SCREEN 2 RGBA plane helpers ---------------------------------------- */
 
 /* Allocate the RGBA draw + show planes on demand. Called by SCREEN 2 on

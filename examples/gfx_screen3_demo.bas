@@ -44,13 +44,10 @@ DO
   IF KEYPRESS(ASC("R")) THEN PALETTERESET
 
   IF CYCLING = 1 THEN
-    ' Rotate entries 16..255 one step so the rainbow visibly
-    ' spins without redrawing any pixels.
-    R0 = PALETTE(16, 0) : G0 = PALETTE(16, 1) : B0 = PALETTE(16, 2)
-    FOR I = 16 TO 254
-      PALETTESET I, PALETTE(I + 1, 0), PALETTE(I + 1, 1), PALETTE(I + 1, 2)
-    NEXT I
-    PALETTESET 255, R0, G0, B0
+    ' Rotate entries 16..255 one step in a single engine call —
+    ' much cheaper than 240 PALETTESET from BASIC. Swatches retint
+    ' on the next composite, no pixels redrawn.
+    PALETTEROTATE 16, 255, 1
   END IF
 
   SLEEP 1
