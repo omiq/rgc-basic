@@ -44,8 +44,9 @@ FOR I = 0 TO 15
   G = 80 + (I \ 4)   * 40
   B = 200 - I * 10
   COLORRGB R, G, B
-  FILLRECT 176 + (I MOD 8) * 56, 48 + (I \ 8) * 56,
-           176 + (I MOD 8) * 56 + 48, 48 + (I \ 8) * 56 + 48
+  BX = 176 + (I MOD 8) * 56
+  BY = 48  + (I \ 8)   * 56
+  FILLRECT BX, BY, BX + 48, BY + 48
 NEXT I
 
 COLORRGB 255, 255, 128
