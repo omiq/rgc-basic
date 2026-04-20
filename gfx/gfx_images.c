@@ -286,6 +286,83 @@ int gfx_image_copy(int src_slot, int sx, int sy, int sw, int sh,
     return 0;
 }
 
+/* Porter-Duff "source over" blit: src RGBA composited onto dst RGBA.
+ * Both slots must carry an rgba buffer. Slot 0 (visible) routes to the
+ * live bitmap_rgba plane of the bound video state — SCREEN 2 only. */
+int gfx_image_blend(int src_slot, int sx, int sy, int sw, int sh,
+                    int dst_slot, int dx, int dy)
+{
+    GfxImageSlot *src;
+    const uint8_t *src_rgba;
+    uint8_t *dst_rgba;
+    int src_w, src_h;
+    int dst_w, dst_h;
+    int x, y;
+
+    if (src_slot < 0 || src_slot >= GFX_IMAGE_MAX_SLOTS) return -1;
+    src = &g_slots[src_slot];
+    if (!src->loaded || !src->rgba) return -1;
+    src_rgba = src->rgba;
+    src_w = src->w;
+    src_h = src->h;
+
+    if (dst_slot == GFX_IMAGE_SLOT_VISIBLE) {
+        if (!g_visible_state || !g_visible_state->bitmap_rgba) return -1;
+        if (g_visible_state->screen_mode != GFX_SCREEN_RGBA) return -1;
+        dst_rgba = g_visible_state->bitmap_rgba;
+        dst_w = (int)GFX_BITMAP_WIDTH;
+        dst_h = (int)GFX_BITMAP_HEIGHT;
+    } else {
+        GfxImageSlot *dst;
+        if (dst_slot < 0 || dst_slot >= GFX_IMAGE_MAX_SLOTS) return -1;
+        dst = &g_slots[dst_slot];
+        if (!dst->loaded || !dst->rgba) return -1;
+        dst_rgba = dst->rgba;
+        dst_w = dst->w;
+        dst_h = dst->h;
+    }
+
+    if (sx < 0) { sw += sx; dx -= sx; sx = 0; }
+    if (sy < 0) { sh += sy; dy -= sy; sy = 0; }
+    if (sx + sw > src_w) sw = src_w - sx;
+    if (sy + sh > src_h) sh = src_h - sy;
+    if (dx < 0) { sw += dx; sx -= dx; dx = 0; }
+    if (dy < 0) { sh += dy; sy -= dy; dy = 0; }
+    if (dx + sw > dst_w) sw = dst_w - dx;
+    if (dy + sh > dst_h) sh = dst_h - dy;
+    if (sw <= 0 || sh <= 0) return 0;
+
+    for (y = 0; y < sh; y++) {
+        const uint8_t *sr = src_rgba + ((size_t)(sy + y) * (size_t)src_w +
+                                        (size_t)sx) * 4u;
+        uint8_t *dr = dst_rgba + ((size_t)(dy + y) * (size_t)dst_w +
+                                  (size_t)dx) * 4u;
+        for (x = 0; x < sw; x++) {
+            unsigned sa = sr[x * 4 + 3];
+            if (sa == 0) continue;
+            if (sa == 255) {
+                dr[x * 4 + 0] = sr[x * 4 + 0];
+                dr[x * 4 + 1] = sr[x * 4 + 1];
+                dr[x * 4 + 2] = sr[x * 4 + 2];
+                dr[x * 4 + 3] = 255;
+            } else {
+                unsigned inv = 255u - sa;
+                unsigned da  = dr[x * 4 + 3];
+                unsigned outA = sa + (da * inv + 127u) / 255u;
+                if (outA > 255u) outA = 255u;
+                dr[x * 4 + 0] = (uint8_t)((sr[x * 4 + 0] * sa +
+                                           dr[x * 4 + 0] * inv + 127u) / 255u);
+                dr[x * 4 + 1] = (uint8_t)((sr[x * 4 + 1] * sa +
+                                           dr[x * 4 + 1] * inv + 127u) / 255u);
+                dr[x * 4 + 2] = (uint8_t)((sr[x * 4 + 2] * sa +
+                                           dr[x * 4 + 2] * inv + 127u) / 255u);
+                dr[x * 4 + 3] = (uint8_t)outA;
+            }
+        }
+    }
+    return 0;
+}
+
 int gfx_image_save_bmp(int slot, const char *path)
 {
     GfxImageSlot *sl;

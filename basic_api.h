@@ -128,6 +128,12 @@ int gfx_load_png_to_bitmap(struct GfxVideoState *s, const char *path, int dx, in
 int gfx_load_png_to_text(struct GfxVideoState *s, const char *path, int cx, int cy);
 int gfx_image_new_rgba(int slot, int w, int h);
 unsigned char *gfx_image_rgba_buffer(int slot);
+/* Porter-Duff "source over" composite of an RGBA src slot onto an RGBA
+ * destination. dst_slot == GFX_IMAGE_SLOT_VISIBLE (0) routes to the
+ * live SCREEN 2 bitmap_rgba plane; other slots must have been created
+ * via gfx_image_new_rgba. Returns -1 if either slot isn't RGBA. */
+int gfx_image_blend(int src_slot, int sx, int sy, int sw, int sh,
+                    int dst_slot, int dx, int dy);
 
 /* Request a synchronous grab of a region of the currently-displayed
  * framebuffer (visible slot 0) into slot. Blocks the caller (interpreter
