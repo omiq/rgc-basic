@@ -1,0 +1,36 @@
+diff --git a/src/external/jar_mod.h b/src/external/jar_mod.h
+index eacd3b7..ef4b57e 100644
+--- a/src/external/jar_mod.h
++++ b/src/external/jar_mod.h
+@@ -1555,19 +1555,25 @@ mulong jar_mod_current_samples(jar_mod_context_t * modctx)
+     return 0;
+ }
+ 
+-// Works, however it is very slow, this data should be cached to ensure it is run only once per file
++/* RGC-BASIC patch — see patches/jar_mod_max_samples.patch and
++ * CHANGELOG.md "MOD load freeze fix (2026-04-20)". Upstream uses
++ * nbsample=1 and stalls the Emscripten main thread for tens of
++ * seconds on LOADMUSIC under ASYNCIFY. 4096-sample chunks cut the
++ * iteration count ~4000x with identical semantics — samplenb is
++ * accumulated by jar_mod_fillbuffer regardless of chunk size, and
++ * the loopcount exit condition still fires on song wrap. */
+ mulong jar_mod_max_samples(jar_mod_context_t * ctx)
+ {
+-    mint buff[2];
++    mint buff[4096 * 2];
+     mulong len;
+     mulong lastcount = ctx->loopcount;
+-    
++
+     while(ctx->loopcount <= lastcount)
+-        jar_mod_fillbuffer(ctx, buff, 1, 0);
+-    
++        jar_mod_fillbuffer(ctx, buff, 4096, 0);
++
+     len = ctx->samplenb;
+     jar_mod_seek_start(ctx);
+-    
++
+     return len;
+ }
+ 
