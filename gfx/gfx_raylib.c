@@ -1782,13 +1782,20 @@ static void render_rgba_screen(const GfxVideoState *s, RenderTexture2D target,
     int y, x, off_x;
     int sx = (int)s->scroll_x;
     int sy = (int)s->scroll_y;
-    int fb_w = native_w;
-    int fb_h = NATIVE_H;
+    /* Target dimensions now come from the RenderTexture2D — it's 320×200
+     * for SCREEN 2 and 640×400 for SCREEN 4 (the caller swaps the target
+     * in when screen_mode changes). Source dimensions come from the
+     * state's rgba_w/h, which the helpers write through. */
+    int fb_w = target.texture.width  > 0 ? target.texture.width  : native_w;
+    int fb_h = target.texture.height > 0 ? target.texture.height : NATIVE_H;
+    int src_w = (int)s->rgba_w;
+    int src_h = (int)s->rgba_h;
     Color *buf = ensure_pixbuf(fb_w, fb_h);
     Color bg = { s->bgrgba_r, s->bgrgba_g, s->bgrgba_b, s->bgrgba_a };
     const uint8_t *src = (s->double_buffer && s->bitmap_rgba_show) ? s->bitmap_rgba_show : s->bitmap_rgba;
+    (void)native_w;
 
-    off_x = (native_w - (int)GFX_BITMAP_WIDTH) / 2;
+    off_x = (fb_w - src_w) / 2;
     if (off_x < 0) off_x = 0;
 
     {
@@ -1806,14 +1813,14 @@ static void render_rgba_screen(const GfxVideoState *s, RenderTexture2D target,
         return;
     }
 
-    for (y = 0; y < (int)GFX_BITMAP_HEIGHT; y++) {
+    for (y = 0; y < src_h; y++) {
         int py = y - sy;
         if (py < 0 || py >= fb_h) continue;
-        for (x = 0; x < (int)GFX_BITMAP_WIDTH; x++) {
+        for (x = 0; x < src_w; x++) {
             int px = off_x + x - sx;
             unsigned off;
             if (px < 0 || px >= fb_w) continue;
-            off = ((unsigned)y * GFX_BITMAP_WIDTH + (unsigned)x) * 4u;
+            off = ((unsigned)y * (unsigned)src_w + (unsigned)x) * 4u;
             buf[py * fb_w + px].r = src[off + 0];
             buf[py * fb_w + px].g = src[off + 1];
             buf[py * fb_w + px].b = src[off + 2];
@@ -2174,9 +2181,24 @@ int main(int argc, char **argv)
             }
         }
 
+        /* SCREEN 4 (GFX_SCREEN_RGBA_HI) needs a 640×400 render target so
+         * the wider canvas isn't sub-sampled down to nat_w × nat_h. Swap
+         * the target out when the mode changes; reload keeps the POINT
+         * filter so hi-res draws stay crisp. */
+        {
+            int want_tw = (vs.screen_mode == GFX_SCREEN_RGBA_HI) ? (int)GFX_RGBA_HI_W : nat_w;
+            int want_th = (vs.screen_mode == GFX_SCREEN_RGBA_HI) ? (int)GFX_RGBA_HI_H : nat_h;
+            if (target.texture.width != want_tw || target.texture.height != want_th) {
+                UnloadRenderTexture(target);
+                target = LoadRenderTexture(want_tw, want_th);
+                SetTextureFilter(target.texture, TEXTURE_FILTER_POINT);
+            }
+        }
+
         if (vs.screen_mode == GFX_SCREEN_INDEXED) {
             render_indexed_screen(&vs, target, nat_w);
-        } else if (vs.screen_mode == GFX_SCREEN_RGBA) {
+        } else if (vs.screen_mode == GFX_SCREEN_RGBA ||
+                   vs.screen_mode == GFX_SCREEN_RGBA_HI) {
             render_rgba_screen(&vs, target, nat_w);
         } else if (vs.screen_mode == GFX_SCREEN_BITMAP) {
             render_bitmap_screen(&vs, target, nat_w);
@@ -2195,25 +2217,29 @@ int main(int argc, char **argv)
 #endif
 
         /* Compute destination rect for this frame.
-         * Fullscreen: letterbox — preserve nat_w:nat_h aspect, black/border bars.
-         * Windowed: honour -gfx-border pixel inset. */
+         * Fullscreen: letterbox — preserve target:target aspect, black/border bars.
+         * Windowed: honour -gfx-border pixel inset.
+         * Source rect uses the live target dimensions so SCREEN 4 (640×400)
+         * blits the wider canvas to the window without cropping to nat_w. */
         {
+            int tex_w = target.texture.width;
+            int tex_h = target.texture.height;
             int fullscreen = basic_get_gfx_fullscreen();
             int cur_w = fullscreen ? GetScreenWidth()  : win_w;
             int cur_h = fullscreen ? GetScreenHeight() : win_h;
             float dx, dy, dw, dh;
 
             if (fullscreen) {
-                float nat_ar = (float)nat_w / (float)nat_h;
+                float tex_ar = (float)tex_w / (float)tex_h;
                 float scr_ar = (float)cur_w / (float)cur_h;
-                if (scr_ar > nat_ar) {
+                if (scr_ar > tex_ar) {
                     dh = (float)cur_h;
-                    dw = dh * nat_ar;
+                    dw = dh * tex_ar;
                     dx = ((float)cur_w - dw) * 0.5f;
                     dy = 0.0f;
                 } else {
                     dw = (float)cur_w;
-                    dh = dw / nat_ar;
+                    dh = dw / tex_ar;
                     dx = 0.0f;
                     dy = ((float)cur_h - dh) * 0.5f;
                 }
@@ -2227,7 +2253,7 @@ int main(int argc, char **argv)
                 if (dh < 1) dh = 1;
             }
 
-            gfx_mouse_raylib_poll(nat_w, nat_h, dx, dy, dx + dw, dy + dh);
+            gfx_mouse_raylib_poll(tex_w, tex_h, dx, dy, dx + dw, dy + dh);
 
             BeginDrawing();
             {
@@ -2238,7 +2264,7 @@ int main(int argc, char **argv)
                 }
                 DrawTexturePro(
                     target.texture,
-                    (Rectangle){ 0, 0, (float)nat_w, -(float)nat_h },
+                    (Rectangle){ 0, 0, (float)tex_w, -(float)tex_h },
                     (Rectangle){ dx, dy, dw, dh },
                     (Vector2){ 0, 0 }, 0.0f, WHITE);
             }
@@ -2385,16 +2411,35 @@ void wasm_gfx_refresh_js(void)
          * antialias. See native init comment. */
         g_antialias_applied = g_antialias;
     }
+    /* SCREEN 4 — swap the render target to 640×400 so the hi-res RGBA
+     * plane isn't sub-sampled. Resize window too so the iframe canvas
+     * shows the wider canvas 1:1 instead of inside a 320-wide frame. */
+    {
+        int want_tw = (g_wasm_vs.screen_mode == GFX_SCREEN_RGBA_HI) ? (int)GFX_RGBA_HI_W : g_wasm_nat_w;
+        int want_th = (g_wasm_vs.screen_mode == GFX_SCREEN_RGBA_HI) ? (int)GFX_RGBA_HI_H : g_wasm_nat_h;
+        if (g_wasm_target.texture.width != want_tw ||
+            g_wasm_target.texture.height != want_th) {
+            UnloadRenderTexture(g_wasm_target);
+            g_wasm_target = LoadRenderTexture(want_tw, want_th);
+            SetTextureFilter(g_wasm_target.texture, TEXTURE_FILTER_POINT);
+            SetWindowSize(want_tw * SCALE, want_th * SCALE);
+        }
+    }
+
     if (g_wasm_vs.screen_mode == GFX_SCREEN_INDEXED) {
         render_indexed_screen(&g_wasm_vs, g_wasm_target, g_wasm_nat_w);
-    } else if (g_wasm_vs.screen_mode == GFX_SCREEN_RGBA) {
+    } else if (g_wasm_vs.screen_mode == GFX_SCREEN_RGBA ||
+               g_wasm_vs.screen_mode == GFX_SCREEN_RGBA_HI) {
         render_rgba_screen(&g_wasm_vs, g_wasm_target, g_wasm_nat_w);
     } else if (g_wasm_vs.screen_mode == GFX_SCREEN_BITMAP) {
         render_bitmap_screen(&g_wasm_vs, g_wasm_target, g_wasm_nat_w);
     } else {
         render_text_screen(&g_wasm_vs, g_wasm_target);
     }
-    gfx_sprite_composite_range(&g_wasm_vs, g_wasm_target, g_wasm_nat_w, g_wasm_nat_h, -32768, 32767, 1);
+    gfx_sprite_composite_range(&g_wasm_vs, g_wasm_target,
+                               g_wasm_target.texture.width,
+                               g_wasm_target.texture.height,
+                               -32768, 32767, 1);
 
     win_w = GetScreenWidth();
     win_h = GetScreenHeight();
@@ -2406,7 +2451,9 @@ void wasm_gfx_refresh_js(void)
     if (dw < 1.0f) dw = 1.0f;
     if (dh < 1.0f) dh = 1.0f;
 
-    gfx_mouse_raylib_poll(g_wasm_nat_w, g_wasm_nat_h, dx, dy, dx + dw, dy + dh);
+    gfx_mouse_raylib_poll(g_wasm_target.texture.width,
+                          g_wasm_target.texture.height,
+                          dx, dy, dx + dw, dy + dh);
 
     bc = basic_get_gfx_border_color();
     bg = (bc >= 0 && bc <= 15) ? c64_palette(bc) : c64_palette(g_wasm_vs.bg_color & 0x0F);
@@ -2415,7 +2462,7 @@ void wasm_gfx_refresh_js(void)
     ClearBackground(border > 0 ? bg : BLACK);
     DrawTexturePro(
         g_wasm_target.texture,
-        (Rectangle){ 0, 0, (float)g_wasm_nat_w, -(float)g_wasm_nat_h },
+        (Rectangle){ 0, 0, (float)g_wasm_target.texture.width, -(float)g_wasm_target.texture.height },
         (Rectangle){ dx, dy, dw, dh },
         (Vector2){ 0, 0 }, 0.0f, WHITE);
     EndDrawing();

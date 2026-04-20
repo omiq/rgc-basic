@@ -33,14 +33,20 @@
 #define GFX_BITMAP_HEIGHT 200u
 #define GFX_BITMAP_BYTES  ((GFX_BITMAP_WIDTH * GFX_BITMAP_HEIGHT) / 8u)
 
-/* Display mode for basic-gfx (SCREEN 0..3). */
+/* Display mode for basic-gfx (SCREEN 0..4). */
 #define GFX_SCREEN_TEXT    0u
 #define GFX_SCREEN_BITMAP  1u
 #define GFX_SCREEN_RGBA    2u
 #define GFX_SCREEN_INDEXED 3u   /* 320x200 8bpp palette-indexed */
+#define GFX_SCREEN_RGBA_HI 4u   /* 640x400 RGBA (QB64-style desktop canvas) */
 
-/* 32-bit RGBA bytes per pixel for SCREEN 2 / Blitter Phase 2. */
+/* 32-bit RGBA bytes per pixel for SCREEN 2 / Blitter Phase 2.
+ * Kept as the default heap size when SCREEN 2 is activated; SCREEN 4
+ * reallocates the plane to 640x400 via gfx_rgba_alloc. */
 #define GFX_RGBA_BYTES    (GFX_BITMAP_WIDTH * GFX_BITMAP_HEIGHT * 4u)
+
+#define GFX_RGBA_HI_W     640u
+#define GFX_RGBA_HI_H     400u
 
 /* Multi-plane screen buffers (AMOS-style). Slot 0 is always the inline
  * `bitmap[]`; slot 1 is the inline `bitmap_show[]` used by DOUBLEBUFFER;
@@ -104,16 +110,22 @@ typedef struct GfxVideoState {
     uint8_t  screen_buffer_owned[GFX_MAX_SCREEN_BUFFERS];
     uint8_t  screen_draw;                   /* slot index: BASIC writes target this plane */
     uint8_t  screen_show;                   /* slot index: renderer samples this plane */
-    /* SCREEN 2 — 32-bit RGBA plane. Heap-allocated on first entry into
-     * GFX_SCREEN_RGBA; NULL when mode has never been used. Layout:
-     * tightly packed 320×200 RGBA8 rows, 1280 bytes per row, 256000
-     * bytes total. `bitmap_rgba_show` is the DOUBLEBUFFER companion
-     * (flipped by VSYNC when double_buffer is on).  All colour comes
-     * straight from `pen_r/g/b/a`; no palette lookup. */
-    uint8_t *bitmap_rgba;
-    uint8_t *bitmap_rgba_show;
-    uint8_t  pen_r, pen_g, pen_b, pen_a;    /* RGBA pen for SCREEN 2 draws */
-    uint8_t  bgrgba_r, bgrgba_g, bgrgba_b, bgrgba_a;  /* RGBA clear colour */
+    /* SCREEN 2 / SCREEN 4 — 32-bit RGBA plane. Heap-allocated on first
+     * entry; NULL when RGBA mode has never been used. Layout: tightly
+     * packed rgba_w × rgba_h RGBA8 rows.
+     *   SCREEN 2 → 320 × 200 (256000 bytes, classic retro canvas)
+     *   SCREEN 4 → 640 × 400 (1.024 MB, QB64-style desktop canvas)
+     * `bitmap_rgba_show` is the DOUBLEBUFFER companion; `rgba_w/h` track
+     * the current allocation so every helper/render path can pick up
+     * the right dimensions when a program switches between SCREEN 2
+     * and SCREEN 4. All colour comes straight from `pen_r/g/b/a`; no
+     * palette lookup. */
+    uint8_t  *bitmap_rgba;
+    uint8_t  *bitmap_rgba_show;
+    uint16_t  rgba_w;
+    uint16_t  rgba_h;
+    uint8_t   pen_r, pen_g, pen_b, pen_a;    /* RGBA pen for SCREEN 2/4 draws */
+    uint8_t   bgrgba_r, bgrgba_g, bgrgba_b, bgrgba_a;  /* RGBA clear colour */
 } GfxVideoState;
 
 /* Advance 60 Hz jiffy counter (TI / TI$); wraps every 24h like C64. */
@@ -224,7 +236,12 @@ int gfx_palette_save_file(const char *path);
 
 /* Allocate the RGBA draw + show planes on demand. Called by SCREEN 2 on
  * first entry; idempotent. Returns 0 on success, -1 on alloc failure. */
-int gfx_rgba_alloc(GfxVideoState *s);
+/* Allocate (or reallocate) the RGBA plane at the requested dimensions.
+ * Safe to call repeatedly — when the requested size matches what's
+ * already allocated this is a no-op; otherwise the old buffer is freed
+ * and a fresh zeroed buffer is installed along with its show twin.
+ * Records w/h on the state for the helpers + renderer to pick up. */
+int gfx_rgba_alloc(GfxVideoState *s, unsigned w, unsigned h);
 
 /* Fill the RGBA draw plane with the current bg RGBA. */
 void gfx_rgba_clear(GfxVideoState *s);

@@ -542,7 +542,7 @@ int main(void)
         GfxVideoState b;
         gfx_video_init(&b);
         assert(b.bitmap_rgba == NULL);
-        assert(gfx_rgba_alloc(&b) == 0);
+        assert(gfx_rgba_alloc(&b, 320, 200) == 0);
         assert(b.bitmap_rgba != NULL);
         assert(b.bitmap_rgba_show != NULL);
 
