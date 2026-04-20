@@ -10,7 +10,11 @@
 '  The live table feeds both SCREEN 1 rendering and SCREEN 2
 '  COLOR n -> RGBA translation, so changes appear next frame.
 '
-'  Keys: SPACE animate, R reset, Q quit
+'  Animation runs continuously — palette entry 2 hot-cycles
+'  through an RGB sweep and every swatch / text pixel that was
+'  drawn with COLOR 2 retints next frame without being redrawn.
+'
+'  Keys: SPACE pause / resume, R reset palette, Q quit
 ' ============================================================
 
 SCREEN 1
@@ -28,16 +32,19 @@ FOR I = 0 TO 15
 NEXT I
 
 COLOR 14
-DRAWTEXT 8, 130, PALETTEHEX$(2), 1
-DRAWTEXT 8, 145, "SPACE ANIMATE  R RESET  Q QUIT", 1
+DRAWTEXT 8, 130, "SPACE PAUSE  R RESET  Q QUIT", 1
 
 T = 0
+PAUSED = 0
 DO
   IF KEYDOWN(ASC("Q")) THEN EXIT
   IF KEYPRESS(ASC("R")) THEN PALETTERESET
-  IF KEYDOWN(ASC(" ")) THEN
-    ' Hot-cycle entry 2 (red) through the spectrum. Next frame the red
-    ' swatch updates to the new RGB without any redraw.
+  IF KEYPRESS(ASC(" ")) THEN PAUSED = 1 - PAUSED
+
+  IF PAUSED = 0 THEN
+    ' Hot-cycle entry 2 (red). Each frame advances T; the swatch
+    ' and any text pixel drawn in COLOR 2 retints on the next
+    ' composite without being redrawn.
     T = T + 4
     IF T > 359 THEN T = 0
     RA = ABS((T MOD 360) - 180)                ' triangular 0..180..0
@@ -45,6 +52,7 @@ DO
     BA = ABS(((T + 240) MOD 360) - 180)
     PALETTESET 2, INT(RA * 255 / 180), INT(GA * 255 / 180), INT(BA * 255 / 180)
   END IF
+
   SLEEP 1
 LOOP
 
