@@ -93,6 +93,55 @@ else
 fi
 
 # ---------------------------------------------------------------
+# Step 2b: apply RGC-BASIC patches from patches/*.patch
+#
+# Rationale: third_party/ is gitignored and clobbered by any clean
+# rebuild, so upstream fixes we maintain ourselves must live in the
+# RGC-BASIC repo and be re-applied on every build. Patches are
+# idempotent — already-applied patches are detected via
+# `git apply --reverse --check` and skipped without error.
+#
+# CURRENT PATCHES (keep this list in sync with patches/):
+#   - jar_mod_max_samples.patch   — fixes LOADMUSIC browser freeze on
+#                                   MOD files (see CHANGELOG.md
+#                                   "MOD load freeze fix (2026-04-20)")
+#
+# If you bump RAYLIB_VERSION and a hunk no longer applies, the build
+# fails here with a clear error. Rebase the patch against the new tag
+# and re-run. Do NOT delete a patch just to make the build pass —
+# re-check upstream first (the fix may have been merged).
+# ---------------------------------------------------------------
+PATCH_DIR="$REPO_ROOT/patches"
+if [ -d "$PATCH_DIR" ]; then
+    for p in "$PATCH_DIR"/*.patch; do
+        [ -f "$p" ] || continue
+        pname="$(basename "$p")"
+        if git -C "$RAYLIB_DIR" apply --reverse --check "$p" >/dev/null 2>&1; then
+            echo "build-raylib-web: patch $pname already applied, skipping"
+        elif git -C "$RAYLIB_DIR" apply --check "$p" >/dev/null 2>&1; then
+            echo "build-raylib-web: applying $pname"
+            git -C "$RAYLIB_DIR" apply "$p"
+            RAYLIB_FORCE=1
+        else
+            echo "build-raylib-web: ERROR patch $pname no longer applies cleanly against raylib $RAYLIB_VERSION" >&2
+            echo "  Rebase $p and re-run. See patches/README.md." >&2
+            exit 1
+        fi
+    done
+
+    # If any patch file on disk is newer than the built archive, force a
+    # rebuild even when every patch is already applied in-tree. Covers the
+    # "edit a patch, re-run build" path: the Edit already landed in the
+    # live tree via the previous build's apply step, so the reverse-check
+    # above treats it as already-applied — but libraylib.a still reflects
+    # the OLDER patch content and must be recompiled.
+    if [ -f "$LIBRAYLIB" ] && find "$PATCH_DIR" -maxdepth 1 -name '*.patch' -newer "$LIBRAYLIB" -print -quit 2>/dev/null | grep -q .; then
+        echo "build-raylib-web: patches newer than $LIBRAYLIB — forcing rebuild"
+        RAYLIB_FORCE=1
+    fi
+fi
+
+# ---------------------------------------------------------------
 # Step 3: build libraylib.a for PLATFORM_WEB (skip if up-to-date)
 # ---------------------------------------------------------------
 if [ -f "$LIBRAYLIB" ] && [ "$RAYLIB_FORCE" != "1" ]; then

@@ -1,0 +1,13 @@
+# Keep patch files LF-only regardless of platform autocrlf. Git-for-Windows
+# defaults to core.autocrlf=true, which rewrites .patch text to CRLF on
+# checkout and then `git apply` fails against LF source files in raylib.
+# See scripts/build-raylib-native.cmd and patches/README.md.
+patches/*.patch text eol=lf
+
+# Shell scripts should stay LF so /bin/sh can parse them on POSIX after a
+# round-trip through Windows clones.
+*.sh text eol=lf
+
+# Windows-only wrappers intentionally use CRLF.
+*.cmd text eol=crlf
+*.bat text eol=crlf
