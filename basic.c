@@ -5799,27 +5799,71 @@ static void statement_drawtext(char **p)
     runtime_error_hint("DRAWTEXT is only available in basic-gfx",
                        "DRAWTEXT renders to the bitmap (basic-gfx or canvas WASM).");
 #else
+    /* Forms accepted:
+     *   DRAWTEXT x, y, text$
+     *   DRAWTEXT x, y, text$, scale                       (legacy)
+     *   DRAWTEXT x, y, text$, fg, bg [, font [, scale]]   (extended)
+     *
+     * Disambiguation: the 4-arg form has always meant "scale" since
+     * 1.9.7. Programs using scale = N keep working unchanged. When a
+     * 5th argument is provided, we reinterpret the 4th as `fg` and the
+     * 5th as `bg` (per spec), taking the extended path.  `bg = -1` is
+     * transparent paper. `font` is parsed but ignored — LOADFONT isn't
+     * shipped yet, so the only available glyphs come from the active
+     * character set (slot 0 equivalent). */
     struct value vx, vy, vt;
-    int x, y, i, scale = 1;
+    int x, y, i;
+    int scale = 1;
+    int fg = -1;      /* -1 = keep current pen */
+    int bg = -1;      /* -1 = transparent paper */
+    int font_slot = 0;
+    int have_extended = 0;
     skip_spaces(p);
     vx = eval_expr(p); ensure_num(&vx);
     skip_spaces(p);
-    if (**p != ',') { runtime_error_hint("DRAWTEXT expects x, y, text$ [, scale]", NULL); return; }
+    if (**p != ',') { runtime_error_hint("DRAWTEXT expects x, y, text$ [, ...]", NULL); return; }
     (*p)++; skip_spaces(p);
     vy = eval_expr(p); ensure_num(&vy);
     skip_spaces(p);
-    if (**p != ',') { runtime_error_hint("DRAWTEXT expects x, y, text$ [, scale]", NULL); return; }
+    if (**p != ',') { runtime_error_hint("DRAWTEXT expects x, y, text$ [, ...]", NULL); return; }
     (*p)++; skip_spaces(p);
     vt = eval_expr(p); ensure_str(&vt);
     skip_spaces(p);
     if (**p == ',') {
-        struct value vs;
+        struct value v1;
         (*p)++; skip_spaces(p);
-        vs = eval_expr(p); ensure_num(&vs);
-        scale = (int)vs.num;
-        if (scale < 1) scale = 1;
-        if (scale > 8) scale = 8;
+        v1 = eval_expr(p); ensure_num(&v1);
+        skip_spaces(p);
+        if (**p == ',') {
+            /* 5+ args: arg4 was fg, arg5 is bg. Extended form. */
+            struct value v2;
+            have_extended = 1;
+            fg = (int)v1.num;
+            (*p)++; skip_spaces(p);
+            v2 = eval_expr(p); ensure_num(&v2);
+            bg = (int)v2.num;
+            skip_spaces(p);
+            if (**p == ',') {
+                struct value v3;
+                (*p)++; skip_spaces(p);
+                v3 = eval_expr(p); ensure_num(&v3);
+                font_slot = (int)v3.num;
+                (void)font_slot;   /* reserved for LOADFONT — not yet wired */
+                skip_spaces(p);
+                if (**p == ',') {
+                    struct value v4;
+                    (*p)++; skip_spaces(p);
+                    v4 = eval_expr(p); ensure_num(&v4);
+                    scale = (int)v4.num;
+                }
+            }
+        } else {
+            /* 4-arg legacy form: arg4 was scale. */
+            scale = (int)v1.num;
+        }
     }
+    if (scale < 1) scale = 1;
+    if (scale > 8) scale = 8;
     if (!gfx_vs) {
         runtime_error_hint("DRAWTEXT is only available in basic-gfx",
                            "Bitmap DRAWTEXT needs basic-gfx or canvas WASM.");
@@ -5827,32 +5871,93 @@ static void statement_drawtext(char **p)
     }
     x = (int)vx.num;
     y = (int)vy.num;
-    if (gfx_vs->screen_mode == GFX_SCREEN_RGBA) {
-        /* SCREEN 2: stamp straight into the RGBA plane using the full
-         * pen_r/g/b/a (no single-pen-register limit, no flash). */
-        if (scale == 1) {
+    {
+        /* MVP per-call colour: save pen/paper, override, stamp, restore.
+         * Only touches registers the stamp helpers actually read. The
+         * renderer picks up the modified pen on the next composite; no
+         * state persists after the call. */
+        uint8_t saved_fg  = gfx_vs->bitmap_fg;
+        uint8_t saved_bg  = gfx_vs->bg_color;
+        uint8_t saved_r   = gfx_vs->pen_r;
+        uint8_t saved_g   = gfx_vs->pen_g;
+        uint8_t saved_b   = gfx_vs->pen_b;
+        uint8_t saved_a   = gfx_vs->pen_a;
+        int text_px = scale * 8 * (int)strlen(vt.str);
+        int text_py = scale * 8;
+
+        if (have_extended) {
+            if (fg >= 0 && fg < 256) {
+                gfx_vs->bitmap_fg = (uint8_t)(fg & 0xFFu);
+                /* RGBA stamp sources from pen_r/g/b/a; pick from the
+                 * live palette so programs calling PALETTESET on entry
+                 * 7 see that updated colour here too. */
+                gfx_vs->pen_r = gfx_c64_palette_rgb[fg & 0xFFu][0];
+                gfx_vs->pen_g = gfx_c64_palette_rgb[fg & 0xFFu][1];
+                gfx_vs->pen_b = gfx_c64_palette_rgb[fg & 0xFFu][2];
+                gfx_vs->pen_a = 0xFF;
+            }
+            if (bg >= 0 && bg < 256) {
+                /* Solid paper: paint the glyph-bounding rect first. */
+                if (gfx_vs->screen_mode == GFX_SCREEN_RGBA) {
+                    uint8_t r = gfx_vs->pen_r, g = gfx_vs->pen_g;
+                    uint8_t b = gfx_vs->pen_b, a = gfx_vs->pen_a;
+                    gfx_vs->pen_r = gfx_c64_palette_rgb[bg & 0xFFu][0];
+                    gfx_vs->pen_g = gfx_c64_palette_rgb[bg & 0xFFu][1];
+                    gfx_vs->pen_b = gfx_c64_palette_rgb[bg & 0xFFu][2];
+                    gfx_vs->pen_a = 0xFF;
+                    gfx_rgba_fill_rect(gfx_vs, x, y,
+                                       x + text_px - 1,
+                                       y + text_py - 1);
+                    gfx_vs->pen_r = r; gfx_vs->pen_g = g;
+                    gfx_vs->pen_b = b; gfx_vs->pen_a = a;
+                } else {
+                    /* SCREEN 1: bitmap_line already respects current pen
+                     * via bitmap_color[]; sweep rows to fill. `on`
+                     * follows the low-nibble convention from FILLRECT
+                     * (bg=0 clears bits rather than sets them). */
+                    uint8_t paint_fg = gfx_vs->bitmap_fg;
+                    int on = (bg & 0x0F) ? 1 : 0;
+                    int yy;
+                    gfx_vs->bitmap_fg = (uint8_t)(bg & 0xFFu);
+                    for (yy = y; yy < y + text_py; yy++) {
+                        gfx_bitmap_line(gfx_vs, x, yy,
+                                        x + text_px - 1, yy, on);
+                    }
+                    gfx_vs->bitmap_fg = paint_fg;
+                }
+            }
+        }
+        if (gfx_vs->screen_mode == GFX_SCREEN_RGBA) {
+            if (scale == 1) {
+                for (i = 0; vt.str[i] && i < MAX_STR_LEN; i++) {
+                    unsigned char sc = petscii_to_screencode((unsigned char)vt.str[i]);
+                    gfx_rgba_stamp_glyph_px(gfx_vs, x + i * 8, y, sc);
+                }
+            } else {
+                int step = 8 * scale;
+                for (i = 0; vt.str[i] && i < MAX_STR_LEN; i++) {
+                    unsigned char sc = petscii_to_screencode((unsigned char)vt.str[i]);
+                    gfx_rgba_stamp_glyph_px_scaled(gfx_vs, x + i * step, y, sc, scale);
+                }
+            }
+        } else if (scale == 1) {
             for (i = 0; vt.str[i] && i < MAX_STR_LEN; i++) {
                 unsigned char sc = petscii_to_screencode((unsigned char)vt.str[i]);
-                gfx_rgba_stamp_glyph_px(gfx_vs, x + i * 8, y, sc);
+                gfx_video_bitmap_stamp_glyph_px(gfx_vs, x + i * 8, y, sc);
             }
         } else {
             int step = 8 * scale;
             for (i = 0; vt.str[i] && i < MAX_STR_LEN; i++) {
                 unsigned char sc = petscii_to_screencode((unsigned char)vt.str[i]);
-                gfx_rgba_stamp_glyph_px_scaled(gfx_vs, x + i * step, y, sc, scale);
+                gfx_video_bitmap_stamp_glyph_px_scaled(gfx_vs, x + i * step, y, sc, scale);
             }
         }
-    } else if (scale == 1) {
-        for (i = 0; vt.str[i] && i < MAX_STR_LEN; i++) {
-            unsigned char sc = petscii_to_screencode((unsigned char)vt.str[i]);
-            gfx_video_bitmap_stamp_glyph_px(gfx_vs, x + i * 8, y, sc);
-        }
-    } else {
-        int step = 8 * scale;
-        for (i = 0; vt.str[i] && i < MAX_STR_LEN; i++) {
-            unsigned char sc = petscii_to_screencode((unsigned char)vt.str[i]);
-            gfx_video_bitmap_stamp_glyph_px_scaled(gfx_vs, x + i * step, y, sc, scale);
-        }
+        gfx_vs->bitmap_fg = saved_fg;
+        gfx_vs->bg_color  = saved_bg;
+        gfx_vs->pen_r = saved_r;
+        gfx_vs->pen_g = saved_g;
+        gfx_vs->pen_b = saved_b;
+        gfx_vs->pen_a = saved_a;
     }
 #endif
 }
