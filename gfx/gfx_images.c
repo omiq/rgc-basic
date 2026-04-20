@@ -308,10 +308,11 @@ int gfx_image_blend(int src_slot, int sx, int sy, int sw, int sh,
 
     if (dst_slot == GFX_IMAGE_SLOT_VISIBLE) {
         if (!g_visible_state || !g_visible_state->bitmap_rgba) return -1;
-        if (g_visible_state->screen_mode != GFX_SCREEN_RGBA) return -1;
+        if (g_visible_state->screen_mode != GFX_SCREEN_RGBA &&
+            g_visible_state->screen_mode != GFX_SCREEN_RGBA_HI) return -1;
         dst_rgba = g_visible_state->bitmap_rgba;
-        dst_w = (int)GFX_BITMAP_WIDTH;
-        dst_h = (int)GFX_BITMAP_HEIGHT;
+        dst_w = (int)g_visible_state->rgba_w;
+        dst_h = (int)g_visible_state->rgba_h;
     } else {
         GfxImageSlot *dst;
         if (dst_slot < 0 || dst_slot >= GFX_IMAGE_MAX_SLOTS) return -1;
@@ -909,14 +910,14 @@ int gfx_load_png_to_rgba(GfxVideoState *s, const char *path, int dx, int dy)
     if (!pixels) return -1;
     for (y = 0; y < h; y++) {
         int py = y + dy;
-        if (py < 0 || py >= (int)GFX_BITMAP_HEIGHT) continue;
+        if (py < 0 || py >= (int)s->rgba_h) continue;
         for (x = 0; x < w; x++) {
             int px = x + dx;
             unsigned char *p;
             unsigned off;
-            if (px < 0 || px >= (int)GFX_BITMAP_WIDTH) continue;
+            if (px < 0 || px >= (int)s->rgba_w) continue;
             p = pixels + ((size_t)y * (size_t)w + (size_t)x) * 4u;
-            off = ((unsigned)py * GFX_BITMAP_WIDTH + (unsigned)px) * 4u;
+            off = ((unsigned)py * s->rgba_w + (unsigned)px) * 4u;
             s->bitmap_rgba[off + 0] = p[0];
             s->bitmap_rgba[off + 1] = p[1];
             s->bitmap_rgba[off + 2] = p[2];

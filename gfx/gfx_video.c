@@ -163,6 +163,8 @@ void gfx_video_init(GfxVideoState *s)
      * Planes are lazily allocated on first SCREEN 2 entry. */
     s->bitmap_rgba = NULL;
     s->bitmap_rgba_show = NULL;
+    s->rgba_w = GFX_BITMAP_WIDTH;   /* placeholder until first SCREEN 2/4 alloc */
+    s->rgba_h = GFX_BITMAP_HEIGHT;
     s->pen_r = 0xFF; s->pen_g = 0xFF; s->pen_b = 0xFF; s->pen_a = 0xFF;
     s->bgrgba_r = 0; s->bgrgba_g = 0; s->bgrgba_b = 0; s->bgrgba_a = 0xFF;
     /* Populate palette entries 16..255 with the HSV rainbow once per
@@ -656,28 +658,43 @@ void gfx_palette_reset(void)
 
 /* ── SCREEN 2 RGBA plane ─────────────────────────────────────────── */
 
-int gfx_rgba_alloc(GfxVideoState *s)
+int gfx_rgba_alloc(GfxVideoState *s, unsigned w, unsigned h)
 {
+    size_t bytes;
     if (!s) return -1;
-    if (s->bitmap_rgba && s->bitmap_rgba_show) return 0;
-    if (!s->bitmap_rgba) {
-        s->bitmap_rgba = (uint8_t *)calloc(GFX_RGBA_BYTES, 1u);
-        if (!s->bitmap_rgba) return -1;
-    }
+    if (w == 0 || h == 0) return -1;
+    bytes = (size_t)w * (size_t)h * 4u;
+    /* Already at requested dimensions? Nothing to do. */
+    if (s->bitmap_rgba && s->bitmap_rgba_show &&
+        s->rgba_w == w && s->rgba_h == h) return 0;
+    /* Resize: free and reallocate so the old dimension data doesn't
+     * leak into a differently-shaped successor. Programs that toggle
+     * SCREEN 2 ↔ SCREEN 4 each frame would churn here; in practice
+     * mode changes are rare and the alternative (keep the larger
+     * buffer forever) wastes a megabyte. */
+    if (s->bitmap_rgba) { free(s->bitmap_rgba); s->bitmap_rgba = NULL; }
+    if (s->bitmap_rgba_show) { free(s->bitmap_rgba_show); s->bitmap_rgba_show = NULL; }
+    s->bitmap_rgba = (uint8_t *)calloc(bytes, 1u);
+    if (!s->bitmap_rgba) return -1;
+    s->bitmap_rgba_show = (uint8_t *)calloc(bytes, 1u);
     if (!s->bitmap_rgba_show) {
-        s->bitmap_rgba_show = (uint8_t *)calloc(GFX_RGBA_BYTES, 1u);
-        if (!s->bitmap_rgba_show) return -1;
+        free(s->bitmap_rgba);
+        s->bitmap_rgba = NULL;
+        return -1;
     }
+    s->rgba_w = (uint16_t)w;
+    s->rgba_h = (uint16_t)h;
     return 0;
 }
 
 void gfx_rgba_clear(GfxVideoState *s)
 {
     uint8_t *p;
-    size_t i;
+    size_t i, bytes;
     if (!s || !s->bitmap_rgba) return;
+    bytes = (size_t)s->rgba_w * (size_t)s->rgba_h * 4u;
     p = s->bitmap_rgba;
-    for (i = 0; i < GFX_RGBA_BYTES; i += 4u) {
+    for (i = 0; i < bytes; i += 4u) {
         p[i + 0] = s->bgrgba_r;
         p[i + 1] = s->bgrgba_g;
         p[i + 2] = s->bgrgba_b;
@@ -690,8 +707,8 @@ void gfx_rgba_set_pixel(GfxVideoState *s, int x, int y)
     unsigned off;
     if (!s || !s->bitmap_rgba) return;
     if (x < 0 || y < 0) return;
-    if ((unsigned)x >= GFX_BITMAP_WIDTH || (unsigned)y >= GFX_BITMAP_HEIGHT) return;
-    off = ((unsigned)y * GFX_BITMAP_WIDTH + (unsigned)x) * 4u;
+    if ((unsigned)x >= s->rgba_w || (unsigned)y >= s->rgba_h) return;
+    off = ((unsigned)y * s->rgba_w + (unsigned)x) * 4u;
     s->bitmap_rgba[off + 0] = s->pen_r;
     s->bitmap_rgba[off + 1] = s->pen_g;
     s->bitmap_rgba[off + 2] = s->pen_b;
@@ -729,10 +746,10 @@ int gfx_rgba_get_show_pixel(const GfxVideoState *s, unsigned x, unsigned y, uint
     const uint8_t *src;
     unsigned off;
     if (!s || !out) return 0;
-    if (x >= GFX_BITMAP_WIDTH || y >= GFX_BITMAP_HEIGHT) return 0;
+    if (x >= s->rgba_w || y >= s->rgba_h) return 0;
     src = (s->double_buffer && s->bitmap_rgba_show) ? s->bitmap_rgba_show : s->bitmap_rgba;
     if (!src) return 0;
-    off = (y * GFX_BITMAP_WIDTH + x) * 4u;
+    off = (y * s->rgba_w + x) * 4u;
     out[0] = src[off + 0];
     out[1] = src[off + 1];
     out[2] = src[off + 2];
@@ -744,7 +761,8 @@ void gfx_rgba_flip(GfxVideoState *s)
 {
     if (!s) return;
     if (!s->bitmap_rgba || !s->bitmap_rgba_show) return;
-    memcpy(s->bitmap_rgba_show, s->bitmap_rgba, GFX_RGBA_BYTES);
+    memcpy(s->bitmap_rgba_show, s->bitmap_rgba,
+           (size_t)s->rgba_w * (size_t)s->rgba_h * 4u);
 }
 
 void gfx_rgba_stamp_glyph_px(GfxVideoState *s, int x, int y, uint8_t screencode)
@@ -756,7 +774,7 @@ void gfx_rgba_stamp_glyph_px(GfxVideoState *s, int x, int y, uint8_t screencode)
     for (gr = 0; gr < 8; gr++) {
         uint8_t bits = glyph[gr];
         int py = y + gr;
-        if (py < 0 || py >= (int)GFX_BITMAP_HEIGHT) continue;
+        if (py < 0 || py >= (int)s->rgba_h) continue;
         for (gc = 0; gc < 8; gc++) {
             if ((bits >> (7 - gc)) & 1u) {
                 gfx_rgba_set_pixel(s, x + gc, py);
@@ -797,7 +815,8 @@ void gfx_video_bitmap_flip(GfxVideoState *s)
     if (!s->double_buffer) return;
     /* SCREEN 2: RGBA plane gets its own atomic flip regardless of the
      * 1bpp slot indices (which aren't meaningful in RGBA mode). */
-    if (s->screen_mode == GFX_SCREEN_RGBA) { gfx_rgba_flip(s); return; }
+    if (s->screen_mode == GFX_SCREEN_RGBA ||
+        s->screen_mode == GFX_SCREEN_RGBA_HI) { gfx_rgba_flip(s); return; }
     /* SCREEN 3: only the colour plane matters. */
     if (s->screen_mode == GFX_SCREEN_INDEXED) {
         memcpy(s->bitmap_color_show, s->bitmap_color, sizeof(s->bitmap_color));
@@ -827,7 +846,8 @@ void gfx_bitmap_set_pixel(GfxVideoState *s, int x, int y, int on)
      * current RGBA pen (or the background colour for `on == 0`). Caller
      * transparency is achieved by picking pen_a == 0, not by skipping
      * the write, so overwrite semantics match the 1bpp path. */
-    if (s->screen_mode == GFX_SCREEN_RGBA) {
+    if (s->screen_mode == GFX_SCREEN_RGBA ||
+        s->screen_mode == GFX_SCREEN_RGBA_HI) {
         if (on) {
             gfx_rgba_set_pixel(s, x, y);
         } else {
@@ -878,7 +898,8 @@ void gfx_video_bitmap_clear(GfxVideoState *s)
 {
     uint8_t *plane;
     if (!s) return;
-    if (s->screen_mode == GFX_SCREEN_RGBA) { gfx_rgba_clear(s); return; }
+    if (s->screen_mode == GFX_SCREEN_RGBA ||
+        s->screen_mode == GFX_SCREEN_RGBA_HI) { gfx_rgba_clear(s); return; }
     if (s->screen_mode == GFX_SCREEN_INDEXED) {
         /* SCREEN 3 CLS = paint the whole indexed plane with the
          * current bg_color palette index. No bit plane to clear. */

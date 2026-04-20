@@ -2096,7 +2096,7 @@ static void gfx_newline(void)
         /* Bitmap mode: scroll the bitmap plane up by one character cell
          * (8 pixel rows). Text plane is not touched (not visible in
          * SCREEN 1). See step 3 of docs/bitmap-text-plan.md. */
-        if (gfx_vs && gfx_vs->screen_mode == GFX_SCREEN_RGBA) {
+        if (gfx_vs && (gfx_vs->screen_mode == GFX_SCREEN_RGBA || gfx_vs->screen_mode == GFX_SCREEN_RGBA_HI)) {
             /* Scroll RGBA plane up by one 8-pixel cell; bottom row
              * cleared to current RGBA background so PRINT overflow
              * doesn't leave stale pixels from earlier frames. */
@@ -2128,7 +2128,7 @@ static void gfx_newline(void)
 static void gfx_clear_screen(void)
 {
     if (!gfx_vs) return;
-    if (gfx_vs->screen_mode == GFX_SCREEN_RGBA) {
+    if (gfx_vs->screen_mode == GFX_SCREEN_RGBA || gfx_vs->screen_mode == GFX_SCREEN_RGBA_HI) {
         gfx_rgba_clear(gfx_vs);
     } else if (gfx_vs->screen_mode == GFX_SCREEN_INDEXED ||
                gfx_vs->screen_mode == GFX_SCREEN_BITMAP) {
@@ -2341,7 +2341,7 @@ static void gfx_put_byte(unsigned char b)
     if (gfx_y < 0) gfx_y = 0;
     if (gfx_y >= GFX_ROWS) gfx_y = GFX_ROWS - 1;
 
-    if (gfx_vs->screen_mode == GFX_SCREEN_RGBA) {
+    if (gfx_vs->screen_mode == GFX_SCREEN_RGBA || gfx_vs->screen_mode == GFX_SCREEN_RGBA_HI) {
         /* SCREEN 2 PRINT: paint the 8x8 cell with current RGBA
          * background first, then stamp the glyph's lit pixels with
          * the current pen. Matches SCREEN 1 PRINT (solid_bg=1) so
@@ -4826,7 +4826,7 @@ static void statement_loadscreen(char **p)
         }
         return;
     }
-    if (gfx_vs->screen_mode == GFX_SCREEN_RGBA) {
+    if (gfx_vs->screen_mode == GFX_SCREEN_RGBA || gfx_vs->screen_mode == GFX_SCREEN_RGBA_HI) {
         if (gfx_load_png_to_rgba(gfx_vs, vpath.str, dx, dy) != 0) {
             char hint[256];
             snprintf(hint, sizeof(hint), "Could not load '%s' into RGBA plane.", vpath.str);
@@ -5898,7 +5898,7 @@ static void statement_drawtext(char **p)
             }
             if (bg >= 0 && bg < 256) {
                 /* Solid paper: paint the glyph-bounding rect first. */
-                if (gfx_vs->screen_mode == GFX_SCREEN_RGBA) {
+                if (gfx_vs->screen_mode == GFX_SCREEN_RGBA || gfx_vs->screen_mode == GFX_SCREEN_RGBA_HI) {
                     uint8_t r = gfx_vs->pen_r, g = gfx_vs->pen_g;
                     uint8_t b = gfx_vs->pen_b, a = gfx_vs->pen_a;
                     gfx_vs->pen_r = gfx_c64_palette_rgb[bg & 0xFFu][0];
@@ -5927,7 +5927,7 @@ static void statement_drawtext(char **p)
                 }
             }
         }
-        if (gfx_vs->screen_mode == GFX_SCREEN_RGBA) {
+        if (gfx_vs->screen_mode == GFX_SCREEN_RGBA || gfx_vs->screen_mode == GFX_SCREEN_RGBA_HI) {
             if (scale == 1) {
                 for (i = 0; vt.str[i] && i < MAX_STR_LEN; i++) {
                     unsigned char sc = petscii_to_screencode((unsigned char)vt.str[i]);
@@ -6156,7 +6156,7 @@ static void statement_screen(char **p)
     if (mode == 2) {
         /* Lazy-alloc the 256 KB RGBA plane (+ DOUBLEBUFFER companion).
          * Frees with the rest of GfxVideoState at process exit. */
-        if (gfx_rgba_alloc(gfx_vs) != 0) {
+        if (gfx_rgba_alloc(gfx_vs, GFX_BITMAP_WIDTH, GFX_BITMAP_HEIGHT) != 0) {
             runtime_error_hint("SCREEN 2: RGBA plane allocation failed",
                                  "256 KB per plane — check host memory.");
             return;
@@ -6172,8 +6172,21 @@ static void statement_screen(char **p)
         gfx_vs->screen_mode = GFX_SCREEN_INDEXED;
         return;
     }
-    runtime_error_hint("SCREEN expects 0, 1, 2, or 3",
-                         "0 = PETSCII text, 1 = 320×200 1bpp+palette, 2 = 320×200 RGBA, 3 = 320×200 256-colour indexed.");
+    if (mode == 4) {
+        /* SCREEN 4 — QB64-style desktop canvas. 640x400 RGBA (1 MB per
+         * plane); reuses every SCREEN 2 primitive, just with a wider
+         * clip. Program-visible difference is coordinate range and the
+         * renderer picking up the larger source texture. */
+        if (gfx_rgba_alloc(gfx_vs, GFX_RGBA_HI_W, GFX_RGBA_HI_H) != 0) {
+            runtime_error_hint("SCREEN 4: RGBA plane allocation failed",
+                                 "1 MB per plane — check host memory.");
+            return;
+        }
+        gfx_vs->screen_mode = GFX_SCREEN_RGBA_HI;
+        return;
+    }
+    runtime_error_hint("SCREEN expects 0, 1, 2, 3, or 4",
+                         "0 = text, 1 = 320×200 1bpp, 2 = 320×200 RGBA, 3 = 320×200 indexed, 4 = 640×400 RGBA.");
 #endif
 }
 
