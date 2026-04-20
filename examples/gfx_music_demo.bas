@@ -9,20 +9,44 @@
 '  MUSICVOLUME slot, 0.0 .. 1.0    per-slot gain
 '  MUSICPLAYING(slot)              1 while audible, 0 idle
 '
-'  raylib's raudio decoder pumps each loaded stream once per
-'  frame automatically — BASIC programs just issue the verbs,
-'  no UpdateMusicStream call needed.
+'  Browsers block audio until the user clicks or presses a key —
+'  the demo waits for a keypress before LOADMUSIC / PLAYMUSIC so
+'  Chrome's autoplay policy sees a real user gesture first.
 '
 '  All three bundled modules are Public Domain (see
 '  examples/music/LICENSES.md).
 '
-'  Keys: 1/2/3 switch track, SPACE pause/resume, S stop, L toggle loop,
-'        + / - volume, Q quit
+'  Keys (after the gesture gate):
+'    1/2/3 switch track, SPACE pause/resume, S stop,
+'    L toggle loop, + / - volume, Q quit
 ' ============================================================
 
 SCREEN 4
 BACKGROUNDRGB 16, 16, 32
 CLS
+
+COLORRGB 240, 240, 255
+DRAWTEXT 16, 32, "RGC-BASIC MUSIC TRACKER DEMO", 1, -1, 0, 2
+COLORRGB 255, 220, 120
+DRAWTEXT 16, 80,  "Press any key to enable audio"
+COLORRGB 180, 180, 220
+DRAWTEXT 16, 104, "(browsers block autoplay until a user gesture)"
+
+' Gesture gate — wait for any keypress before touching raudio.
+' Without this Chrome logs "AudioContext was not allowed to start"
+' and LoadMusicStream either runs silently or stalls the frame loop.
+DO
+  K$ = INKEY$()
+  IF K$ <> "" THEN EXIT
+  SLEEP 1
+LOOP
+
+CLS
+COLORRGB 240, 240, 255
+DRAWTEXT 16, 16, "RGC-BASIC MUSIC TRACKER DEMO", 1, -1, 0, 2
+
+COLORRGB 180, 180, 220
+DRAWTEXT 16, 56,  "Loading tracks..."
 
 LOADMUSIC 0, "music/drozerix_ai_renaissance.mod"
 LOADMUSIC 1, "music/8bit_castle.mod"
@@ -39,8 +63,7 @@ LOOPING = 1
 
 PLAYMUSIC CURRENT
 
-COLORRGB 240, 240, 255
-DRAWTEXT 16, 16,  "RGC-BASIC MUSIC TRACKER DEMO", 1, -1, 0, 2
+COLORRGB 16, 16, 32 : FILLRECT 0, 56 TO 639, 70
 COLORRGB 180, 180, 220
 DRAWTEXT 16, 56,  "1  AI Renaissance        - Drozerix"
 DRAWTEXT 16, 72,  "2  8-bit Castle"
@@ -84,7 +107,7 @@ DO
   IF LOOPING = 1 THEN MSG$ = MSG$ + "   LOOP" ELSE MSG$ = MSG$ + "   ONE-SHOT"
   IF MUSICPLAYING(CURRENT) = 1 THEN MSG$ = MSG$ + "   PLAYING" ELSE MSG$ = MSG$ + "   IDLE"
   DRAWTEXT 16, 372, MSG$
-  SLEEP 1
+  SLEEP 2
 LOOP
 
 STOPMUSIC 0
