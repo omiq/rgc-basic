@@ -530,6 +530,71 @@ static void hsv_to_rgb(double h, double s, double v, uint8_t *r, uint8_t *g, uin
     *b = (uint8_t)((b1 + m) * 255.0 + 0.5);
 }
 
+#include <stdio.h>  /* fopen for palette file I/O */
+
+int gfx_palette_load_file(const char *path)
+{
+    FILE *fp;
+    char line[256];
+    int idx = 0;
+    int line_no = 0;
+    if (!path || !path[0]) return -1;
+    fp = fopen(path, "rb");
+    if (!fp) return -1;
+    while (fgets(line, sizeof(line), fp)) {
+        char *s = line;
+        int r, g, b, a = 255;
+        int consumed;
+        line_no++;
+        /* Strip leading whitespace. */
+        while (*s == ' ' || *s == '\t' || *s == '\r' || *s == '\n') s++;
+        if (*s == '\0' || *s == '#') continue;       /* blank / comment */
+        /* JASC-PAL header skip: first non-blank line "JASC-PAL", next
+         * the version "0100", next the count. Detect + skip all three. */
+        if (line_no == 1 && strncmp(s, "JASC-PAL", 8) == 0) {
+            /* Skip version + count lines. */
+            if (fgets(line, sizeof(line), fp)) line_no++;
+            if (fgets(line, sizeof(line), fp)) line_no++;
+            continue;
+        }
+        /* Parse 3 or 4 decimal integers. `consumed` lets us distinguish
+         * the optional alpha field without losing the 3-arg case. */
+        consumed = sscanf(s, "%d %d %d %d", &r, &g, &b, &a);
+        if (consumed < 3) continue;                   /* tolerate malformed */
+        if (idx >= 256) break;                        /* cap at table size */
+        if (r < 0) r = 0; if (r > 255) r = 255;
+        if (g < 0) g = 0; if (g > 255) g = 255;
+        if (b < 0) b = 0; if (b > 255) b = 255;
+        if (a < 0) a = 0; if (a > 255) a = 255;
+        gfx_c64_palette_rgb[idx][0] = (uint8_t)r;
+        gfx_c64_palette_rgb[idx][1] = (uint8_t)g;
+        gfx_c64_palette_rgb[idx][2] = (uint8_t)b;
+        gfx_c64_palette_rgb[idx][3] = (uint8_t)a;
+        idx++;
+    }
+    fclose(fp);
+    return (idx > 0) ? 0 : -1;
+}
+
+int gfx_palette_save_file(const char *path)
+{
+    FILE *fp;
+    int i;
+    if (!path || !path[0]) return -1;
+    fp = fopen(path, "wb");
+    if (!fp) return -1;
+    fprintf(fp, "# rgc-basic palette — 256 entries, R G B A 0..255 decimal\n");
+    for (i = 0; i < 256; i++) {
+        fprintf(fp, "%d %d %d %d\n",
+                gfx_c64_palette_rgb[i][0],
+                gfx_c64_palette_rgb[i][1],
+                gfx_c64_palette_rgb[i][2],
+                gfx_c64_palette_rgb[i][3]);
+    }
+    fclose(fp);
+    return 0;
+}
+
 void gfx_palette_rotate(int first, int last, int step)
 {
     uint8_t tmp[256][4];
