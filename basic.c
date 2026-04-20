@@ -2894,6 +2894,7 @@ static void statement_paletteset(char **p);
 static void statement_palettesethex(char **p);
 static void statement_palettereset(char **p);
 static void statement_paletterotate(char **p);
+static void statement_loadscreen(char **p);
 static void statement_background(char **p);
 static void statement_paper(char **p);
 static void statement_screencodes(char **p);
@@ -3301,7 +3302,7 @@ static const char *const reserved_words[] = {
     "READ", "RECT", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITEAT", "SPRITECOLLIDE", "SPRITECOPY", "SPRITEFRAME", "SPRITEMODIFY", "SPRITEMODULATE", "SPRITETILES", "SPRITEVISIBLE",
     "CHDIR", "CWD", "DIR", "JSONLEN", "JSONKEY", "TICKUS", "TICKMS",
     "FOREACH", "IN",
-    "LOADSOUND", "UNLOADSOUND", "PLAYSOUND", "STOPSOUND", "SOUNDPLAYING",
+    "LOADSOUND", "UNLOADSOUND", "PLAYSOUND", "STOPSOUND", "SOUNDPLAYING", "LOADSCREEN",
     "COLORRGB", "COLOURRGB", "BACKGROUNDRGB",
     "PALETTE", "PALETTEHEX", "PALETTESET", "PALETTESETHEX", "PALETTERESET", "PALETTEROTATE",
     "FILLRECT", "CIRCLE", "FILLCIRCLE", "ELLIPSE", "FILLELLIPSE", "TRIANGLE", "FILLTRIANGLE", "FLOODFILL", "POLYGON", "FILLPOLYGON", "VSYNC", "ANTIALIAS",
@@ -4711,6 +4712,59 @@ static void statement_palettereset(char **p)
     gfx_palette_reset();
 #else
     runtime_error_hint("PALETTERESET requires basic-gfx", NULL);
+#endif
+}
+
+/* LOADSCREEN path$ [, x [, y]] — load PNG / BMP / JPG into the current
+ * screen plane. SCREEN 3 quantises to the 256-entry palette; SCREEN 2
+ * memcpys full RGBA. SCREEN 0 / SCREEN 1 aren't supported (need
+ * dithering / 1bpp threshold work — tracked). Clips to 320x200 at
+ * optional (x, y) offset. */
+static void statement_loadscreen(char **p)
+{
+#ifdef GFX_VIDEO
+    struct value vpath;
+    int dx = 0, dy = 0;
+    skip_spaces(p);
+    vpath = eval_expr(p); ensure_str(&vpath);
+    skip_spaces(p);
+    if (**p == ',') {
+        struct value v;
+        (*p)++; skip_spaces(p);
+        v = eval_expr(p); ensure_num(&v);
+        dx = (int)v.num;
+        skip_spaces(p);
+        if (**p == ',') {
+            (*p)++; skip_spaces(p);
+            v = eval_expr(p); ensure_num(&v);
+            dy = (int)v.num;
+        }
+    }
+    if (!gfx_vs) {
+        runtime_error_hint("LOADSCREEN requires basic-gfx or basic-wasm-raylib", NULL);
+        return;
+    }
+    if (gfx_vs->screen_mode == GFX_SCREEN_INDEXED) {
+        if (gfx_load_png_to_indexed(gfx_vs, vpath.str, dx, dy) != 0) {
+            char hint[256];
+            snprintf(hint, sizeof(hint), "Could not load '%s' (file missing, bad format, or path wrong).", vpath.str);
+            runtime_error_hint("LOADSCREEN failed", hint);
+        }
+        return;
+    }
+    if (gfx_vs->screen_mode == GFX_SCREEN_RGBA) {
+        if (gfx_load_png_to_rgba(gfx_vs, vpath.str, dx, dy) != 0) {
+            char hint[256];
+            snprintf(hint, sizeof(hint), "Could not load '%s' into RGBA plane.", vpath.str);
+            runtime_error_hint("LOADSCREEN failed", hint);
+        }
+        return;
+    }
+    runtime_error_hint("LOADSCREEN needs SCREEN 2 or SCREEN 3",
+                         "SCREEN 2 takes the PNG as-is (RGBA); SCREEN 3 quantises to the 256-entry palette.");
+#else
+    (void)p;
+    runtime_error_hint("LOADSCREEN requires basic-gfx", NULL);
 #endif
 }
 
@@ -13971,6 +14025,11 @@ static void execute_statement(char **p)
         if (starts_with_kw(*p, "LOADSOUND")) {
             *p += 9;
             statement_loadsound(p);
+            return;
+        }
+        if (starts_with_kw(*p, "LOADSCREEN")) {
+            *p += 10;
+            statement_loadscreen(p);
             return;
         }
 #endif

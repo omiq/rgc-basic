@@ -114,6 +114,10 @@ int gfx_image_save_bmp(int slot, const char *path);
 int gfx_image_save_png(int slot, const char *path);
 int gfx_image_save(int slot, const char *path);
 int gfx_image_load(int slot, const char *path);
+/* LOADSCREEN — PNG/BMP/JPG straight into the live SCREEN 2 RGBA
+ * plane or SCREEN 3 indexed plane. Clips to 320x200 at (dx, dy). */
+int gfx_load_png_to_indexed(struct GfxVideoState *s, const char *path, int dx, int dy);
+int gfx_load_png_to_rgba(struct GfxVideoState *s, const char *path, int dx, int dy);
 int gfx_image_new_rgba(int slot, int w, int h);
 unsigned char *gfx_image_rgba_buffer(int slot);
 
