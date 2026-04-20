@@ -1,5 +1,139 @@
 ## Changelog
 
+### MOD load freeze fix (2026-04-20)
+
+**Bug:** `LOADMUSIC <slot>, "*.mod"` froze the browser on the
+`basic-wasm-raylib` target. Chrome's "page unresponsive" dialog would
+fire within a few seconds of pressing a track-select key in
+`examples/gfx_music_demo.bas`. The tab had to be force-closed. Other
+formats (WAV via `LOADSOUND`) were unaffected. Native `basic-gfx`
+played MOD files fine.
+
+**Root cause:** raylib 5.5 (pinned by `scripts/build-raylib-web.sh`)
+calls `jar_mod_max_samples` inside `LoadMusicStream` at
+`third_party/raylib-src/src/raudio.c:1486` to compute the
+`music.frameCount` field. Upstream `jar_mod_max_samples` is implemented
+as a full-song simulation that calls `jar_mod_fillbuffer` with
+`nbsample=1` — one stereo pair per iteration. For a 3-5 minute MOD at
+48 kHz that's 10-15 million iterations on the main thread. Native
+builds finish in a few hundred milliseconds. The web build compiles
+with `-s ASYNCIFY=1` (so BASIC's `SLEEP` and our async HTTP helpers
+can yield), which wraps every wasm function call in asyncify state
+bookkeeping. Under asyncify the same loop runs 50-200x slower, blocking
+the main thread for tens of seconds. Chrome interprets that as a hung
+renderer.
+
+The upstream source even admits the problem:
+
+```c
+// Works, however it is very slow, this data should be cached to
+// ensure it is run only once per file
+mulong jar_mod_max_samples(jar_mod_context_t * ctx)
+```
+
+**Fix:** `patches/jar_mod_max_samples.patch` decodes in 4096-sample
+chunks instead of 1. Same `samplenb` result (jar_mod accumulates it
+regardless of chunk size); the `while (loopcount <= lastcount)` exit
+condition still fires when the song wraps. `~4000x` fewer iterations
+— LOADMUSIC now returns in tens of milliseconds on the web build.
+
+Applied automatically by `scripts/build-raylib-web.sh` step 2b after
+the raylib tag checkout, so fresh clones and `RAYLIB_FORCE=1` rebuilds
+both pick it up. Idempotent — re-runs skip already-applied patches
+rather than failing.
+
+**⚠ Notes for future work / future agents:**
+
+1. `third_party/raylib-src/` is gitignored. **Do not** commit a modified
+   `jar_mod.h` to the repo directly — it would be wiped on the next
+   `rm -rf third_party/raylib-src/` and give the false impression the
+   fix had been lost. The canonical copy lives in
+   `patches/jar_mod_max_samples.patch`.
+2. If someone bumps `RAYLIB_VERSION` in `scripts/build-raylib-web.sh`
+   and the patch hunk drifts, the build script fails at step 2b with a
+   clear error. Rebase the patch against the new tag. Before rebasing,
+   check whether upstream has merged an equivalent fix — remove the
+   patch file entirely and note it here if so.
+3. The same pattern (single-sample simulation) likely exists in `jar_xm`
+   (XM format) — if we ever add XM support to the bundled demos, test a
+   long track on the web build first. If it hangs, clone the approach
+   used in this patch.
+4. Diagnostic tool of record: Claude Desktop's Chrome extension. The
+   terminal CLI cannot see the canvas or drive the running WASM. The
+   freeze was confirmed by installing a parent-window heartbeat +
+   dispatching a real user keypress while watching for the CDP
+   "renderer unresponsive" timeout.
+
+**Affected:** `basic-wasm-raylib` target only. `basic-gfx` native,
+`basic-wasm` terminal, and `basic-wasm-canvas` PETSCII builds do not
+link jar_mod and were never affected.
+
+**What actually fixed it — read this before touching the patches:**
+
+Initial diagnosis blamed `jar_mod_max_samples`'s `nbsample=1` per-call
+inner loop (first patch: `patches/jar_mod_max_samples.patch`, decoded
+in 4096-sample chunks). That patch landed and verifiably made it into
+the compiled wasm (`-16384` stack alloc for `buff[4096*2]` visible in
+raudio.o) — but **the browser still froze**. The 4000× reduction in
+outer iterations wasn't enough: `jar_mod_fillbuffer`'s per-sample inner
+loop still runs ~11 M iterations per song (48 kHz × 4 min × 2 channels
+× per-sample worknote/mixing), which is many seconds of main-thread
+compute under asyncify.
+
+Second attempt added `ASYNCIFY_REMOVE=@scripts/asyncify-remove.txt` to
+the Makefile to exclude jar_mod / miniaudio / decoder leaf functions
+from asyncify instrumentation. Emscripten reported that most of those
+symbols weren't in the asyncify set to begin with (they don't
+transitively reach `emscripten_sleep`), so that change did nothing for
+the hang either. It did shrink the wasm by ~40 KB; it's left in for
+now as harmless hygiene.
+
+What finally worked: **skip `jar_mod_max_samples` entirely on
+Emscripten** and hard-code `music.frameCount = 0xFFFFFFFFu` for MOD
+(`patches/raudio_mod_skip_max_samples.patch`). Looping MOD playback
+doesn't need a real frame count — raylib's `UpdateMusicStream` just
+modulos `framesProcessed` by `frameCount`, and jar_mod's internal
+`loopcount` handles song-wrap. With `frameCount = UINT_MAX` the modulo
+never wraps, the stream never signals end, and the track plays forever
+(or until `STOPMUSIC`). For non-looping MOD the playback runs out the
+final pattern into silence rather than stopping precisely — acceptable
+given the alternative (browser freeze).
+
+**Diagnostic technique worth remembering.** Console logs were useless
+once the renderer froze — CDP couldn't read them. Solution: emit
+traces via `EM_ASM({ localStorage.setItem(...); })` from C, then open a
+separate same-origin tab **after** the freeze and read `localStorage`.
+Survives the hang because writes are committed synchronously per call.
+Use it whenever you need to localise a WASM-side hang that kills the
+debug channel.
+
+**Patches that survive this fix:**
+
+- `patches/jar_mod_max_samples.patch` — still useful: the native
+  `basic-gfx` and WASM canvas/terminal builds still call
+  `jar_mod_max_samples` via the non-Emscripten path. Chunked decoding
+  gives them a ~4000× speedup for essentially free.
+- `patches/raudio_mod_skip_max_samples.patch` — the actual browser-
+  freeze fix. Emscripten-only (`#ifdef __EMSCRIPTEN__`).
+
+**Build system hook (also landed 2026-04-20):**
+
+- `scripts/build-raylib-web.sh` step 2b compares patch mtimes against
+  `libraylib.a` and forces a rebuild when any `patches/*.patch` is
+  newer. Editing a patch file is enough to trigger a clean raylib
+  rebuild on the next build — no explicit `RAYLIB_FORCE=1` needed.
+- `scripts/pullmake.sh` now calls `scripts/build-raylib-web.sh`
+  unconditionally before `make basic-wasm-raylib` (it's idempotent and
+  fast when up to date). Fresh `rgc-basic` clones bootstrap raylib
+  automatically; patch edits propagate into the archive on the next
+  `./rebuild-run.sh` without manual steps.
+
+First symptom of this gap: running
+`RAYLIB_FORCE=1 ./rebuild-run.sh` after landing the jar_mod patch did
+**not** rebuild `libraylib.a` — pullmake never invoked
+`build-raylib-web.sh`, so the buggy archive was relinked and the
+browser freeze persisted. The hook above closes that loop.
+
 ### 1.11.0 – 2026-04-19
 
 **Sound MVP: single-voice WAV playback.**
