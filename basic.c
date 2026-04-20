@@ -2048,7 +2048,26 @@ static void gfx_newline(void)
         /* Bitmap mode: scroll the bitmap plane up by one character cell
          * (8 pixel rows). Text plane is not touched (not visible in
          * SCREEN 1). See step 3 of docs/bitmap-text-plan.md. */
-        if (gfx_vs && gfx_vs->screen_mode == GFX_SCREEN_BITMAP) {
+        if (gfx_vs && gfx_vs->screen_mode == GFX_SCREEN_RGBA) {
+            /* Scroll RGBA plane up by one 8-pixel cell; bottom row
+             * cleared to current RGBA background so PRINT overflow
+             * doesn't leave stale pixels from earlier frames. */
+            if (gfx_vs->bitmap_rgba) {
+                size_t row_bytes = GFX_BITMAP_WIDTH * 4u;
+                size_t cell_bytes = 8u * row_bytes;
+                size_t total = (size_t)GFX_BITMAP_HEIGHT * row_bytes;
+                size_t keep = total - cell_bytes;
+                uint8_t *p = gfx_vs->bitmap_rgba;
+                size_t i;
+                memmove(p, p + cell_bytes, keep);
+                for (i = 0; i < cell_bytes; i += 4) {
+                    p[keep + i + 0] = gfx_vs->bgrgba_r;
+                    p[keep + i + 1] = gfx_vs->bgrgba_g;
+                    p[keep + i + 2] = gfx_vs->bgrgba_b;
+                    p[keep + i + 3] = gfx_vs->bgrgba_a;
+                }
+            }
+        } else if (gfx_vs && gfx_vs->screen_mode == GFX_SCREEN_BITMAP) {
             gfx_video_bitmap_scroll_up_cell(gfx_vs);
         } else {
             gfx_scroll_up();
@@ -2274,7 +2293,15 @@ static void gfx_put_byte(unsigned char b)
     if (gfx_y < 0) gfx_y = 0;
     if (gfx_y >= GFX_ROWS) gfx_y = GFX_ROWS - 1;
 
-    if (gfx_vs->screen_mode == GFX_SCREEN_BITMAP) {
+    if (gfx_vs->screen_mode == GFX_SCREEN_RGBA) {
+        /* SCREEN 2 path: stamp the 8x8 glyph straight into the RGBA
+         * plane using the current pen. Transparent paper (only lit
+         * bits written) — matches DRAWTEXT in RGBA mode. Cell grid
+         * stays 8x8 so gfx_x / gfx_y semantics match SCREEN 1. */
+        int cell_col = gfx_x;
+        if (cell_col >= 40) cell_col = 39;
+        gfx_rgba_stamp_glyph_px(gfx_vs, cell_col * 8, gfx_y * 8, sc);
+    } else if (gfx_vs->screen_mode == GFX_SCREEN_BITMAP) {
         /* Bitmap-mode path: stamp the 8x8 glyph from the active character
          * set (s->chars[sc*8]) into bitmap[] at cell (gfx_x, gfx_y).
          * Per docs/bitmap-text-plan.md, the text plane is not updated in
