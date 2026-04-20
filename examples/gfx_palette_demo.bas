@@ -16,12 +16,16 @@
 SCREEN 1
 BACKGROUND 0
 
-' Draw 16 swatches with the default palette.
+' Draw 16 swatches with the default palette (8-wide × 2-tall grid).
 FOR I = 0 TO 15
+  COL = I - INT(I / 8) * 8         ' I MOD 8 — column
+  ROW = INT(I / 8)                 ' 0 or 1 — row
+  SX  = 8  + COL * 38
+  SY  = 12 + ROW * 38
   COLOR I
-  FILLRECT  8 + (I MOD 8) * 38,  12 + (I \ 8) * 38 TO 40 + (I MOD 8) * 38, 44 + (I \ 8) * 38
+  FILLRECT SX, SY TO SX + 32, SY + 32
   COLOR 1
-  DRAWTEXT  10 + (I MOD 8) * 38, 50 + (I \ 8) * 38, STR$(I), 1
+  DRAWTEXT SX + 2, SY + 38, STR$(I), 1
 NEXT I
 
 COLOR 14
