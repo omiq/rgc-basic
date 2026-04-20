@@ -5944,25 +5944,25 @@ static void statement_drawtext(char **p)
         if (gfx_vs->screen_mode == GFX_SCREEN_RGBA || gfx_vs->screen_mode == GFX_SCREEN_RGBA_HI) {
             if (scale == 1) {
                 for (i = 0; vt.str[i] && i < MAX_STR_LEN; i++) {
-                    unsigned char sc = petscii_to_screencode((unsigned char)vt.str[i]);
+                    unsigned char sc = petscii_ascii_to_screencode((unsigned char)vt.str[i]);
                     gfx_rgba_stamp_glyph_px(gfx_vs, x + i * 8, y, sc);
                 }
             } else {
                 int step = 8 * scale;
                 for (i = 0; vt.str[i] && i < MAX_STR_LEN; i++) {
-                    unsigned char sc = petscii_to_screencode((unsigned char)vt.str[i]);
+                    unsigned char sc = petscii_ascii_to_screencode((unsigned char)vt.str[i]);
                     gfx_rgba_stamp_glyph_px_scaled(gfx_vs, x + i * step, y, sc, scale);
                 }
             }
         } else if (scale == 1) {
             for (i = 0; vt.str[i] && i < MAX_STR_LEN; i++) {
-                unsigned char sc = petscii_to_screencode((unsigned char)vt.str[i]);
+                unsigned char sc = petscii_ascii_to_screencode((unsigned char)vt.str[i]);
                 gfx_video_bitmap_stamp_glyph_px(gfx_vs, x + i * 8, y, sc);
             }
         } else {
             int step = 8 * scale;
             for (i = 0; vt.str[i] && i < MAX_STR_LEN; i++) {
-                unsigned char sc = petscii_to_screencode((unsigned char)vt.str[i]);
+                unsigned char sc = petscii_ascii_to_screencode((unsigned char)vt.str[i]);
                 gfx_video_bitmap_stamp_glyph_px_scaled(gfx_vs, x + i * step, y, sc, scale);
             }
         }

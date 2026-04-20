@@ -16,4 +16,10 @@ int petscii_get_lowercase(void);
  * When charset is lowercase, 65-90→1-26 (a-z), 97-122→65-90 (A-Z) to match C64. */
 unsigned char petscii_to_screencode(unsigned char petscii);
 
+/* ASCII-aware: preserves literal case so DRAWTEXT renders "Press" as
+ * "Press" regardless of charset_lowercase. Non-letter bytes fall
+ * through to petscii_to_screencode so digits, punctuation, and
+ * graphic PETSCII codes still map correctly. */
+unsigned char petscii_ascii_to_screencode(unsigned char ascii);
+
 #endif

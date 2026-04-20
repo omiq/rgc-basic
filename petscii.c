@@ -101,3 +101,32 @@ unsigned char petscii_to_screencode(unsigned char p)
     if (p <= 254) return (unsigned char)(p - 128);
     return 94;  /* 255 (π) → 94 */
 }
+
+/* ASCII-to-screencode mapper for DRAWTEXT and friends that should
+ * render what the program actually typed — a literal "Press" stays
+ * "Press" regardless of which charset the user swapped to via
+ * `#OPTION lowercase` or CHR$(14) / CHR$(142).
+ *
+ * Difference from petscii_to_screencode: ASCII uppercase always
+ * lands on the UPPER glyph slot, ASCII lowercase always on the
+ * LOWER glyph slot. In the upper/graphics ROM there's only one
+ * case so lowercase silently folds to upper (the only sensible
+ * result with that charset). In the lower/upper ROM upper maps to
+ * 0x41+ (A-Z positions) and lower maps to 0x01+ (a-z positions).
+ *
+ * Non-letter bytes fall through petscii_to_screencode so punctuation,
+ * digits, and graphic CHR$ codes still render correctly. */
+unsigned char petscii_ascii_to_screencode(unsigned char c)
+{
+    if (c >= 'A' && c <= 'Z') {
+        return petscii_lowercase_charset
+             ? (unsigned char)(0x41 + (c - 'A'))
+             : (unsigned char)(0x01 + (c - 'A'));
+    }
+    if (c >= 'a' && c <= 'z') {
+        return petscii_lowercase_charset
+             ? (unsigned char)(0x01 + (c - 'a'))
+             : (unsigned char)(0x01 + (c - 'a'));
+    }
+    return petscii_to_screencode(c);
+}
