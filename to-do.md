@@ -1,5 +1,87 @@
 # Features to add/to-do
 
+## Palette feature (proposed, 2026-04-20)
+
+Now that SCREEN 1 has a per-pixel colour plane and SCREEN 2 has
+true RGBA, the 16-entry C64 palette is a hard dependency baked in
+as a `const` table. Programs want to load custom palettes, sample
+them from image assets, save them back, and edit entries from
+BASIC. Useful for demoscene conversions, art tools, and
+tutorial-grade "paint your own palette" flows.
+
+### Surface API (sketch)
+
+```basic
+REM Load a palette from a PNG / .pal file (auto-detect by extension).
+REM PAL file format: 16 RGB or RGBA triples, one per line, decimal or hex.
+PALETTELOAD "custom.pal"
+PALETTELOAD "sprite.png"           ' extract unique colours, up to 16 (or 256 later)
+
+REM Save current palette.
+PALETTESAVE  "work.pal"
+
+REM Set a palette entry: index 0..15, RGB(A) 0..255.
+PALETTESET 7, 255, 128, 64         ' entry 7 to custom orange
+PALETTESET 7, 255, 128, 64, 255    ' with alpha
+PALETTESETHEX 7, "#FF8040"         ' hex form
+
+REM Read an entry.
+R = PALETTE(7, 0)  : G = PALETTE(7, 1)
+B = PALETTE(7, 2)  : A = PALETTE(7, 3)
+H$ = PALETTEHEX$(7)                ' "#FF8040"
+
+REM Reset to built-in C64 defaults.
+PALETTERESET
+```
+
+### Under the hood
+
+- Move the existing `gfx_c64_palette_rgb[16][3]` (now static in
+  `gfx_video.c`) into a writable `uint8_t g_palette[16][4]` on
+  `GfxVideoState` initialised to the C64 defaults. All renderers
+  read from here instead of the const table.
+- SCREEN 1 renderer looks up `g_palette[idx]`; SCREEN 2 COLOR
+  translation does the same. One hot-swap point.
+- PNG palette extract: walk the PNG RGBA bytes, bucket unique
+  colours, pick the most-common up to N (16 for now, configurable
+  if we later support 256). Use `stb_image.h` already vendored for
+  sprites.
+- `.pal` format — pick plain-text for ease of hand-editing:
+  ```
+  # 4-bit / 16-colour palette
+  0   0   0   0     # index 0 (black)
+  255 255 255 255   # index 1 (white)
+  ...
+  ```
+  Or accept JASC-PAL (`.pal` from Paint Shop Pro) for interop.
+  Probably ship both.
+
+### Related extensions
+
+- **256-colour palette mode**: once palette is data-driven, bumping
+  to 256 entries is a one-line change + wider index type. Lines
+  up with a future `SCREEN 3` — 256-colour indexed bitmap,
+  cheaper than SCREEN 2 RGBA (80KB vs 256KB per plane) and
+  supports palette cycling / rotation effects for retro demos.
+- **Palette cycling**: `PALETTEROTATE first, last [, step]` shifts
+  a palette range each call — classic water/fire effects.
+- **Sprite recolour via palette**: sprites currently carry RGBA
+  from their PNG. Optional `SPRITEPALETTE slot, pal_slot` to
+  remap a grayscale sprite through a palette entry set — used by
+  tile-based level editors for easy recolours.
+- **IDE picker**: the retrogamecoders IDE could read the palette
+  bytes from the WASM heap (already exposes HEAPU8) and render a
+  colour swatch grid in a sidebar.
+
+### Scope notes
+
+- Keep the BASIC API small — `PALETTELOAD / SAVE / SET / SETHEX
+  / RESET` + `PALETTE(i, chan)` + `PALETTEHEX$(i)` covers 95 %
+  of use cases.
+- Defer palette-index-per-pixel surfaces (`IMAGE CREATE PAL`) to
+  the broader Blitter Phase 2 work in `docs/rgc-blitter-surface-spec.md`.
+- Format for 256-entry files: same text format, more rows.
+
 ## Future: textured polygons
 
 `TEXTUREPOLY slot, n, vx(), vy(), ux(), uy()` — draw a polygon with a
