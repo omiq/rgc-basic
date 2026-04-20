@@ -118,6 +118,14 @@ int gfx_image_load(int slot, const char *path);
  * plane or SCREEN 3 indexed plane. Clips to 320x200 at (dx, dy). */
 int gfx_load_png_to_indexed(struct GfxVideoState *s, const char *path, int dx, int dy);
 int gfx_load_png_to_rgba(struct GfxVideoState *s, const char *path, int dx, int dy);
+/* SCREEN 1 (1bpp + per-pixel colour plane): Floyd-Steinberg dither to the
+ * 16 C64 palette entries. Lights every bitmap bit and fills bitmap_color[]
+ * with the per-pixel index (0..15). Clips to 320x200. */
+int gfx_load_png_to_bitmap(struct GfxVideoState *s, const char *path, int dx, int dy);
+/* SCREEN 0 (40x25 PETSCII): cell-quantise to 1 colour + block glyph per
+ * 8x8 cell. Emits glyph indices into screen[] and attribute indices into
+ * color_ram[]. Clips to 40x25 at character-cell (cx, cy). */
+int gfx_load_png_to_text(struct GfxVideoState *s, const char *path, int cx, int cy);
 int gfx_image_new_rgba(int slot, int w, int h);
 unsigned char *gfx_image_rgba_buffer(int slot);
 

@@ -539,6 +539,268 @@ int gfx_load_png_to_indexed(GfxVideoState *s, const char *path, int dx, int dy)
     return 0;
 }
 
+/* Nearest palette entry in slots 0..15 only (the C64 hardware colours).
+ * SCREEN 1 keeps bitmap_color[] as a 4-bit-ish index; writing a value >15
+ * into it would just display as a different hardware-palette entry, but
+ * stay within 0..15 to match PALETTESET's documented 16-colour range. */
+static int nearest_palette16_index(int r, int g, int b)
+{
+    int best = 0;
+    long best_d = 1L << 30;
+    int i;
+    if (r < 0) r = 0; else if (r > 255) r = 255;
+    if (g < 0) g = 0; else if (g > 255) g = 255;
+    if (b < 0) b = 0; else if (b > 255) b = 255;
+    for (i = 0; i < 16; i++) {
+        int dr = r - (int)gfx_c64_palette_rgb[i][0];
+        int dg = g - (int)gfx_c64_palette_rgb[i][1];
+        int db = b - (int)gfx_c64_palette_rgb[i][2];
+        long d = (long)dr * dr + (long)dg * dg + (long)db * db;
+        if (d < best_d) {
+            best_d = d;
+            best = i;
+            if (d == 0) break;
+        }
+    }
+    return best;
+}
+
+/* LOADSCREEN target for SCREEN 1 — Floyd-Steinberg dither to the 16-entry
+ * hardware palette, then stamp every pixel: bitmap bit = 1 so the pixel
+ * is "lit", bitmap_color[] holds the per-pixel nearest-of-16 index.
+ * That means a SCREEN 1 frame can carry 16 colours per pixel, not per
+ * cell, which is the whole point of the per-pixel colour plane. */
+int gfx_load_png_to_bitmap(GfxVideoState *s, const char *path, int dx, int dy)
+{
+    int w, h, channels;
+    unsigned char *pixels;
+    int16_t *buf;
+    int x, y;
+    size_t npx;
+
+    if (!s || !path || !path[0]) return -1;
+    pixels = stbi_load(path, &w, &h, &channels, 4);
+    if (!pixels) return -1;
+
+    npx = (size_t)w * (size_t)h;
+    buf = (int16_t *)malloc(npx * 3u * sizeof(int16_t));
+    if (!buf) { stbi_image_free(pixels); return -1; }
+    {
+        size_t i;
+        for (i = 0; i < npx; i++) {
+            buf[i*3+0] = (int16_t)pixels[i*4+0];
+            buf[i*3+1] = (int16_t)pixels[i*4+1];
+            buf[i*3+2] = (int16_t)pixels[i*4+2];
+        }
+    }
+
+    for (y = 0; y < h; y++) {
+        for (x = 0; x < w; x++) {
+            int off = (y * w + x) * 3;
+            int r = buf[off + 0];
+            int g = buf[off + 1];
+            int b = buf[off + 2];
+            int idx = nearest_palette16_index(r, g, b);
+            int pr = (int)gfx_c64_palette_rgb[idx][0];
+            int pg = (int)gfx_c64_palette_rgb[idx][1];
+            int pb = (int)gfx_c64_palette_rgb[idx][2];
+            int er = r - pr;
+            int eg = g - pg;
+            int eb = b - pb;
+            int px = x + dx;
+            int py = y + dy;
+            if (px >= 0 && px < (int)GFX_BITMAP_WIDTH &&
+                py >= 0 && py < (int)GFX_BITMAP_HEIGHT) {
+                int byte = py * (int)(GFX_BITMAP_WIDTH / 8u) + (px >> 3);
+                int bit  = 7 - (px & 7);
+                s->bitmap[byte] |= (uint8_t)(1u << bit);
+                s->bitmap_color[(unsigned)py * GFX_BITMAP_WIDTH + (unsigned)px] =
+                    (uint8_t)idx;
+            }
+            /* Floyd-Steinberg error diffusion. Kernel: 7/16 right,
+             * 3/16 down-left, 5/16 down, 1/16 down-right. */
+            if (x + 1 < w) {
+                int o = (y * w + x + 1) * 3;
+                buf[o + 0] = (int16_t)(buf[o + 0] + er * 7 / 16);
+                buf[o + 1] = (int16_t)(buf[o + 1] + eg * 7 / 16);
+                buf[o + 2] = (int16_t)(buf[o + 2] + eb * 7 / 16);
+            }
+            if (y + 1 < h) {
+                if (x > 0) {
+                    int o = ((y + 1) * w + x - 1) * 3;
+                    buf[o + 0] = (int16_t)(buf[o + 0] + er * 3 / 16);
+                    buf[o + 1] = (int16_t)(buf[o + 1] + eg * 3 / 16);
+                    buf[o + 2] = (int16_t)(buf[o + 2] + eb * 3 / 16);
+                }
+                {
+                    int o = ((y + 1) * w + x) * 3;
+                    buf[o + 0] = (int16_t)(buf[o + 0] + er * 5 / 16);
+                    buf[o + 1] = (int16_t)(buf[o + 1] + eg * 5 / 16);
+                    buf[o + 2] = (int16_t)(buf[o + 2] + eb * 5 / 16);
+                }
+                if (x + 1 < w) {
+                    int o = ((y + 1) * w + x + 1) * 3;
+                    buf[o + 0] = (int16_t)(buf[o + 0] + er * 1 / 16);
+                    buf[o + 1] = (int16_t)(buf[o + 1] + eg * 1 / 16);
+                    buf[o + 2] = (int16_t)(buf[o + 2] + eb * 1 / 16);
+                }
+            }
+        }
+    }
+    free(buf);
+    stbi_image_free(pixels);
+    return 0;
+}
+
+/* PETSCII block glyphs used for SCREEN 0 quantisation. Each entry is a
+ * screencode + an 8x8 bitmask (row 0 = top). We only need a small set of
+ * regular blocks for rough photographic matching; for each 8x8 cell the
+ * matcher picks the entry whose bitmask has the most pixels in common
+ * with the dithered source. The glyph codes are C64 screencodes in the
+ * uppercase/graphics charset. */
+static const uint8_t pet_blocks[][9] = {
+    /* { screencode, r0, r1, r2, r3, r4, r5, r6, r7 } */
+    { 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }, /* space */
+    { 0xA0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF }, /* full */
+    { 0x62, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF }, /* lower half */
+    { 0xE2, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00 }, /* upper half (reverse of 0x62) */
+    { 0x61, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F }, /* right half */
+    { 0xE1, 0xF0, 0xF0, 0xF0, 0xF0, 0xF0, 0xF0, 0xF0, 0xF0 }, /* left half */
+    { 0x7E, 0xF0, 0xF0, 0xF0, 0xF0, 0x00, 0x00, 0x00, 0x00 }, /* upper-left quad */
+    { 0x7C, 0x0F, 0x0F, 0x0F, 0x0F, 0x00, 0x00, 0x00, 0x00 }, /* upper-right quad */
+    { 0x6B, 0x00, 0x00, 0x00, 0x00, 0xF0, 0xF0, 0xF0, 0xF0 }, /* lower-left quad */
+    { 0x6C, 0x00, 0x00, 0x00, 0x00, 0x0F, 0x0F, 0x0F, 0x0F }, /* lower-right quad */
+};
+#define PET_BLOCKS_COUNT (sizeof(pet_blocks) / sizeof(pet_blocks[0]))
+
+static int popcount8(uint8_t v)
+{
+    v = (uint8_t)((v & 0x55) + ((v >> 1) & 0x55));
+    v = (uint8_t)((v & 0x33) + ((v >> 2) & 0x33));
+    v = (uint8_t)((v & 0x0F) + ((v >> 4) & 0x0F));
+    return v;
+}
+
+/* LOADSCREEN target for SCREEN 0 — cell-quantise. For each 8x8 cell
+ * compute mean luma, 2-means-split source pixels to fg (brighter) and
+ * bg (darker) clusters, pick nearest-16 for each cluster, dither the
+ * cell to 1bpp, then match the 64-bit cell pattern against the block
+ * glyph table by XOR-popcount distance. Width clipped to s->cols, height
+ * to 25 rows, starting at character cell (cx, cy). */
+int gfx_load_png_to_text(GfxVideoState *s, const char *path, int cx, int cy)
+{
+    int w, h, channels;
+    unsigned char *pixels;
+    int cols, rows;
+    int cell_cols, cell_rows;
+    int ccx, ccy;
+
+    if (!s || !path || !path[0]) return -1;
+    pixels = stbi_load(path, &w, &h, &channels, 4);
+    if (!pixels) return -1;
+
+    cols = (int)s->cols;
+    rows = 25;
+    cell_cols = w / 8;
+    cell_rows = h / 8;
+
+    for (ccy = 0; ccy < cell_rows; ccy++) {
+        int rcy = ccy + cy;
+        if (rcy < 0 || rcy >= rows) continue;
+        for (ccx = 0; ccx < cell_cols; ccx++) {
+            int rcx = ccx + cx;
+            int px, py;
+            long sum_l = 0;
+            long sum_r_lo = 0, sum_g_lo = 0, sum_b_lo = 0;
+            long sum_r_hi = 0, sum_g_hi = 0, sum_b_hi = 0;
+            int n_lo = 0, n_hi = 0;
+            int mean_l;
+            uint8_t cell_bits[8];
+            int fg_idx, bg_idx;
+            unsigned best_diff = 0xFFFFFFFFu;
+            int best_k = 0;
+            unsigned k;
+            int row;
+
+            if (rcx < 0 || rcx >= cols) continue;
+
+            /* Pass 1: compute mean luma over the 8x8 cell. */
+            for (py = 0; py < 8; py++) {
+                for (px = 0; px < 8; px++) {
+                    const unsigned char *p = pixels +
+                        ((size_t)(ccy * 8 + py) * (size_t)w +
+                         (size_t)(ccx * 8 + px)) * 4u;
+                    sum_l += (299L * p[0] + 587L * p[1] + 114L * p[2]) / 1000L;
+                }
+            }
+            mean_l = (int)(sum_l / 64L);
+
+            /* Pass 2: split pixels above/below mean, accumulate colour per
+             * cluster, build 8x8 bit pattern (1 = brighter than mean). */
+            for (py = 0; py < 8; py++) {
+                uint8_t row_bits = 0;
+                for (px = 0; px < 8; px++) {
+                    const unsigned char *p = pixels +
+                        ((size_t)(ccy * 8 + py) * (size_t)w +
+                         (size_t)(ccx * 8 + px)) * 4u;
+                    int l = (int)((299L * p[0] + 587L * p[1] + 114L * p[2]) / 1000L);
+                    if (l >= mean_l) {
+                        sum_r_hi += p[0]; sum_g_hi += p[1]; sum_b_hi += p[2];
+                        n_hi++;
+                        row_bits = (uint8_t)(row_bits | (1u << (7 - px)));
+                    } else {
+                        sum_r_lo += p[0]; sum_g_lo += p[1]; sum_b_lo += p[2];
+                        n_lo++;
+                    }
+                }
+                cell_bits[py] = row_bits;
+            }
+
+            /* Pick fg (brighter cluster) / bg (darker cluster). Empty
+             * clusters fall back to the mean colour of the full cell so
+             * we still get a sensible solid block. */
+            if (n_hi > 0) {
+                fg_idx = nearest_palette16_index((int)(sum_r_hi / n_hi),
+                                                 (int)(sum_g_hi / n_hi),
+                                                 (int)(sum_b_hi / n_hi));
+            } else {
+                fg_idx = nearest_palette16_index((int)((sum_r_lo + sum_r_hi) / 64),
+                                                 (int)((sum_g_lo + sum_g_hi) / 64),
+                                                 (int)((sum_b_lo + sum_b_hi) / 64));
+            }
+            if (n_lo > 0) {
+                bg_idx = nearest_palette16_index((int)(sum_r_lo / n_lo),
+                                                 (int)(sum_g_lo / n_lo),
+                                                 (int)(sum_b_lo / n_lo));
+            } else {
+                bg_idx = fg_idx;
+            }
+
+            /* Match the cell pattern against block glyphs. Diff =
+             * sum of popcount(cell_bits[r] XOR glyph_bits[r]). */
+            for (k = 0; k < PET_BLOCKS_COUNT; k++) {
+                unsigned diff = 0;
+                for (row = 0; row < 8; row++) {
+                    diff += (unsigned)popcount8((uint8_t)(cell_bits[row] ^ pet_blocks[k][1 + row]));
+                }
+                if (diff < best_diff) {
+                    best_diff = diff;
+                    best_k = (int)k;
+                }
+            }
+
+            {
+                unsigned cell_off = (unsigned)rcy * (unsigned)cols + (unsigned)rcx;
+                s->screen[cell_off]   = pet_blocks[best_k][0];
+                s->color[cell_off]    = (uint8_t)fg_idx;
+                s->bgcolor[cell_off]  = (uint8_t)bg_idx;
+            }
+        }
+    }
+    stbi_image_free(pixels);
+    return 0;
+}
+
 int gfx_load_png_to_rgba(GfxVideoState *s, const char *path, int dx, int dy)
 {
     int w, h, channels;
