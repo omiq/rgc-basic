@@ -39,4 +39,32 @@ void gfx_sound_stop(void);
 /* Non-zero while the current voice is audible; 0 when idle. */
 int  gfx_sound_is_playing(void);
 
+/* ---------------------------------------------------------------
+ * Music streams — tracker modules (MOD / XM / S3M / IT) and long-
+ * form OGG / MP3 loops. Separate slot pool from one-shot WAVs
+ * because raylib's Music type is a streaming decoder with its own
+ * UpdateMusicStream pump, not a preloaded Sound buffer.
+ *
+ * The renderer calls gfx_music_tick() every frame to keep the
+ * streams fed — without it raudio underflows and the track stops
+ * within a second. All other entry points are interpreter-thread
+ * safe (same miniaudio guarantees that WAV uses).
+ * --------------------------------------------------------------- */
+#define GFX_MUSIC_MAX_SLOTS 8
+
+int  gfx_music_load(int slot, const char *path);
+void gfx_music_unload(int slot);
+int  gfx_music_play(int slot);
+void gfx_music_stop(int slot);
+void gfx_music_pause(int slot);
+void gfx_music_resume(int slot);
+int  gfx_music_is_playing(int slot);
+void gfx_music_set_volume(int slot, float vol);   /* 0.0 .. 1.0 */
+void gfx_music_set_loop(int slot, int loop);      /* 0 = one-shot, 1 = loop */
+
+/* Advance decoding for every loaded Music stream. Cheap enough to
+ * call each render frame; a missed tick just shortens the next
+ * audible window. */
+void gfx_music_tick(void);
+
 #endif /* GFX_SOUND_H */

@@ -145,3 +145,106 @@ int gfx_sound_is_playing(void)
     g_active_slot = -1;
     return 0;
 }
+
+/* --------------------------------------------------------------
+ * Music streams. Separate slot pool from one-shot WAV above.
+ * -------------------------------------------------------------- */
+
+static Music g_music[GFX_MUSIC_MAX_SLOTS];
+static int   g_music_loaded[GFX_MUSIC_MAX_SLOTS];
+
+int gfx_music_load(int slot, const char *path)
+{
+    char full[GFX_SOUND_PATH_MAX];
+    Music m;
+    if (slot < 0 || slot >= GFX_MUSIC_MAX_SLOTS) return -1;
+    if (!path || !path[0]) return -1;
+    gfx_sound_init();
+    resolve_path(full, sizeof(full), path);
+    if (g_music_loaded[slot]) {
+        StopMusicStream(g_music[slot]);
+        UnloadMusicStream(g_music[slot]);
+        g_music_loaded[slot] = 0;
+    }
+    m = LoadMusicStream(full);
+    /* raylib returns Music with a NULL ctxData/stream.buffer when
+     * the file couldn't be decoded. Trust the stream.buffer check
+     * that matches the pattern gfx_sound_load uses. */
+    if (m.stream.buffer == NULL) return -1;
+    g_music[slot] = m;
+    g_music_loaded[slot] = 1;
+    return 0;
+}
+
+void gfx_music_unload(int slot)
+{
+    if (slot < 0 || slot >= GFX_MUSIC_MAX_SLOTS) return;
+    if (!g_music_loaded[slot]) return;
+    StopMusicStream(g_music[slot]);
+    UnloadMusicStream(g_music[slot]);
+    g_music_loaded[slot] = 0;
+}
+
+int gfx_music_play(int slot)
+{
+    if (!g_inited) gfx_sound_init();
+    if (slot < 0 || slot >= GFX_MUSIC_MAX_SLOTS) return -1;
+    if (!g_music_loaded[slot]) return -1;
+    PlayMusicStream(g_music[slot]);
+    return 0;
+}
+
+void gfx_music_stop(int slot)
+{
+    if (slot < 0 || slot >= GFX_MUSIC_MAX_SLOTS) return;
+    if (!g_music_loaded[slot]) return;
+    StopMusicStream(g_music[slot]);
+}
+
+void gfx_music_pause(int slot)
+{
+    if (slot < 0 || slot >= GFX_MUSIC_MAX_SLOTS) return;
+    if (!g_music_loaded[slot]) return;
+    PauseMusicStream(g_music[slot]);
+}
+
+void gfx_music_resume(int slot)
+{
+    if (slot < 0 || slot >= GFX_MUSIC_MAX_SLOTS) return;
+    if (!g_music_loaded[slot]) return;
+    ResumeMusicStream(g_music[slot]);
+}
+
+int gfx_music_is_playing(int slot)
+{
+    if (slot < 0 || slot >= GFX_MUSIC_MAX_SLOTS) return 0;
+    if (!g_music_loaded[slot]) return 0;
+    return IsMusicStreamPlaying(g_music[slot]) ? 1 : 0;
+}
+
+void gfx_music_set_volume(int slot, float vol)
+{
+    if (slot < 0 || slot >= GFX_MUSIC_MAX_SLOTS) return;
+    if (!g_music_loaded[slot]) return;
+    if (vol < 0.0f) vol = 0.0f;
+    if (vol > 1.0f) vol = 1.0f;
+    SetMusicVolume(g_music[slot], vol);
+}
+
+void gfx_music_set_loop(int slot, int loop)
+{
+    if (slot < 0 || slot >= GFX_MUSIC_MAX_SLOTS) return;
+    if (!g_music_loaded[slot]) return;
+    g_music[slot].looping = loop ? true : false;
+}
+
+void gfx_music_tick(void)
+{
+    int i;
+    if (!g_inited) return;
+    for (i = 0; i < GFX_MUSIC_MAX_SLOTS; i++) {
+        if (g_music_loaded[i]) {
+            UpdateMusicStream(g_music[i]);
+        }
+    }
+}

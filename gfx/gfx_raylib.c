@@ -2046,6 +2046,11 @@ int main(int argc, char **argv)
         /* 60 Hz jiffy clock (C64-style TI), wraps every 24 hours. */
         gfx_video_advance_ticks60(&vs, 1u);
 
+        /* Pump all loaded music streams once per frame. raudio
+         * decodes on demand and will underflow (silence) within a
+         * second without this tick. Cheap when no music is loaded. */
+        gfx_music_tick();
+
         /* ANTIALIAS: apply pending filter change on the main (GL) thread.
          * gfx_set_antialias() just flips the flag; this walks loaded
          * sprite textures + the render target and calls SetTextureFilter
@@ -2393,6 +2398,7 @@ void wasm_gfx_refresh_js(void)
         last_render_ms = now_ms;
     }
     gfx_video_advance_ticks60(&g_wasm_vs, 1u);
+    gfx_music_tick();   /* keep all LoadMusicStream slots fed */
     /* Re-apply ANTIALIAS filter every frame on GL thread. raylib-emscripten
      * sometimes loses filter binding between frames on NPOT render textures
      * (WebGL1/ES2), so force the current mode each tick. Cheap (two glTexParameteri
