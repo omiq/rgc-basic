@@ -12517,12 +12517,17 @@ static void statement_open(char **p)
         }
         fp = fopen(fname, mode);
         if (!fp) {
+            /* Classic CBM semantics: OPEN of a missing / unwritable file
+             * sets ST = 1 and continues. Programs are expected to read ST
+             * after the OPEN and decide what to do, which lets a LOAD
+             * button silently fail on the first session (no file yet)
+             * instead of halting execution.
+             *
+             * Keep a stderr line for terminal debugging; basic-gfx routes
+             * stderr to the console on canvas WASM too. */
             set_io_status(1);
-            {
-                char h[160];
-                snprintf(h, sizeof(h), "Check path and permissions (tried \"%s\").", fname);
-                runtime_error_hint("OPEN: cannot open file", h);
-            }
+            fprintf(stderr, "OPEN: cannot open \"%s\" (mode=%s) — ST=1\n",
+                    fname, mode ? mode : "?");
             return;
         }
         open_files[lfn] = fp;
@@ -12693,11 +12698,6 @@ static void statement_get_hash(char **p)
     }
     lfn = atoi(*p);
     while (isdigit((unsigned char)**p)) (*p)++;
-    if (lfn < 1 || lfn > 255 || !open_files[lfn]) {
-        set_io_status(1);
-        runtime_error_hint("GET#: file not open", "OPEN the file first with the same channel number.");
-        return;
-    }
     skip_spaces(p);
     if (**p == ',') (*p)++;
     skip_spaces(p);
@@ -12708,6 +12708,12 @@ static void statement_get_hash(char **p)
     vp = get_var_reference(p, &is_array, &is_string, NULL);
     if (!vp || !is_string || is_array) {
         runtime_error_hint("GET#: requires string variable", "Use a plain string variable like A$, not a number.");
+        return;
+    }
+    /* Channel not open → ST=1, return empty string. Program checks ST. */
+    if (lfn < 1 || lfn > 255 || !open_files[lfn]) {
+        set_io_status(1);
+        *vp = make_str("");
         return;
     }
     c = fgetc(open_files[lfn]);
@@ -12744,11 +12750,6 @@ static void statement_putbyte(char **p)
     }
     lfn = atoi(*p);
     while (isdigit((unsigned char)**p)) (*p)++;
-    if (lfn < 1 || lfn > 255 || !open_files[lfn]) {
-        set_io_status(1);
-        runtime_error_hint("PUTBYTE: file not open", "OPEN the channel first.");
-        return;
-    }
     skip_spaces(p);
     if (**p != ',') {
         runtime_error_hint("PUTBYTE: expected comma", "Use PUTBYTE #n, byte_expr.");
@@ -12758,6 +12759,11 @@ static void statement_putbyte(char **p)
     skip_spaces(p);
     vb = eval_expr(p);
     ensure_num(&vb);
+    /* Channel not open → ST=1 and drop the byte. */
+    if (lfn < 1 || lfn > 255 || !open_files[lfn]) {
+        set_io_status(1);
+        return;
+    }
     {
         int b = (int)vb.num & 255;
         if (fputc(b, open_files[lfn]) == EOF) {
@@ -12789,11 +12795,6 @@ static void statement_getbyte(char **p)
     }
     lfn = atoi(*p);
     while (isdigit((unsigned char)**p)) (*p)++;
-    if (lfn < 1 || lfn > 255 || !open_files[lfn]) {
-        set_io_status(1);
-        runtime_error_hint("GETBYTE: file not open", "OPEN the channel first.");
-        return;
-    }
     skip_spaces(p);
     if (**p != ',') {
         runtime_error_hint("GETBYTE: expected comma", "Use GETBYTE #n, num_var.");
@@ -12808,6 +12809,13 @@ static void statement_getbyte(char **p)
     vp = get_var_reference(p, &is_array, &is_string, NULL);
     if (!vp || is_array || is_string) {
         runtime_error_hint("GETBYTE: requires numeric scalar variable", "Use GETBYTE #1, B not B$.");
+        return;
+    }
+    /* Channel not open → ST=1, return -1 (same sentinel as EOF). No halt
+     * so the caller's loop can detect failure via ST or the -1 value. */
+    if (lfn < 1 || lfn > 255 || !open_files[lfn]) {
+        set_io_status(1);
+        *vp = make_num(-1.0);
         return;
     }
     c = fgetc(open_files[lfn]);
