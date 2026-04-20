@@ -4767,10 +4767,15 @@ static void statement_palettesave(char **p)
 }
 
 /* LOADSCREEN path$ [, x [, y]] — load PNG / BMP / JPG into the current
- * screen plane. SCREEN 3 quantises to the 256-entry palette; SCREEN 2
- * memcpys full RGBA. SCREEN 0 / SCREEN 1 aren't supported (need
- * dithering / 1bpp threshold work — tracked). Clips to 320x200 at
- * optional (x, y) offset. */
+ * screen plane.
+ *   SCREEN 0 — 40x25 cell-quantises to two C64 colours + block glyph per
+ *              cell. Offset (x,y) is in character cells.
+ *   SCREEN 1 — Floyd-Steinberg dithers to the 16 hardware colours, stamps
+ *              every pixel with its own index in bitmap_color[] so the
+ *              per-pixel colour plane is used end-to-end.
+ *   SCREEN 2 — memcpys full RGBA.
+ *   SCREEN 3 — nearest-of-256-palette indexed.
+ * (x,y) are pixel coordinates for SCREEN 1/2/3, clipped to 320x200. */
 static void statement_loadscreen(char **p)
 {
 #ifdef GFX_VIDEO
@@ -4811,8 +4816,23 @@ static void statement_loadscreen(char **p)
         }
         return;
     }
-    runtime_error_hint("LOADSCREEN needs SCREEN 2 or SCREEN 3",
-                         "SCREEN 2 takes the PNG as-is (RGBA); SCREEN 3 quantises to the 256-entry palette.");
+    if (gfx_vs->screen_mode == GFX_SCREEN_BITMAP) {
+        if (gfx_load_png_to_bitmap(gfx_vs, vpath.str, dx, dy) != 0) {
+            char hint[256];
+            snprintf(hint, sizeof(hint), "Could not load '%s' into 1bpp bitmap plane.", vpath.str);
+            runtime_error_hint("LOADSCREEN failed", hint);
+        }
+        return;
+    }
+    if (gfx_vs->screen_mode == GFX_SCREEN_TEXT) {
+        if (gfx_load_png_to_text(gfx_vs, vpath.str, dx, dy) != 0) {
+            char hint[256];
+            snprintf(hint, sizeof(hint), "Could not load '%s' into text plane.", vpath.str);
+            runtime_error_hint("LOADSCREEN failed", hint);
+        }
+        return;
+    }
+    runtime_error_hint("LOADSCREEN: unknown screen mode", NULL);
 #else
     (void)p;
     runtime_error_hint("LOADSCREEN requires basic-gfx", NULL);
