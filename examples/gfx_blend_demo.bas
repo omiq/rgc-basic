@@ -22,11 +22,16 @@ BACKGROUNDRGB 0, 0, 32
 CLS
 LOADSCREEN "sky.png"
 
-' off-screen RGBA slot 1 — will hold a second PNG (any RGBA file).
-' Falls back to "cat.png"; swap in your own transparent-background PNG.
-IMAGE LOAD 1, "sky.png"
-IW = 160
-IH = 120
+' off-screen RGBA slot 1 — must be IMAGE CREATE'd as RGBA before
+' IMAGE LOAD, otherwise the legacy 1bpp path takes the PNG and
+' IMAGE BLEND has no alpha channel to composite with. Any size
+' works; LOAD resizes to match the PNG.
+' chick.png has an alpha channel so the blend preserves transparency
+' around the sprite silhouette instead of compositing a bounding box.
+IMAGE CREATE 1, 64, 64
+IMAGE LOAD   1, "chick.png"
+IW = 32
+IH = 32
 
 X = 40
 Y = 60

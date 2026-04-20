@@ -540,6 +540,27 @@ int gfx_image_load(int slot, const char *path)
     if (slot <= GFX_IMAGE_SLOT_VISIBLE || slot >= GFX_IMAGE_MAX_SLOTS) return -1;
     pixels = stbi_load(path, &w, &h, &channels, 4);
     if (!pixels) return -1;
+    /* If the slot was pre-allocated via IMAGE CREATE (rgba buffer set),
+     * load the PNG as full RGBA so IMAGE BLEND can use it. Otherwise
+     * fall back to the legacy 1bpp threshold path so existing IMAGE
+     * NEW + IMAGE LOAD + DRAWSPRITE flows keep working unchanged. */
+    sl = &g_slots[slot];
+    if (sl->loaded && sl->rgba && sl->w == w && sl->h == h) {
+        memcpy(sl->rgba, pixels, (size_t)w * (size_t)h * 4u);
+        stbi_image_free(pixels);
+        return 0;
+    }
+    if (sl->loaded && sl->rgba) {
+        /* Slot is RGBA but sized differently — reallocate to match PNG. */
+        if (gfx_image_new_rgba(slot, w, h) != 0) {
+            stbi_image_free(pixels);
+            return -1;
+        }
+        sl = &g_slots[slot];
+        memcpy(sl->rgba, pixels, (size_t)w * (size_t)h * 4u);
+        stbi_image_free(pixels);
+        return 0;
+    }
     if (gfx_image_new(slot, w, h) != 0) {
         stbi_image_free(pixels);
         return -1;
