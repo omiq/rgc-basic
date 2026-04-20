@@ -2061,7 +2061,9 @@ static void gfx_newline(void)
 static void gfx_clear_screen(void)
 {
     if (!gfx_vs) return;
-    if (gfx_vs->screen_mode == GFX_SCREEN_BITMAP) {
+    if (gfx_vs->screen_mode == GFX_SCREEN_RGBA) {
+        gfx_rgba_clear(gfx_vs);
+    } else if (gfx_vs->screen_mode == GFX_SCREEN_BITMAP) {
         /* CHR$(147) in bitmap mode clears the visible plane, which is the
          * bitmap — the text plane is not rendered in SCREEN 1. See
          * docs/bitmap-text-plan.md. Cursor state is still reset so the
@@ -2762,6 +2764,8 @@ static void statement_get_hash(char **p);
 static int function_lookup(const char *name, int len);
 static void statement_cursor(char **p);
 static void statement_color(char **p);
+static void statement_colorrgb(char **p);
+static void statement_backgroundrgb(char **p);
 static void statement_background(char **p);
 static void statement_paper(char **p);
 static void statement_screencodes(char **p);
@@ -3165,6 +3169,7 @@ static const char *const reserved_words[] = {
     "CHDIR", "CWD", "DIR", "JSONLEN", "JSONKEY", "TICKUS", "TICKMS",
     "FOREACH", "IN",
     "LOADSOUND", "UNLOADSOUND", "PLAYSOUND", "STOPSOUND", "SOUNDPLAYING",
+    "COLORRGB", "COLOURRGB", "BACKGROUNDRGB",
     "FILLRECT", "CIRCLE", "FILLCIRCLE", "ELLIPSE", "FILLELLIPSE", "TRIANGLE", "FILLTRIANGLE", "FLOODFILL", "POLYGON", "FILLPOLYGON", "VSYNC", "ANTIALIAS",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
@@ -4406,6 +4411,74 @@ static void statement_cursor(char **p)
     runtime_error_hint("CURSOR expects ON or OFF", "Use CURSOR ON to show the cursor or CURSOR OFF to hide it.");
 }
 
+/* Parse 3 or 4 comma-separated 0..255 integers for COLORRGB / BACKGROUNDRGB. */
+static int parse_rgba_args(char **p, int *r, int *g, int *b, int *a)
+{
+    struct value v;
+    int i;
+    int *out[4] = { r, g, b, a };
+    *a = 255;
+    for (i = 0; i < 4; i++) {
+        int val;
+        if (i > 0) {
+            skip_spaces(p);
+            if (**p != ',') {
+                if (i == 3) return 0;  /* alpha optional */
+                runtime_error_hint("Expected ',' between RGB components",
+                                     "Use COLORRGB r, g, b [, a] with 0-255 values.");
+                return -1;
+            }
+            (*p)++;
+        }
+        skip_spaces(p);
+        v = eval_expr(p); ensure_num(&v);
+        val = (int)v.num;
+        if (val < 0) val = 0;
+        if (val > 255) val = 255;
+        *out[i] = val;
+    }
+    return 0;
+}
+
+static void statement_colorrgb(char **p)
+{
+#ifdef GFX_VIDEO
+    int r = 0, g = 0, b = 0, a = 255;
+    if (parse_rgba_args(p, &r, &g, &b, &a) < 0) return;
+    if (!gfx_vs) {
+        runtime_error_hint("COLORRGB requires basic-gfx or basic-wasm-raylib",
+                             "Terminal builds have no RGBA pen.");
+        return;
+    }
+    gfx_vs->pen_r = (uint8_t)r;
+    gfx_vs->pen_g = (uint8_t)g;
+    gfx_vs->pen_b = (uint8_t)b;
+    gfx_vs->pen_a = (uint8_t)a;
+#else
+    (void)p;
+    runtime_error_hint("COLORRGB requires basic-gfx", NULL);
+#endif
+}
+
+static void statement_backgroundrgb(char **p)
+{
+#ifdef GFX_VIDEO
+    int r = 0, g = 0, b = 0, a = 255;
+    if (parse_rgba_args(p, &r, &g, &b, &a) < 0) return;
+    if (!gfx_vs) {
+        runtime_error_hint("BACKGROUNDRGB requires basic-gfx or basic-wasm-raylib", NULL);
+        return;
+    }
+    gfx_vs->bgrgba_r = (uint8_t)r;
+    gfx_vs->bgrgba_g = (uint8_t)g;
+    gfx_vs->bgrgba_b = (uint8_t)b;
+    gfx_vs->bgrgba_a = (uint8_t)a;
+#else
+    (void)p;
+    runtime_error_hint("BACKGROUNDRGB requires basic-gfx", NULL);
+#endif
+}
+
 static void statement_color(char **p)
 {
     /* COLOR n: set foreground colour using ANSI SGR based on C64-style palette index 0-15. */
@@ -4424,6 +4497,13 @@ static void statement_color(char **p)
     if (gfx_vs) {
         gfx_fg = (uint8_t)idx;
         gfx_vs->bitmap_fg = (uint8_t)idx;
+        /* Keep the SCREEN 2 RGBA pen in sync so `COLOR n` works the
+         * same way in both modes — mixed-mode programs only need one
+         * statement to pick a pen colour. */
+        gfx_vs->pen_r = gfx_c64_palette_rgb[idx & 0x0F][0];
+        gfx_vs->pen_g = gfx_c64_palette_rgb[idx & 0x0F][1];
+        gfx_vs->pen_b = gfx_c64_palette_rgb[idx & 0x0F][2];
+        gfx_vs->pen_a = 0xFF;
         return;
     }
 #endif
@@ -4471,6 +4551,12 @@ static void statement_background(char **p)
     if (gfx_vs) {
         gfx_bg = (uint8_t)idx;
         gfx_vs->bg_color = (uint8_t)idx;
+        /* Keep the SCREEN 2 RGBA clear colour in sync so a subsequent
+         * CLS fills with the palette equivalent of the requested index. */
+        gfx_vs->bgrgba_r = gfx_c64_palette_rgb[idx & 0x0F][0];
+        gfx_vs->bgrgba_g = gfx_c64_palette_rgb[idx & 0x0F][1];
+        gfx_vs->bgrgba_b = gfx_c64_palette_rgb[idx & 0x0F][2];
+        gfx_vs->bgrgba_a = 0xFF;
         return;
     }
 #endif
@@ -5304,7 +5390,22 @@ static void statement_drawtext(char **p)
     }
     x = (int)vx.num;
     y = (int)vy.num;
-    if (scale == 1) {
+    if (gfx_vs->screen_mode == GFX_SCREEN_RGBA) {
+        /* SCREEN 2: stamp straight into the RGBA plane using the full
+         * pen_r/g/b/a (no single-pen-register limit, no flash). */
+        if (scale == 1) {
+            for (i = 0; vt.str[i] && i < MAX_STR_LEN; i++) {
+                unsigned char sc = petscii_to_screencode((unsigned char)vt.str[i]);
+                gfx_rgba_stamp_glyph_px(gfx_vs, x + i * 8, y, sc);
+            }
+        } else {
+            int step = 8 * scale;
+            for (i = 0; vt.str[i] && i < MAX_STR_LEN; i++) {
+                unsigned char sc = petscii_to_screencode((unsigned char)vt.str[i]);
+                gfx_rgba_stamp_glyph_px_scaled(gfx_vs, x + i * step, y, sc, scale);
+            }
+        }
+    } else if (scale == 1) {
         for (i = 0; vt.str[i] && i < MAX_STR_LEN; i++) {
             unsigned char sc = petscii_to_screencode((unsigned char)vt.str[i]);
             gfx_video_bitmap_stamp_glyph_px(gfx_vs, x + i * 8, y, sc);
@@ -5510,8 +5611,19 @@ static void statement_screen(char **p)
         gfx_vs->screen_mode = GFX_SCREEN_BITMAP;
         return;
     }
-    runtime_error_hint("SCREEN expects 0 (text) or 1 (bitmap)",
-                         "Use SCREEN 0 for PETSCII text or SCREEN 1 for 320×200 bitmap.");
+    if (mode == 2) {
+        /* Lazy-alloc the 256 KB RGBA plane (+ DOUBLEBUFFER companion).
+         * Frees with the rest of GfxVideoState at process exit. */
+        if (gfx_rgba_alloc(gfx_vs) != 0) {
+            runtime_error_hint("SCREEN 2: RGBA plane allocation failed",
+                                 "256 KB per plane — check host memory.");
+            return;
+        }
+        gfx_vs->screen_mode = GFX_SCREEN_RGBA;
+        return;
+    }
+    runtime_error_hint("SCREEN expects 0 (text), 1 (1bpp bitmap), or 2 (RGBA)",
+                         "Use SCREEN 0 for PETSCII text, SCREEN 1 for 320×200 1bpp+palette, or SCREEN 2 for 320×200 RGBA.");
 #endif
 }
 
@@ -13933,6 +14045,11 @@ static void execute_statement(char **p)
             statement_chdir(p);
             return;
         }
+        if (starts_with_kw(*p, "COLORRGB") || starts_with_kw(*p, "COLOURRGB")) {
+            *p += (toupper((unsigned char)(*p)[4]) == 'U') ? 9 : 8;
+            statement_colorrgb(p);
+            return;
+        }
         if (starts_with_kw(*p, "COLOR") || starts_with_kw(*p, "COLOUR")) {
             /* Accept both COLOR and COLOUR spellings. */
             if (toupper((unsigned char)(*p)[3]) == 'O' && toupper((unsigned char)(*p)[4]) == 'U') {
@@ -13943,6 +14060,11 @@ static void execute_statement(char **p)
             statement_color(p);
             return;
         }
+    }
+    if (c == 'B' && starts_with_kw(*p, "BACKGROUNDRGB")) {
+        *p += 13;
+        statement_backgroundrgb(p);
+        return;
     }
     if (c == 'B' && starts_with_kw(*p, "BACKGROUND")) {
         *p += 10;

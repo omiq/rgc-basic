@@ -1733,6 +1733,61 @@ static void render_text_screen(const GfxVideoState *s,
     EndTextureMode();
 }
 
+/* SCREEN 2 — 320×200 RGBA plane drawn as a flat texture. Bypasses the
+ * palette lookup path entirely; each pixel carries its own RGBA. Still
+ * respects SCROLL and letterbox-x offset. */
+static void render_rgba_screen(const GfxVideoState *s, RenderTexture2D target,
+                               int native_w)
+{
+    int y, x, off_x;
+    int sx = (int)s->scroll_x;
+    int sy = (int)s->scroll_y;
+    int fb_w = native_w;
+    int fb_h = NATIVE_H;
+    Color *buf = ensure_pixbuf(fb_w, fb_h);
+    Color bg = { s->bgrgba_r, s->bgrgba_g, s->bgrgba_b, s->bgrgba_a };
+    const uint8_t *src = (s->double_buffer && s->bitmap_rgba_show) ? s->bitmap_rgba_show : s->bitmap_rgba;
+
+    off_x = (native_w - (int)GFX_BITMAP_WIDTH) / 2;
+    if (off_x < 0) off_x = 0;
+
+    {
+        int total = fb_w * fb_h;
+        int i;
+        for (i = 0; i < total; i++) buf[i] = bg;
+    }
+
+    if (!src) {
+        UpdateTexture(g_pixtex, buf);
+        BeginTextureMode(target);
+        ClearBackground(bg);
+        DrawTexture(g_pixtex, 0, 0, WHITE);
+        EndTextureMode();
+        return;
+    }
+
+    for (y = 0; y < (int)GFX_BITMAP_HEIGHT; y++) {
+        int py = y - sy;
+        if (py < 0 || py >= fb_h) continue;
+        for (x = 0; x < (int)GFX_BITMAP_WIDTH; x++) {
+            int px = off_x + x - sx;
+            unsigned off;
+            if (px < 0 || px >= fb_w) continue;
+            off = ((unsigned)y * GFX_BITMAP_WIDTH + (unsigned)x) * 4u;
+            buf[py * fb_w + px].r = src[off + 0];
+            buf[py * fb_w + px].g = src[off + 1];
+            buf[py * fb_w + px].b = src[off + 2];
+            buf[py * fb_w + px].a = src[off + 3];
+        }
+    }
+
+    UpdateTexture(g_pixtex, buf);
+    BeginTextureMode(target);
+    ClearBackground(bg);
+    DrawTexture(g_pixtex, 0, 0, WHITE);
+    EndTextureMode();
+}
+
 /* 320×200 hi-res: MSB of each byte is the leftmost pixel in that group of 8. */
 static void render_bitmap_screen(const GfxVideoState *s, RenderTexture2D target,
                                  int native_w)
@@ -1740,11 +1795,13 @@ static void render_bitmap_screen(const GfxVideoState *s, RenderTexture2D target,
     int y, x, off_x;
     int sx = (int)s->scroll_x;
     int sy = (int)s->scroll_y;
-    Color fg = c64_palette[s->bitmap_fg & 0x0F];
+    Color fg_fallback = c64_palette[s->bitmap_fg & 0x0F];
     Color bg = c64_palette[s->bg_color & 0x0F];
     int fb_w = native_w;
     int fb_h = NATIVE_H;
     Color *buf = ensure_pixbuf(fb_w, fb_h);
+    int main_slot_visible = (s->screen_show == 0) ||
+                            (s->double_buffer && s->screen_show == 1);
 
     off_x = (native_w - (int)GFX_BITMAP_WIDTH) / 2;
     if (off_x < 0) {
@@ -1770,10 +1827,27 @@ static void render_bitmap_screen(const GfxVideoState *s, RenderTexture2D target,
              * enabled DOUBLEBUFFER ON, otherwise bitmap[]. */
             int on = gfx_bitmap_get_show_pixel(s, (unsigned)x, (unsigned)y);
             int px = off_x + x - sx;
+            Color fg;
             if (px < 0 || px >= fb_w) {
                 continue;
             }
-            buf[py * fb_w + px] = on ? fg : bg;
+            if (on) {
+                /* Per-pixel palette lookup for the main bitmap (slot 0
+                 * or the DOUBLEBUFFER shadow on slot 1). Non-zero colour
+                 * index wins; zero falls back to the live bitmap_fg
+                 * register (preserves legacy "one pen" behaviour for
+                 * programs that POKE bytes directly or run pre-colour-
+                 * plane code). Non-main SCREEN BUFFER slots have no
+                 * colour companion and always use the fallback. */
+                int idx = 0;
+                if (main_slot_visible) {
+                    idx = gfx_bitmap_get_show_color(s, (unsigned)x, (unsigned)y);
+                }
+                fg = idx ? c64_palette[idx & 0x0F] : fg_fallback;
+                buf[py * fb_w + px] = fg;
+            } else {
+                buf[py * fb_w + px] = bg;
+            }
         }
     }
 
@@ -2050,7 +2124,9 @@ int main(int argc, char **argv)
             }
         }
 
-        if (vs.screen_mode == GFX_SCREEN_BITMAP) {
+        if (vs.screen_mode == GFX_SCREEN_RGBA) {
+            render_rgba_screen(&vs, target, nat_w);
+        } else if (vs.screen_mode == GFX_SCREEN_BITMAP) {
             render_bitmap_screen(&vs, target, nat_w);
         } else {
             render_text_screen(&vs, target);
@@ -2255,7 +2331,9 @@ void wasm_gfx_refresh_js(void)
         SetTextureFilter(g_wasm_target.texture, mode);
         g_antialias_applied = g_antialias;
     }
-    if (g_wasm_vs.screen_mode == GFX_SCREEN_BITMAP) {
+    if (g_wasm_vs.screen_mode == GFX_SCREEN_RGBA) {
+        render_rgba_screen(&g_wasm_vs, g_wasm_target, g_wasm_nat_w);
+    } else if (g_wasm_vs.screen_mode == GFX_SCREEN_BITMAP) {
         render_bitmap_screen(&g_wasm_vs, g_wasm_target, g_wasm_nat_w);
     } else {
         render_text_screen(&g_wasm_vs, g_wasm_target);

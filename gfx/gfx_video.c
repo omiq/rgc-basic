@@ -158,6 +158,12 @@ void gfx_video_init(GfxVideoState *s)
     s->screen_buffers[1] = s->bitmap_show;
     s->screen_draw = 0;
     s->screen_show = 0;
+    /* SCREEN 2 pen defaults: opaque white on fully-transparent black.
+     * Planes are lazily allocated on first SCREEN 2 entry. */
+    s->bitmap_rgba = NULL;
+    s->bitmap_rgba_show = NULL;
+    s->pen_r = 0xFF; s->pen_g = 0xFF; s->pen_b = 0xFF; s->pen_a = 0xFF;
+    s->bgrgba_r = 0; s->bgrgba_g = 0; s->bgrgba_b = 0; s->bgrgba_a = 0xFF;
 }
 
 uint8_t *gfx_video_draw_plane(GfxVideoState *s)
@@ -461,16 +467,185 @@ int gfx_bitmap_get_show_pixel(const GfxVideoState *s, unsigned x, unsigned y)
     return (src[byte_off] >> bit) & 1u;
 }
 
+int gfx_bitmap_get_show_color(const GfxVideoState *s, unsigned x, unsigned y)
+{
+    const uint8_t *src;
+    if (!s) return 0;
+    if (x >= GFX_BITMAP_WIDTH || y >= GFX_BITMAP_HEIGHT) return 0;
+    /* Double-buffer ON with show==slot 1: sample the flipped colour
+     * plane so pixels stay in the colour they were committed with. All
+     * other configurations read the live colour plane (only the main
+     * bitmap — slot 0 — has one). */
+    src = (s->double_buffer && s->screen_show == 1) ? s->bitmap_color_show : s->bitmap_color;
+    return src[y * GFX_BITMAP_WIDTH + x] & 0x0Fu;
+}
+
+/* Canonical C64-style palette (approximate) — kept here so both the
+ * native raylib + canvas WASM renderers and the SCREEN 2 COLOR → RGBA
+ * translation agree on hex values. */
+const uint8_t gfx_c64_palette_rgb[16][3] = {
+    { 0x00, 0x00, 0x00 }, { 0xFF, 0xFF, 0xFF }, { 0x88, 0x00, 0x00 },
+    { 0xAA, 0xFF, 0xEE }, { 0xCC, 0x44, 0xCC }, { 0x00, 0xCC, 0x55 },
+    { 0x00, 0x00, 0xAA }, { 0xEE, 0xEE, 0x77 }, { 0xDD, 0x88, 0x55 },
+    { 0x66, 0x44, 0x00 }, { 0xFF, 0x77, 0x77 }, { 0x33, 0x33, 0x33 },
+    { 0x77, 0x77, 0x77 }, { 0xAA, 0xFF, 0x66 }, { 0x00, 0x88, 0xFF },
+    { 0xBB, 0xBB, 0xBB },
+};
+
+/* ── SCREEN 2 RGBA plane ─────────────────────────────────────────── */
+
+int gfx_rgba_alloc(GfxVideoState *s)
+{
+    if (!s) return -1;
+    if (s->bitmap_rgba && s->bitmap_rgba_show) return 0;
+    if (!s->bitmap_rgba) {
+        s->bitmap_rgba = (uint8_t *)calloc(GFX_RGBA_BYTES, 1u);
+        if (!s->bitmap_rgba) return -1;
+    }
+    if (!s->bitmap_rgba_show) {
+        s->bitmap_rgba_show = (uint8_t *)calloc(GFX_RGBA_BYTES, 1u);
+        if (!s->bitmap_rgba_show) return -1;
+    }
+    return 0;
+}
+
+void gfx_rgba_clear(GfxVideoState *s)
+{
+    uint8_t *p;
+    size_t i;
+    if (!s || !s->bitmap_rgba) return;
+    p = s->bitmap_rgba;
+    for (i = 0; i < GFX_RGBA_BYTES; i += 4u) {
+        p[i + 0] = s->bgrgba_r;
+        p[i + 1] = s->bgrgba_g;
+        p[i + 2] = s->bgrgba_b;
+        p[i + 3] = s->bgrgba_a;
+    }
+}
+
+void gfx_rgba_set_pixel(GfxVideoState *s, int x, int y)
+{
+    unsigned off;
+    if (!s || !s->bitmap_rgba) return;
+    if (x < 0 || y < 0) return;
+    if ((unsigned)x >= GFX_BITMAP_WIDTH || (unsigned)y >= GFX_BITMAP_HEIGHT) return;
+    off = ((unsigned)y * GFX_BITMAP_WIDTH + (unsigned)x) * 4u;
+    s->bitmap_rgba[off + 0] = s->pen_r;
+    s->bitmap_rgba[off + 1] = s->pen_g;
+    s->bitmap_rgba[off + 2] = s->pen_b;
+    s->bitmap_rgba[off + 3] = s->pen_a;
+}
+
+void gfx_rgba_line(GfxVideoState *s, int x0, int y0, int x1, int y1)
+{
+    int dx, dy, sx, sy, err, e2;
+    if (!s || !s->bitmap_rgba) return;
+    dx = abs(x1 - x0);
+    dy = -abs(y1 - y0);
+    sx = x0 < x1 ? 1 : -1;
+    sy = y0 < y1 ? 1 : -1;
+    err = dx + dy;
+    for (;;) {
+        gfx_rgba_set_pixel(s, x0, y0);
+        if (x0 == x1 && y0 == y1) break;
+        e2 = 2 * err;
+        if (e2 >= dy) { err += dy; x0 += sx; }
+        if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+}
+
+void gfx_rgba_fill_rect(GfxVideoState *s, int x0, int y0, int x1, int y1)
+{
+    int y;
+    if (x0 > x1) { int t = x0; x0 = x1; x1 = t; }
+    if (y0 > y1) { int t = y0; y0 = y1; y1 = t; }
+    for (y = y0; y <= y1; y++) gfx_rgba_line(s, x0, y, x1, y);
+}
+
+int gfx_rgba_get_show_pixel(const GfxVideoState *s, unsigned x, unsigned y, uint8_t out[4])
+{
+    const uint8_t *src;
+    unsigned off;
+    if (!s || !out) return 0;
+    if (x >= GFX_BITMAP_WIDTH || y >= GFX_BITMAP_HEIGHT) return 0;
+    src = (s->double_buffer && s->bitmap_rgba_show) ? s->bitmap_rgba_show : s->bitmap_rgba;
+    if (!src) return 0;
+    off = (y * GFX_BITMAP_WIDTH + x) * 4u;
+    out[0] = src[off + 0];
+    out[1] = src[off + 1];
+    out[2] = src[off + 2];
+    out[3] = src[off + 3];
+    return 1;
+}
+
+void gfx_rgba_flip(GfxVideoState *s)
+{
+    if (!s) return;
+    if (!s->bitmap_rgba || !s->bitmap_rgba_show) return;
+    memcpy(s->bitmap_rgba_show, s->bitmap_rgba, GFX_RGBA_BYTES);
+}
+
+void gfx_rgba_stamp_glyph_px(GfxVideoState *s, int x, int y, uint8_t screencode)
+{
+    const uint8_t *glyph;
+    int gr, gc;
+    if (!s || !s->bitmap_rgba) return;
+    glyph = &s->chars[(unsigned)screencode * 8u];
+    for (gr = 0; gr < 8; gr++) {
+        uint8_t bits = glyph[gr];
+        int py = y + gr;
+        if (py < 0 || py >= (int)GFX_BITMAP_HEIGHT) continue;
+        for (gc = 0; gc < 8; gc++) {
+            if ((bits >> (7 - gc)) & 1u) {
+                gfx_rgba_set_pixel(s, x + gc, py);
+            }
+        }
+    }
+}
+
+void gfx_rgba_stamp_glyph_px_scaled(GfxVideoState *s, int x, int y,
+                                    uint8_t screencode, int scale)
+{
+    const uint8_t *glyph;
+    int gr, gc, dx, dy;
+    if (!s || !s->bitmap_rgba) return;
+    if (scale <= 1) { gfx_rgba_stamp_glyph_px(s, x, y, screencode); return; }
+    if (scale > 8) scale = 8;
+    glyph = &s->chars[(unsigned)screencode * 8u];
+    for (gr = 0; gr < 8; gr++) {
+        uint8_t bits = glyph[gr];
+        for (gc = 0; gc < 8; gc++) {
+            if ((bits >> (7 - gc)) & 1u) {
+                int px0 = x + gc * scale;
+                int py0 = y + gr * scale;
+                for (dy = 0; dy < scale; dy++) {
+                    for (dx = 0; dx < scale; dx++) {
+                        gfx_rgba_set_pixel(s, px0 + dx, py0 + dy);
+                    }
+                }
+            }
+        }
+    }
+}
+
 void gfx_video_bitmap_flip(GfxVideoState *s)
 {
     uint8_t *draw, *show;
     if (!s) return;
     if (!s->double_buffer) return;
+    /* SCREEN 2: RGBA plane gets its own atomic flip regardless of the
+     * 1bpp slot indices (which aren't meaningful in RGBA mode). */
+    if (s->screen_mode == GFX_SCREEN_RGBA) { gfx_rgba_flip(s); return; }
     if (s->screen_draw == s->screen_show) return;
     draw = s->screen_buffers[s->screen_draw];
     show = s->screen_buffers[s->screen_show];
     if (!draw || !show) return;
     memcpy(show, draw, GFX_BITMAP_BYTES);
+    /* Keep the colour plane in lock-step with the bitmap flip so
+     * double-buffered per-pixel colour also commits atomically. */
+    if (s->screen_draw == 0 && s->screen_show == 1) {
+        memcpy(s->bitmap_color_show, s->bitmap_color, sizeof(s->bitmap_color));
+    }
 }
 
 void gfx_bitmap_set_pixel(GfxVideoState *s, int x, int y, int on)
@@ -481,6 +656,22 @@ void gfx_bitmap_set_pixel(GfxVideoState *s, int x, int y, int on)
     uint8_t *plane;
 
     if (!s) return;
+    /* SCREEN 2 dispatch — 1bpp bit/plane ignored; write RGBA using the
+     * current RGBA pen (or the background colour for `on == 0`). Caller
+     * transparency is achieved by picking pen_a == 0, not by skipping
+     * the write, so overwrite semantics match the 1bpp path. */
+    if (s->screen_mode == GFX_SCREEN_RGBA) {
+        if (on) {
+            gfx_rgba_set_pixel(s, x, y);
+        } else {
+            uint8_t pr = s->pen_r, pg = s->pen_g, pb = s->pen_b, pa = s->pen_a;
+            s->pen_r = s->bgrgba_r; s->pen_g = s->bgrgba_g;
+            s->pen_b = s->bgrgba_b; s->pen_a = s->bgrgba_a;
+            gfx_rgba_set_pixel(s, x, y);
+            s->pen_r = pr; s->pen_g = pg; s->pen_b = pb; s->pen_a = pa;
+        }
+        return;
+    }
     if (x < 0 || y < 0) return;
     ux = (unsigned)x;
     uy = (unsigned)y;
@@ -493,6 +684,14 @@ void gfx_bitmap_set_pixel(GfxVideoState *s, int x, int y, int on)
     if (!plane) return;
     if (on) {
         plane[byte_off] |= mask;
+        /* Stamp the current pen index into the colour plane so the
+         * renderer can draw each lit pixel in the colour it was set,
+         * instead of re-tinting the whole plane with the live
+         * `bitmap_fg`. Only stamp on slot 0 (the main bitmap) — other
+         * SCREEN BUFFER slots remain 1bpp + single-pen for now. */
+        if (s->screen_draw == 0) {
+            s->bitmap_color[uy * GFX_BITMAP_WIDTH + ux] = (uint8_t)(s->bitmap_fg & 0x0Fu);
+        }
     } else {
         plane[byte_off] &= (uint8_t)~mask;
     }
@@ -502,9 +701,14 @@ void gfx_video_bitmap_clear(GfxVideoState *s)
 {
     uint8_t *plane;
     if (!s) return;
+    if (s->screen_mode == GFX_SCREEN_RGBA) { gfx_rgba_clear(s); return; }
     plane = gfx_video_draw_plane(s);
     if (!plane) return;
     memset(plane, 0, GFX_BITMAP_BYTES);
+    /* Only the main bitmap has a companion colour plane. */
+    if (s->screen_draw == 0) {
+        memset(s->bitmap_color, 0, sizeof(s->bitmap_color));
+    }
 }
 
 /* Character-set-in-bitmap-mode glyph stamper.
@@ -528,11 +732,13 @@ void gfx_video_bitmap_stamp_glyph_px(GfxVideoState *s,
 {
     const uint8_t *glyph;
     uint8_t *plane;
-    int gr;
+    int gr, gc;
+    uint8_t pen;
     unsigned row_bytes = GFX_BITMAP_WIDTH / 8u;
     if (!s) return;
     plane = gfx_video_draw_plane(s);
     if (!plane) return;
+    pen = (uint8_t)(s->bitmap_fg & 0x0Fu);
     glyph = &s->chars[(unsigned)screencode * 8u];
     for (gr = 0; gr < 8; gr++) {
         int py = y + gr;
@@ -548,6 +754,19 @@ void gfx_video_bitmap_stamp_glyph_px(GfxVideoState *s,
         }
         if (shift != 0 && byte_left_x + 1 >= 0 && (unsigned)(byte_left_x + 1) < row_bytes) {
             plane[byte_off + 1] |= (uint8_t)(bits << (8 - shift));
+        }
+        /* Stamp the current pen into the colour plane for every set
+         * glyph bit so per-stamp COLOR sticks (only on main slot — the
+         * only plane with a colour companion). */
+        if (s->screen_draw == 0 && bits) {
+            for (gc = 0; gc < 8; gc++) {
+                if ((bits >> (7 - gc)) & 1u) {
+                    int px = x + gc;
+                    if (px >= 0 && px < (int)GFX_BITMAP_WIDTH) {
+                        s->bitmap_color[(unsigned)py * GFX_BITMAP_WIDTH + (unsigned)px] = pen;
+                    }
+                }
+            }
         }
     }
 }
@@ -591,7 +810,8 @@ void gfx_video_bitmap_stamp_glyph(GfxVideoState *s,
 {
     const uint8_t *glyph;
     uint8_t *plane;
-    int glyph_row;
+    int glyph_row, gc;
+    uint8_t pen;
 
     if (!s) return;
     if (col < 0 || col >= 40) return;
@@ -599,6 +819,7 @@ void gfx_video_bitmap_stamp_glyph(GfxVideoState *s,
 
     plane = gfx_video_draw_plane(s);
     if (!plane) return;
+    pen = (uint8_t)(s->bitmap_fg & 0x0Fu);
     glyph = &s->chars[(unsigned)screencode * 8u];
 
     for (glyph_row = 0; glyph_row < 8; glyph_row++) {
@@ -610,6 +831,14 @@ void gfx_video_bitmap_stamp_glyph(GfxVideoState *s,
             plane[byte_off] = bits;
         } else {
             plane[byte_off] |= bits;
+        }
+        if (s->screen_draw == 0 && bits) {
+            int base_x = col * 8;
+            for (gc = 0; gc < 8; gc++) {
+                if ((bits >> (7 - gc)) & 1u) {
+                    s->bitmap_color[pixel_y * GFX_BITMAP_WIDTH + (unsigned)(base_x + gc)] = pen;
+                }
+            }
         }
     }
 }
@@ -634,6 +863,15 @@ void gfx_video_bitmap_scroll_up_cell(GfxVideoState *s)
     if (!plane) return;
     memmove(&plane[0], &plane[cell_bytes], keep_bytes);
     memset(&plane[keep_bytes], 0, cell_bytes);
+    /* Scroll the per-pixel colour plane alongside so text colour rolls
+     * with the glyphs (main slot only). */
+    if (s->screen_draw == 0) {
+        const size_t color_cell  = cell_rows * GFX_BITMAP_WIDTH;   /* 8 * 320 */
+        const size_t color_total = GFX_BITMAP_WIDTH * GFX_BITMAP_HEIGHT;
+        const size_t color_keep  = color_total - color_cell;
+        memmove(&s->bitmap_color[0], &s->bitmap_color[color_cell], color_keep);
+        memset(&s->bitmap_color[color_keep], 0, color_cell);
+    }
 }
 
 void gfx_bitmap_line(GfxVideoState *s, int x0, int y0, int x1, int y1, int on)
