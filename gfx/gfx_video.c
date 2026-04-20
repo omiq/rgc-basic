@@ -36,6 +36,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <math.h>
 
 /* Regions may overlap in 16-bit address space (like real machines); gfx_peek/poke use a
  * fixed priority: text, KEYBOARD (before colour!), color, char, bitmap.
@@ -164,6 +165,9 @@ void gfx_video_init(GfxVideoState *s)
     s->bitmap_rgba_show = NULL;
     s->pen_r = 0xFF; s->pen_g = 0xFF; s->pen_b = 0xFF; s->pen_a = 0xFF;
     s->bgrgba_r = 0; s->bgrgba_g = 0; s->bgrgba_b = 0; s->bgrgba_a = 0xFF;
+    /* Populate palette entries 16..255 with the HSV rainbow once per
+     * process. Safe to call repeatedly — reset is memcpy + compute. */
+    gfx_palette_reset();
 }
 
 uint8_t *gfx_video_draw_plane(GfxVideoState *s)
@@ -480,11 +484,23 @@ int gfx_bitmap_get_show_color(const GfxVideoState *s, unsigned x, unsigned y)
     return src[y * GFX_BITMAP_WIDTH + x] & 0x0Fu;
 }
 
-/* Canonical C64-style palette. Writable so PALETTESET / PALETTERESET
- * can retune entries at runtime. RGBA format; alpha defaults to 255.
- * Shared by native raylib + canvas WASM renderers and the SCREEN 2
- * COLOR → RGBA translation — changes take effect on the next frame. */
-uint8_t gfx_c64_palette_rgb[16][4] = {
+/* 256-entry writable palette. Entries 0..15 = C64 defaults (SCREEN 1
+ * and SCREEN 2 COLOR n indices). Entries 16..255 default to a 240-step
+ * HSV rainbow so SCREEN 3 has usable colours out of the box — programs
+ * can overwrite any entry with PALETTESET. */
+uint8_t gfx_c64_palette_rgb[256][4] = {
+    { 0x00, 0x00, 0x00, 0xFF }, { 0xFF, 0xFF, 0xFF, 0xFF },
+    { 0x88, 0x00, 0x00, 0xFF }, { 0xAA, 0xFF, 0xEE, 0xFF },
+    { 0xCC, 0x44, 0xCC, 0xFF }, { 0x00, 0xCC, 0x55, 0xFF },
+    { 0x00, 0x00, 0xAA, 0xFF }, { 0xEE, 0xEE, 0x77, 0xFF },
+    { 0xDD, 0x88, 0x55, 0xFF }, { 0x66, 0x44, 0x00, 0xFF },
+    { 0xFF, 0x77, 0x77, 0xFF }, { 0x33, 0x33, 0x33, 0xFF },
+    { 0x77, 0x77, 0x77, 0xFF }, { 0xAA, 0xFF, 0x66, 0xFF },
+    { 0x00, 0x88, 0xFF, 0xFF }, { 0xBB, 0xBB, 0xBB, 0xFF },
+    /* 16..255 filled in by gfx_palette_reset on first init. */
+};
+
+static const uint8_t gfx_palette_c64_defaults[16][4] = {
     { 0x00, 0x00, 0x00, 0xFF }, { 0xFF, 0xFF, 0xFF, 0xFF },
     { 0x88, 0x00, 0x00, 0xFF }, { 0xAA, 0xFF, 0xEE, 0xFF },
     { 0xCC, 0x44, 0xCC, 0xFF }, { 0x00, 0xCC, 0x55, 0xFF },
@@ -495,20 +511,57 @@ uint8_t gfx_c64_palette_rgb[16][4] = {
     { 0x00, 0x88, 0xFF, 0xFF }, { 0xBB, 0xBB, 0xBB, 0xFF },
 };
 
-static const uint8_t gfx_palette_defaults[16][4] = {
-    { 0x00, 0x00, 0x00, 0xFF }, { 0xFF, 0xFF, 0xFF, 0xFF },
-    { 0x88, 0x00, 0x00, 0xFF }, { 0xAA, 0xFF, 0xEE, 0xFF },
-    { 0xCC, 0x44, 0xCC, 0xFF }, { 0x00, 0xCC, 0x55, 0xFF },
-    { 0x00, 0x00, 0xAA, 0xFF }, { 0xEE, 0xEE, 0x77, 0xFF },
-    { 0xDD, 0x88, 0x55, 0xFF }, { 0x66, 0x44, 0x00, 0xFF },
-    { 0xFF, 0x77, 0x77, 0xFF }, { 0x33, 0x33, 0x33, 0xFF },
-    { 0x77, 0x77, 0x77, 0xFF }, { 0xAA, 0xFF, 0x66, 0xFF },
-    { 0x00, 0x88, 0xFF, 0xFF }, { 0xBB, 0xBB, 0xBB, 0xFF },
-};
+/* HSV -> RGB for palette reset. h in [0, 360), s and v in [0, 1]. */
+static void hsv_to_rgb(double h, double s, double v, uint8_t *r, uint8_t *g, uint8_t *b)
+{
+    double c = v * s;
+    double hh = h / 60.0;
+    double x = c * (1.0 - fabs(fmod(hh, 2.0) - 1.0));
+    double m = v - c;
+    double r1 = 0, g1 = 0, b1 = 0;
+    if      (hh < 1) { r1 = c; g1 = x; b1 = 0; }
+    else if (hh < 2) { r1 = x; g1 = c; b1 = 0; }
+    else if (hh < 3) { r1 = 0; g1 = c; b1 = x; }
+    else if (hh < 4) { r1 = 0; g1 = x; b1 = c; }
+    else if (hh < 5) { r1 = x; g1 = 0; b1 = c; }
+    else             { r1 = c; g1 = 0; b1 = x; }
+    *r = (uint8_t)((r1 + m) * 255.0 + 0.5);
+    *g = (uint8_t)((g1 + m) * 255.0 + 0.5);
+    *b = (uint8_t)((b1 + m) * 255.0 + 0.5);
+}
 
 void gfx_palette_reset(void)
 {
-    memcpy(gfx_c64_palette_rgb, gfx_palette_defaults, sizeof(gfx_palette_defaults));
+    int i;
+    memcpy(gfx_c64_palette_rgb, gfx_palette_c64_defaults, sizeof(gfx_palette_c64_defaults));
+    /* 240 HSV rainbow entries for SCREEN 3. Stripe by saturation /
+     * value bands so similar indices look different (useful for index-
+     * as-debug-tag). */
+    for (i = 16; i < 256; i++) {
+        int j = i - 16;                      /* 0..239 */
+        int band = j / 40;                   /* 0..5 saturation/value band */
+        int slot = j % 40;                   /* 0..39 hue slot */
+        double h = (double)slot * 9.0;       /* 0..351 deg */
+        double s = 1.0;
+        double v = 1.0;
+        switch (band) {
+            case 0: v = 1.0; s = 1.0; break;   /* pure bright */
+            case 1: v = 0.75; s = 1.0; break;  /* mid */
+            case 2: v = 0.5; s = 1.0; break;   /* dark */
+            case 3: v = 1.0; s = 0.5; break;   /* pastel */
+            case 4: v = 0.75; s = 0.5; break;  /* muted */
+            case 5:
+                /* Last band: greyscale ramp so programs always have a
+                 * usable black-to-white axis at the top of the palette. */
+                v = (double)slot / 39.0;
+                s = 0.0;
+                break;
+        }
+        hsv_to_rgb(h, s, v, &gfx_c64_palette_rgb[i][0],
+                              &gfx_c64_palette_rgb[i][1],
+                              &gfx_c64_palette_rgb[i][2]);
+        gfx_c64_palette_rgb[i][3] = 0xFF;
+    }
 }
 
 /* ── SCREEN 2 RGBA plane ─────────────────────────────────────────── */
@@ -655,6 +708,11 @@ void gfx_video_bitmap_flip(GfxVideoState *s)
     /* SCREEN 2: RGBA plane gets its own atomic flip regardless of the
      * 1bpp slot indices (which aren't meaningful in RGBA mode). */
     if (s->screen_mode == GFX_SCREEN_RGBA) { gfx_rgba_flip(s); return; }
+    /* SCREEN 3: only the colour plane matters. */
+    if (s->screen_mode == GFX_SCREEN_INDEXED) {
+        memcpy(s->bitmap_color_show, s->bitmap_color, sizeof(s->bitmap_color));
+        return;
+    }
     if (s->screen_draw == s->screen_show) return;
     draw = s->screen_buffers[s->screen_draw];
     show = s->screen_buffers[s->screen_show];
@@ -691,6 +749,16 @@ void gfx_bitmap_set_pixel(GfxVideoState *s, int x, int y, int on)
         }
         return;
     }
+    /* SCREEN 3 dispatch — bitmap_color[] stores the full 8-bit palette
+     * index for each pixel. Writes go directly there; bitmap[] bit
+     * plane is unused in this mode. `on == 0` paints bg_color. */
+    if (s->screen_mode == GFX_SCREEN_INDEXED) {
+        if (x < 0 || y < 0) return;
+        if ((unsigned)x >= GFX_BITMAP_WIDTH || (unsigned)y >= GFX_BITMAP_HEIGHT) return;
+        s->bitmap_color[(unsigned)y * GFX_BITMAP_WIDTH + (unsigned)x] =
+            on ? s->bitmap_fg : s->bg_color;
+        return;
+    }
     if (x < 0 || y < 0) return;
     ux = (unsigned)x;
     uy = (unsigned)y;
@@ -709,7 +777,7 @@ void gfx_bitmap_set_pixel(GfxVideoState *s, int x, int y, int on)
          * `bitmap_fg`. Only stamp on slot 0 (the main bitmap) — other
          * SCREEN BUFFER slots remain 1bpp + single-pen for now. */
         if (s->screen_draw == 0) {
-            s->bitmap_color[uy * GFX_BITMAP_WIDTH + ux] = (uint8_t)(s->bitmap_fg & 0x0Fu);
+            s->bitmap_color[uy * GFX_BITMAP_WIDTH + ux] = (uint8_t)(s->screen_mode == GFX_SCREEN_INDEXED ? s->bitmap_fg : (s->bitmap_fg & 0x0Fu));
         }
     } else {
         plane[byte_off] &= (uint8_t)~mask;
@@ -721,6 +789,12 @@ void gfx_video_bitmap_clear(GfxVideoState *s)
     uint8_t *plane;
     if (!s) return;
     if (s->screen_mode == GFX_SCREEN_RGBA) { gfx_rgba_clear(s); return; }
+    if (s->screen_mode == GFX_SCREEN_INDEXED) {
+        /* SCREEN 3 CLS = paint the whole indexed plane with the
+         * current bg_color palette index. No bit plane to clear. */
+        memset(s->bitmap_color, s->bg_color, sizeof(s->bitmap_color));
+        return;
+    }
     plane = gfx_video_draw_plane(s);
     if (!plane) return;
     memset(plane, 0, GFX_BITMAP_BYTES);
@@ -757,7 +831,7 @@ void gfx_video_bitmap_stamp_glyph_px(GfxVideoState *s,
     if (!s) return;
     plane = gfx_video_draw_plane(s);
     if (!plane) return;
-    pen = (uint8_t)(s->bitmap_fg & 0x0Fu);
+    pen = (uint8_t)(s->screen_mode == GFX_SCREEN_INDEXED ? s->bitmap_fg : (s->bitmap_fg & 0x0Fu));
     glyph = &s->chars[(unsigned)screencode * 8u];
     for (gr = 0; gr < 8; gr++) {
         int py = y + gr;
@@ -838,7 +912,7 @@ void gfx_video_bitmap_stamp_glyph(GfxVideoState *s,
 
     plane = gfx_video_draw_plane(s);
     if (!plane) return;
-    pen = (uint8_t)(s->bitmap_fg & 0x0Fu);
+    pen = (uint8_t)(s->screen_mode == GFX_SCREEN_INDEXED ? s->bitmap_fg : (s->bitmap_fg & 0x0Fu));
     glyph = &s->chars[(unsigned)screencode * 8u];
 
     for (glyph_row = 0; glyph_row < 8; glyph_row++) {

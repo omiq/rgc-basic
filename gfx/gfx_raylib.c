@@ -1725,6 +1725,54 @@ static void render_text_screen(const GfxVideoState *s,
     EndTextureMode();
 }
 
+/* SCREEN 3 — 320×200 8bpp indexed plane. Each pixel stores a 0..255
+ * palette index, sampled through gfx_c64_palette_rgb at composite so
+ * PALETTESET / PALETTEROTATE take effect next frame. */
+static void render_indexed_screen(const GfxVideoState *s, RenderTexture2D target,
+                                  int native_w)
+{
+    int y, x, off_x;
+    int sx = (int)s->scroll_x;
+    int sy = (int)s->scroll_y;
+    int fb_w = native_w;
+    int fb_h = NATIVE_H;
+    Color *buf = ensure_pixbuf(fb_w, fb_h);
+    Color bg = c64_palette(s->bg_color);
+    const uint8_t *src = (s->double_buffer) ? s->bitmap_color_show : s->bitmap_color;
+
+    off_x = (native_w - (int)GFX_BITMAP_WIDTH) / 2;
+    if (off_x < 0) off_x = 0;
+
+    {
+        int total = fb_w * fb_h;
+        int i;
+        for (i = 0; i < total; i++) buf[i] = bg;
+    }
+
+    for (y = 0; y < (int)GFX_BITMAP_HEIGHT; y++) {
+        int py = y - sy;
+        if (py < 0 || py >= fb_h) continue;
+        for (x = 0; x < (int)GFX_BITMAP_WIDTH; x++) {
+            int px = off_x + x - sx;
+            uint8_t idx;
+            const uint8_t *e;
+            if (px < 0 || px >= fb_w) continue;
+            idx = src[y * GFX_BITMAP_WIDTH + x];
+            e = gfx_c64_palette_rgb[idx];
+            buf[py * fb_w + px].r = e[0];
+            buf[py * fb_w + px].g = e[1];
+            buf[py * fb_w + px].b = e[2];
+            buf[py * fb_w + px].a = e[3];
+        }
+    }
+
+    UpdateTexture(g_pixtex, buf);
+    BeginTextureMode(target);
+    ClearBackground(bg);
+    DrawTexture(g_pixtex, 0, 0, WHITE);
+    EndTextureMode();
+}
+
 /* SCREEN 2 — 320×200 RGBA plane drawn as a flat texture. Bypasses the
  * palette lookup path entirely; each pixel carries its own RGBA. Still
  * respects SCROLL and letterbox-x offset. */
@@ -2126,7 +2174,9 @@ int main(int argc, char **argv)
             }
         }
 
-        if (vs.screen_mode == GFX_SCREEN_RGBA) {
+        if (vs.screen_mode == GFX_SCREEN_INDEXED) {
+            render_indexed_screen(&vs, target, nat_w);
+        } else if (vs.screen_mode == GFX_SCREEN_RGBA) {
             render_rgba_screen(&vs, target, nat_w);
         } else if (vs.screen_mode == GFX_SCREEN_BITMAP) {
             render_bitmap_screen(&vs, target, nat_w);
@@ -2335,7 +2385,9 @@ void wasm_gfx_refresh_js(void)
          * antialias. See native init comment. */
         g_antialias_applied = g_antialias;
     }
-    if (g_wasm_vs.screen_mode == GFX_SCREEN_RGBA) {
+    if (g_wasm_vs.screen_mode == GFX_SCREEN_INDEXED) {
+        render_indexed_screen(&g_wasm_vs, g_wasm_target, g_wasm_nat_w);
+    } else if (g_wasm_vs.screen_mode == GFX_SCREEN_RGBA) {
         render_rgba_screen(&g_wasm_vs, g_wasm_target, g_wasm_nat_w);
     } else if (g_wasm_vs.screen_mode == GFX_SCREEN_BITMAP) {
         render_bitmap_screen(&g_wasm_vs, g_wasm_target, g_wasm_nat_w);

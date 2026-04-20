@@ -575,7 +575,7 @@ int main(void)
         gfx_rgba_set_pixel(NULL, 0, 0);
     }
 
-    /* Palette: writable table + reset. */
+    /* Palette: writable table + reset. 256 entries total. */
     {
         assert(gfx_c64_palette_rgb[0][0] == 0x00);
         assert(gfx_c64_palette_rgb[1][0] == 0xFF);
@@ -584,11 +584,46 @@ int main(void)
         gfx_c64_palette_rgb[1][2] = 0x56;
         gfx_c64_palette_rgb[1][3] = 0x78;
         assert(gfx_c64_palette_rgb[1][0] == 0x12);
+        /* Entries 16..255 populated on init — at least one non-zero. */
+        {
+            int any = 0;
+            int i;
+            for (i = 16; i < 256; i++) {
+                if (gfx_c64_palette_rgb[i][0] || gfx_c64_palette_rgb[i][1] || gfx_c64_palette_rgb[i][2]) {
+                    any = 1; break;
+                }
+            }
+            assert(any);
+        }
         gfx_palette_reset();
         assert(gfx_c64_palette_rgb[1][0] == 0xFF);
         assert(gfx_c64_palette_rgb[1][1] == 0xFF);
         assert(gfx_c64_palette_rgb[1][2] == 0xFF);
         assert(gfx_c64_palette_rgb[1][3] == 0xFF);
+    }
+
+    /* SCREEN 3: set_pixel writes full 8-bit pen into bitmap_color,
+     * bitmap_clear fills with bg_color, flip copies colour plane. */
+    {
+        GfxVideoState b;
+        gfx_video_init(&b);
+        b.screen_mode = GFX_SCREEN_INDEXED;
+        b.bitmap_fg = 200;
+        b.bg_color  = 42;
+        gfx_bitmap_set_pixel(&b, 5, 7, 1);
+        assert(b.bitmap_color[7 * GFX_BITMAP_WIDTH + 5] == 200);
+        /* `on == 0` paints bg. */
+        gfx_bitmap_set_pixel(&b, 5, 7, 0);
+        assert(b.bitmap_color[7 * GFX_BITMAP_WIDTH + 5] == 42);
+        /* Clear fills whole plane with bg. */
+        gfx_video_bitmap_clear(&b);
+        assert(b.bitmap_color[0] == 42);
+        assert(b.bitmap_color[GFX_BITMAP_WIDTH * GFX_BITMAP_HEIGHT - 1] == 42);
+        /* Flip copies colour plane to show plane under double_buffer. */
+        b.bitmap_color[10] = 77;
+        b.double_buffer = 1;
+        gfx_video_bitmap_flip(&b);
+        assert(b.bitmap_color_show[10] == 77);
     }
 
     printf("gfx_video_test OK\n");
