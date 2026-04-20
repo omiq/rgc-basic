@@ -1938,8 +1938,14 @@ int main(int argc, char **argv)
         }
         SetTargetFPS(60);
         target = LoadRenderTexture(nat_w, nat_h);
-        /* Nearest-neighbour upscale — retro pixel-art look, no bilinear smear. */
-        SetTextureFilter(target.texture, sprite_filter_mode());
+        /* Upscale filter is always POINT: the render target is 320×200 and
+         * bilinear here would smear every source pixel across a 4×4 window,
+         * giving blurred squares that look nothing like antialiasing. True
+         * per-primitive AA needs either a Wu-line rasteriser or super-
+         * sampling and is tracked in docs/rgc-blitter-surface-spec.md.
+         * ANTIALIAS now only toggles the sprite filter — that's where
+         * rotated / scaled PNG sprites benefit from bilinear sampling. */
+        SetTextureFilter(target.texture, TEXTURE_FILTER_POINT);
 
         /* -fullscreen: stretch to full monitor, preserve aspect (letterbox).
          * Target monitor dims become the window; draw-rect computed per frame. */
@@ -2007,7 +2013,11 @@ int main(int argc, char **argv)
                 }
             }
             pthread_mutex_unlock(&g_sprite_mutex);
-            SetTextureFilter(target.texture, mode);
+            /* Leave the main render target on POINT — see the init comment
+             * at LoadRenderTexture. Bilinear at the 320×200 -> window
+             * upscale smears whole pixel squares and misreads as
+             * antialiasing. Only sprite textures participate in the
+             * ANTIALIAS toggle now. */
             g_antialias_applied = g_antialias;
         }
 
@@ -2282,8 +2292,9 @@ static void wasm_raylib_init_once(void)
     InitWindow(g_wasm_nat_w * SCALE, g_wasm_nat_h * SCALE, title ? title : "RGC-BASIC GFX");
     SetTargetFPS(60);
     g_wasm_target = LoadRenderTexture(g_wasm_nat_w, g_wasm_nat_h);
-    /* Nearest-neighbour upscale — retro pixel-art look, no bilinear smear. */
-    SetTextureFilter(g_wasm_target.texture, sprite_filter_mode());
+    /* Same rationale as native: the upscale filter stays POINT. See
+     * the long comment at the native LoadRenderTexture call. */
+    SetTextureFilter(g_wasm_target.texture, TEXTURE_FILTER_POINT);
     g_wasm_inited = 1;
 }
 
@@ -2328,7 +2339,8 @@ void wasm_gfx_refresh_js(void)
             }
         }
         pthread_mutex_unlock(&g_sprite_mutex);
-        SetTextureFilter(g_wasm_target.texture, mode);
+        /* Target stays POINT — bilinear at upscale smears, it doesn't
+         * antialias. See native init comment. */
         g_antialias_applied = g_antialias;
     }
     if (g_wasm_vs.screen_mode == GFX_SCREEN_RGBA) {
@@ -2386,7 +2398,7 @@ static void wasm_resize_if_cols_changed(void)
     g_wasm_nat_w = want_w;
     SetWindowSize(g_wasm_nat_w * SCALE, g_wasm_nat_h * SCALE);
     g_wasm_target = LoadRenderTexture(g_wasm_nat_w, g_wasm_nat_h);
-    SetTextureFilter(g_wasm_target.texture, sprite_filter_mode());
+    SetTextureFilter(g_wasm_target.texture, TEXTURE_FILTER_POINT);
 }
 
 /* Forced-refresh flag: bypasses the 60Hz rate-limit in wasm_gfx_refresh_js
