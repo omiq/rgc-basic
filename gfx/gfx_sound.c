@@ -166,10 +166,7 @@ int gfx_music_load(int slot, const char *path)
         UnloadMusicStream(g_music[slot]);
         g_music_loaded[slot] = 0;
     }
-    fprintf(stderr, "[gfx_music_load] enter slot=%d path=%s\n", slot, full); fflush(stderr);
     m = LoadMusicStream(full);
-    fprintf(stderr, "[gfx_music_load] return slot=%d buf=%p frameCount=%u\n",
-            slot, (void*)m.stream.buffer, m.frameCount); fflush(stderr);
     /* raylib returns Music with a NULL ctxData/stream.buffer when
      * the file couldn't be decoded. Trust the stream.buffer check
      * that matches the pattern gfx_sound_load uses. */
@@ -194,8 +191,6 @@ int gfx_music_play(int slot)
     if (slot < 0 || slot >= GFX_MUSIC_MAX_SLOTS) return -1;
     if (!g_music_loaded[slot]) return -1;
     PlayMusicStream(g_music[slot]);
-    fprintf(stderr, "[gfx_music_play] slot=%d playing=%d\n",
-            slot, IsMusicStreamPlaying(g_music[slot]) ? 1 : 0); fflush(stderr);
     return 0;
 }
 

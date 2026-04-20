@@ -1978,7 +1978,7 @@ int main(int argc, char **argv)
         win_w = nat_w * SCALE;
         win_h = nat_h * SCALE;
 
-        SetTraceLogLevel(LOG_INFO);
+        SetTraceLogLevel(LOG_WARNING);
         {
             const char *title = basic_get_gfx_window_title();
             InitWindow(win_w, win_h, title ? title : "RGC-BASIC GFX");
@@ -2368,7 +2368,7 @@ static void wasm_raylib_init_once(void)
     g_wasm_nat_w = cols * CELL_W;
     g_wasm_nat_h = SCREEN_ROWS * CELL_H;
 
-    SetTraceLogLevel(LOG_INFO);
+    SetTraceLogLevel(LOG_WARNING);
     title = basic_get_gfx_window_title();
     /* GL backing = native * SCALE so -gfx-border pixels are proportional to
      * the same window size desktop uses (960x600). At native-sized backing the
@@ -2683,7 +2683,7 @@ int main(void)
     setup_demo(&vs);
 
     /* Suppress raylib INFO trace logs (e.g. timer messages). */
-    SetTraceLogLevel(LOG_INFO);
+    SetTraceLogLevel(LOG_WARNING);
     InitWindow(WIN_W, WIN_H, "RGC-BASIC GFX \xe2\x80\x93 Phase 1 Demo");
     SetTargetFPS(60);
     target = LoadRenderTexture(NATIVE_W, NATIVE_H);
