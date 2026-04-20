@@ -43,7 +43,11 @@ if exist "%RAYLIB_DIR%\.git" goto :have_raylib
 
 echo build-raylib-native: cloning raylib %RAYLIB_VERSION% into %RAYLIB_DIR%
 if exist "%RAYLIB_DIR%" rmdir /S /Q "%RAYLIB_DIR%"
-git clone --depth 1 --branch %RAYLIB_VERSION% https://github.com/raysan5/raylib.git "%RAYLIB_DIR%"
+REM -c core.autocrlf=input: keep LF line endings on Windows so the LF-format
+REM patches in patches/*.patch apply cleanly. Default Git-for-Windows has
+REM core.autocrlf=true, which converts .c/.h to CRLF at checkout and causes
+REM `git apply` to silently fail the whitespace check.
+git -c core.autocrlf=input clone --depth 1 --branch %RAYLIB_VERSION% https://github.com/raysan5/raylib.git "%RAYLIB_DIR%"
 if errorlevel 1 goto :fail
 goto :patches
 
@@ -93,23 +97,33 @@ exit /B 0
 :apply_one
 set "p=%~1"
 set "pname=%~nx1"
+REM Probe forward-apply first. If it applies, do it. If it doesn't,
+REM probe reverse-apply — already-applied patches report success here
+REM and we can skip. Errors go to stderr (unlike the prior version that
+REM swallowed them with `>nul 2>&1`) so CRLF/whitespace failures are
+REM visible.
+git -C "%RAYLIB_DIR%" apply --check "%p%" >nul 2>&1
+if not errorlevel 1 goto :apply_do
 git -C "%RAYLIB_DIR%" apply --reverse --check "%p%" >nul 2>&1
 if not errorlevel 1 (
     echo build-raylib-native: patch %pname% already applied, skipping
     exit /B 0
 )
-git -C "%RAYLIB_DIR%" apply --check "%p%" >nul 2>&1
-if errorlevel 1 goto :apply_fail
-echo build-raylib-native: applying %pname%
-git -C "%RAYLIB_DIR%" apply "%p%"
-if errorlevel 1 goto :apply_fail
-set RAYLIB_FORCE=1
-exit /B 0
-
-:apply_fail
 echo build-raylib-native: ERROR patch %pname% no longer applies cleanly against raylib %RAYLIB_VERSION%
+echo   git apply output:
+git -C "%RAYLIB_DIR%" apply --check "%p%"
 echo   Rebase %p% and re-run. See patches\README.md.
 exit /B 1
+
+:apply_do
+echo build-raylib-native: applying %pname%
+git -C "%RAYLIB_DIR%" apply "%p%"
+if errorlevel 1 (
+    echo build-raylib-native: ERROR applying %pname% failed
+    exit /B 1
+)
+set RAYLIB_FORCE=1
+exit /B 0
 
 :build_fail
 popd
