@@ -37,21 +37,31 @@ BRANCH=$(git rev-parse --abbrev-ref HEAD)
 git pull origin "$BRANCH"
 make clean
 make
-# basic-gfx needs Raylib (pkg-config raylib). Skip if headers are not installed.
-if pkg-config --exists raylib 2>/dev/null; then
-  make basic-gfx
-else
-  echo "pullmake: skipping basic-gfx (raylib not found — e.g. apt install libraylib-dev)" >&2
-fi
+# basic-gfx links the patched raylib from third_party/raylib-native
+# (built on demand by scripts/build-raylib-native.sh). No system raylib
+# needed. Requires a native toolchain (cc + make) plus the platform libs
+# raylib itself depends on (X11/OpenGL on Linux, Xcode CLT on macOS,
+# MinGW + make on Windows). See scripts/build-raylib-native.sh header.
+make basic-gfx
 make basic-wasm
 make basic-wasm-modular
 make basic-wasm-canvas
-# Experimental raylib-emscripten build: only when libraylib.a is prebuilt.
-# Run scripts/build-raylib-web.sh once to populate third_party/raylib-src.
-if [ -f third_party/raylib-src/src/libraylib.a ]; then
+# raylib-emscripten build.
+#
+# scripts/build-raylib-web.sh is idempotent and handles three cases:
+#   1. third_party/raylib-src missing  -> clones raylib at RAYLIB_VERSION
+#   2. patches/*.patch newer than libraylib.a -> rebuilds the archive
+#   3. already up to date              -> exits in a few milliseconds
+#
+# Calling it here (instead of gating on the archive existing) means fresh
+# clones of rgc-basic bootstrap automatically AND patch edits in
+# patches/*.patch propagate into libraylib.a on the next pullmake without
+# the caller remembering to pass RAYLIB_FORCE=1. See patches/README.md
+# and CHANGELOG.md "MOD load freeze fix (2026-04-20)".
+if scripts/build-raylib-web.sh; then
   make basic-wasm-raylib
 else
-  echo "pullmake: skipping basic-wasm-raylib (third_party/raylib-src/src/libraylib.a missing; run scripts/build-raylib-web.sh)" >&2
+  echo "pullmake: skipping basic-wasm-raylib (scripts/build-raylib-web.sh failed — see output above)" >&2
 fi
 # Optional (needs Playwright): make wasm-test && make wasm-canvas-test && make wasm-tutorial-test
 # Or canvas-only gate: sh scripts/verify-canvas-wasm.sh
