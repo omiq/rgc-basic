@@ -14,6 +14,7 @@
 ' ============================================================
 
 SPRITE LOAD 0, "ship.png"
+ANTIALIAS ON                ' bilinear sprite filter — smooths rotated edges
 
 CX = 160 : CY = 100
 R  = 70
