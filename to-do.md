@@ -39,6 +39,30 @@ both to `CHR$(13)` keeps round-trips clean. On terminal builds
 `\n` inside a literal stays a single 0x0D, and PRINT adds the OS
 newline as today.
 
+### Cross-mode + cross-build behaviour — IMPORTANT
+
+Escapes are load-time string transforms and must produce the
+same byte sequence regardless of:
+
+- **Charset mode**: default ASCII (`#OPTION PETSCII` off) and
+  PETSCII modes (`#OPTION PETSCII`, `-petscii`, etc). The loader
+  doesn't know the runtime charset, and the produced `CHR$(13)`
+  is routed through `gfx_emit_char` / terminal PRINT which already
+  handle charset translation. So `"Line1\nLine2"` behaves the
+  same in either mode — the 0x0D byte falls through to the
+  existing newline dispatch.
+- **Build target**: terminal `basic`, native `basic-gfx`, and
+  `basic-wasm-raylib`. Escape expansion runs in `basic.c`'s
+  shared loader, so all three pick up the feature automatically.
+  Canvas WASM is frozen but the loader code is the same C file,
+  so the feature lands there too by virtue of compilation.
+- **Screen mode**: SCREEN 0 / SCREEN 1 (1bpp+colour) / SCREEN 2
+  (RGBA). `gfx_emit_char` already dispatches on screen mode for
+  glyph stamping; `\n` reaches each path identically.
+
+Tests must cover all of: terminal ASCII, terminal PETSCII, gfx
+SCREEN 0, gfx SCREEN 1, gfx SCREEN 2.
+
 ### Interaction with `\` integer divide
 
 `\` as an arithmetic operator lives outside string literals and
