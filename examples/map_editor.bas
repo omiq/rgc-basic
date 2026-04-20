@@ -151,28 +151,35 @@ DO
       COLORRGB 200, 255, 200 : DRAWTEXT 8, 384, "SAVED map.bin"
     END IF
 
-    ' LOAD button
+    ' LOAD button. OPEN sets ST = 1 if the file isn't in MEMFS (fresh
+     ' session, user hasn't SAVEd yet) — skip the read + show a status
+     ' message instead of crashing.
     IF MX >= BTN_LOAD_X0 AND MX <= BTN_LOAD_X1 AND MY >= BTN_LOAD_Y0 AND MY <= BTN_LOAD_Y1 THEN
       OPEN 1, 1, 0, "map.bin"
-      FOR I = 0 TO TILE_COUNT - 1
-        GETBYTE #1, B
-        IF B >= 0 AND B < TILE_COUNT THEN MAP(I) = B ELSE MAP(I) = TILE_COUNT - 1
-      NEXT I
-      CLOSE #1
-      ' Re-draw map grid
-      FOR I = 0 TO TILE_COUNT - 1
-        CX = I MOD COLS
-        CY = I \ COLS
-        PX = MAP_X + CX * TILE_SIZE
-        PY = MAP_Y + CY * TILE_SIZE
-        T = MAP(I)
-        COLORRGB TR(T), TG(T), TB(T)
-        FILLRECT PX, PY TO PX + TILE_SIZE - 1, PY + TILE_SIZE - 1
-        COLORRGB 80, 80, 100
-        RECT     PX, PY TO PX + TILE_SIZE - 1, PY + TILE_SIZE - 1
-      NEXT I
-      COLORRGB 32, 32, 48 : FILLRECT 0, 376 TO 639, 399
-      COLORRGB 200, 200, 255 : DRAWTEXT 8, 384, "LOADED map.bin"
+      IF ST = 1 THEN
+        COLORRGB 32, 32, 48 : FILLRECT 0, 376 TO 639, 399
+        COLORRGB 255, 200, 200 : DRAWTEXT 8, 384, "NO map.bin YET - SAVE FIRST"
+      ELSE
+        FOR I = 0 TO TILE_COUNT - 1
+          GETBYTE #1, B
+          IF B >= 0 AND B < TILE_COUNT THEN MAP(I) = B ELSE MAP(I) = TILE_COUNT - 1
+        NEXT I
+        CLOSE #1
+        ' Re-draw map grid
+        FOR I = 0 TO TILE_COUNT - 1
+          CX = I MOD COLS
+          CY = I \ COLS
+          PX = MAP_X + CX * TILE_SIZE
+          PY = MAP_Y + CY * TILE_SIZE
+          T = MAP(I)
+          COLORRGB TR(T), TG(T), TB(T)
+          FILLRECT PX, PY TO PX + TILE_SIZE - 1, PY + TILE_SIZE - 1
+          COLORRGB 80, 80, 100
+          RECT     PX, PY TO PX + TILE_SIZE - 1, PY + TILE_SIZE - 1
+        NEXT I
+        COLORRGB 32, 32, 48 : FILLRECT 0, 376 TO 639, 399
+        COLORRGB 200, 200, 255 : DRAWTEXT 8, 384, "LOADED map.bin"
+      END IF
     END IF
 
     ' Tile picker click
