@@ -2793,6 +2793,9 @@ static void statement_cursor(char **p);
 static void statement_color(char **p);
 static void statement_colorrgb(char **p);
 static void statement_backgroundrgb(char **p);
+static void statement_paletteset(char **p);
+static void statement_palettesethex(char **p);
+static void statement_palettereset(char **p);
 static void statement_background(char **p);
 static void statement_paper(char **p);
 static void statement_screencodes(char **p);
@@ -2945,6 +2948,11 @@ enum func_code {
      * audible; 0 when idle. Returns 0 when the sound backend is
      * absent (terminal / canvas WASM builds). */
     FN_SOUNDPLAYING = 81,
+    /* PALETTE(i, chan) — read palette entry `i` (0..15), channel `chan`
+     * (0=R, 1=G, 2=B, 3=A). Returns 0 when no gfx backend is active. */
+    FN_PALETTE = 82,
+    /* PALETTEHEX$(i) — "#RRGGBB" (or "#RRGGBBAA" if alpha < 255). */
+    FN_PALETTEHEX = 83,
     /* Current working directory. Native: getcwd. Browser WASM: emscripten
      * FS.cwd(). Returns "" on failure. Pairs with CHDIR statement. */
     FN_CWD = 77,
@@ -3197,6 +3205,7 @@ static const char *const reserved_words[] = {
     "FOREACH", "IN",
     "LOADSOUND", "UNLOADSOUND", "PLAYSOUND", "STOPSOUND", "SOUNDPLAYING",
     "COLORRGB", "COLOURRGB", "BACKGROUNDRGB",
+    "PALETTE", "PALETTEHEX", "PALETTESET", "PALETTESETHEX", "PALETTERESET",
     "FILLRECT", "CIRCLE", "FILLCIRCLE", "ELLIPSE", "FILLELLIPSE", "TRIANGLE", "FILLTRIANGLE", "FLOODFILL", "POLYGON", "FILLPOLYGON", "VSYNC", "ANTIALIAS",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
@@ -4225,6 +4234,9 @@ static int function_lookup(const char *name, int len)
         if ((len == 8 && name[0] == 'P' && name[1] == 'L' && name[2] == 'A' && name[3] == 'T' && name[4] == 'F' && name[5] == 'O' && name[6] == 'R' && name[7] == 'M') ||
             (len == 9 && name[0] == 'P' && name[1] == 'L' && name[2] == 'A' && name[3] == 'T' && name[4] == 'F' && name[5] == 'O' && name[6] == 'R' && name[7] == 'M' && name[8] == '$'))
             return FN_PLATFORM;
+        if (len == 7 && memcmp(name, "PALETTE", 7) == 0) return FN_PALETTE;
+        if ((len == 10 && memcmp(name, "PALETTEHEX", 10) == 0) ||
+            (len == 11 && memcmp(name, "PALETTEHEX$", 11) == 0)) return FN_PALETTEHEX;
         return FN_NONE;
     case 'U':
         if ((len == 5 && name[0] == 'U' && name[1] == 'C' && name[2] == 'A' && name[3] == 'S' && name[4] == 'E') ||
@@ -4503,6 +4515,104 @@ static void statement_backgroundrgb(char **p)
 #else
     (void)p;
     runtime_error_hint("BACKGROUNDRGB requires basic-gfx", NULL);
+#endif
+}
+
+/* PALETTESET i, r, g, b [, a] — retune one palette entry. Renderers
+ * read the live table every frame so the change is visible on the
+ * next composite. */
+static void statement_paletteset(char **p)
+{
+#ifdef GFX_VIDEO
+    struct value vi;
+    int idx, r, g, b, a;
+    skip_spaces(p);
+    vi = eval_expr(p); ensure_num(&vi);
+    idx = (int)vi.num;
+    if (idx < 0 || idx > 15) {
+        runtime_error_hint("PALETTESET: index must be 0..15", NULL);
+        return;
+    }
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("PALETTESET: expected ','",
+                             "Use PALETTESET i, r, g, b [, a]");
+        return;
+    }
+    (*p)++;
+    r = g = b = 0; a = 255;
+    if (parse_rgba_args(p, &r, &g, &b, &a) < 0) return;
+    gfx_c64_palette_rgb[idx][0] = (uint8_t)r;
+    gfx_c64_palette_rgb[idx][1] = (uint8_t)g;
+    gfx_c64_palette_rgb[idx][2] = (uint8_t)b;
+    gfx_c64_palette_rgb[idx][3] = (uint8_t)a;
+#else
+    (void)p;
+    runtime_error_hint("PALETTESET requires basic-gfx", NULL);
+#endif
+}
+
+/* PALETTESETHEX i, "#RRGGBB[AA]" — hex form for hand-authored palettes
+ * or pasted colours from design tools. Leading # optional; 6 or 8
+ * hex digits. */
+static void statement_palettesethex(char **p)
+{
+#ifdef GFX_VIDEO
+    struct value vi, vs;
+    int idx;
+    const char *s;
+    unsigned rgba[4] = { 0, 0, 0, 0xFF };
+    int nibbles = 0;
+    skip_spaces(p);
+    vi = eval_expr(p); ensure_num(&vi);
+    idx = (int)vi.num;
+    if (idx < 0 || idx > 15) {
+        runtime_error_hint("PALETTESETHEX: index must be 0..15", NULL);
+        return;
+    }
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("PALETTESETHEX: expected ','",
+                             "Use PALETTESETHEX i, \"#RRGGBB\"");
+        return;
+    }
+    (*p)++; skip_spaces(p);
+    vs = eval_expr(p); ensure_str(&vs);
+    s = vs.str;
+    if (*s == '#') s++;
+    {
+        int len = 0, i;
+        while (s[len] && isxdigit((unsigned char)s[len])) len++;
+        if (len != 6 && len != 8) {
+            runtime_error_hint("PALETTESETHEX: need 6 or 8 hex digits",
+                                 "Formats: \"#RRGGBB\" or \"#RRGGBBAA\".");
+            return;
+        }
+        nibbles = len;
+        for (i = 0; i < len; i += 2) {
+            int hi = s[i], lo = s[i + 1];
+            hi = (hi <= '9') ? hi - '0' : (tolower(hi) - 'a' + 10);
+            lo = (lo <= '9') ? lo - '0' : (tolower(lo) - 'a' + 10);
+            rgba[i / 2] = (unsigned)((hi << 4) | lo);
+        }
+    }
+    gfx_c64_palette_rgb[idx][0] = (uint8_t)rgba[0];
+    gfx_c64_palette_rgb[idx][1] = (uint8_t)rgba[1];
+    gfx_c64_palette_rgb[idx][2] = (uint8_t)rgba[2];
+    gfx_c64_palette_rgb[idx][3] = (nibbles == 8) ? (uint8_t)rgba[3] : 0xFF;
+#else
+    (void)p;
+    runtime_error_hint("PALETTESETHEX requires basic-gfx", NULL);
+#endif
+}
+
+static void statement_palettereset(char **p)
+{
+    (void)p;
+#ifdef GFX_VIDEO
+    gfx_palette_reset();
+#else
+    runtime_error_hint("PALETTERESET requires basic-gfx", NULL);
 #endif
 }
 
@@ -8556,7 +8666,8 @@ static struct value eval_function(const char *name, char **p)
     if (code != FN_MID && code != FN_LEFT && code != FN_RIGHT && code != FN_INSTR && code != FN_STRINGFN &&
         code != FN_REPLACE && code != FN_TRIM && code != FN_LTRIM && code != FN_RTRIM &&
         code != FN_FIELD && code != FN_PLATFORM && code != FN_JSON &&
-        code != FN_DIR && code != FN_JSONLEN && code != FN_JSONKEY) {
+        code != FN_DIR && code != FN_JSONLEN && code != FN_JSONKEY &&
+        code != FN_PALETTE) {
         if (**p == ')') {
             (*p)++;
         } else {
@@ -9271,6 +9382,52 @@ static struct value eval_function(const char *name, char **p)
         node = json_navigate(v_json.str, v_path.str);
         if (!node) return make_num(0.0);
         return make_num((double)json_count_entries(node));
+    }
+    case FN_PALETTE: {
+#ifdef GFX_VIDEO
+        struct value v_idx = arg;
+        struct value v_ch;
+        int idx, ch;
+        ensure_num(&v_idx);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("PALETTE requires 2 arguments",
+                                 "Use PALETTE(i, chan) — i in 0..15, chan 0=R 1=G 2=B 3=A.");
+            return make_num(0.0);
+        }
+        (*p)++; skip_spaces(p);
+        v_ch = eval_expr(p); ensure_num(&v_ch);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        idx = (int)v_idx.num & 0x0F;
+        ch  = (int)v_ch.num;
+        if (ch < 0 || ch > 3) return make_num(0.0);
+        return make_num((double)gfx_c64_palette_rgb[idx][ch]);
+#else
+        (void)arg;
+        return make_num(0.0);
+#endif
+    }
+    case FN_PALETTEHEX: {
+#ifdef GFX_VIDEO
+        int idx;
+        char buf[16];
+        ensure_num(&arg);
+        idx = (int)arg.num & 0x0F;
+        {
+            uint8_t r = gfx_c64_palette_rgb[idx][0];
+            uint8_t g = gfx_c64_palette_rgb[idx][1];
+            uint8_t b = gfx_c64_palette_rgb[idx][2];
+            uint8_t a = gfx_c64_palette_rgb[idx][3];
+            if (a == 0xFF) snprintf(buf, sizeof(buf), "#%02X%02X%02X", r, g, b);
+            else           snprintf(buf, sizeof(buf), "#%02X%02X%02X%02X", r, g, b, a);
+        }
+        return make_str(buf);
+#else
+        (void)arg;
+        return make_str("");
+#endif
     }
     case FN_JSONKEY: {
         struct value v_json = arg;
@@ -10045,6 +10202,8 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "JSONLEN") || starts_with_kw(*p, "JSONKEY") ||
             starts_with_kw(*p, "JSONKEY$") ||
             starts_with_kw(*p, "SOUNDPLAYING") ||
+            starts_with_kw(*p, "PALETTE") || starts_with_kw(*p, "PALETTEHEX") ||
+            starts_with_kw(*p, "PALETTEHEX$") ||
             starts_with_kw(*p, "BUFFERLEN") || starts_with_kw(*p, "BUFFERPATH") ||
             starts_with_kw(*p, "KEYDOWN") || starts_with_kw(*p, "KEYUP") ||
             starts_with_kw(*p, "KEYPRESS") || starts_with_kw(*p, "ANIMFRAME") ||
@@ -13561,6 +13720,21 @@ static void execute_statement(char **p)
         if (starts_with_kw(*p, "PLAYSOUND")) {
             *p += 9;
             statement_playsound(p);
+            return;
+        }
+        if (starts_with_kw(*p, "PALETTESETHEX")) {
+            *p += 13;
+            statement_palettesethex(p);
+            return;
+        }
+        if (starts_with_kw(*p, "PALETTESET")) {
+            *p += 10;
+            statement_paletteset(p);
+            return;
+        }
+        if (starts_with_kw(*p, "PALETTERESET")) {
+            *p += 12;
+            statement_palettereset(p);
             return;
         }
 #endif

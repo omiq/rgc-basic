@@ -1598,24 +1598,16 @@ static void gfx_raylib_service_grab(RenderTexture2D target, int nat_w, int nat_h
 
 /* ── C64 palette (approximate RGB values) ─────────────────────────── */
 
-static const Color c64_palette[16] = {
-    { 0x00, 0x00, 0x00, 0xFF },   /*  0  Black       */
-    { 0xFF, 0xFF, 0xFF, 0xFF },   /*  1  White       */
-    { 0x88, 0x00, 0x00, 0xFF },   /*  2  Red         */
-    { 0xAA, 0xFF, 0xEE, 0xFF },   /*  3  Cyan        */
-    { 0xCC, 0x44, 0xCC, 0xFF },   /*  4  Purple      */
-    { 0x00, 0xCC, 0x55, 0xFF },   /*  5  Green       */
-    { 0x00, 0x00, 0xAA, 0xFF },   /*  6  Blue        */
-    { 0xEE, 0xEE, 0x77, 0xFF },   /*  7  Yellow      */
-    { 0xDD, 0x88, 0x55, 0xFF },   /*  8  Orange      */
-    { 0x66, 0x44, 0x00, 0xFF },   /*  9  Brown       */
-    { 0xFF, 0x77, 0x77, 0xFF },   /* 10  Light Red   */
-    { 0x33, 0x33, 0x33, 0xFF },   /* 11  Dark Gray   */
-    { 0x77, 0x77, 0x77, 0xFF },   /* 12  Medium Gray */
-    { 0xAA, 0xFF, 0x66, 0xFF },   /* 13  Light Green */
-    { 0x00, 0x88, 0xFF, 0xFF },   /* 14  Light Blue  */
-    { 0xBB, 0xBB, 0xBB, 0xFF },   /* 15  Light Gray  */
-};
+/* Palette is now a writable table in gfx_video.c (gfx_c64_palette_rgb).
+ * Legacy `c64_palette(i)` subscript call-sites continue to work via a
+ * raylib-Color wrapper macro, but the underlying bytes can be retuned
+ * at runtime by PALETTESET / PALETTERESET and renderers pick up the
+ * change on the next frame. */
+static inline Color c64_palette_at(int idx) {
+    const uint8_t *e = gfx_c64_palette_rgb[idx & 0x0F];
+    return (Color){ e[0], e[1], e[2], e[3] };
+}
+#define c64_palette(i) c64_palette_at(i)
 
 /* Background colour comes from video state (s->bg_color). */
 
@@ -1681,7 +1673,7 @@ static void render_text_screen(const GfxVideoState *s,
     int fb_h = SCREEN_ROWS * CELL_H;
     int sx = (int)s->scroll_x;
     int sy = (int)s->scroll_y;
-    Color bg_global = c64_palette[s->bg_color & 0x0F];
+    Color bg_global = c64_palette(s->bg_color & 0x0F);
     Color *buf = ensure_pixbuf(fb_w, fb_h);
 
     /* Clear with background. */
@@ -1700,8 +1692,8 @@ static void render_text_screen(const GfxVideoState *s,
             uint8_t ci = s->color[idx] & 0x0F;
             uint8_t bgi = s->bgcolor[idx] & 0x0F;
             const uint8_t *glyph;
-            Color fg = c64_palette[ci];
-            Color bg = c64_palette[bgi];
+            Color fg = c64_palette(ci);
+            Color bg = c64_palette(bgi);
             int reversed = (sc & 0x80) ? 1 : 0;
             int base_px = col * CELL_W - sx;
             int base_py = row * CELL_H - sy;
@@ -1795,8 +1787,8 @@ static void render_bitmap_screen(const GfxVideoState *s, RenderTexture2D target,
     int y, x, off_x;
     int sx = (int)s->scroll_x;
     int sy = (int)s->scroll_y;
-    Color fg_fallback = c64_palette[s->bitmap_fg & 0x0F];
-    Color bg = c64_palette[s->bg_color & 0x0F];
+    Color fg_fallback = c64_palette(s->bitmap_fg & 0x0F);
+    Color bg = c64_palette(s->bg_color & 0x0F);
     int fb_w = native_w;
     int fb_h = NATIVE_H;
     Color *buf = ensure_pixbuf(fb_w, fb_h);
@@ -1843,7 +1835,7 @@ static void render_bitmap_screen(const GfxVideoState *s, RenderTexture2D target,
                 if (main_slot_visible) {
                     idx = gfx_bitmap_get_show_color(s, (unsigned)x, (unsigned)y);
                 }
-                fg = idx ? c64_palette[idx & 0x0F] : fg_fallback;
+                fg = idx ? c64_palette(idx & 0x0F) : fg_fallback;
                 buf[py * fb_w + px] = fg;
             } else {
                 buf[py * fb_w + px] = bg;
@@ -2192,7 +2184,7 @@ int main(int argc, char **argv)
                 int bc = basic_get_gfx_border_color();
                 uint8_t ci = (bc >= 0 && bc <= 15) ? (uint8_t)bc : (vs.bg_color & 0x0F);
                 if (fullscreen || basic_get_gfx_border() > 0) {
-                    ClearBackground(fullscreen && bc < 0 ? BLACK : c64_palette[ci]);
+                    ClearBackground(fullscreen && bc < 0 ? BLACK : c64_palette(ci));
                 }
                 DrawTexturePro(
                     target.texture,
@@ -2365,7 +2357,7 @@ void wasm_gfx_refresh_js(void)
     gfx_mouse_raylib_poll(g_wasm_nat_w, g_wasm_nat_h, dx, dy, dx + dw, dy + dh);
 
     bc = basic_get_gfx_border_color();
-    bg = (bc >= 0 && bc <= 15) ? c64_palette[bc] : c64_palette[g_wasm_vs.bg_color & 0x0F];
+    bg = (bc >= 0 && bc <= 15) ? c64_palette(bc) : c64_palette(g_wasm_vs.bg_color & 0x0F);
 
     BeginDrawing();
     ClearBackground(border > 0 ? bg : BLACK);
