@@ -2130,11 +2130,11 @@ static void gfx_clear_screen(void)
     if (!gfx_vs) return;
     if (gfx_vs->screen_mode == GFX_SCREEN_RGBA) {
         gfx_rgba_clear(gfx_vs);
-    } else if (gfx_vs->screen_mode == GFX_SCREEN_BITMAP) {
-        /* CHR$(147) in bitmap mode clears the visible plane, which is the
-         * bitmap — the text plane is not rendered in SCREEN 1. See
-         * docs/bitmap-text-plan.md. Cursor state is still reset so the
-         * next PRINT starts at cell (0, 0). */
+    } else if (gfx_vs->screen_mode == GFX_SCREEN_INDEXED ||
+               gfx_vs->screen_mode == GFX_SCREEN_BITMAP) {
+        /* SCREEN 1 clears the 1bpp + colour planes; SCREEN 3 paints
+         * the 8bpp indexed plane with bg_color — both routed through
+         * gfx_video_bitmap_clear which checks the mode internally. */
         gfx_video_bitmap_clear(gfx_vs);
     } else {
         memset(gfx_vs->screen, 32, GFX_TEXT_SIZE);
@@ -2364,6 +2364,40 @@ static void gfx_put_byte(unsigned char b)
         gfx_vs->pen_r = save_r; gfx_vs->pen_g = save_g;
         gfx_vs->pen_b = save_b; gfx_vs->pen_a = save_a;
         gfx_rgba_stamp_glyph_px(gfx_vs, px, py, sc);
+    } else if (gfx_vs->screen_mode == GFX_SCREEN_INDEXED) {
+        /* SCREEN 3 PRINT: paint 8x8 cell with bg_color (full 8-bit
+         * palette index) then stamp glyph bits with bitmap_fg. Mirrors
+         * SCREEN 1 / SCREEN 2 opaque-paper semantics. */
+        int cell_col = gfx_x;
+        int px, py, gr, gc;
+        uint8_t pen = gfx_vs->bitmap_fg;
+        uint8_t bg  = gfx_vs->bg_color;
+        const uint8_t *glyph;
+        if (cell_col >= 40) cell_col = 39;
+        px = cell_col * 8;
+        py = gfx_y * 8;
+        for (gr = 0; gr < 8; gr++) {
+            for (gc = 0; gc < 8; gc++) {
+                int ppx = px + gc;
+                int ppy = py + gr;
+                if (ppx < 0 || ppx >= (int)GFX_BITMAP_WIDTH) continue;
+                if (ppy < 0 || ppy >= (int)GFX_BITMAP_HEIGHT) continue;
+                gfx_vs->bitmap_color[(unsigned)ppy * GFX_BITMAP_WIDTH + (unsigned)ppx] = bg;
+            }
+        }
+        glyph = &gfx_vs->chars[(unsigned)sc * 8u];
+        for (gr = 0; gr < 8; gr++) {
+            uint8_t bits = glyph[gr];
+            int ppy = py + gr;
+            if (ppy < 0 || ppy >= (int)GFX_BITMAP_HEIGHT) continue;
+            for (gc = 0; gc < 8; gc++) {
+                if ((bits >> (7 - gc)) & 1u) {
+                    int ppx = px + gc;
+                    if (ppx < 0 || ppx >= (int)GFX_BITMAP_WIDTH) continue;
+                    gfx_vs->bitmap_color[(unsigned)ppy * GFX_BITMAP_WIDTH + (unsigned)ppx] = pen;
+                }
+            }
+        }
     } else if (gfx_vs->screen_mode == GFX_SCREEN_BITMAP) {
         /* Bitmap-mode path: stamp the 8x8 glyph from the active character
          * set (s->chars[sc*8]) into bitmap[] at cell (gfx_x, gfx_y).
@@ -4681,28 +4715,43 @@ static void statement_palettereset(char **p)
 
 static void statement_color(char **p)
 {
-    /* COLOR n: set foreground colour using ANSI SGR based on C64-style palette index 0-15. */
+    /* COLOR n: set foreground colour. 0..15 in every mode; SCREEN 3
+     * accepts 0..255 (extended palette). Terminal build clamps to
+     * 0..15 for ANSI SGR output regardless of mode. */
     struct value v;
     int idx;
+    int max_idx = 15;
 
     v = eval_expr(p);
     ensure_num(&v);
     idx = (int)v.num;
-    if (idx < 0 || idx > 15) {
-        runtime_error_hint("COLOR index must be 0-15", "Foreground colours use indices 0-15 (C64-style palette).");
+
+#ifdef GFX_VIDEO
+    if (gfx_vs && gfx_vs->screen_mode == GFX_SCREEN_INDEXED) {
+        max_idx = 255;
+    }
+#endif
+    if (idx < 0 || idx > max_idx) {
+        if (max_idx == 255) {
+            runtime_error_hint("COLOR index must be 0-255 in SCREEN 3",
+                                 "SCREEN 3 uses the full 256-entry palette.");
+        } else {
+            runtime_error_hint("COLOR index must be 0-15",
+                                 "Foreground colours use indices 0-15 (C64-style palette). SCREEN 3 widens to 0-255.");
+        }
         return;
     }
 
 #ifdef GFX_VIDEO
     if (gfx_vs) {
-        gfx_fg = (uint8_t)idx;
-        gfx_vs->bitmap_fg = (uint8_t)idx;
+        gfx_fg = (uint8_t)(idx & 0x0F);       /* terminal SGR only uses 0..15 */
+        gfx_vs->bitmap_fg = (uint8_t)idx;     /* SCREEN 3 needs full byte */
         /* Keep the SCREEN 2 RGBA pen in sync so `COLOR n` works the
          * same way in both modes — mixed-mode programs only need one
          * statement to pick a pen colour. */
-        gfx_vs->pen_r = gfx_c64_palette_rgb[idx & 0x0F][0];
-        gfx_vs->pen_g = gfx_c64_palette_rgb[idx & 0x0F][1];
-        gfx_vs->pen_b = gfx_c64_palette_rgb[idx & 0x0F][2];
+        gfx_vs->pen_r = gfx_c64_palette_rgb[idx & 0xFF][0];
+        gfx_vs->pen_g = gfx_c64_palette_rgb[idx & 0xFF][1];
+        gfx_vs->pen_b = gfx_c64_palette_rgb[idx & 0xFF][2];
         gfx_vs->pen_a = 0xFF;
         return;
     }
@@ -4735,27 +4784,37 @@ static void statement_color(char **p)
 
 static void statement_background(char **p)
 {
-    /* BACKGROUND n: set background colour using ANSI SGR based on C64-style palette index 0-15. */
+    /* BACKGROUND n: SCREEN 0/1/2 = 0..15; SCREEN 3 = 0..255. */
     struct value v;
     int idx;
+    int max_idx = 15;
 
     v = eval_expr(p);
     ensure_num(&v);
     idx = (int)v.num;
-    if (idx < 0 || idx > 15) {
-        runtime_error_hint("BACKGROUND index must be 0-15", "Pen/paper colours use indices 0-15 like COLOR.");
+
+#ifdef GFX_VIDEO
+    if (gfx_vs && gfx_vs->screen_mode == GFX_SCREEN_INDEXED) {
+        max_idx = 255;
+    }
+#endif
+    if (idx < 0 || idx > max_idx) {
+        runtime_error_hint(max_idx == 255
+                              ? "BACKGROUND index must be 0-255 in SCREEN 3"
+                              : "BACKGROUND index must be 0-15",
+                             "Pen/paper colours use indices 0-15 like COLOR; SCREEN 3 widens to 0-255.");
         return;
     }
 
 #ifdef GFX_VIDEO
     if (gfx_vs) {
-        gfx_bg = (uint8_t)idx;
-        gfx_vs->bg_color = (uint8_t)idx;
+        gfx_bg = (uint8_t)(idx & 0x0F);       /* terminal SGR */
+        gfx_vs->bg_color = (uint8_t)idx;      /* SCREEN 3 needs full byte */
         /* Keep the SCREEN 2 RGBA clear colour in sync so a subsequent
          * CLS fills with the palette equivalent of the requested index. */
-        gfx_vs->bgrgba_r = gfx_c64_palette_rgb[idx & 0x0F][0];
-        gfx_vs->bgrgba_g = gfx_c64_palette_rgb[idx & 0x0F][1];
-        gfx_vs->bgrgba_b = gfx_c64_palette_rgb[idx & 0x0F][2];
+        gfx_vs->bgrgba_r = gfx_c64_palette_rgb[idx & 0xFF][0];
+        gfx_vs->bgrgba_g = gfx_c64_palette_rgb[idx & 0xFF][1];
+        gfx_vs->bgrgba_b = gfx_c64_palette_rgb[idx & 0xFF][2];
         gfx_vs->bgrgba_a = 0xFF;
         return;
     }
@@ -5822,8 +5881,16 @@ static void statement_screen(char **p)
         gfx_vs->screen_mode = GFX_SCREEN_RGBA;
         return;
     }
-    runtime_error_hint("SCREEN expects 0 (text), 1 (1bpp bitmap), or 2 (RGBA)",
-                         "Use SCREEN 0 for PETSCII text, SCREEN 1 for 320×200 1bpp+palette, or SCREEN 2 for 320×200 RGBA.");
+    if (mode == 3) {
+        /* SCREEN 3 reuses the bitmap_color[] inline plane (64 KB) + the
+         * DOUBLEBUFFER companion bitmap_color_show[]. No heap alloc.
+         * Palette entries 16..255 were populated by gfx_palette_reset
+         * at init, so a bare SCREEN 3 program has a usable rainbow. */
+        gfx_vs->screen_mode = GFX_SCREEN_INDEXED;
+        return;
+    }
+    runtime_error_hint("SCREEN expects 0, 1, 2, or 3",
+                         "0 = PETSCII text, 1 = 320×200 1bpp+palette, 2 = 320×200 RGBA, 3 = 320×200 256-colour indexed.");
 #endif
 }
 

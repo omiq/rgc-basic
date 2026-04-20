@@ -33,10 +33,11 @@
 #define GFX_BITMAP_HEIGHT 200u
 #define GFX_BITMAP_BYTES  ((GFX_BITMAP_WIDTH * GFX_BITMAP_HEIGHT) / 8u)
 
-/* Display mode for basic-gfx (SCREEN 0 / SCREEN 1 / SCREEN 2). */
-#define GFX_SCREEN_TEXT   0u
-#define GFX_SCREEN_BITMAP 1u
-#define GFX_SCREEN_RGBA   2u
+/* Display mode for basic-gfx (SCREEN 0..3). */
+#define GFX_SCREEN_TEXT    0u
+#define GFX_SCREEN_BITMAP  1u
+#define GFX_SCREEN_RGBA    2u
+#define GFX_SCREEN_INDEXED 3u   /* 320x200 8bpp palette-indexed */
 
 /* 32-bit RGBA bytes per pixel for SCREEN 2 / Blitter Phase 2. */
 #define GFX_RGBA_BYTES    (GFX_BITMAP_WIDTH * GFX_BITMAP_HEIGHT * 4u)
@@ -181,13 +182,19 @@ int gfx_bitmap_get_show_pixel(const GfxVideoState *s, unsigned x, unsigned y);
  * `double_buffer` is on and draw/show slots differ. */
 int gfx_bitmap_get_show_color(const GfxVideoState *s, unsigned x, unsigned y);
 
-/* 16-entry palette, writable. Defaults to C64 hex values with
- * alpha=255. Shared by SCREEN 1 renderer + SCREEN 2 COLOR→RGBA
- * translation, so PALETTESET / PALETTERESET immediately affect both.
- * Indexed 0..15; channels 0..3 = R/G/B/A. */
-extern uint8_t gfx_c64_palette_rgb[16][4];
+/* 256-entry palette, writable. First 16 entries default to the C64
+ * hex values; 16..255 default to an HSV rainbow so SCREEN 3 has
+ * something to draw before PALETTESET touches them. All entries
+ * RGBA (alpha=255 on reset). Shared by every screen mode:
+ *   SCREEN 1 bitmap_color[] stores 4-bit indices (0..15) — masks
+ *     to the first 16 entries.
+ *   SCREEN 2 looks up via COLOR n -> RGBA translation.
+ *   SCREEN 3 bitmap_color[] stores full 8-bit indices (0..255).
+ * PALETTESET / PALETTERESET immediately affect all of them. */
+extern uint8_t gfx_c64_palette_rgb[256][4];
 
-/* Reset palette to the built-in C64 defaults. */
+/* Reset palette: entries 0..15 back to C64 defaults, 16..255 back
+ * to the HSV rainbow generated on init. */
 void gfx_palette_reset(void);
 
 /* SCREEN 2 RGBA plane helpers ---------------------------------------- */
