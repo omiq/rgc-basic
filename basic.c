@@ -2893,6 +2893,7 @@ static void statement_backgroundrgb(char **p);
 static void statement_paletteset(char **p);
 static void statement_palettesethex(char **p);
 static void statement_palettereset(char **p);
+static void statement_paletterotate(char **p);
 static void statement_background(char **p);
 static void statement_paper(char **p);
 static void statement_screencodes(char **p);
@@ -3302,7 +3303,7 @@ static const char *const reserved_words[] = {
     "FOREACH", "IN",
     "LOADSOUND", "UNLOADSOUND", "PLAYSOUND", "STOPSOUND", "SOUNDPLAYING",
     "COLORRGB", "COLOURRGB", "BACKGROUNDRGB",
-    "PALETTE", "PALETTEHEX", "PALETTESET", "PALETTESETHEX", "PALETTERESET",
+    "PALETTE", "PALETTEHEX", "PALETTESET", "PALETTESETHEX", "PALETTERESET", "PALETTEROTATE",
     "FILLRECT", "CIRCLE", "FILLCIRCLE", "ELLIPSE", "FILLELLIPSE", "TRIANGLE", "FILLTRIANGLE", "FLOODFILL", "POLYGON", "FILLPOLYGON", "VSYNC", "ANTIALIAS",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
@@ -4710,6 +4711,40 @@ static void statement_palettereset(char **p)
     gfx_palette_reset();
 #else
     runtime_error_hint("PALETTERESET requires basic-gfx", NULL);
+#endif
+}
+
+/* PALETTEROTATE first, last [, step] — shift palette entries in-place.
+ * Classic demoscene palette cycling. Much cheaper than calling
+ * PALETTESET 240 times per frame from BASIC; the swap happens in one
+ * C call. Positive step rotates entries toward higher indices. */
+static void statement_paletterotate(char **p)
+{
+#ifdef GFX_VIDEO
+    struct value v;
+    int first, last, step = 1;
+    skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v);
+    first = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("PALETTEROTATE expects first, last [, step]",
+                             "Shift palette entries in-place — e.g. PALETTEROTATE 16, 255 spins the SCREEN 3 rainbow.");
+        return;
+    }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v);
+    last = (int)v.num;
+    skip_spaces(p);
+    if (**p == ',') {
+        (*p)++; skip_spaces(p);
+        v = eval_expr(p); ensure_num(&v);
+        step = (int)v.num;
+    }
+    gfx_palette_rotate(first, last, step);
+#else
+    (void)p;
+    runtime_error_hint("PALETTEROTATE requires basic-gfx", NULL);
 #endif
 }
 
@@ -13878,6 +13913,11 @@ static void execute_statement(char **p)
         if (starts_with_kw(*p, "PALETTERESET")) {
             *p += 12;
             statement_palettereset(p);
+            return;
+        }
+        if (starts_with_kw(*p, "PALETTEROTATE")) {
+            *p += 13;
+            statement_paletterotate(p);
             return;
         }
 #endif

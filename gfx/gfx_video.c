@@ -530,6 +530,31 @@ static void hsv_to_rgb(double h, double s, double v, uint8_t *r, uint8_t *g, uin
     *b = (uint8_t)((b1 + m) * 255.0 + 0.5);
 }
 
+void gfx_palette_rotate(int first, int last, int step)
+{
+    uint8_t tmp[256][4];
+    int n, i, src, mod, reduced;
+    if (first < 0) first = 0;
+    if (first > 255) first = 255;
+    if (last < 0) last = 0;
+    if (last > 255) last = 255;
+    if (first > last) { int t = first; first = last; last = t; }
+    n = last - first + 1;
+    if (n <= 1) return;
+    /* Reduce step modulo n, handling negatives with floor-mod. Positive
+     * step shifts entries toward higher indices (entry at `first` moves
+     * to `first + step`), wrapping at `last` back to `first`. */
+    mod = step % n;
+    if (mod < 0) mod += n;
+    reduced = mod;
+    if (reduced == 0) return;
+    memcpy(tmp, &gfx_c64_palette_rgb[first], (size_t)n * 4u);
+    for (i = 0; i < n; i++) {
+        src = (i - reduced + n) % n;
+        memcpy(gfx_c64_palette_rgb[first + i], tmp[src], 4u);
+    }
+}
+
 void gfx_palette_reset(void)
 {
     int i;
