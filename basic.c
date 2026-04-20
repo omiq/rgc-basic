@@ -2881,6 +2881,14 @@ static void statement_loadsound(char **p);
 static void statement_unloadsound(char **p);
 static void statement_playsound(char **p);
 static void statement_stopsound(char **p);
+static void statement_loadmusic(char **p);
+static void statement_unloadmusic(char **p);
+static void statement_playmusic(char **p);
+static void statement_stopmusic(char **p);
+static void statement_pausemusic(char **p);
+static void statement_resumemusic(char **p);
+static void statement_musicvolume(char **p);
+static void statement_musicloop(char **p);
 #endif
 static void statement_print_hash(char **p);
 static void statement_input_hash(char **p);
@@ -3049,6 +3057,9 @@ enum func_code {
      * audible; 0 when idle. Returns 0 when the sound backend is
      * absent (terminal / canvas WASM builds). */
     FN_SOUNDPLAYING = 81,
+    /* MUSICPLAYING(slot) — 1 while the given music stream slot is
+     * actively producing samples; 0 when idle / paused / unloaded. */
+    FN_MUSICPLAYING = 110,
     /* PALETTE(i, chan) — read palette entry `i` (0..15), channel `chan`
      * (0=R, 1=G, 2=B, 3=A). Returns 0 when no gfx backend is active. */
     FN_PALETTE = 82,
@@ -3305,6 +3316,8 @@ static const char *const reserved_words[] = {
     "CHDIR", "CWD", "DIR", "JSONLEN", "JSONKEY", "TICKUS", "TICKMS",
     "FOREACH", "IN",
     "LOADSOUND", "UNLOADSOUND", "PLAYSOUND", "STOPSOUND", "SOUNDPLAYING", "LOADSCREEN",
+    "LOADMUSIC", "UNLOADMUSIC", "PLAYMUSIC", "STOPMUSIC", "PAUSEMUSIC", "RESUMEMUSIC",
+    "MUSICVOLUME", "MUSICLOOP", "MUSICPLAYING",
     "COLORRGB", "COLOURRGB", "BACKGROUNDRGB",
     "PALETTE", "PALETTEHEX", "PALETTESET", "PALETTESETHEX", "PALETTERESET", "PALETTEROTATE",
     "PALETTELOAD", "PALETTESAVE",
@@ -4313,6 +4326,7 @@ static int function_lookup(const char *name, int len)
         if ((len == 3 && name[0] == 'M' && name[1] == 'I' && name[2] == 'D') ||
             (len == 4 && name[0] == 'M' && name[1] == 'I' && name[2] == 'D' && name[3] == '$'))
             return FN_MID;
+        if (len == 12 && memcmp(name, "MUSICPLAYING", 12) == 0) return FN_MUSICPLAYING;
         return FN_NONE;
     case 'R':
         if (len == 3 && name[0] == 'R' && name[1] == 'N' && name[2] == 'D') return FN_RND;
@@ -7660,6 +7674,131 @@ static void statement_stopsound(char **p)
 #endif
 }
 
+/* ------------------------------------------------------------------
+ * Music stream verbs (MOD / XM / S3M / IT / OGG / MP3). Streaming is
+ * independent of the one-shot WAV pool: multiple songs can sit in
+ * slots waiting for PLAYMUSIC without stomping each other, and PLAY
+ * doesn't auto-stop siblings the way PLAYSOUND does.
+ * ------------------------------------------------------------------ */
+static void statement_loadmusic(char **p)
+{
+    struct value vslot, vpath;
+    int slot;
+    skip_spaces(p);
+    vslot = eval_expr(p); ensure_num(&vslot);
+    slot = (int)vslot.num;
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("LOADMUSIC expects slot, \"path.mod\"",
+                             "Example: LOADMUSIC 0, \"song.mod\"");
+        return;
+    }
+    (*p)++; skip_spaces(p);
+    vpath = eval_expr(p); ensure_str(&vpath);
+    skip_spaces(p);
+#if defined(GFX_VIDEO) && (!defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB))
+    if (gfx_music_load(slot, vpath.str) != 0) {
+        char hint[256];
+        snprintf(hint, sizeof(hint),
+                 "Could not open '%s' as a MOD/XM/S3M/IT/OGG/MP3. Check path + format.",
+                 vpath.str);
+        runtime_error_hint("LOADMUSIC failed", hint);
+    }
+#else
+    runtime_error_hint("LOADMUSIC requires basic-gfx or basic-wasm-raylib",
+                         "Music streams compile into the Raylib-backed targets only.");
+#endif
+}
+
+static void statement_unloadmusic(char **p)
+{
+    struct value vslot;
+    skip_spaces(p);
+    vslot = eval_expr(p); ensure_num(&vslot);
+#if defined(GFX_VIDEO) && (!defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB))
+    gfx_music_unload((int)vslot.num);
+#endif
+}
+
+static void statement_playmusic(char **p)
+{
+    struct value vslot;
+    skip_spaces(p);
+    vslot = eval_expr(p); ensure_num(&vslot);
+#if defined(GFX_VIDEO) && (!defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB))
+    if (gfx_music_play((int)vslot.num) != 0) {
+        runtime_error_hint("PLAYMUSIC: slot not loaded",
+                             "Call LOADMUSIC slot, \"file.mod\" before PLAYMUSIC slot.");
+    }
+#else
+    runtime_error_hint("PLAYMUSIC requires basic-gfx or basic-wasm-raylib", NULL);
+#endif
+}
+
+static void statement_stopmusic(char **p)
+{
+    struct value vslot;
+    skip_spaces(p);
+    vslot = eval_expr(p); ensure_num(&vslot);
+#if defined(GFX_VIDEO) && (!defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB))
+    gfx_music_stop((int)vslot.num);
+#endif
+}
+
+static void statement_pausemusic(char **p)
+{
+    struct value vslot;
+    skip_spaces(p);
+    vslot = eval_expr(p); ensure_num(&vslot);
+#if defined(GFX_VIDEO) && (!defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB))
+    gfx_music_pause((int)vslot.num);
+#endif
+}
+
+static void statement_resumemusic(char **p)
+{
+    struct value vslot;
+    skip_spaces(p);
+    vslot = eval_expr(p); ensure_num(&vslot);
+#if defined(GFX_VIDEO) && (!defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB))
+    gfx_music_resume((int)vslot.num);
+#endif
+}
+
+static void statement_musicvolume(char **p)
+{
+    struct value vslot, vvol;
+    skip_spaces(p);
+    vslot = eval_expr(p); ensure_num(&vslot);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("MUSICVOLUME expects slot, level", "Level is 0.0 .. 1.0.");
+        return;
+    }
+    (*p)++; skip_spaces(p);
+    vvol = eval_expr(p); ensure_num(&vvol);
+#if defined(GFX_VIDEO) && (!defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB))
+    gfx_music_set_volume((int)vslot.num, (float)vvol.num);
+#endif
+}
+
+static void statement_musicloop(char **p)
+{
+    struct value vslot, vloop;
+    skip_spaces(p);
+    vslot = eval_expr(p); ensure_num(&vslot);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("MUSICLOOP expects slot, onoff", "0 = one-shot, 1 = repeat.");
+        return;
+    }
+    (*p)++; skip_spaces(p);
+    vloop = eval_expr(p); ensure_num(&vloop);
+#if defined(GFX_VIDEO) && (!defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB))
+    gfx_music_set_loop((int)vslot.num, (int)vloop.num ? 1 : 0);
+#endif
+}
+
 static void statement_download(char **p)
 {
     struct value vpath;
@@ -8384,6 +8523,22 @@ static struct value eval_function(const char *name, char **p)
         skip_spaces(p);
 #if defined(GFX_VIDEO) && (!defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB))
         return make_num((double)gfx_sound_is_playing());
+#else
+        return make_num(0.0);
+#endif
+    }
+    if (code == FN_MUSICPLAYING) {
+        struct value vslot;
+        vslot = eval_expr(p); ensure_num(&vslot);
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("MUSICPLAYING expects one argument",
+                                 "Use MUSICPLAYING(slot) where slot is 0..7.");
+            return make_num(0.0);
+        }
+        (*p)++; skip_spaces(p);
+#if defined(GFX_VIDEO) && (!defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB))
+        return make_num((double)gfx_music_is_playing((int)vslot.num));
 #else
         return make_num(0.0);
 #endif
@@ -10706,6 +10861,7 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "JSONLEN") || starts_with_kw(*p, "JSONKEY") ||
             starts_with_kw(*p, "JSONKEY$") ||
             starts_with_kw(*p, "SOUNDPLAYING") ||
+            starts_with_kw(*p, "MUSICPLAYING") ||
             starts_with_kw(*p, "PALETTE") || starts_with_kw(*p, "PALETTEHEX") ||
             starts_with_kw(*p, "PALETTEHEX$") ||
             starts_with_kw(*p, "BUFFERLEN") || starts_with_kw(*p, "BUFFERPATH") ||
@@ -14247,6 +14403,16 @@ static void execute_statement(char **p)
             statement_playsound(p);
             return;
         }
+        if (starts_with_kw(*p, "PLAYMUSIC")) {
+            *p += 9;
+            statement_playmusic(p);
+            return;
+        }
+        if (starts_with_kw(*p, "PAUSEMUSIC")) {
+            *p += 10;
+            statement_pausemusic(p);
+            return;
+        }
         if (starts_with_kw(*p, "PALETTESETHEX")) {
             *p += 13;
             statement_palettesethex(p);
@@ -14330,6 +14496,11 @@ static void execute_statement(char **p)
         if (starts_with_kw(*p, "LOADSOUND")) {
             *p += 9;
             statement_loadsound(p);
+            return;
+        }
+        if (starts_with_kw(*p, "LOADMUSIC")) {
+            *p += 9;
+            statement_loadmusic(p);
             return;
         }
         if (starts_with_kw(*p, "LOADSCREEN")) {
@@ -14658,6 +14829,11 @@ static void execute_statement(char **p)
         statement_unloadsound(p);
         return;
     }
+    if (c == 'U' && starts_with_kw(*p, "UNLOADMUSIC")) {
+        *p += 11;
+        statement_unloadmusic(p);
+        return;
+    }
 #endif
     if (c == 'E') {
         if (starts_with_kw(*p, "ELLIPSE")) {
@@ -14750,6 +14926,26 @@ static void execute_statement(char **p)
     if (c == 'S' && starts_with_kw(*p, "STOPSOUND")) {
         *p += 9;
         statement_stopsound(p);
+        return;
+    }
+    if (c == 'S' && starts_with_kw(*p, "STOPMUSIC")) {
+        *p += 9;
+        statement_stopmusic(p);
+        return;
+    }
+    if (c == 'R' && starts_with_kw(*p, "RESUMEMUSIC")) {
+        *p += 11;
+        statement_resumemusic(p);
+        return;
+    }
+    if (c == 'M' && starts_with_kw(*p, "MUSICVOLUME")) {
+        *p += 11;
+        statement_musicvolume(p);
+        return;
+    }
+    if (c == 'M' && starts_with_kw(*p, "MUSICLOOP")) {
+        *p += 9;
+        statement_musicloop(p);
         return;
     }
 #endif
