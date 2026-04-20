@@ -55,6 +55,7 @@ RAYLIB_NATIVE_INC = -I$(RAYLIB_NATIVE_DIR)/src
 
 ifeq ($(OS),Windows_NT)
   RAYLIB_NATIVE_LDLIBS = -lopengl32 -lgdi32 -lwinmm -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic
+  RAYLIB_NATIVE_BUILD  = scripts\build-raylib-native.cmd
 else
   UNAME_S := $(shell uname -s)
   ifeq ($(UNAME_S),Darwin)
@@ -62,10 +63,11 @@ else
   else
     RAYLIB_NATIVE_LDLIBS = -lGL -lm -lpthread -ldl -lrt -lX11
   endif
+  RAYLIB_NATIVE_BUILD = scripts/build-raylib-native.sh
 endif
 
 $(RAYLIB_NATIVE_LIB):
-	scripts/build-raylib-native.sh
+	$(RAYLIB_NATIVE_BUILD)
 
 all: $(TARGET)$(EXE)
 
