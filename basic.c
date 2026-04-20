@@ -2894,6 +2894,8 @@ static void statement_paletteset(char **p);
 static void statement_palettesethex(char **p);
 static void statement_palettereset(char **p);
 static void statement_paletterotate(char **p);
+static void statement_paletteload(char **p);
+static void statement_palettesave(char **p);
 static void statement_loadscreen(char **p);
 static void statement_background(char **p);
 static void statement_paper(char **p);
@@ -3305,6 +3307,7 @@ static const char *const reserved_words[] = {
     "LOADSOUND", "UNLOADSOUND", "PLAYSOUND", "STOPSOUND", "SOUNDPLAYING", "LOADSCREEN",
     "COLORRGB", "COLOURRGB", "BACKGROUNDRGB",
     "PALETTE", "PALETTEHEX", "PALETTESET", "PALETTESETHEX", "PALETTERESET", "PALETTEROTATE",
+    "PALETTELOAD", "PALETTESAVE",
     "FILLRECT", "CIRCLE", "FILLCIRCLE", "ELLIPSE", "FILLELLIPSE", "TRIANGLE", "FILLTRIANGLE", "FLOODFILL", "POLYGON", "FILLPOLYGON", "VSYNC", "ANTIALIAS",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
@@ -4712,6 +4715,54 @@ static void statement_palettereset(char **p)
     gfx_palette_reset();
 #else
     runtime_error_hint("PALETTERESET requires basic-gfx", NULL);
+#endif
+}
+
+/* PALETTELOAD path$ — read a plain-text .pal file into the live
+ * palette. Tolerates JASC-PAL headers, # comments, blank lines.
+ * Missing entries beyond the file's count stay untouched. */
+static void statement_paletteload(char **p)
+{
+#ifdef GFX_VIDEO
+    struct value vpath;
+    skip_spaces(p);
+    vpath = eval_expr(p); ensure_str(&vpath);
+    if (!vpath.str[0]) {
+        runtime_error_hint("PALETTELOAD requires a path", "PALETTELOAD \"mypalette.pal\"");
+        return;
+    }
+    if (gfx_palette_load_file(vpath.str) != 0) {
+        char hint[256];
+        snprintf(hint, sizeof(hint), "Could not read palette from '%s'.", vpath.str);
+        runtime_error_hint("PALETTELOAD failed", hint);
+    }
+#else
+    (void)p;
+    runtime_error_hint("PALETTELOAD requires basic-gfx", NULL);
+#endif
+}
+
+/* PALETTESAVE path$ — write the live palette to a plain-text .pal
+ * file (256 entries, R G B A decimal). Compatible with the PALETTELOAD
+ * reader. Human-readable + hand-editable. */
+static void statement_palettesave(char **p)
+{
+#ifdef GFX_VIDEO
+    struct value vpath;
+    skip_spaces(p);
+    vpath = eval_expr(p); ensure_str(&vpath);
+    if (!vpath.str[0]) {
+        runtime_error_hint("PALETTESAVE requires a path", "PALETTESAVE \"mypalette.pal\"");
+        return;
+    }
+    if (gfx_palette_save_file(vpath.str) != 0) {
+        char hint[256];
+        snprintf(hint, sizeof(hint), "Could not write palette to '%s'.", vpath.str);
+        runtime_error_hint("PALETTESAVE failed", hint);
+    }
+#else
+    (void)p;
+    runtime_error_hint("PALETTESAVE requires basic-gfx", NULL);
 #endif
 }
 
@@ -13972,6 +14023,16 @@ static void execute_statement(char **p)
         if (starts_with_kw(*p, "PALETTEROTATE")) {
             *p += 13;
             statement_paletterotate(p);
+            return;
+        }
+        if (starts_with_kw(*p, "PALETTELOAD")) {
+            *p += 11;
+            statement_paletteload(p);
+            return;
+        }
+        if (starts_with_kw(*p, "PALETTESAVE")) {
+            *p += 11;
+            statement_palettesave(p);
             return;
         }
 #endif

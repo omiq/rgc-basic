@@ -203,6 +203,23 @@ void gfx_palette_reset(void);
  * the range are untouched. Clamps first/last into 0..255. */
 void gfx_palette_rotate(int first, int last, int step);
 
+/* Plain-text .pal I/O.
+ *
+ * Format: up to 256 lines of "R G B [A]" with decimal 0..255
+ * values (whitespace-separated). Lines starting with '#' are
+ * comments; blank lines ignored. JASC-PAL header "JASC-PAL /
+ * 0100 / <count>" is auto-detected and skipped.
+ *
+ * Load: populates the live palette in order. Missing entries
+ * left untouched (so a 16-entry .pal retunes only 0..15).
+ * Extras beyond 256 are dropped.
+ *
+ * Save: writes exactly 256 entries + a short "# " header.
+ *
+ * Returns 0 on success, -1 on error. */
+int gfx_palette_load_file(const char *path);
+int gfx_palette_save_file(const char *path);
+
 /* SCREEN 2 RGBA plane helpers ---------------------------------------- */
 
 /* Allocate the RGBA draw + show planes on demand. Called by SCREEN 2 on
