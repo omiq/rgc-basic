@@ -515,6 +515,82 @@ int main(void)
         assert(gfx_bitmap_get_pixel(&b, 1, 0) == 0);
     }
 
+    /* Per-pixel colour plane (SCREEN 1 16-colour stamping): set_pixel
+     * writes bitmap_fg into bitmap_color[y*W+x] on the main slot. */
+    {
+        GfxVideoState b;
+        gfx_video_init(&b);
+        b.bitmap_fg = 7;
+        gfx_bitmap_set_pixel(&b, 10, 20, 1);
+        assert(b.bitmap_color[20 * GFX_BITMAP_WIDTH + 10] == 7);
+        b.bitmap_fg = 13;
+        gfx_bitmap_set_pixel(&b, 30, 40, 1);
+        assert(b.bitmap_color[40 * GFX_BITMAP_WIDTH + 30] == 13);
+        /* Earlier stamp keeps its own colour — no retint. */
+        assert(b.bitmap_color[20 * GFX_BITMAP_WIDTH + 10] == 7);
+        /* Non-main slot does not touch the colour plane. */
+        gfx_video_screen_buffer_alloc(&b, 2);
+        gfx_video_screen_set_draw(&b, 2);
+        b.bitmap_fg = 5;
+        gfx_bitmap_set_pixel(&b, 0, 0, 1);
+        assert(b.bitmap_color[0] == 0);
+        gfx_video_screen_set_draw(&b, 0);
+    }
+
+    /* SCREEN 2 RGBA plane: alloc + set_pixel writes via the pen. */
+    {
+        GfxVideoState b;
+        gfx_video_init(&b);
+        assert(b.bitmap_rgba == NULL);
+        assert(gfx_rgba_alloc(&b) == 0);
+        assert(b.bitmap_rgba != NULL);
+        assert(b.bitmap_rgba_show != NULL);
+
+        b.pen_r = 255; b.pen_g = 128; b.pen_b = 64; b.pen_a = 200;
+        gfx_rgba_set_pixel(&b, 5, 7);
+        {
+            unsigned off = (7 * GFX_BITMAP_WIDTH + 5) * 4u;
+            assert(b.bitmap_rgba[off + 0] == 255);
+            assert(b.bitmap_rgba[off + 1] == 128);
+            assert(b.bitmap_rgba[off + 2] == 64);
+            assert(b.bitmap_rgba[off + 3] == 200);
+        }
+        /* Clear uses bg RGBA, not pen. */
+        b.bgrgba_r = 10; b.bgrgba_g = 20; b.bgrgba_b = 30; b.bgrgba_a = 255;
+        gfx_rgba_clear(&b);
+        {
+            unsigned off = (7 * GFX_BITMAP_WIDTH + 5) * 4u;
+            assert(b.bitmap_rgba[off + 0] == 10);
+            assert(b.bitmap_rgba[off + 1] == 20);
+            assert(b.bitmap_rgba[off + 2] == 30);
+        }
+        /* Scaled glyph stamp writes a scale*scale block. */
+        b.chars[0] = 0x80;                     /* top-left pixel only */
+        b.pen_r = 1; b.pen_g = 2; b.pen_b = 3; b.pen_a = 4;
+        gfx_rgba_stamp_glyph_px_scaled(&b, 0, 0, 0, 3);
+        assert(b.bitmap_rgba[0 + 0] == 1);
+        assert(b.bitmap_rgba[(2 * GFX_BITMAP_WIDTH + 2) * 4 + 0] == 1);
+        assert(b.bitmap_rgba[(3 * GFX_BITMAP_WIDTH + 3) * 4 + 0] != 1);
+        /* NULL tolerant. */
+        gfx_rgba_set_pixel(NULL, 0, 0);
+    }
+
+    /* Palette: writable table + reset. */
+    {
+        assert(gfx_c64_palette_rgb[0][0] == 0x00);
+        assert(gfx_c64_palette_rgb[1][0] == 0xFF);
+        gfx_c64_palette_rgb[1][0] = 0x12;
+        gfx_c64_palette_rgb[1][1] = 0x34;
+        gfx_c64_palette_rgb[1][2] = 0x56;
+        gfx_c64_palette_rgb[1][3] = 0x78;
+        assert(gfx_c64_palette_rgb[1][0] == 0x12);
+        gfx_palette_reset();
+        assert(gfx_c64_palette_rgb[1][0] == 0xFF);
+        assert(gfx_c64_palette_rgb[1][1] == 0xFF);
+        assert(gfx_c64_palette_rgb[1][2] == 0xFF);
+        assert(gfx_c64_palette_rgb[1][3] == 0xFF);
+    }
+
     printf("gfx_video_test OK\n");
     return 0;
 }

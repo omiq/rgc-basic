@@ -2294,13 +2294,28 @@ static void gfx_put_byte(unsigned char b)
     if (gfx_y >= GFX_ROWS) gfx_y = GFX_ROWS - 1;
 
     if (gfx_vs->screen_mode == GFX_SCREEN_RGBA) {
-        /* SCREEN 2 path: stamp the 8x8 glyph straight into the RGBA
-         * plane using the current pen. Transparent paper (only lit
-         * bits written) — matches DRAWTEXT in RGBA mode. Cell grid
-         * stays 8x8 so gfx_x / gfx_y semantics match SCREEN 1. */
+        /* SCREEN 2 PRINT: paint the 8x8 cell with current RGBA
+         * background first, then stamp the glyph's lit pixels with
+         * the current pen. Matches SCREEN 1 PRINT (solid_bg=1) so
+         * over-prints replace the previous character rather than
+         * OR-blending into mush. DRAWTEXT stays transparent for
+         * overlay use cases. */
         int cell_col = gfx_x;
+        int px, py;
+        uint8_t save_r, save_g, save_b, save_a;
         if (cell_col >= 40) cell_col = 39;
-        gfx_rgba_stamp_glyph_px(gfx_vs, cell_col * 8, gfx_y * 8, sc);
+        px = cell_col * 8;
+        py = gfx_y * 8;
+        save_r = gfx_vs->pen_r; save_g = gfx_vs->pen_g;
+        save_b = gfx_vs->pen_b; save_a = gfx_vs->pen_a;
+        gfx_vs->pen_r = gfx_vs->bgrgba_r;
+        gfx_vs->pen_g = gfx_vs->bgrgba_g;
+        gfx_vs->pen_b = gfx_vs->bgrgba_b;
+        gfx_vs->pen_a = gfx_vs->bgrgba_a;
+        gfx_rgba_fill_rect(gfx_vs, px, py, px + 7, py + 7);
+        gfx_vs->pen_r = save_r; gfx_vs->pen_g = save_g;
+        gfx_vs->pen_b = save_b; gfx_vs->pen_a = save_a;
+        gfx_rgba_stamp_glyph_px(gfx_vs, px, py, sc);
     } else if (gfx_vs->screen_mode == GFX_SCREEN_BITMAP) {
         /* Bitmap-mode path: stamp the 8x8 glyph from the active character
          * set (s->chars[sc*8]) into bitmap[] at cell (gfx_x, gfx_y).
