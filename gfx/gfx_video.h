@@ -33,9 +33,13 @@
 #define GFX_BITMAP_HEIGHT 200u
 #define GFX_BITMAP_BYTES  ((GFX_BITMAP_WIDTH * GFX_BITMAP_HEIGHT) / 8u)
 
-/* Display mode for basic-gfx (SCREEN 0 / SCREEN 1). */
+/* Display mode for basic-gfx (SCREEN 0 / SCREEN 1 / SCREEN 2). */
 #define GFX_SCREEN_TEXT   0u
 #define GFX_SCREEN_BITMAP 1u
+#define GFX_SCREEN_RGBA   2u
+
+/* 32-bit RGBA bytes per pixel for SCREEN 2 / Blitter Phase 2. */
+#define GFX_RGBA_BYTES    (GFX_BITMAP_WIDTH * GFX_BITMAP_HEIGHT * 4u)
 
 /* Multi-plane screen buffers (AMOS-style). Slot 0 is always the inline
  * `bitmap[]`; slot 1 is the inline `bitmap_show[]` used by DOUBLEBUFFER;
@@ -64,6 +68,14 @@ typedef struct GfxVideoState {
                                              * bitmap_show. When `double_buffer` is 0 the
                                              * renderer reads bitmap[] directly for legacy
                                              * "draw-as-you-go" behaviour. */
+    /* Per-pixel colour index (0..15) companion to `bitmap`. Every set-pixel
+     * write stamps the current `bitmap_fg` here so programs can change
+     * `COLOR` between stamps and each stamp keeps its own colour — the
+     * renderer reads this byte instead of the global `bitmap_fg` register
+     * when compositing a lit pixel. Cleared to 0 at init; `gfx_video_bitmap_clear`
+     * zeroes it alongside `bitmap`. */
+    uint8_t bitmap_color[GFX_BITMAP_WIDTH * GFX_BITMAP_HEIGHT];
+    uint8_t bitmap_color_show[GFX_BITMAP_WIDTH * GFX_BITMAP_HEIGHT];
     uint8_t key_state[256];                 /* Simple keyboard state, 1 = down */
     uint8_t key_queue[64];                  /* Keypress FIFO (bytes), for INKEY$ */
     uint8_t key_q_head;
@@ -91,6 +103,16 @@ typedef struct GfxVideoState {
     uint8_t  screen_buffer_owned[GFX_MAX_SCREEN_BUFFERS];
     uint8_t  screen_draw;                   /* slot index: BASIC writes target this plane */
     uint8_t  screen_show;                   /* slot index: renderer samples this plane */
+    /* SCREEN 2 — 32-bit RGBA plane. Heap-allocated on first entry into
+     * GFX_SCREEN_RGBA; NULL when mode has never been used. Layout:
+     * tightly packed 320×200 RGBA8 rows, 1280 bytes per row, 256000
+     * bytes total. `bitmap_rgba_show` is the DOUBLEBUFFER companion
+     * (flipped by VSYNC when double_buffer is on).  All colour comes
+     * straight from `pen_r/g/b/a`; no palette lookup. */
+    uint8_t *bitmap_rgba;
+    uint8_t *bitmap_rgba_show;
+    uint8_t  pen_r, pen_g, pen_b, pen_a;    /* RGBA pen for SCREEN 2 draws */
+    uint8_t  bgrgba_r, bgrgba_g, bgrgba_b, bgrgba_a;  /* RGBA clear colour */
 } GfxVideoState;
 
 /* Advance 60 Hz jiffy counter (TI / TI$); wraps every 24h like C64. */
@@ -151,6 +173,50 @@ int gfx_bitmap_get_pixel(const GfxVideoState *s, unsigned x, unsigned y);
  * this just reads bitmap[]; with it on, it reads bitmap_show[] so
  * in-flight draws stay hidden until the next VSYNC. */
 int gfx_bitmap_get_show_pixel(const GfxVideoState *s, unsigned x, unsigned y);
+
+/* Per-pixel colour index (0..15) the renderer should display for the
+ * given (x, y). Returns 0 when the pixel is out of range or unset —
+ * caller should first check `gfx_bitmap_get_show_pixel` to decide
+ * whether to draw at all. Reads `bitmap_color_show` when
+ * `double_buffer` is on and draw/show slots differ. */
+int gfx_bitmap_get_show_color(const GfxVideoState *s, unsigned x, unsigned y);
+
+/* 16-entry C64-style palette table shared by SCREEN 1 renderers and
+ * the SCREEN 2 COLOR → RGBA translation. Indexed 0..15. */
+extern const uint8_t gfx_c64_palette_rgb[16][3];
+
+/* SCREEN 2 RGBA plane helpers ---------------------------------------- */
+
+/* Allocate the RGBA draw + show planes on demand. Called by SCREEN 2 on
+ * first entry; idempotent. Returns 0 on success, -1 on alloc failure. */
+int gfx_rgba_alloc(GfxVideoState *s);
+
+/* Fill the RGBA draw plane with the current bg RGBA. */
+void gfx_rgba_clear(GfxVideoState *s);
+
+/* Set a single RGBA pixel using the current pen (pen_r/g/b/a). Clipped. */
+void gfx_rgba_set_pixel(GfxVideoState *s, int x, int y);
+
+/* Bresenham line in RGBA using current pen. */
+void gfx_rgba_line(GfxVideoState *s, int x0, int y0, int x1, int y1);
+
+/* Fill a rectangle with the current pen (inclusive bounds). */
+void gfx_rgba_fill_rect(GfxVideoState *s, int x0, int y0, int x1, int y1);
+
+/* Read the RGBA the renderer should display; when double_buffer is on
+ * reads bitmap_rgba_show, else bitmap_rgba. Stores into out[4]. Returns
+ * 1 on success, 0 if the plane isn't allocated. */
+int gfx_rgba_get_show_pixel(const GfxVideoState *s, unsigned x, unsigned y, uint8_t out[4]);
+
+/* Copy RGBA draw → show (VSYNC flip). Caller should first verify
+ * double_buffer is on and slots differ. */
+void gfx_rgba_flip(GfxVideoState *s);
+
+/* Stamp a glyph from `chars[]` into the RGBA plane using the current
+ * pen. Transparent background (only lit bits written). */
+void gfx_rgba_stamp_glyph_px(GfxVideoState *s, int x, int y, uint8_t screencode);
+void gfx_rgba_stamp_glyph_px_scaled(GfxVideoState *s, int x, int y,
+                                    uint8_t screencode, int scale);
 
 /* Copy the draw plane to the show plane. Called by VSYNC (and only
  * does work when `double_buffer` is 1 and draw != show). Safe to call
