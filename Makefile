@@ -54,12 +54,17 @@ RAYLIB_NATIVE_LIB = $(RAYLIB_NATIVE_DIR)/src/libraylib.a
 RAYLIB_NATIVE_INC = -I$(RAYLIB_NATIVE_DIR)/src
 
 ifeq ($(OS),Windows_NT)
-  RAYLIB_NATIVE_LDLIBS = -lopengl32 -lgdi32 -lwinmm -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic
+  # -lshell32 needed by raylib's own Makefile default; -lole32 -loleaut32 -luuid
+  # pulled in for miniaudio's WASAPI backend (stops audio init from silently
+  # hanging when WMMSystem isn't enough).
+  RAYLIB_NATIVE_LDLIBS = -lopengl32 -lgdi32 -lwinmm -lshell32 -lole32 -loleaut32 -luuid -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic
   RAYLIB_NATIVE_BUILD  = scripts\build-raylib-native.cmd
 else
   UNAME_S := $(shell uname -s)
   ifeq ($(UNAME_S),Darwin)
-    RAYLIB_NATIVE_LDLIBS = -framework CoreVideo -framework IOKit -framework Cocoa -framework OpenGL -lpthread
+    # -framework CoreAudio is required — without it miniaudio's InitAudioDevice
+    # crashes LoadMusicStream with SIGSEGV inside the Core Audio backend init.
+    RAYLIB_NATIVE_LDLIBS = -framework CoreVideo -framework IOKit -framework Cocoa -framework OpenGL -framework CoreAudio -framework AudioToolbox -lpthread
   else
     RAYLIB_NATIVE_LDLIBS = -lGL -lm -lpthread -ldl -lrt -lX11
   endif
