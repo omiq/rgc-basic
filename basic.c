@@ -6485,6 +6485,7 @@ static int gfx_key_pressed_local(int code)
     down = gfx_vs->key_state[code] != 0;
     if (down && !g_key_press_seen[code]) {
         g_key_press_seen[code] = 1;
+        fprintf(stderr, "[KEYPRESS] code=%d edge\n", code); fflush(stderr);
         return 1;
     }
     if (!down) {
