@@ -71,9 +71,10 @@ else
   RAYLIB_NATIVE_BUILD = scripts/build-raylib-native.sh
 endif
 
-$(RAYLIB_NATIVE_LIB):
-	$(RAYLIB_NATIVE_BUILD)
-
+# `all:` must stay the first real target in the file — `make` with no args
+# builds the first one it sees, and if $(RAYLIB_NATIVE_LIB) sneaks ahead, CI
+# runners without X11 headers (e.g. ubuntu-latest with no libx11-dev) try to
+# compile raylib-desktop and fail in rglfw.c.
 all: $(TARGET)$(EXE)
 
 $(TARGET)$(EXE): $(SRCS)
@@ -84,6 +85,9 @@ gfx_video_test: $(GFX_SRCS)
 
 gfx-demo: $(GFX_DEMO_SRCS)
 	$(CC) $(CFLAGS) -Igfx $(RAYLIB_CFLAGS) -o $@$(EXE) $(GFX_DEMO_SRCS) $(LDFLAGS) $(RAYLIB_LDFLAGS)
+
+$(RAYLIB_NATIVE_LIB):
+	$(RAYLIB_NATIVE_BUILD)
 
 basic-gfx: $(GFX_BIN_SRCS) $(RAYLIB_NATIVE_LIB)
 	$(CC) $(CFLAGS) -DGFX_VIDEO -Igfx $(RAYLIB_NATIVE_INC) -o $@$(EXE) $(GFX_BIN_SRCS) $(LDFLAGS) $(RAYLIB_NATIVE_LIB) $(RAYLIB_NATIVE_LDLIBS)
