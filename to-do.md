@@ -1,5 +1,74 @@
 # Features to add/to-do
 
+## String escape sequences `\n` / `\r` / `\t` / `\"` (proposed, 2026-04-20)
+
+Programs authored by newcomers from C / Python / JS / shell reach
+for `"Hello\n"` to add a newline. rgc-basic today requires either
+CBM-style `CHR$(13)` or the `{13}` / `{CR}` token soup — intuitive
+only to people who grew up on the C64. Escape sequences inside
+double-quoted string literals bridge the gap without forcing
+anyone to learn PETSCII control codes.
+
+### Proposed grammar
+
+Inside `"..."` string literals, handle these at load time (the
+same layer that already expands `{RED}` / `{13}` tokens — see
+`expand_petscii_tokens` in `basic.c`):
+
+| Escape | Expands to |
+|--------|------------|
+| `\n`   | CHR$(13) — CBM-style newline (matches PRINT default) |
+| `\r`   | CHR$(13) — alias for `\n` (C convention) |
+| `\t`   | CHR$(9)  — horizontal tab |
+| `\\`   | single `\` (so authors can still produce a literal backslash when integer-divide isn't the parse context) |
+| `\"`   | literal `"` inside the string (no need to juggle `+ CHR$(34) +`) |
+| `\0`   | CHR$(0)  — null byte for binary data and buffer writes |
+
+Everything else after `\` is passed through unchanged (`\x` ->
+`\x`) rather than erroring — keeps Windows paths like
+`"C:\\Users\\..."` tolerable.
+
+### Why two newline flavours
+
+- `\n` matches C / Python / JS / shell expectations.
+- `\r` matches PETSCII semantics and what `PRINT` actually emits.
+
+On CBM hardware these are the same code point (0x0D), so aliasing
+both to `CHR$(13)` keeps round-trips clean. On terminal builds
+(`basic`), the interpreter already emits `\r\n` on real newlines;
+`\n` inside a literal stays a single 0x0D, and PRINT adds the OS
+newline as today.
+
+### Interaction with `\` integer divide
+
+`\` as an arithmetic operator lives outside string literals and
+is only parsed by `eval_term`. Inside a double-quoted string the
+escape-expansion layer runs before any arithmetic parsing, so the
+two uses don't collide. A literal backslash in a program's source
+requires `"\\"` — the escape expansion converts that to one `\`
+at load time.
+
+### Implementation notes
+
+- Extend `expand_petscii_tokens` (or add a prior pass) to walk
+  each `"..."` literal and translate the six escapes. Keep the
+  existing `{…}` layer intact; escapes run first so a literal
+  `"\{RED\}"` produces literal braces.
+- Loader-only: no runtime cost once the program is parsed.
+- Existing programs that happen to embed `"\n"` as a two-char
+  literal break. Low risk — I can't find an existing example
+  that does — but call it out in the CHANGELOG entry.
+- Tests: `tests/string_escape.bas` asserting ASC of each escape
+  and length of the resulting string.
+
+### Out of scope
+
+- `\xNN` / `\uNNNN` hex escapes — CBM programs that need raw
+  bytes already use `{NN}` or `{$HH}`; extending to `\x` duplicates
+  that machinery.
+- Multi-line string literals.
+- Verbatim `r"..."` raw strings.
+
 ## Palette feature (proposed, 2026-04-20)
 
 Now that SCREEN 1 has a per-pixel colour plane and SCREEN 2 has

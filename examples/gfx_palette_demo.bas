@@ -17,11 +17,10 @@ SCREEN 1
 BACKGROUND 0
 
 ' Draw 16 swatches with the default palette (8-wide × 2-tall grid).
+' `\` is integer divide (classic BASIC / QBasic-style).
 FOR I = 0 TO 15
-  COL = I - INT(I / 8) * 8         ' I MOD 8 — column
-  ROW = INT(I / 8)                 ' 0 or 1 — row
-  SX  = 8  + COL * 38
-  SY  = 12 + ROW * 38
+  SX = 8  + (I MOD 8) * 38
+  SY = 12 + (I \ 8)   * 38
   COLOR I
   FILLRECT SX, SY TO SX + 32, SY + 32
   COLOR 1
