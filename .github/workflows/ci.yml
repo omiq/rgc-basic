@@ -43,32 +43,18 @@ jobs:
           fetch-depth: 1
           submodules: false
 
-      - name: Install raylib (Linux)
+      # basic-gfx links a patched raylib built from third_party/raylib-native
+      # by scripts/build-raylib-native.sh. Install only raylib's build deps;
+      # no system libraylib needed (Makefile no longer reads pkg-config for
+      # this target).
+      - name: Install raylib build deps (Linux)
         if: runner.os == 'Linux' && matrix.build_gfx
         run: |
           set -e
           sudo apt-get update
-          if sudo apt-get install -y libraylib-dev; then
-            echo "Installed libraylib-dev from apt"
-          else
-            echo "libraylib-dev not available; building raylib from source"
-            sudo apt-get install -y build-essential cmake git pkg-config \
-              libasound2-dev libx11-dev libxrandr-dev libxi-dev \
-              libxinerama-dev libxcursor-dev libgl1-mesa-dev libglu1-mesa-dev
-            git clone --depth 1 https://github.com/raysan5/raylib.git /tmp/raylib
-            cmake -S /tmp/raylib -B /tmp/raylib/build -DBUILD_SHARED_LIBS=ON
-            cmake --build /tmp/raylib/build --config Release
-            sudo cmake --install /tmp/raylib/build
-            echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/raylib.conf
-            sudo ldconfig
-          fi
-
-      - name: Install raylib (macOS)
-        if: runner.os == 'macOS' && matrix.build_gfx
-        run: |
-          set -e
-          export HOMEBREW_NO_AUTO_UPDATE=1
-          brew install raylib
+          sudo apt-get install -y build-essential git pkg-config \
+            libasound2-dev libx11-dev libxrandr-dev libxi-dev \
+            libxinerama-dev libxcursor-dev libgl1-mesa-dev libglu1-mesa-dev
 
       - name: Build (Unix)
         if: runner.os != 'Windows'
@@ -84,7 +70,10 @@ jobs:
           set -e
           make check
 
-      - name: Setup MSYS2 (Windows, for raylib)
+      # MSYS2 toolchain for basic-gfx on Windows. No mingw-w64-raylib package
+      # here — scripts/build-raylib-native.cmd clones + patches raylib 5.5
+      # into third_party/raylib-native and links it statically.
+      - name: Setup MSYS2 (Windows)
         if: runner.os == 'Windows' && matrix.build_gfx
         uses: msys2/setup-msys2@v2
         with:
@@ -94,7 +83,7 @@ jobs:
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-make
             mingw-w64-x86_64-pkg-config
-            mingw-w64-x86_64-raylib
+            git
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
@@ -144,9 +133,10 @@ jobs:
           cp ${{ matrix.bin }} out/${{ matrix.outdir }}/basic.exe
           if [ "${{ matrix.build_gfx }}" = "true" ] && [ -f basic-gfx.exe ]; then
             cp basic-gfx.exe out/${{ matrix.outdir }}/basic-gfx.exe
-            for dll in libraylib.dll glfw3.dll; do
-              [ -f /mingw64/bin/$dll ] && cp /mingw64/bin/$dll out/${{ matrix.outdir }}/
-            done
+            # basic-gfx.exe statically links libraylib.a — no raylib / glfw3
+            # DLLs to bundle. winpthread is statically linked via
+            # -Wl,-Bstatic -lwinpthread. The resulting binary runs outside
+            # MSYS2 without extra dependencies.
           fi
           cp -r examples out/${{ matrix.outdir }}/
           cd out
