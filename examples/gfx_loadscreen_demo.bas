@@ -16,7 +16,11 @@
 '  Keys: 2 = RGBA mode, 3 = indexed mode, SPACE cycle, Q quit
 ' ============================================================
 
-FILE$ = "sky.png"
+' NOTE: LOADSCREEN path$ must use a literal quoted string so the
+' IDE's asset auto-preload regex sees the filename and fetches
+' sky.png into MEMFS before the program runs. A variable form
+' (FILE$ = "sky.png" : LOADSCREEN FILE$) won't be scanned.
+
 MODE = 3
 DIRTY = 1
 
@@ -28,7 +32,7 @@ DO
   IF DIRTY = 1 THEN
     IF MODE = 2 THEN SCREEN 2 : BACKGROUNDRGB 0, 0, 0 ELSE SCREEN 3 : BACKGROUND 0
     CLS
-    LOADSCREEN FILE$
+    LOADSCREEN "sky.png"
     IF MODE = 2 THEN
       COLORRGB 255, 255, 0
     ELSE
