@@ -1,5 +1,29 @@
 # Features to add/to-do
 
+## Linter / static checker (proposed 2026-04-20)
+
+Catch common source-level mistakes before the interpreter runs — right
+now the parser just produces cryptic errors (e.g. "Expected ',' or ')'"
+for `$s` instead of `s$`) or silently wrong behaviour (calling a
+no-`$`-suffix function but assigning its result to a string; returning a
+string from a numeric-named `FUNCTION` — no type mismatch reported).
+
+Checks to implement:
+- Sigil orientation: `$var` → error, suggest `var$`. Same for `%` / `#` if/when added.
+- Function name ↔ return type: `FUNCTION foo(...)` returning a string,
+  or `FUNCTION foo$(...)` returning a number, warn.
+- Param type vs caller arg type: passing a number to an `A$` param.
+- Referencing undefined UDFs at compile time (e.g. `cent$` called but
+  never defined — currently falls through to the variable path and
+  silently resolves to an empty string).
+- Missing `END FUNCTION` / `NEXT` / `END IF` — catch on pre-pass, not
+  at runtime.
+- `KEYPRESS` / `KEYDOWN` with string argument (expected numeric keycode).
+- Undefined labels for `GOTO` / `GOSUB` / `ON ... GOTO`.
+
+Integrate as `rgc-basic --lint file.bas` + IDE hook (CodeMirror linter
+gutter via the existing diagnostics channel).
+
 ## String escape sequences — SHIPPED 2026-04-20
 
 `\n \r \t \0 \\ \"` expanded at load time inside double-quoted

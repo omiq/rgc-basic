@@ -3529,7 +3529,16 @@ static void statement_def(char **p)
     uf->name[sizeof(uf->name) - 1] = '\0';
     strncpy(uf->param_name, param_buf, sizeof(uf->param_name) - 1);
     uf->param_name[sizeof(uf->param_name) - 1] = '\0';
-    uf->param_is_string = (param_buf[strlen(param_buf) - 1] == '$');
+    {
+        size_t pnlen = strlen(uf->param_name);
+        uf->param_is_string = (pnlen > 0 && uf->param_name[pnlen - 1] == '$');
+        /* Strip trailing `$` — var-lookup via uppercase_name also strips it,
+         * so the name we store must match or the body reads a different
+         * var slot (empty) instead of the bound param. */
+        if (uf->param_is_string && pnlen > 0) {
+            uf->param_name[pnlen - 1] = '\0';
+        }
+    }
     uf->body = dupstr_local(body_start);
 
     /* DEF FN is a complete statement; skip to end of line. */
@@ -3802,13 +3811,22 @@ static void build_udf_table(void)
                         while (*q == ' ' || *q == '\t') q++;
                         if (!isalpha((unsigned char)*q)) break;
                         if (param_count < MAX_UDF_PARAMS) {
-                            read_identifier((char**)&q, udf_funcs[udf_func_count].param_names[param_count], VAR_NAME_MAX);
-                            { int k; for (k = 0; udf_funcs[udf_func_count].param_names[param_count][k]; k++)
-                                udf_funcs[udf_func_count].param_names[param_count][k] =
-                                    (char)toupper((unsigned char)udf_funcs[udf_func_count].param_names[param_count][k]); }
+                            char *pn = udf_funcs[udf_func_count].param_names[param_count];
+                            size_t pnlen;
+                            read_identifier((char**)&q, pn, VAR_NAME_MAX);
+                            { int k; for (k = 0; pn[k]; k++)
+                                pn[k] = (char)toupper((unsigned char)pn[k]); }
+                            pnlen = strlen(pn);
                             udf_funcs[udf_func_count].param_is_string[param_count] =
-                                (strlen(udf_funcs[udf_func_count].param_names[param_count]) > 0 &&
-                                 udf_funcs[udf_func_count].param_names[param_count][strlen(udf_funcs[udf_func_count].param_names[param_count])-1] == '$');
+                                (pnlen > 0 && pn[pnlen - 1] == '$');
+                            /* Strip trailing `$` so the param name matches the
+                             * stripped form that get_var_reference uses via
+                             * uppercase_name — otherwise the UDF frame's "A$"
+                             * and the body's "A" (is_string=1) end up in two
+                             * different var slots and the arg is lost. */
+                            if (udf_funcs[udf_func_count].param_is_string[param_count]) {
+                                pn[pnlen - 1] = '\0';
+                            }
                             param_count++;
                         }
                         while (*q == ' ' || *q == '\t') q++;
