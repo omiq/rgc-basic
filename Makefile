@@ -40,6 +40,33 @@ else
   RAYLIB_LDFLAGS = $(shell pkg-config --libs raylib 2>/dev/null) -ldl -lpthread
 endif
 
+# ---------------------------------------------------------------
+# Patched raylib for native (basic-gfx). Built from third_party/raylib-native
+# by scripts/build-raylib-native.sh with patches/*.patch applied — keeps
+# basic-gfx and basic-wasm-raylib behaviourally in sync (e.g. the MOD-load
+# freeze fix in raudio_mod_skip_max_samples.patch). System raylib from
+# Homebrew / MinGW / apt is NOT used for basic-gfx because it lacks the
+# patches and LoadMusicStream then hangs on .mod files. See
+# scripts/build-raylib-native.sh and patches/README.md.
+# ---------------------------------------------------------------
+RAYLIB_NATIVE_DIR = third_party/raylib-native
+RAYLIB_NATIVE_LIB = $(RAYLIB_NATIVE_DIR)/src/libraylib.a
+RAYLIB_NATIVE_INC = -I$(RAYLIB_NATIVE_DIR)/src
+
+ifeq ($(OS),Windows_NT)
+  RAYLIB_NATIVE_LDLIBS = -lopengl32 -lgdi32 -lwinmm -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic
+else
+  UNAME_S := $(shell uname -s)
+  ifeq ($(UNAME_S),Darwin)
+    RAYLIB_NATIVE_LDLIBS = -framework CoreVideo -framework IOKit -framework Cocoa -framework OpenGL -lpthread
+  else
+    RAYLIB_NATIVE_LDLIBS = -lGL -lm -lpthread -ldl -lrt -lX11
+  endif
+endif
+
+$(RAYLIB_NATIVE_LIB):
+	scripts/build-raylib-native.sh
+
 all: $(TARGET)$(EXE)
 
 $(TARGET)$(EXE): $(SRCS)
@@ -51,8 +78,8 @@ gfx_video_test: $(GFX_SRCS)
 gfx-demo: $(GFX_DEMO_SRCS)
 	$(CC) $(CFLAGS) -Igfx $(RAYLIB_CFLAGS) -o $@$(EXE) $(GFX_DEMO_SRCS) $(LDFLAGS) $(RAYLIB_LDFLAGS)
 
-basic-gfx: $(GFX_BIN_SRCS)
-	$(CC) $(CFLAGS) -DGFX_VIDEO -Igfx $(RAYLIB_CFLAGS) -o $@$(EXE) $(GFX_BIN_SRCS) $(LDFLAGS) $(RAYLIB_LDFLAGS)
+basic-gfx: $(GFX_BIN_SRCS) $(RAYLIB_NATIVE_LIB)
+	$(CC) $(CFLAGS) -DGFX_VIDEO -Igfx $(RAYLIB_NATIVE_INC) -o $@$(EXE) $(GFX_BIN_SRCS) $(LDFLAGS) $(RAYLIB_NATIVE_LIB) $(RAYLIB_NATIVE_LDLIBS)
 
 EMCC ?= emcc
 
@@ -120,6 +147,7 @@ basic-wasm-raylib: $(RAYLIB_WEB_LIB)
 		-s INITIAL_MEMORY=67108864 \
 		-s STACK_SIZE=524288 \
 		-s ASYNCIFY=1 -s ASYNCIFY_STACK_SIZE=65536 -s ASYNCIFY_IMPORTS='["emscripten_sleep","__asyncjs__wasm_js_http_fetch_async","__asyncjs__wasm_js_http_fetch_to_file_async","__asyncjs__wasm_js_host_exec_async"]' \
+		-s ASYNCIFY_REMOVE=@scripts/asyncify-remove.txt \
 		-o web/basic-raylib.js basic.c petscii.c gfx/gfx_video.c gfx/gfx_charrom.c gfx/pet_style_64c_data.c gfx/gfx_gamepad.c gfx/gfx_mouse.c gfx/gfx_raylib.c gfx/gfx_images.c gfx/gfx_sound.c $(RAYLIB_WEB_LIB) -lm
 	@echo "Built web/basic-raylib.js and web/basic-raylib.wasm"
 
