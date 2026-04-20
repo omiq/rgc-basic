@@ -6946,6 +6946,84 @@ static void statement_image_copy(char **p)
     }
 }
 
+/* IMAGE CREATE slot, w, h — allocate an RGBA off-screen surface. The
+ * companion to IMAGE NEW (which makes a 1bpp mask). Same slot numbering
+ * (1..31); slot 0 is reserved for the visible framebuffer.
+ *
+ * The resulting slot can be written to via IMAGE LOAD of a PNG, filled
+ * via IMAGE BLEND, or captured from the composited visible framebuffer
+ * via IMAGE GRAB. It's the Phase-2 blitter surface for sprite-size
+ * alpha-composited artwork. */
+static void statement_image_create(char **p)
+{
+    struct value v;
+    int slot, w, h;
+    skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); slot = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("IMAGE CREATE expects slot, w, h", NULL); return; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); w = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("IMAGE CREATE expects slot, w, h", NULL); return; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); h = (int)v.num;
+    skip_spaces(p);
+    if (gfx_image_new_rgba(slot, w, h) != 0) {
+        runtime_error_hint("IMAGE CREATE failed",
+                           "Slot must be 1..31; w and h must be > 0; check free memory.");
+    }
+}
+
+/* IMAGE BLEND src, sx, sy, sw, sh TO dst, dx, dy — alpha-composited
+ * blit between RGBA slots. Standard Porter-Duff "source over" per
+ * pixel. dst = 0 routes to the live SCREEN 2 RGBA framebuffer. */
+static void statement_image_blend(char **p)
+{
+    struct value v;
+    int src_slot, sx, sy, sw, sh, dst_slot, dx, dy;
+    skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); src_slot = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("IMAGE BLEND expects src, sx, sy, sw, sh TO dst, dx, dy", NULL); return; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); sx = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("IMAGE BLEND: missing sy", NULL); return; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); sy = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("IMAGE BLEND: missing sw", NULL); return; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); sw = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("IMAGE BLEND: missing sh", NULL); return; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); sh = (int)v.num;
+    skip_spaces(p);
+    if (!starts_with_kw(*p, "TO")) {
+        runtime_error_hint("IMAGE BLEND: missing TO",
+                           "Syntax: IMAGE BLEND src, sx, sy, sw, sh TO dst, dx, dy");
+        return;
+    }
+    *p += 2; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); dst_slot = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("IMAGE BLEND: missing dx", NULL); return; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); dx = (int)v.num;
+    skip_spaces(p);
+    if (**p != ',') { runtime_error_hint("IMAGE BLEND: missing dy", NULL); return; }
+    (*p)++; skip_spaces(p);
+    v = eval_expr(p); ensure_num(&v); dy = (int)v.num;
+    skip_spaces(p);
+    if (gfx_image_blend(src_slot, sx, sy, sw, sh, dst_slot, dx, dy) != 0) {
+        runtime_error_hint("IMAGE BLEND failed",
+                           "Both slots must be RGBA (IMAGE CREATE or IMAGE LOAD of a PNG). "
+                           "Destination slot 0 requires SCREEN 2.");
+    }
+}
+
 /* DRAWSPRITE slot, x, y [, z [, sx, sy [, sw, sh ]]] — z higher = on top; alpha from PNG. */
 static void statement_drawsprite(char **p)
 {
@@ -14091,12 +14169,14 @@ static void execute_statement(char **p)
     if (c == 'I' && starts_with_kw(*p, "IMAGE")) {
         char *q = *p + 5;
         skip_spaces(&q);
-        if (starts_with_kw(q, "NEW"))  { *p = q + 3; statement_image_new(p);  return; }
-        if (starts_with_kw(q, "FREE")) { *p = q + 4; statement_image_free(p); return; }
-        if (starts_with_kw(q, "COPY")) { *p = q + 4; statement_image_copy(p); return; }
-        if (starts_with_kw(q, "SAVE")) { *p = q + 4; statement_image_save(p); return; }
-        if (starts_with_kw(q, "LOAD")) { *p = q + 4; statement_image_load(p); return; }
-        if (starts_with_kw(q, "GRAB")) { *p = q + 4; statement_image_grab(p); return; }
+        if (starts_with_kw(q, "NEW"))    { *p = q + 3; statement_image_new(p);    return; }
+        if (starts_with_kw(q, "FREE"))   { *p = q + 4; statement_image_free(p);   return; }
+        if (starts_with_kw(q, "COPY"))   { *p = q + 4; statement_image_copy(p);   return; }
+        if (starts_with_kw(q, "SAVE"))   { *p = q + 4; statement_image_save(p);   return; }
+        if (starts_with_kw(q, "LOAD"))   { *p = q + 4; statement_image_load(p);   return; }
+        if (starts_with_kw(q, "GRAB"))   { *p = q + 4; statement_image_grab(p);   return; }
+        if (starts_with_kw(q, "CREATE")) { *p = q + 6; statement_image_create(p); return; }
+        if (starts_with_kw(q, "BLEND"))  { *p = q + 5; statement_image_blend(p);  return; }
     }
 #endif
     if (c == 'L') {
