@@ -1920,8 +1920,12 @@ typedef struct {
 static void *interpreter_thread(void *arg)
 {
     InterpreterArgs *ia = (InterpreterArgs *)arg;
+    fprintf(stderr, "[interp] thread start path=%s\n", ia->prog_path);
+    fflush(stderr);
     basic_load(ia->prog_path);
+    fprintf(stderr, "[interp] load done\n"); fflush(stderr);
     basic_run(ia->prog_path, ia->nargs, ia->args);
+    fprintf(stderr, "[interp] run returned\n"); fflush(stderr);
     return NULL;
 }
 
@@ -1942,6 +1946,8 @@ int main(int argc, char **argv)
     GfxVideoState vs;
     RenderTexture2D target;
     pthread_t tid;
+    fprintf(stderr, "[basic-gfx] build=%s %s argc=%d\n", __DATE__, __TIME__, argc);
+    fflush(stderr);
     InterpreterArgs ia;
     int prog_idx;
     const char *prog_path;
@@ -2076,6 +2082,10 @@ int main(int argc, char **argv)
         /* Update simple keyboard state map (ASCII-like indices) so BASIC can
          * poll via PEEK(GFX_KEY_BASE + code). */
         gfx_video_clear_keys(&vs);
+        {
+            int kc = GetKeyPressed();
+            if (kc) { fprintf(stderr, "[raylib] GetKeyPressed=%d\n", kc); fflush(stderr); }
+        }
         if (IsKeyDown(KEY_SPACE))  vs.key_state[32]  = 1;
         if (IsKeyDown(KEY_ENTER))  vs.key_state[13]  = 1;
         if (IsKeyDown(KEY_ESCAPE)) vs.key_state[27]  = 1;
@@ -2119,6 +2129,20 @@ int main(int argc, char **argv)
         if (IsKeyDown(KEY_SEVEN)) vs.key_state['7'] = 1;
         if (IsKeyDown(KEY_EIGHT)) vs.key_state['8'] = 1;
         if (IsKeyDown(KEY_NINE))  vs.key_state['9'] = 1;
+        /* Punctuation — set both unshifted and shifted ASCII so BASIC can
+         * poll either via KEYPRESS/KEYDOWN without caring about modifier state. */
+        if (IsKeyDown(KEY_EQUAL))        { vs.key_state['='] = 1; vs.key_state['+'] = 1; }
+        if (IsKeyDown(KEY_MINUS))        { vs.key_state['-'] = 1; vs.key_state['_'] = 1; }
+        if (IsKeyDown(KEY_COMMA))        { vs.key_state[','] = 1; vs.key_state['<'] = 1; }
+        if (IsKeyDown(KEY_PERIOD))       { vs.key_state['.'] = 1; vs.key_state['>'] = 1; }
+        if (IsKeyDown(KEY_SLASH))        { vs.key_state['/'] = 1; vs.key_state['?'] = 1; }
+        if (IsKeyDown(KEY_SEMICOLON))    { vs.key_state[';'] = 1; vs.key_state[':'] = 1; }
+        if (IsKeyDown(KEY_APOSTROPHE))   { vs.key_state['\''] = 1; vs.key_state['"'] = 1; }
+        if (IsKeyDown(KEY_LEFT_BRACKET)) { vs.key_state['['] = 1; vs.key_state['{'] = 1; }
+        if (IsKeyDown(KEY_RIGHT_BRACKET)){ vs.key_state[']'] = 1; vs.key_state['}'] = 1; }
+        if (IsKeyDown(KEY_BACKSLASH))    { vs.key_state['\\'] = 1; vs.key_state['|'] = 1; }
+        if (IsKeyDown(KEY_GRAVE))        { vs.key_state['`'] = 1; vs.key_state['~'] = 1; }
+        if (IsKeyDown(KEY_TAB))          vs.key_state['\t'] = 1;
 
         /* Keypress FIFO for INKEY$(): collect typed characters and a few
          * special keys as single-byte codes. */
