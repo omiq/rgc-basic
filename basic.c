@@ -10403,7 +10403,10 @@ static struct value eval_shift(char **p)
     return left;
 }
 
-/* Parse *, /, MOD terms. */
+/* Parse *, /, \, MOD terms. Backslash is classic BASIC integer divide
+ * (QBasic / VB / AMOS semantics): truncate both operands toward zero
+ * then divide, returning an integer. Pairs with MOD for split
+ * quotient / remainder without an INT() wrap. */
 static struct value eval_term(char **p)
 {
     struct value left, right;
@@ -10422,6 +10425,16 @@ static struct value eval_term(char **p)
                 left.num *= right.num;
             } else {
                 left.num /= right.num;
+            }
+        } else if (**p == '\\') {
+            (*p)++;
+            right = eval_shift(p);
+            ensure_num(&left);
+            ensure_num(&right);
+            {
+                long a = (long)left.num;
+                long b = (long)right.num;
+                left.num = (b != 0) ? (double)(a / b) : 0.0;
             }
         } else if (starts_with_kw(*p, "MOD")) {
             *p += 3;

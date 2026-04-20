@@ -517,7 +517,7 @@ The `examples` folder (included in release archives) contains:
   - `' comment text`
 - **Conditionals**:
   - Full relational operators: `<`, `>`, `=`, `<=`, `>=`, `<>`.
-  - **Arithmetic**: `+`, `-`, `*`, `/`, `^` (exponentiation), `MOD` (modulo, floored).
+  - **Arithmetic**: `+`, `-`, `*`, `/`, `\` (integer divide — truncate toward zero, classic BASIC / QBasic style), `^` (exponentiation), `MOD` (modulo, floored). `\` pairs with `MOD`: `(a \ b) * b + (a MOD b) == a` for non-zero `b`.
   - **Bitwise**: `<<`, `>>` (shift), `AND`, `OR`, `XOR` (operate on integer parts of numbers).
   - String and numeric comparisons are both supported.
   - You may `THEN` jump to a line number (`IF A>10 THEN 100`) or execute inline statements after `THEN`.
