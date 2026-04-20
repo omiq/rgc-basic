@@ -616,7 +616,7 @@
         if (k.length === 1) {
           var c = k.charCodeAt(0);
           if (c >= 97 && c <= 122) c -= 32;
-          if ((c >= 65 && c <= 90) || (c >= 48 && c <= 57)) return c;
+          if (c >= 32 && c <= 126) return c;
         }
         return -1;
       }
