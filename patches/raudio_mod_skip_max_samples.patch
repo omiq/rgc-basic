@@ -1,0 +1,35 @@
+diff --git a/src/raudio.c b/src/raudio.c
+index 15859a6..61ef21b 100644
+--- a/src/raudio.c
++++ b/src/raudio.c
+@@ -178,6 +178,9 @@ typedef struct tagBITMAPINFOHEADER {
+ #define MINIAUDIO_IMPLEMENTATION
+ //#define MA_DEBUG_OUTPUT
+ #include "external/miniaudio.h"         // Audio device initialization and management
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++#endif
+ #undef PlaySound                        // Win32 API: windows.h > mmsystem.h defines PlaySound macro
+ 
+ #include <stdlib.h>                     // Required for: malloc(), free()
+@@ -1483,7 +1486,20 @@ Music LoadMusicStream(const char *fileName)
+             music.ctxData = ctxMod;
+             // NOTE: Only stereo is supported for MOD
+             music.stream = LoadAudioStream(AUDIO.System.device.sampleRate, 16, AUDIO_DEVICE_CHANNELS);
++            /* RGC-BASIC patch: jar_mod_max_samples simulates the entire song
++             * sample-by-sample to count frames, which blocks the main thread
++             * for many seconds on the web build and triggers Chrome's "page
++             * unresponsive" dialog. Looping MOD playback doesn't need a real
++             * frame count — UpdateMusicStream just modulos framesProcessed
++             * by frameCount and raylib's jar_mod wrapper handles loop
++             * boundaries internally. Use UINT_MAX so the modulo never wraps.
++             * See patches/raudio_mod_skip_max_samples.patch and CHANGELOG.md
++             * "MOD load freeze fix (2026-04-20)". */
++#ifdef __EMSCRIPTEN__
++            music.frameCount = 0xFFFFFFFFu;
++#else
+             music.frameCount = (unsigned int)jar_mod_max_samples(ctxMod);    // NOTE: Always 2 channels (stereo)
++#endif
+             music.looping = true;   // Looping enabled by default
+             musicLoaded = true;
+         }
