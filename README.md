@@ -173,6 +173,28 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
 - `COLOR n` / `COLOUR n`: set the text **foreground** colour using a C64-style palette index `0–15`, mapped to ANSI SGR colours (approximate CBM palette). Named constants resolve too: `COLOR RED`, `COLOR YELLOW`, `COLOR LIGHTBLUE`, etc. — full set `BLACK WHITE RED CYAN PURPLE GREEN BLUE YELLOW ORANGE BROWN PINK DARKGRAY MEDGRAY LIGHTGREEN LIGHTBLUE LIGHTGRAY` (plus `DARKGREY/MEDGREY/LIGHTGREY` spellings). Same names work with `BACKGROUND` and (in basic-gfx) `PAPER`.
 - `BACKGROUND n`: set the text **background** colour using the same C64-style palette index `0–15`, mapped to ANSI background SGR codes (e.g. 0=black, 1=white, 2=red, 3=cyan, etc.). Accepts the same named constants as `COLOR`.
 
+### Backslash escape sequences inside strings
+
+Load-time expansion inside double-quoted strings. Matches C / Python / JS / shell conventions so newcomers don't need PETSCII / `CHR$()` to add a newline or a quote:
+
+| Escape | Byte | Use |
+|--------|------|-----|
+| `\n`   | `CHR$(10)` — LF | Newline. Terminal PRINT advances a line; gfx SCREEN 0/1/2 newline + scroll. |
+| `\r`   | `CHR$(13)` — CR | CBM-style carriage return; same effect as `\n` in gfx mode. |
+| `\t`   | `CHR$(9)`  — TAB | Horizontal tab. |
+| `\0`   | `CHR$(0)`  — NUL | Expansion works but concat drops the NUL today (tracked). |
+| `\\`   | `CHR$(92)` | Literal backslash. |
+| `\"`   | `CHR$(34)` | Literal double quote. |
+| `\x` (unknown) | — | Backslash stays literal so Windows paths like `"C:\\Users\\..."` read cleanly. |
+
+```basic
+PRINT "Line 1\nLine 2\nLine 3"     REM three lines
+PRINT "Tab\there"                  REM Tab→tab→here
+PRINT "Quote: \"hello\""           REM Quote: "hello"
+```
+
+`\` without quotes is also an [integer-divide operator](#operators) in expressions; context (inside string vs. between numbers) keeps them unambiguous. Both features share the `\` char without collision.
+
 ### Tokenised PETSCII shortcuts inside strings
 
 - Inline `{TOKENS}` (see `docs/c64-color-codes.md` for full reference):

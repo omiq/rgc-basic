@@ -828,6 +828,54 @@ static char *transform_basic_line(const char *input)
             continue;
         }
 
+        if (c == '\\') {
+            /* Backslash escape inside a string literal. Runs before the
+             * `{...}` token expander, same load-time layer, so escapes
+             * stay mode-agnostic (ASCII / PETSCII) and build-agnostic
+             * (terminal / basic-gfx / wasm). Unknown `\x` sequences
+             * pass through unchanged so Windows paths stay readable. */
+            char esc = input[i + 1];
+            int code = -1;
+            switch (esc) {
+                /* \n is LF (0x0A) so terminal PRINT lands on a real newline;
+                 * \r is CR (0x0D) for CBM-style "cursor to col 0 without
+                 * advancing" semantics. SCREEN 0/1/2 gfx_apply_control_code
+                 * treats both as newline (case 10, case 13 fall together),
+                 * so programs behave the same in either mode. */
+                case 'n':  code = 10; break;  /* LF */
+                case 'r':  code = 13; break;  /* CR */
+                case 't':  code = 9;  break;  /* TAB */
+                case '0':  code = 0;  break;  /* NUL */
+                case '\\': code = 92; break;  /* literal backslash */
+                case '"':  code = 34; break;  /* literal double-quote */
+                default: /* fall through: leave backslash as-is */ break;
+            }
+            if (code >= 0) {
+                /* Split the current segment at this point and emit a
+                 * CHR$(code) piece between the two halves. Emitting via
+                 * CHR$() (even for `\\` and `\"`) keeps the quoted
+                 * string parser happy — raw `"` inside append_quoted
+                 * would break the literal. */
+                size_t seg_len = (size_t)((input + i) - segment_start);
+                if (seg_len > 0) {
+                    if (piece_count > 0) sb_append_char(&out, '+');
+                    append_quoted(&out, segment_start, seg_len);
+                    piece_count++;
+                }
+                if (piece_count > 0) sb_append_char(&out, '+');
+                {
+                    char tmp[32];
+                    sprintf(tmp, "CHR$(%d)", code);
+                    sb_append_str(&out, tmp);
+                }
+                piece_count++;
+                segment_start = input + i + 2;
+                i++;  /* skip the escape char; loop's i++ skips past it */
+                continue;
+            }
+            /* Unknown escape — emit backslash literally as part of segment. */
+        }
+
         if (c == '{') {
             size_t j = i + 1;
             while (input[j] != '\0' && input[j] != '}') {
