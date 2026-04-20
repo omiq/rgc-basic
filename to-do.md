@@ -1,6 +1,50 @@
 # Features to add/to-do
 
-## String escape sequences `\n` / `\r` / `\t` / `\"` (proposed, 2026-04-20)
+## String escape sequences — SHIPPED 2026-04-20
+
+`\n \r \t \0 \\ \"` expanded at load time inside double-quoted
+strings. Runs in `transform_basic_line` before the existing
+`{TOKEN}` layer. Emits `"seg"+CHR$(N)+"rest"` splits so every
+escape produces a single byte. Unknown `\x` sequences pass
+through as `\x` literally (keeps Windows paths readable).
+
+Byte mapping:
+
+| Escape | CHR$ | Notes |
+|--------|------|-------|
+| `\n`   | 10 (LF) | Terminal PRINT emits as real newline; gfx case 10/13 both advance. |
+| `\r`   | 13 (CR) | CBM convention; on gfx same effect as `\n`. |
+| `\t`   | 9       | TAB. |
+| `\0`   | 0       | Expansion works, but string concat drops NULs (strcpy-style). Use only for fixed literals; raw NUL support needs a length-prefixed string rep (tracked below). |
+| `\\`   | 92      | Literal backslash. |
+| `\"`   | 34      | Literal quote. |
+
+Works in every charset / build / screen combination:
+terminal ASCII, terminal PETSCII, basic-gfx SCREEN 0/1/2,
+basic-wasm-raylib, frozen canvas WASM. Tests in
+`tests/string_escape.bas`.
+
+### Caveat: `\0` inside a concatenation
+
+`"X\0Y"` expands to `"X"+CHR$(0)+"Y"`, but the interpreter's
+string concatenation uses strcpy/strlen, so the embedded NUL
+truncates and the result becomes `"XY"` (length 2, not 3).
+Fixing requires migrating strings from C null-terminated to
+length-prefixed — tracked below. `\0` still works when the
+literal sits alone without concat (`S$ = "\0"` gives LEN 1).
+
+## Length-prefixed string representation (proposed, 2026-04-20)
+
+Current strings are `char[MAX_STR_LEN]` C null-terminated.
+Embedded NULs truncate — blocks `\0` escape, binary-data round-
+trips via BUFFER, and raw PETSCII control sequences that happen
+to include byte 0. A length-prefixed value struct
+(`str` + `len`) would fix this without breaking any existing
+BASIC program. Surface stays the same; all the strcpy/strcat
+sites in `basic.c` migrate in one pass. Not urgent — note for
+when string ops get a refactor.
+
+## String escape sequences — original spec (shipped, kept for context)
 
 Programs authored by newcomers from C / Python / JS / shell reach
 for `"Hello\n"` to add a newline. rgc-basic today requires either
