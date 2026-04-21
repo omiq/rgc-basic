@@ -51,6 +51,13 @@ Module.symvers
 Mkfile.old
 dkms.conf
 
+# Un-ignore tracker modules bundled under examples/music/. The
+# `*.mod*` kernel-build rule above catches them as collateral — MOD
+# files are shipped assets the release archives need. (2026-04-21:
+# MODs were silently missing from v2.0 Windows/macOS zips because
+# of this.)
+!examples/music/*.mod
+
 # debug information files
 *.dwo
 
