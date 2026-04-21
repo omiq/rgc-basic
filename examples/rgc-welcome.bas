@@ -13,6 +13,19 @@ CY=0
 MAX_MSG=2
 CLS
 
+
+
+' Scroll state. Start with the strip just off the right edge so
+' the text reads in from the side. T advances each frame and
+' drives the sine wave for the vertical bounce; scale it to
+' control the wobble speed (bigger = faster oscillation).
+SCSX  = -320
+T   = 0.0
+BASE_Y = 120                ' centre line of the scroller
+AMP    = 24                ' pixels of vertical swing (up + down)
+FREQ   = 0.05              ' radians per frame — ~0.05 = gentle
+
+
 ' Bake sky tint via a spare slot (SPRITECOPY src!=dst for best compat)
 LOADSPRITE 6, "sky.png"
 SPRITEMODULATE 6, 35, 255, 255, 255, 0.5
@@ -41,10 +54,21 @@ SPRITEMODULATE S+1, 35, 0, 0, 0, 0.40
 DRAWSPRITE S, (RND(-1)*320)-32, (RND(-1)*200)-32
 DRAWSPRITE S+1, SPRITEX(S)+4, SPRITEY(S)+4
 
+' LOADSPRITE path is a literal quoted string so the IDE's asset
+' auto-preload regex sees it and fetches the PNG into MEMFS
+' before the program runs.
+LOADSPRITE S+2, "scroller_strip.png"
+' Read the strip dimensions from ITS slot (S+2), not slot 0 —
+' slot 0 is the tinted sky (320 px wide) and would make the
+' scroller wrap every 320 px instead of travelling its full length.
+STRIP_W = SPRITEW(S+2)
+STRIP_H = SPRITEH(S+2)
+
 ' TIMERS FOR "MULTITASKING"
 TIMER 1,100,MOV
 TIMER 2,1000,MSG
 TIMER 3,10,CLOUD_MOVE
+TIMER 4,10,SCR
 
 ' REPEATING MESSAGE
 DIM MSGLINE$(4)
@@ -56,8 +80,7 @@ MSGLINE$(2)="Retro Game Coders IDE!"
 ' MAIN LOOP
 DO
  
- REM Sleep does not delay the timers, just the main loop.
- SLEEP 1000
+ VSYNC
  
  
 LOOP
@@ -94,5 +117,28 @@ Function CLOUD_MOVE()
   DRAWSPRITE 3, FX - 640, CY, -1
 
   CX = CX + 1
+
+End Function
+
+Function SCR()
+
+  ' Horizontal scroll + sine bounce. DRAWSPRITE positions the
+  ' whole strip each frame; the engine clips to the framebuffer
+  ' so negative X reveals later pixels of the strip. The strip
+  ' moves as one rigid body — for a "per-letter wave" effect see
+  ' demo-scroller-sprites.bas (each character stamped on its own
+  ' sine phase).
+  YY = BASE_Y + INT( SIN(T) * AMP )
+  DRAWSPRITE S+2, -SCSX, YY,12
+
+  ' Wrap: once the strip has fully exited the left edge, restart
+  ' from the right. Add a ~320 px gap between loops so the start
+  ' is visibly distinct from the end.
+  IF SCSX > STRIP_W THEN SCSX = -320
+
+  SCSX = SCSX + 2
+  T  = T  + FREQ
+
+
 
 End Function

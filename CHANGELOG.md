@@ -1,6 +1,20 @@
 ## Changelog
 
-### 2.0.0 – pending (tested live + desktop, then `scripts/tag-version.sh 2.0.0`)
+### 2.0.1 – 2026-04-21
+
+Fix: bundled tracker modules (`examples/music/*.mod`) were missing
+from the v2.0 release archives. Root cause: `.gitignore` carries a
+`*.mod*` rule (Linux kernel build artifact convention) that also
+swept the `.mod` tracker files under its net, so they were never
+`git add`ed. `LICENSES.md` shipped (.md extension), the nine MOD
+files didn't, and CI — cloning a clean repo at tag time — had
+nothing to bundle.
+
+Added `!examples/music/*.mod` negation to `.gitignore`, committed
+the nine MODs, cut 2.0.1. Content-identical to 2.0 otherwise; only
+the release archives differ.
+
+### 2.0 – 2026-04-21
 
 **Music milestone.** Streaming tracker-module playback ships end to
 end on **basic-gfx** and **basic-wasm-raylib**, with nine bundled

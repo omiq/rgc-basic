@@ -1,5 +1,49 @@
 # Features to add/to-do
 
+## `IMAGE DRAW slot` — retarget primitives to an off-screen RGBA image (proposed 2026-04-21)
+
+Mirror of the existing `SCREEN DRAW n` statement, but routes into
+the IMAGE pool (`IMAGE CREATE`'d RGBA surfaces of arbitrary size)
+instead of the fixed-size SCREEN plane pool. After
+`IMAGE CREATE 2, 2000, 40 : IMAGE DRAW 2`, every primitive
+(`LINE`, `FILLRECT`, `DRAWTEXT`, `PSET`, `CIRCLE`, `POLYGON`, ...)
+writes into the slot; `IMAGE DRAW 0` returns to the live screen.
+
+**Why:** unlocks the "demo-scroller" use case — pre-compose a wide
+gradient-into-glyphs strip once, blit a window each frame via
+`IMAGE COPY`. Today SCREEN BUFFER planes are locked to the screen
+size, and the IMAGE pool can't be drawn into, so the composite
+scroller can only layer a static gradient behind live `DRAWTEXT`
+(see `examples/demo-scroller-composite.bas`'s workaround). Other
+use cases: baked tilemap assembly, world-map renders, compositing
+HUD layers before screenshot grab, building reusable sprite
+texture atlases on the fly.
+
+**Backing work:**
+
+1. Add a global "active IMAGE draw slot" state variable, parallel
+   to the existing `SCREEN DRAW` plane selector.
+2. Teach every primitive dispatcher in `basic.c` (and the write
+   paths in `gfx/gfx_video.c` they call through) to consult that
+   state first — zero = SCREEN plane (current behaviour), non-zero
+   = write into `g_slots[n]` after clamping to slot w/h.
+3. Bounds checking: primitives that use `GFX_WIDTH` / `GFX_HEIGHT`
+   today (clipping, PSET bounds, FILLRECT clamp) must resolve to
+   the slot's own w/h when routed to IMAGE.
+4. BASIC verb: `IMAGE DRAW slot` — parser + keyword entry + doc
+   note in retrodocs `language.md` + `docs/rgc-blitter-surface-spec.md`.
+5. Example: extend `examples/demo-scroller-composite.bas` to do the
+   full "gradient through glyphs" look it originally sketched.
+
+**Deferred variants** (not part of this drop):
+
+- `SCREEN BUFFER n, w, h` with custom dimensions: bigger change,
+  audit every `GFX_WIDTH`/`GFX_HEIGHT` site. Nice-to-have but
+  superseded by `IMAGE DRAW` for most use cases.
+- Unifying SCREEN BUFFER and IMAGE pools into one surface
+  registry: cleanest long-term model, breaks the existing verb
+  split (`SCREEN ...` vs `IMAGE ...`). Defer past 2.x.
+
 ## Music tracker info — live + oscilloscope (proposed 2026-04-21)
 
 `MUSICTITLE$` / `MUSICCHANNELS` / `MUSICPATTERNS` / `MUSICSAMPLECOUNT`

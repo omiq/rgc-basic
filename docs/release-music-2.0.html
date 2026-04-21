@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RGC-BASIC 2.0 — Music + colour + palette milestone (2026-04-21)</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #222; background: #fafafa; }
+  @media (prefers-color-scheme: dark) {
+    body { color: #ddd; background: #111; }
+    a { color: #6fb3ff; }
+    code, pre { background: #1e1e1e; }
+    .card { background: #181818; border-color: #333; }
+  }
+  h1 { margin-top: 0; font-size: 2em; line-height: 1.1; }
+  h2 { margin-top: 2.2rem; padding-top: 0.4rem; border-top: 1px solid #ddd; }
+  h3 { margin-top: 1.4rem; }
+  code, pre { font-family: ui-monospace, Menlo, Consolas, monospace;
+              background: #f1f1f1; padding: 0.1em 0.35em; border-radius: 3px; }
+  pre { padding: 0.6rem 0.8rem; overflow-x: auto; }
+  ul { padding-left: 1.4em; }
+  li { margin: 0.25rem 0; }
+  .lede { font-size: 1.1em; color: #555; }
+  @media (prefers-color-scheme: dark) { .lede { color: #aaa; } }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem 1.2rem;
+          margin: 1.2rem 0; background: #fff; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0.75rem; }
+  .grid a { display: block; border: 1px solid #ccc; border-radius: 6px;
+            padding: 0.6rem 0.8rem; text-decoration: none; color: inherit;
+            background: #fff; }
+  @media (prefers-color-scheme: dark) { .grid a { background: #181818; border-color: #333; } }
+  .grid a:hover { border-color: #6fb3ff; }
+  .grid a strong { display: block; }
+  .grid a em { color: #666; font-style: normal; font-size: 0.92em; }
+  @media (prefers-color-scheme: dark) { .grid a em { color: #9aa; } }
+  .tag { display: inline-block; font-size: 0.75em; background: #eee; color: #333;
+         border-radius: 3px; padding: 0 0.35em; vertical-align: 1px; margin-left: 0.25em; }
+  @media (prefers-color-scheme: dark) { .tag { background: #333; color: #ddd; } }
+  table { border-collapse: collapse; margin: 0.8rem 0; }
+  th, td { border: 1px solid #ccc; padding: 0.3rem 0.6rem; text-align: left; vertical-align: top; }
+  @media (prefers-color-scheme: dark) { th, td { border-color: #333; } }
+</style>
+</head>
+<body>
+
+<h1>RGC-BASIC 2.0 — Music, true colour, and a writable palette</h1>
+<p class="lede">
+Release notes for <strong>v2.0</strong> / <strong>v2.0.1</strong>, tagged
+2026-04-21. 55 commits since v1.11.0, landing four big feature families on
+top of the Graphics 1.0 bitmap engine: <strong>streaming tracker music</strong>
+(MOD / XM / S3M / IT / OGG / MP3), a <strong>true-colour + indexed
+screen mode set</strong> (SCREEN 2 RGBA, SCREEN 3 256-colour indexed,
+SCREEN 4 640×400 RGBA), a <strong>writable 256-entry palette</strong>
+with hot rotation and .pal I/O, <strong>RGBA blitter surfaces</strong>
+with alpha compositing, plus a polished language pass (string escape
+sequences, backslash integer divide, extended <code>DRAWTEXT</code>
+fg/bg/scale, single-voice WAV promoted to multi-voice-ready infra).
+And a <code>--version</code> flag on every binary, because you asked.
+</p>
+
+<p>
+Full per-feature write-ups sit under the <strong>2.0</strong> /
+<strong>2.0.1</strong> sections of
+<a href="https://github.com/omiq/rgc-basic/blob/main/CHANGELOG.md">CHANGELOG.md</a>
+(what / why / implementation for each entry). This page is the short
+form with demo links. The Graphics 1.0 release notes from April 2026
+remain at
+<a href="release-graphics-1.0.html"><code>release-graphics-1.0.html</code></a>.
+</p>
+
+<div class="card" style="border-color:#6f6; background:#f0fff4">
+<h2 style="margin-top:0; border-top:none; padding-top:0">2.0.1 (fix pass)</h2>
+<ul>
+  <li><strong>Bundled tracker MODs were missing from the v2.0 release
+      archives.</strong> Root cause: <code>.gitignore</code>'s Linux
+      kernel-module rule <code>*.mod*</code> also swept the nine
+      <code>examples/music/*.mod</code> tracker files. Only
+      <code>LICENSES.md</code> shipped; CI cloned a clean repo at tag
+      time and bundled an empty <code>music/</code> directory. Fixed by
+      adding <code>!examples/music/*.mod</code> negation. Archives at
+      v2.0.1 carry all nine tracks. Content-identical to 2.0 otherwise
+      — only the release zips differ.</li>
+</ul>
+</div>
+
+<h2>Headline families</h2>
+
+<div class="card">
+<h3>1. Music streaming — full transport + meters + metadata</h3>
+<p>
+One new slot pool (separate from the 1.11.0 <code>LOADSOUND</code> WAV
+slots). Raylib's <code>raudio</code> mixes streams concurrently, so BGM
+on music-slot 0 keeps playing while <code>PLAYSOUND</code> fires SFX.
+</p>
+<pre>LOADMUSIC slot, "song.mod"          ' MOD / XM / S3M / IT / OGG / MP3
+PLAYMUSIC slot                      ' start or restart
+STOPMUSIC slot                      ' rewind + stop
+PAUSEMUSIC slot / RESUMEMUSIC slot  ' suspend / continue
+MUSICVOLUME slot, 0.0 .. 1.0
+MUSICLOOP slot, 0 | 1
+UNLOADMUSIC slot</pre>
+<p>Functions:</p>
+<ul>
+  <li><code>MUSICPLAYING(slot)</code> — 1 while audible.</li>
+  <li><code>MUSICLENGTH(slot)</code> — total track length in seconds. For
+      MOD files, computed in <code>gfx_sound.c</code> via a pattern/order
+      walk honouring <code>Fxx</code> (speed/BPM), <code>Bxx</code> (order
+      jump), <code>Dxx</code> (pattern break) and <code>E6x</code>
+      (pattern loop), with a 2-visit cap and 200 000-row budget to prevent
+      runaway walks. Cached at <code>LOADMUSIC</code>. Non-MOD formats
+      fall back to raylib's <code>GetMusicTimeLength</code>.</li>
+  <li><code>MUSICTIME(slot)</code> — elapsed seconds via
+      <code>GetMusicTimePlayed</code>. Wraps on loop.</li>
+  <li><code>MUSICPEAK()</code> — 0..1 held-peak of the raudio master
+      mix, decays ~0.92 per mix chunk. Drives VU meters.</li>
+  <li><code>MUSICTITLE$(slot)</code> — 20-byte MOD title, trimmed.</li>
+  <li><code>MUSICSAMPLENAME$(slot, idx)</code> — 22-byte sample name, idx 0..30.</li>
+  <li><code>MUSICCHANNELS(slot)</code> / <code>MUSICPATTERNS(slot)</code> /
+      <code>MUSICORDERS(slot)</code> / <code>MUSICSAMPLECOUNT(slot)</code>
+      — parsed from the MOD tag + order table at load time.</li>
+</ul>
+<p>
+<strong>Why a hand-rolled MOD length parser?</strong> Raylib's raudio
+calls <code>jar_mod_max_samples</code> inside
+<code>LoadMusicStream</code> — a full-song sample-by-sample simulation
+that blocks the main thread for 10+ seconds on Windows MinGW and under
+Emscripten ASYNCIFY. The 1.11.0 patch hollowed it out with
+<code>frameCount = UINT_MAX</code>, but that broke
+<code>GetMusicTimePlayed</code> (the <code>(int)music.frameCount</code>
+modulo underflows to -1). 2.0 fixes both: the hand-rolled parser
+computes real length in microseconds, and the
+<code>patches/raudio_mod_skip_max_samples.patch</code> hunk caps the
+<code>GetMusicTimePlayed</code> modulo at <code>INT_MAX</code> so
+<code>MUSICTIME()</code> advances honestly on MOD streams.
+</p>
+</div>
+
+<div class="card">
+<h3>2. New screen modes — true colour + hi-res</h3>
+<p>
+The 1.9.x cycle shipped <code>SCREEN 0</code> (text) and
+<code>SCREEN 1</code> (1bpp bitmap, 16 palette indices). 2.0 adds
+three more:
+</p>
+<ul>
+  <li><code>SCREEN 2</code> <span class="tag">new</span> — <strong>320×200
+      RGBA</strong>. Every pixel carries its own 32-bit RGBA, so gradients,
+      semi-transparency, and full-colour PNG loads are native. New
+      <code>COLORRGB r, g, b [, a]</code> and <code>BACKGROUNDRGB</code>
+      pens; palette <code>COLOR n</code> still works and syncs the RGBA
+      pen through the palette table. <code>PRINT</code> in SCREEN 2
+      stamps glyphs onto the RGBA bitmap with opaque paper so text
+      composes cleanly over any background.</li>
+  <li><code>SCREEN 3</code> <span class="tag">new</span> — <strong>320×200
+      8bpp palette-indexed</strong>. 64 KB per plane, reuses the
+      SCREEN 1 colour plane. <code>COLOR</code> / <code>BACKGROUND</code>
+      accept 0..255. Full 256-entry palette shared with SCREEN 1/2;
+      <code>PALETTESET</code> / <code>PALETTEROTATE</code> visibly retint
+      every drawn pixel on the next frame with zero redraw. Entries
+      0..15 are C64 defaults; 16..255 default to an HSV rainbow +
+      greyscale band. Classic palette-cycling effects for water / fire /
+      plasma / demo scrollers.</li>
+  <li><code>SCREEN 4</code> <span class="tag">new</span> — <strong>640×400
+      RGBA</strong>. QB64-style desktop canvas, 1 MB per plane. Reuses
+      every SCREEN 2 primitive with a wider clip; ideal for hi-res
+      UI, maps, or printable title screens.</li>
+</ul>
+</div>
+
+<div class="card">
+<h3>3. Writable 256-entry palette + hot rotation + .pal I/O</h3>
+<p>
+The C64 default 16-colour table is now the first slice of a 256-entry
+live palette that renders every frame. Every pixel written in
+<code>SCREEN 1</code> or <code>SCREEN 3</code> looks up its colour
+through this table, so rewriting an entry immediately retints every
+already-drawn pixel at that index.
+</p>
+<ul>
+  <li><code>PALETTESET i, r, g, b [, a]</code> — set entry <code>i</code>
+      (0..255) by RGBA.</li>
+  <li><code>PALETTESETHEX i, "#RRGGBB[AA]"</code> — same but hex-string
+      form; leading <code>#</code> optional.</li>
+  <li><code>PALETTERESET</code> — restore C64 defaults (0..15) plus the
+      HSV rainbow + greyscale default (16..255).</li>
+  <li><code>PALETTEROTATE first, last [, step]</code> — shift entries
+      <code>[first..last]</code> in place by <code>step</code>
+      (default 1). One C-side <code>memmove</code>; renders visibly
+      next frame without any bitmap redraw. Underpins copper-bar /
+      raster-scroll demos.</li>
+  <li><code>PALETTE(i, chan)</code> — read channel (0=R, 1=G, 2=B, 3=A).</li>
+  <li><code>PALETTEHEX$(i)</code> — <code>"#RRGGBB"</code> (or
+      <code>"#RRGGBBAA"</code> if alpha &lt; 255).</li>
+  <li><code>PALETTELOAD "file.pal"</code> / <code>PALETTESAVE
+      "file.pal"</code> — plain-text <code>i,r,g,b[,a]</code> lines,
+      one entry per line. Trivially diffable, editable in any text
+      editor, interoperable with common pixel tools.</li>
+</ul>
+<p>
+<strong>Note for 2.0:</strong> the earlier 0..15 cap on
+<code>PALETTESET</code> / <code>PALETTESETHEX</code> was a C64-era
+leftover. 2.0 lifts it to 0..255 so indices 16..255 can be retuned
+for copper-bar / demo rotation.
+</p>
+</div>
+
+<div class="card">
+<h3>4. RGBA blitter surfaces + alpha compositing</h3>
+<p>
+Graphics 1.0's <code>IMAGE NEW</code> / <code>IMAGE COPY</code> etc.
+were 1bpp only. 2.0 adds full RGBA off-screen surfaces with a proper
+Porter-Duff source-over compositor:
+</p>
+<ul>
+  <li><code>IMAGE CREATE slot, w, h</code> — allocate an RGBA
+      off-screen surface (slots 1..31; 0 is the live framebuffer).</li>
+  <li><code>IMAGE LOAD slot, "file.png"</code> now fills the RGBA
+      buffer when the slot was pre-created via <code>IMAGE CREATE</code>,
+      preserving the PNG's alpha instead of luminance-thresholding
+      into a 1bpp mask.</li>
+  <li><code>IMAGE BLEND src, sx, sy, sw, sh TO dst, dx, dy</code> —
+      alpha-composited blit between RGBA slots. <code>dst = 0</code>
+      routes to the live SCREEN 2 / 4 framebuffer.</li>
+</ul>
+<p>
+Existing <code>IMAGE COPY</code>, <code>IMAGE SAVE</code>,
+<code>IMAGE GRAB</code> all pick the right plane shape (1bpp or RGBA)
+from the slot. <code>IMAGE SAVE</code> auto-routes on extension:
+<code>.png</code> writes 32-bit RGBA (preserves alpha from a grab or
+from RGBA paint), anything else writes 24-bit BMP.
+</p>
+</div>
+
+<div class="card">
+<h3>5. <code>LOADSCREEN</code> — PNG/BMP/JPG into any screen mode</h3>
+<p>
+One verb, four backends, chosen by the active <code>SCREEN</code>:
+</p>
+<pre>LOADSCREEN path$ [, x [, y]]</pre>
+<ul>
+  <li><strong>SCREEN 0</strong> (text) — cell-quantises to 1 fg + 1 bg
+      hardware colour per cell + PETSCII block glyph. Image becomes
+      ANSI art.</li>
+  <li><strong>SCREEN 1</strong> (1bpp) — Floyd-Steinberg dithers to
+      the 16 hardware colours, stores per-pixel index in
+      <code>bitmap_color[]</code>.</li>
+  <li><strong>SCREEN 2</strong> / <strong>SCREEN 4</strong> (RGBA) —
+      copies PNG as-is, full colour + alpha preserved.</li>
+  <li><strong>SCREEN 3</strong> (indexed) — quantises to the 256-entry
+      palette via nearest-RGB match; alpha &lt; 128 maps to the current
+      <code>BACKGROUND</code> index.</li>
+</ul>
+<p>
+Pairs naturally with <code>PALETTEROTATE</code> in SCREEN 3 — load a
+PNG, rotate a slice of the palette, get animated water / fire / neon
+across the still image with no per-pixel redraw.
+</p>
+</div>
+
+<div class="card">
+<h3>6. Extended <code>DRAWTEXT</code> — per-call fg, bg, font, scale</h3>
+<p>
+New 5-argument form on top of the 1.9 scale-only extension:
+</p>
+<pre>DRAWTEXT x, y, text$                      ' defaults
+DRAWTEXT x, y, text$, scale               ' legacy (1.9.7)
+DRAWTEXT x, y, text$, fg, bg [, font [, scale]]</pre>
+<ul>
+  <li><code>fg</code> — palette index for glyph pixels. -1 keeps the
+      current pen.</li>
+  <li><code>bg</code> — palette index for the cell background. -1 =
+      transparent paper (non-glyph pixels untouched). Paints the
+      bounding rect before stamping.</li>
+  <li><code>font</code> — parsed but currently ignored; reserved for
+      <code>LOADFONT</code> when the Font system lands.</li>
+  <li><code>scale</code> — 1..8 integer pixel-double, same as the
+      legacy 4-arg form.</li>
+</ul>
+<p>
+Makes reverse-video, chromed labels, and multi-pen HUD text a
+one-liner instead of a two-pass stamp. Pairs with SCREEN 2 / 4 for
+full-colour styling.
+</p>
+</div>
+
+<div class="card">
+<h3>7. Language polish pass</h3>
+<ul>
+  <li><strong>String escape sequences</strong> —
+      <code>\n \r \t \0 \\ \"</code> expanded at load time inside
+      double-quoted strings. Runs in <code>transform_basic_line</code>
+      before tokenisation so every screen mode and build (terminal,
+      basic-gfx, WASM) picks them up uniformly.</li>
+  <li><strong><code>\</code> integer divide</strong> — classic BASIC /
+      QBasic floor-divide. <code>(a \ b) * b + (a MOD b) == a</code>
+      for non-zero <code>b</code>. Pairs with the existing
+      <code>MOD</code> operator.</li>
+  <li><strong>Function string-parameter binding fix</strong> — string
+      params in <code>FUNCTION</code> / <code>DEF FN</code> now bind
+      under the stripped name, so <code>FUNCTION F(A$)</code> reads
+      <code>A$</code> inside the body correctly (was losing the
+      <code>$</code> in some paths).</li>
+  <li><strong>OPEN / GET# / GETBYTE / PUTBYTE</strong> set the
+      <code>ST</code> status variable on error instead of halting the
+      program. Matches classic CBM BASIC behaviour: the program sees
+      <code>ST &lt;&gt; 0</code> on the next line and can branch.</li>
+  <li><strong><code>--version</code> / <code>-v</code> / <code>-V</code>
+      on every binary</strong> — standard Unix version flag on
+      <code>basic</code>, <code>basic-gfx</code>, and every
+      <code>basic-wasm*</code> build.
+<pre>$ ./basic --version
+RGC-BASIC v2.0.1 (2026-04-21) — basic
+https://github.com/omiq/rgc-basic</pre>
+      Version string is injected at build time via
+      <code>git describe --tags --dirty --always</code>; release date
+      is the tagged commit's committer date. Useful for bug reports
+      and checking which runtime the IDE is serving.</li>
+</ul>
+</div>
+
+<div class="card">
+<h3>8. Patched raylib built from source — native &amp; WASM</h3>
+<p>
+2.0 drops the system-raylib path on every CI target. Homebrew,
+MinGW and apt all ship un-patched raylib — that's how the Windows MOD
+freeze slipped through for a cycle. The new build pipeline:
+</p>
+<ul>
+  <li><code>scripts/build-raylib-native.sh</code> (POSIX) /
+      <code>scripts/build-raylib-native.cmd</code> (Windows) clones
+      raylib 5.5 into <code>third_party/raylib-native/</code>, applies
+      <code>patches/*.patch</code>, and builds a static
+      <code>libraylib.a</code> that <code>basic-gfx</code> links.</li>
+  <li><code>scripts/build-raylib-web.sh</code> does the same for the
+      Emscripten build under <code>third_party/raylib-src/</code>.</li>
+  <li><code>.gitattributes</code> pins <code>patches/*.patch text eol=lf</code>
+      so Git-for-Windows <code>autocrlf</code> doesn't silently rewrite
+      them to CRLF and fail the <code>git apply</code> whitespace check.</li>
+  <li>Per-OS link libraries baked into the <code>Makefile</code> — macOS
+      picks up <code>-framework CoreAudio -framework AudioToolbox</code>
+      (without these miniaudio's <code>InitAudioDevice</code> SIGSEGVs),
+      Windows gets <code>-lole32 -loleaut32 -luuid</code> for miniaudio's
+      WASAPI backend plus static <code>winpthread</code> so the binary
+      runs outside MSYS2.</li>
+  <li>CI workflows (<code>.github/workflows/{ci,nightly}.yml</code>) drop
+      the old <code>libraylib-dev</code> / <code>brew raylib</code> /
+      <code>mingw-w64-raylib</code> installs. "Not a full CI without
+      the patched audio path" is now enforced end-to-end.</li>
+</ul>
+</div>
+
+<div class="card">
+<h3>9. IDE quality-of-life</h3>
+<ul>
+  <li><strong>Asset auto-preload extended to DIM-held paths.</strong>
+      The regex that fetches referenced assets into MEMFS used to
+      only match verb-prefixed literals
+      (<code>LOADSPRITE 0, "ship.png"</code>). 2.0 adds a pass that
+      catches any string literal ending in a known asset extension,
+      so programs that stash paths in variables or arrays work:
+<pre>DIM PATH$(9)
+PATH$(1) = "music/drozerix_ai_renaissance.mod"
+LOADMUSIC 0, PATH$(1)           ' now auto-preloaded</pre>
+      Covers <code>mod / xm / s3m / it / ogg / mp3 / wav / png / pal
+      / rgcfont / seq</code>.</li>
+  <li><strong>Autoplay-gate UX.</strong> Browsers keep every
+      <code>AudioContext</code> suspended until a user gesture;
+      previously that was invisible. 2.0 adds a pulsing
+      <strong>speaker-off</strong> badge top-right while audio is
+      muted, hidden the moment the first <code>pointerdown</code> /
+      <code>touchstart</code> / <code>keydown</code> /
+      <code>click</code> lands. Listeners registered on
+      <code>window</code>, <code>document</code>, and the canvas
+      directly, plus <code>fullscreenchange</code>, so clicks in
+      fullscreen mode count as valid gestures too.</li>
+  <li><strong>Pause button now silences music.</strong> The IDE's
+      pause used to only flag the interpreter — the raylib render
+      loop kept ticking <code>gfx_music_tick</code> so music never
+      stopped. 2.0 suspends miniaudio's <code>AudioContext</code> on
+      pause and resumes it on unpause, so paused programs are
+      genuinely silent.</li>
+  <li><strong>Sync script preserves <code>music/</code> subdir.</strong>
+      <code>scripts/sync-rgc-basic.sh</code> in the 8bitworkshop repo
+      now copies tracker modules into
+      <code>presets/rgc-basic/music/</code> instead of flattening
+      them alongside <code>.bas</code> files, so
+      <code>LOADMUSIC "music/foo.mod"</code> resolves the same way
+      in the IDE as natively.</li>
+</ul>
+</div>
+
+<h2>Nine bundled Public Domain tracks</h2>
+<p>
+All shipped under <code>examples/music/</code> with credits in
+<code>LICENSES.md</code>. Fetched from The Mod Archive; all Creative
+Commons Public Domain.
+</p>
+
+<table>
+  <thead><tr><th>File</th><th>Title</th><th>Artist</th><th>Length</th></tr></thead>
+  <tbody>
+    <tr><td><code>drozerix_ai_renaissance.mod</code></td><td>AI Renaissance</td><td>Drozerix</td><td>7:35</td></tr>
+    <tr><td><code>8bit_castle.mod</code></td><td>8-bit Castle</td><td>Jam</td><td>2:10</td></tr>
+    <tr><td><code>jam_highway_encounter.mod</code></td><td>Highway Encounter</td><td>Jam</td><td>3:04</td></tr>
+    <tr><td><code>drozerix_-_neon_techno.mod</code></td><td>Neon Techno</td><td>Drozerix</td><td>3:32</td></tr>
+    <tr><td><code>jam_-_latenightcoffee.mod</code></td><td>Late Night Coffee</td><td>JAM</td><td>1:12</td></tr>
+    <tr><td><code>jam_-_heatwave_cruise.mod</code></td><td>Heatwave Cruise</td><td>JAM</td><td>1:24</td></tr>
+    <tr><td><code>musix-pleasant.mod</code></td><td>pleasant2</td><td>m0d</td><td>6:39</td></tr>
+    <tr><td><code>musix-heaven-rmx.mod</code></td><td>heavens open</td><td>m0d</td><td>2:37</td></tr>
+    <tr><td><code>kc-dancinonamiga.mod</code></td><td>Dancin' On Amiga</td><td>Katie Cadet</td><td>3:09</td></tr>
+  </tbody>
+</table>
+
+<h2>New example programs</h2>
+
+<h3>Demoscene scroller tutorial — five approaches</h3>
+<p>
+A progression from "zero assets, no engine tricks" to "full Amiga
+bitmap-font with sine wobble", so readers can pick the complexity
+level they want and learn the idea behind each approach.
+</p>
+
+<div class="grid">
+  <a href="https://ide.retrogamecoders.com/?file=demo-scroller-palette.bas&platform=rgc-basic">
+    <strong>demo-scroller-palette.bas</strong>
+    <em>Approach 1 — SCREEN 3 + PALETTEROTATE copper bars. Cheapest, no assets. Classic C64 raster-bar feel without raster interrupts.</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=demo-scroller-composite.bas&platform=rgc-basic">
+    <strong>demo-scroller-composite.bas</strong>
+    <em>Approach 2 — per-frame RGBA gradient band + scrolling white text on top. SCREEN 2 + DOUBLEBUFFER.</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=demo-scroller-png.bas&platform=rgc-basic">
+    <strong>demo-scroller-png.bas</strong>
+    <em>Approach 3 — one long RGBA PNG strip (2400×40) with transparency, scrolled + sine-bounced as a sprite. Richest visuals for the lowest code.</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=demo-scroller-sprites.bas&platform=rgc-basic">
+    <strong>demo-scroller-sprites.bas</strong>
+    <em>Approach 4 — Amiga-style 32×32 bitmap font (<code>scroller_font.png</code> from ianhan/BitmapFonts), one SPRITE STAMP per letter with per-letter sine wobble.</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=demo-scroller-reverse.bas&platform=rgc-basic">
+    <strong>demo-scroller-reverse.bas</strong>
+    <em>Approach 5 — reverse-video gradient. Pre-bakes a 16×16 gradient tile into an RGBA IMAGE slot and stamps it per cell; DRAWTEXT punches black letter-shaped holes through.</em>
+  </a>
+</div>
+
+<h3>Feature-specific demos</h3>
+
+<div class="grid">
+  <a href="https://ide.retrogamecoders.com/?file=gfx_music_demo.bas&platform=rgc-basic">
+    <strong>gfx_music_demo.bas</strong>
+    <em>Rewritten tracker demo. Keys 1..9 switch tracks. NOW PLAYING strip, MM:SS / MM:SS time, progress bar, 32-bar green/yellow/red VU meter driven by MUSICPEAK(), 32-bar volume meter. Exercises the full music API.</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=gfx_palette_demo.bas&platform=rgc-basic">
+    <strong>gfx_palette_demo.bas</strong>
+    <em>Animated PALETTEROTATE — SPACE toggles pause. Shows all 256 entries cycling continuously.</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=gfx_palette_load_demo.bas&platform=rgc-basic">
+    <strong>gfx_palette_load_demo.bas</strong>
+    <em>PALETTELOAD / PALETTESAVE plain-text .pal round-trip.</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=gfx_loadscreen_demo.bas&platform=rgc-basic">
+    <strong>gfx_loadscreen_demo.bas</strong>
+    <em>LOADSCREEN cycling through modes 0/1/2/3/4. Prints the resolution + palette size on-screen as you switch. SCREEN 3 mode adds SPACE = PALETTEROTATE.</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=gfx_screen3_demo.bas&platform=rgc-basic">
+    <strong>gfx_screen3_demo.bas</strong>
+    <em>256-colour palette-indexed mode showcase.</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=gfx_screen4_demo.bas&platform=rgc-basic">
+    <strong>gfx_screen4_demo.bas</strong>
+    <em>640×400 RGBA hi-res canvas.</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=map_editor.bas&platform=rgc-basic">
+    <strong>map_editor.bas</strong>
+    <em>RGC-BASIC port of the classic QB64 map editor demo. Inline rendering, precomputed tile palette — a readable reference for anyone building their own in-game editors.</em>
+  </a>
+</div>
+
+<h2>Where to read more</h2>
+
+<ul>
+  <li><a href="https://github.com/omiq/rgc-basic/blob/main/CHANGELOG.md">CHANGELOG.md</a>
+      — per-feature write-ups under <em>2.0</em> / <em>2.0.1</em>.</li>
+  <li><a href="https://github.com/omiq/rgc-basic/blob/main/README.md">README.md</a>
+      — feature bullet for every new surface.</li>
+  <li><a href="https://retrogamecoders.com/docs/basic/rgc-basic/language/">language reference</a>
+      (retrodocs) — full <code>MUSIC*</code> / <code>SCREEN 2-4</code> /
+      <code>PALETTE*</code> / <code>IMAGE CREATE</code> / <code>IMAGE BLEND</code>
+      families in the statement and intrinsic tables.</li>
+  <li><a href="https://github.com/omiq/rgc-basic/blob/main/docs/rgc-sound-sample-spec.md">docs/rgc-sound-sample-spec.md</a>
+      — original sound MVP spec, status flipped to "shipped".</li>
+  <li><a href="https://github.com/omiq/rgc-basic/blob/main/examples/music/LICENSES.md">examples/music/LICENSES.md</a>
+      — track credits, artist links, source URLs.</li>
+  <li><a href="release-graphics-1.0.html">release-graphics-1.0.html</a>
+      — the previous (April 2026) Graphics 1.0 milestone, for context.</li>
+</ul>
+
+<h2>What's next (2.1+)</h2>
+
+<ol>
+  <li><strong><code>IMAGE DRAW slot</code></strong> — retarget primitives
+      (<code>LINE</code>, <code>FILLRECT</code>, <code>DRAWTEXT</code>,
+      <code>PSET</code>, <code>CIRCLE</code>, …) to an off-screen RGBA
+      <code>IMAGE CREATE</code> surface. Mirror of the existing
+      <code>SCREEN DRAW n</code>, but unlocks arbitrary-sized off-screen
+      canvases. Pre-baked scroller strips with gradient-through-glyphs,
+      tilemap assembly, world-map compositing, HUD layer grabs all
+      become trivial one-liners.</li>
+  <li><strong>Live MOD tracker info</strong> — <code>MUSICROW(slot)</code>,
+      <code>MUSICORDER(slot)</code>, <code>MUSICBPM(slot)</code>,
+      <code>MUSICSPEED(slot)</code>. Needs a small patch exposing
+      <code>jar_mod_context_t</code> so BASIC can read the live
+      per-frame position.</li>
+  <li><strong>Oscilloscope / spectrum</strong> —
+      <code>MUSICWAVE(i)</code> returning the last N mix samples; keep
+      the existing <code>AttachAudioMixedProcessor</code> callback,
+      add a 512-sample ring buffer. Optional cheap FFT for spectrum bars.</li>
+  <li><strong>Per-channel meters</strong> —
+      <code>MUSICCHANVOL(slot, ch)</code> /
+      <code>MUSICCHANPERIOD(slot, ch)</code>. Reaches into jar_mod's
+      per-voice state.</li>
+  <li><strong>Multi-voice SFX</strong> — overlap two
+      <code>PLAYSOUND</code> calls instead of the MVP single-voice
+      rule. Deferred from <code>rgc-sound-sample-spec.md</code> section
+      3.4.</li>
+  <li><strong>LOADFONT / typography</strong> — wire the
+      <code>font_slot</code> argument already parsed by
+      <code>DRAWTEXT</code> to a real loadable font format.</li>
+</ol>
+
+<p style="margin-top: 3rem; color: #888; font-size: 0.9em;">
+Tagged <strong>v2.0</strong> on 2026-04-21, superseded by
+<strong>v2.0.1</strong> the same day (bundled MODs fix). Binaries:
+<a href="https://github.com/omiq/rgc-basic/releases/tag/v2.0.1">github.com/omiq/rgc-basic/releases/tag/v2.0.1</a>
+(Win/Mac/Linux) or
+<a href="https://github.com/omiq/rgc-basic/releases/tag/nightly">nightly</a>
+for bleeding-edge main. Build from source with <code>make basic-gfx</code>
+(native — will clone + patch raylib 5.5 under
+<code>third_party/raylib-native/</code> on first run) or
+<code>EMSDK=~/emsdk scripts/pullmake.sh</code> (native + WASM).
+</p>
+
+</body>
+</html>
