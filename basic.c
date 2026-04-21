@@ -4757,8 +4757,14 @@ static void statement_paletteset(char **p)
     skip_spaces(p);
     vi = eval_expr(p); ensure_num(&vi);
     idx = (int)vi.num;
-    if (idx < 0 || idx > 15) {
-        runtime_error_hint("PALETTESET: index must be 0..15", NULL);
+    /* Backing store is 256 entries deep (gfx_c64_palette_rgb[256][4])
+     * and SCREEN 3 exposes all of them — original 0..15 cap was a
+     * leftover from the C64-only era. Accept full range so palette
+     * rotation demos and SCREEN 3 gradients can retune the high
+     * half without hitting a runtime error. */
+    if (idx < 0 || idx > 255) {
+        runtime_error_hint("PALETTESET: index must be 0..255",
+                             "C64 defaults live at 0..15; SCREEN 3 exposes 16..255.");
         return;
     }
     skip_spaces(p);
@@ -4794,8 +4800,9 @@ static void statement_palettesethex(char **p)
     skip_spaces(p);
     vi = eval_expr(p); ensure_num(&vi);
     idx = (int)vi.num;
-    if (idx < 0 || idx > 15) {
-        runtime_error_hint("PALETTESETHEX: index must be 0..15", NULL);
+    if (idx < 0 || idx > 255) {
+        runtime_error_hint("PALETTESETHEX: index must be 0..255",
+                             "C64 defaults live at 0..15; SCREEN 3 exposes 16..255.");
         return;
     }
     skip_spaces(p);
