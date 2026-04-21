@@ -67,4 +67,46 @@ void gfx_music_set_loop(int slot, int loop);      /* 0 = one-shot, 1 = loop */
  * audible window. */
 void gfx_music_tick(void);
 
+/* MOD length parser + stream meters.
+ *
+ * gfx_music_length: total seconds of the loaded track. Native MOD
+ * length comes from a pattern/tempo walk done at load time (jar_mod
+ * can't be asked — jar_mod_max_samples freezes Windows MinGW builds
+ * for 10+ seconds). Non-MOD formats fall back to raylib's
+ * GetMusicTimeLength. Returns 0.0 if unknown.
+ *
+ * gfx_music_time: seconds elapsed in the current playback via
+ * raylib's GetMusicTimePlayed. Wraps at the end of a looping track.
+ *
+ * gfx_music_peak: 0..1 peak amplitude of the *master mix* (not per
+ * slot — raylib's AttachAudioStreamProcessor carries no userdata).
+ * Held-peak with slow decay, suitable for VU bars. */
+double gfx_music_length(int slot);
+double gfx_music_time(int slot);
+float  gfx_music_peak(void);
+
+/* MOD-file metadata populated at LOADMUSIC time by reading the
+ * header and 31-slot sample table. All return 0 / empty string for
+ * non-MOD formats (OGG / MP3 / XM / S3M / IT fall through).
+ *
+ * gfx_music_title copies up to buflen-1 bytes of the 20-char title
+ * field from MOD header bytes 0..19, NUL-terminating. Non-ASCII
+ * padding bytes are replaced with spaces and trailing whitespace is
+ * trimmed so trackers that pad with 0x00 / 0xFF look sane.
+ *
+ * gfx_music_sample_name copies the 22-char sample name at record
+ * `idx` (0-based, 0..30). Empty string when the slot isn't a MOD or
+ * the index is out of range.
+ *
+ * gfx_music_channels / gfx_music_patterns / gfx_music_samples
+ * mirror the parsed pattern-walker metadata. _patterns returns the
+ * number of unique patterns (max order + 1), not the song length —
+ * use gfx_music_order_count for the order table length. */
+void gfx_music_title(int slot, char *out, int buflen);
+void gfx_music_sample_name(int slot, int idx, char *out, int buflen);
+int  gfx_music_channels(int slot);
+int  gfx_music_patterns(int slot);
+int  gfx_music_samples(int slot);
+int  gfx_music_order_count(int slot);
+
 #endif /* GFX_SOUND_H */

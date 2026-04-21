@@ -1,4 +1,7 @@
 #OPTION CHARSET PET-LOWER
+
+' INITIALISE VARS
+SCREEN 2
 BACKGROUND LIGHTBLUE
 COLOUR BLACK
 S = 0
@@ -10,7 +13,7 @@ CY=0
 MAX_MSG=2
 CLS
 
-REM Bake sky tint via a spare slot (SPRITECOPY src!=dst for best compat)
+' Bake sky tint via a spare slot (SPRITECOPY src!=dst for best compat)
 LOADSPRITE 6, "sky.png"
 SPRITEMODULATE 6, 35, 255, 255, 255, 0.5
 SPRITECOPY 6, 0
@@ -19,31 +22,38 @@ UNLOADSPRITE 6
 LOADSPRITE 1, "clouds.png"
 SPRITECOPY 1, 3
 
+' BACKGROUND MUSIC TRACKER MOD
+LOADMUSIC 0, "music/drozerix_-_neon_techno.mod" 
+MUSICLOOP   0, 1
+MUSICVOLUME 0, 0.5
+PLAYMUSIC   0
 
-
-
+' SPRITES
 S=4
 LOADSPRITE S, "rgc-logo-large.png"
 LOADSPRITE S+1, "rgc-logo-large.png"
 
+' VISUAL TWEAKS
 SPRITEMODULATE S, 255, 255, 255, 255, 0.40
 SPRITEMODULATE S+1, 35, 0, 0, 0, 0.40
 
-
-
+' INITIAL DRAW
 DRAWSPRITE S, (RND(-1)*320)-32, (RND(-1)*200)-32
 DRAWSPRITE S+1, SPRITEX(S)+4, SPRITEY(S)+4
 
+' TIMERS FOR "MULTITASKING"
 TIMER 1,100,MOV
 TIMER 2,1000,MSG
 TIMER 3,10,CLOUD_MOVE
 
+' REPEATING MESSAGE
 DIM MSGLINE$(4)
 MSGLINE$(0)="Welcome"
 MSGLINE$(1)="to the"
 MSGLINE$(2)="Retro Game Coders IDE!"
 
 
+' MAIN LOOP
 DO
  
  REM Sleep does not delay the timers, just the main loop.

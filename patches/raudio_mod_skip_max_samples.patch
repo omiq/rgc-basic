@@ -1,5 +1,5 @@
 diff --git a/src/raudio.c b/src/raudio.c
-index 15859a6..61ef21b 100644
+index 15859a6..d069a4e 100644
 --- a/src/raudio.c
 +++ b/src/raudio.c
 @@ -178,6 +178,9 @@ typedef struct tagBITMAPINFOHEADER {
@@ -10,7 +10,7 @@ index 15859a6..61ef21b 100644
 +#include <emscripten.h>
 +#endif
  #undef PlaySound                        // Win32 API: windows.h > mmsystem.h defines PlaySound macro
-
+ 
  #include <stdlib.h>                     // Required for: malloc(), free()
 @@ -1483,7 +1486,17 @@ Music LoadMusicStream(const char *fileName)
              music.ctxData = ctxMod;
@@ -30,4 +30,20 @@ index 15859a6..61ef21b 100644
 +            music.frameCount = 0xFFFFFFFFu;
              music.looping = true;   // Looping enabled by default
              musicLoaded = true;
+         }
+@@ -2077,8 +2090,13 @@ float GetMusicTimePlayed(Music music)
+             int framesInFirstBuffer = music.stream.buffer->isSubBufferProcessed[0]? 0 : subBufferSize;
+             int framesInSecondBuffer = music.stream.buffer->isSubBufferProcessed[1]? 0 : subBufferSize;
+             int framesSentToMix = music.stream.buffer->frameCursorPos%subBufferSize;
+-            int framesPlayed = (framesProcessed - framesInFirstBuffer - framesInSecondBuffer + framesSentToMix)%(int)music.frameCount;
+-            if (framesPlayed < 0) framesPlayed += music.frameCount;
++            /* RGC-BASIC patch: MOD path uses frameCount = UINT_MAX (see
++             * LoadMusicStream hunk). Cast to int underflows to -1 and the
++             * modulo then clamps the result to 0 forever. Cap at INT_MAX
++             * so MOD streams return real elapsed time to MUSICTIME(). */
++            int modCount = (music.frameCount > 0 && music.frameCount < 0x80000000u) ? (int)music.frameCount : 0x7FFFFFFF;
++            int framesPlayed = (framesProcessed - framesInFirstBuffer - framesInSecondBuffer + framesSentToMix) % modCount;
++            if (framesPlayed < 0) framesPlayed += modCount;
+             secondsPlayed = (float)framesPlayed/music.stream.sampleRate;
+             ma_mutex_unlock(&AUDIO.System.lock);
          }

@@ -545,6 +545,55 @@ static unsigned wasm_str_concat_budget;
 #endif
 #endif
 
+/* Build-time version injection. Supplied by the Makefile via
+ * `-DRGC_BASIC_VERSION="..."` / `-DRGC_BASIC_BUILD_DATE="..."`,
+ * sourced from `git describe --tags --dirty --always` and the tag's
+ * committer-date respectively. Falls back to "dev" when the tree
+ * isn't a git checkout (e.g. inside a release source tarball). */
+#ifndef RGC_BASIC_VERSION
+#define RGC_BASIC_VERSION "dev"
+#endif
+#ifndef RGC_BASIC_BUILD_DATE
+#define RGC_BASIC_BUILD_DATE "unknown"
+#endif
+
+static const char *basic_build_variant(void)
+{
+#if defined(__EMSCRIPTEN__)
+  #if defined(GFX_USE_RAYLIB)
+    return "basic-wasm-raylib";
+  #else
+    return "basic-wasm";
+  #endif
+#elif defined(GFX_VIDEO)
+    return "basic-gfx";
+#else
+    return "basic";
+#endif
+}
+
+static void basic_print_version(FILE *out)
+{
+    fprintf(out, "RGC-BASIC %s (%s) — %s\n",
+            RGC_BASIC_VERSION, RGC_BASIC_BUILD_DATE, basic_build_variant());
+    fprintf(out, "https://github.com/omiq/rgc-basic\n");
+}
+
+/* Return 1 if argv[] contains a version flag (-v / -V / --version).
+ * Scanned before any other parsing so the flag works regardless of
+ * position; caller prints + exits. Argv is left untouched. */
+static int basic_has_version_flag(int argc, char **argv)
+{
+    int i;
+    for (i = 1; i < argc; i++) {
+        if (!argv[i]) continue;
+        if (strcmp(argv[i], "-v") == 0) return 1;
+        if (strcmp(argv[i], "-V") == 0) return 1;
+        if (strcmp(argv[i], "--version") == 0) return 1;
+    }
+    return 0;
+}
+
 /* Helper structures for token expansion inside BASIC strings
  * (e.g., translating {RED} to CHR$(28) at source level).
  */
@@ -3060,6 +3109,39 @@ enum func_code {
     /* MUSICPLAYING(slot) — 1 while the given music stream slot is
      * actively producing samples; 0 when idle / paused / unloaded. */
     FN_MUSICPLAYING = 110,
+    /* MUSICLENGTH(slot) — total track length in seconds. MOD files are
+     * computed in gfx_sound via a pattern/tempo walk at load time
+     * (jar_mod_max_samples freezes MinGW builds, so we cannot use
+     * raylib's GetMusicTimeLength there). Other formats fall back to
+     * the raylib length. Returns 0.0 if slot unloaded / unknown. */
+    FN_MUSICLENGTH = 111,
+    /* MUSICTIME(slot) — elapsed seconds of the current playback, via
+     * raylib's GetMusicTimePlayed. Wraps on loop. Returns 0.0 when
+     * the slot is unloaded or the backend is absent. */
+    FN_MUSICTIME = 112,
+    /* MUSICPEAK() — 0..1 held-peak of the raudio master mix. Single
+     * global meter (raylib's stream-processor API carries no
+     * userdata), but fine for VU visualisers since one track plays
+     * at a time in typical usage. */
+    FN_MUSICPEAK = 113,
+    /* MUSICTITLE$(slot) — 20-byte MOD title field, trimmed. Empty
+     * for non-MOD formats. */
+    FN_MUSICTITLE = 114,
+    /* MUSICSAMPLENAME$(slot, idx) — 22-byte sample name at index
+     * 0..30. Empty for out-of-range or non-MOD slots. */
+    FN_MUSICSAMPLENAME = 115,
+    /* MUSICCHANNELS(slot) — number of channels parsed from the MOD
+     * tag (4/6/8 or nCHN/nnCH variants). 0 for non-MOD. */
+    FN_MUSICCHANNELS = 116,
+    /* MUSICPATTERNS(slot) — unique pattern count (max(order[])+1). 0
+     * for non-MOD. */
+    FN_MUSICPATTERNS = 117,
+    /* MUSICSAMPLECOUNT(slot) — number of sample records (always 31
+     * on the 31-sample MOD layout; 0 for non-MOD). */
+    FN_MUSICSAMPLECOUNT = 118,
+    /* MUSICORDERS(slot) — order-table length (song length byte at
+     * MOD offset 950, 1..128). 0 for non-MOD. */
+    FN_MUSICORDERS = 119,
     /* PALETTE(i, chan) — read palette entry `i` (0..15), channel `chan`
      * (0=R, 1=G, 2=B, 3=A). Returns 0 when no gfx backend is active. */
     FN_PALETTE = 82,
@@ -3317,7 +3399,8 @@ static const char *const reserved_words[] = {
     "FOREACH", "IN",
     "LOADSOUND", "UNLOADSOUND", "PLAYSOUND", "STOPSOUND", "SOUNDPLAYING", "LOADSCREEN",
     "LOADMUSIC", "UNLOADMUSIC", "PLAYMUSIC", "STOPMUSIC", "PAUSEMUSIC", "RESUMEMUSIC",
-    "MUSICVOLUME", "MUSICLOOP", "MUSICPLAYING",
+    "MUSICVOLUME", "MUSICLOOP", "MUSICPLAYING", "MUSICLENGTH", "MUSICTIME", "MUSICPEAK",
+    "MUSICTITLE", "MUSICSAMPLENAME", "MUSICCHANNELS", "MUSICPATTERNS", "MUSICSAMPLECOUNT", "MUSICORDERS",
     "COLORRGB", "COLOURRGB", "BACKGROUNDRGB",
     "PALETTE", "PALETTEHEX", "PALETTESET", "PALETTESETHEX", "PALETTERESET", "PALETTEROTATE",
     "PALETTELOAD", "PALETTESAVE",
@@ -4327,6 +4410,17 @@ static int function_lookup(const char *name, int len)
             (len == 4 && name[0] == 'M' && name[1] == 'I' && name[2] == 'D' && name[3] == '$'))
             return FN_MID;
         if (len == 12 && memcmp(name, "MUSICPLAYING", 12) == 0) return FN_MUSICPLAYING;
+        if (len == 11 && memcmp(name, "MUSICLENGTH", 11) == 0) return FN_MUSICLENGTH;
+        if (len == 9  && memcmp(name, "MUSICTIME", 9) == 0) return FN_MUSICTIME;
+        if (len == 9  && memcmp(name, "MUSICPEAK", 9) == 0) return FN_MUSICPEAK;
+        if ((len == 10 && memcmp(name, "MUSICTITLE", 10) == 0) ||
+            (len == 11 && memcmp(name, "MUSICTITLE$", 11) == 0)) return FN_MUSICTITLE;
+        if ((len == 15 && memcmp(name, "MUSICSAMPLENAME", 15) == 0) ||
+            (len == 16 && memcmp(name, "MUSICSAMPLENAME$", 16) == 0)) return FN_MUSICSAMPLENAME;
+        if (len == 13 && memcmp(name, "MUSICCHANNELS", 13) == 0) return FN_MUSICCHANNELS;
+        if (len == 13 && memcmp(name, "MUSICPATTERNS", 13) == 0) return FN_MUSICPATTERNS;
+        if (len == 16 && memcmp(name, "MUSICSAMPLECOUNT", 16) == 0) return FN_MUSICSAMPLECOUNT;
+        if (len == 11 && memcmp(name, "MUSICORDERS", 11) == 0) return FN_MUSICORDERS;
         return FN_NONE;
     case 'R':
         if (len == 3 && name[0] == 'R' && name[1] == 'N' && name[2] == 'D') return FN_RND;
@@ -8543,6 +8637,124 @@ static struct value eval_function(const char *name, char **p)
         return make_num(0.0);
 #endif
     }
+    if (code == FN_MUSICLENGTH) {
+        struct value vslot;
+        vslot = eval_expr(p); ensure_num(&vslot);
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("MUSICLENGTH expects one argument",
+                                 "Use MUSICLENGTH(slot). Returns seconds, 0 if unknown.");
+            return make_num(0.0);
+        }
+        (*p)++; skip_spaces(p);
+#if defined(GFX_VIDEO) && (!defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB))
+        return make_num(gfx_music_length((int)vslot.num));
+#else
+        return make_num(0.0);
+#endif
+    }
+    if (code == FN_MUSICTIME) {
+        struct value vslot;
+        vslot = eval_expr(p); ensure_num(&vslot);
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("MUSICTIME expects one argument",
+                                 "Use MUSICTIME(slot). Elapsed seconds, wraps on loop.");
+            return make_num(0.0);
+        }
+        (*p)++; skip_spaces(p);
+#if defined(GFX_VIDEO) && (!defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB))
+        return make_num(gfx_music_time((int)vslot.num));
+#else
+        return make_num(0.0);
+#endif
+    }
+    if (code == FN_MUSICPEAK) {
+        if (**p != ')') {
+            runtime_error_hint("MUSICPEAK takes no arguments",
+                                 "Use MUSICPEAK() — global master-mix peak.");
+            return make_num(0.0);
+        }
+        (*p)++; skip_spaces(p);
+#if defined(GFX_VIDEO) && (!defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB))
+        return make_num((double)gfx_music_peak());
+#else
+        return make_num(0.0);
+#endif
+    }
+    if (code == FN_MUSICTITLE) {
+        struct value vslot;
+        vslot = eval_expr(p); ensure_num(&vslot);
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("MUSICTITLE$ expects one argument",
+                                 "Use MUSICTITLE$(slot). 20-byte MOD title, empty for non-MOD.");
+            return make_str("");
+        }
+        (*p)++; skip_spaces(p);
+#if defined(GFX_VIDEO) && (!defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB))
+        {
+            char buf[32];
+            gfx_music_title((int)vslot.num, buf, sizeof(buf));
+            return make_str(buf);
+        }
+#else
+        return make_str("");
+#endif
+    }
+    if (code == FN_MUSICSAMPLENAME) {
+        struct value vslot, vidx;
+        vslot = eval_expr(p); ensure_num(&vslot);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("MUSICSAMPLENAME$ expects slot, idx",
+                                 "Use MUSICSAMPLENAME$(slot, idx) where idx is 0..30.");
+            return make_str("");
+        }
+        (*p)++; skip_spaces(p);
+        vidx = eval_expr(p); ensure_num(&vidx);
+        skip_spaces(p);
+        if (**p != ')') {
+            runtime_error_hint("MUSICSAMPLENAME$ expects slot, idx",
+                                 "Use MUSICSAMPLENAME$(slot, idx).");
+            return make_str("");
+        }
+        (*p)++; skip_spaces(p);
+#if defined(GFX_VIDEO) && (!defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB))
+        {
+            char buf[32];
+            gfx_music_sample_name((int)vslot.num, (int)vidx.num, buf, sizeof(buf));
+            return make_str(buf);
+        }
+#else
+        return make_str("");
+#endif
+    }
+    if (code == FN_MUSICCHANNELS || code == FN_MUSICPATTERNS ||
+        code == FN_MUSICSAMPLECOUNT || code == FN_MUSICORDERS) {
+        struct value vslot;
+        const char *name = "MUSICCHANNELS";
+        if (code == FN_MUSICPATTERNS)      name = "MUSICPATTERNS";
+        else if (code == FN_MUSICSAMPLECOUNT) name = "MUSICSAMPLECOUNT";
+        else if (code == FN_MUSICORDERS)   name = "MUSICORDERS";
+        vslot = eval_expr(p); ensure_num(&vslot);
+        skip_spaces(p);
+        if (**p != ')') {
+            char hint[96];
+            snprintf(hint, sizeof(hint), "Use %s(slot) where slot is 0..7.", name);
+            runtime_error_hint(hint, NULL);
+            return make_num(0.0);
+        }
+        (*p)++; skip_spaces(p);
+#if defined(GFX_VIDEO) && (!defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB))
+        if (code == FN_MUSICCHANNELS)    return make_num((double)gfx_music_channels((int)vslot.num));
+        if (code == FN_MUSICPATTERNS)    return make_num((double)gfx_music_patterns((int)vslot.num));
+        if (code == FN_MUSICSAMPLECOUNT) return make_num((double)gfx_music_samples((int)vslot.num));
+        return make_num((double)gfx_music_order_count((int)vslot.num));
+#else
+        return make_num(0.0);
+#endif
+    }
     if (code == FN_INKEY) {
         if (**p != ')') {
             runtime_error_hint("INKEY$ takes no arguments", "Use INKEY$() with empty parentheses.");
@@ -10862,6 +11074,15 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "JSONKEY$") ||
             starts_with_kw(*p, "SOUNDPLAYING") ||
             starts_with_kw(*p, "MUSICPLAYING") ||
+            starts_with_kw(*p, "MUSICLENGTH") ||
+            starts_with_kw(*p, "MUSICTIME") ||
+            starts_with_kw(*p, "MUSICPEAK") ||
+            starts_with_kw(*p, "MUSICTITLE") || starts_with_kw(*p, "MUSICTITLE$") ||
+            starts_with_kw(*p, "MUSICSAMPLENAME") || starts_with_kw(*p, "MUSICSAMPLENAME$") ||
+            starts_with_kw(*p, "MUSICCHANNELS") ||
+            starts_with_kw(*p, "MUSICPATTERNS") ||
+            starts_with_kw(*p, "MUSICSAMPLECOUNT") ||
+            starts_with_kw(*p, "MUSICORDERS") ||
             starts_with_kw(*p, "PALETTE") || starts_with_kw(*p, "PALETTEHEX") ||
             starts_with_kw(*p, "PALETTEHEX$") ||
             starts_with_kw(*p, "BUFFERLEN") || starts_with_kw(*p, "BUFFERPATH") ||
@@ -15842,6 +16063,10 @@ int basic_parse_arg_flags(int argc, char **argv, int start, int expect_program_p
 {
     int i;
     init_console_ansi();
+    if (basic_has_version_flag(argc, argv)) {
+        basic_print_version(stdout);
+        exit(0);
+    }
     for (i = start; i < argc; i++) {
         if (strcmp(argv[i], "-petscii") == 0 || strcmp(argv[i], "--petscii") == 0) {
             petscii_mode = 1;
@@ -16399,8 +16624,13 @@ int main(int argc, char **argv)
     /* Initialize console so ANSI colors/control codes behave consistently. */
     init_console_ansi();
 
+    if (basic_has_version_flag(argc, argv)) {
+        basic_print_version(stdout);
+        return 0;
+    }
+
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] <program.bas>\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-v|--version] [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] <program.bas>\n", argv[0]);
         return 1;
     }
 
