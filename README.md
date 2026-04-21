@@ -18,11 +18,15 @@ RGC-BASIC is *inspired by* CBM BASIC v2 as found on classic Commodore machines, 
 
 Unlike emulators, this is a BASIC interpreter that can already do real work: reading and writing files, user-defined functions, structured control flow, and more. In addition to the **terminal interpreter** (`basic`), there is a full **graphical interpreter** (`basic-gfx`) built with Raylib — a complete 40×25 PETSCII windowed environment with `POKE`/`PEEK` screen memory, `INKEY$`, `TI`/`TI$`, and `.seq` art viewers.
 
-## Why Commodore BASIC?
+## Why mix modern BASIC with Commodore V2 syntax?
 
 The project started as an expansion on an original LLM-generated demo project by [David Plummer](https://github.com/davepl/pdpsrc/tree/main/bsd/basic). As I played with it, and added to it, I had fun. That's enough reason for me, and nobody is going to take your favourite toolchain away because this exists so calm down, sheesh.
 
-Current release: **1.11.0** (2026-04-19) — sound MVP: `LOADSOUND/PLAYSOUND/STOPSOUND/UNLOADSOUND/SOUNDPLAYING()` single-voice WAV playback (basic-gfx + basic-wasm-raylib; canvas WASM stays text+graphics). On top of 1.10.0's non-gfx utility batch (`TICKUS()/TICKMS()` timers, `CWD$()/CHDIR`, `DIR$/DIR INTO`, `JSONLEN/JSONKEY$`, `FOREACH`), 1.9.9's pixel-perfect `ISMOUSEOVERSPRITE(slot, alpha_cutoff)`, 1.9.8's `SPRITEAT(x, y)`, 1.9.7's `CLS rect` + `DRAWTEXT scale`, 1.9.6's AMOS-style multi-plane screen buffers (8 slots), 1.9.5's bitmap-plane double-buffer, and 1.9.2–1.9.4's `FILEEXISTS` / `DOWNLOAD` / `IMAGE GRAB/SAVE` / compound assignment. Graphics 1.0 milestone (1.9.0): full 2-D primitive set, blitter Phase 1, tilemap renderer, VSYNC pipeline, keyboard intrinsics, anti-alias toggle, two-word SPRITE/TILE/SHEET/IMAGE family. See `CHANGELOG.md` for the full versioned history and `docs/release-graphics-1.0.html` for the Graphics 1.0 announcement.
+**Current release:** 
+
+**1.11.0** (2026-04-19) — sound MVP: `LOADSOUND/PLAYSOUND/STOPSOUND/UNLOADSOUND/SOUNDPLAYING()` single-voice WAV playback (basic-gfx + basic-wasm-raylib; canvas WASM stays text+graphics). On top of 1.10.0's non-gfx utility batch (`TICKUS()/TICKMS()` timers, `CWD$()/CHDIR`, `DIR$/DIR INTO`, `JSONLEN/JSONKEY$`, `FOREACH`), 1.9.9's pixel-perfect `ISMOUSEOVERSPRITE(slot, alpha_cutoff)`, 1.9.8's `SPRITEAT(x, y)`, 1.9.7's `CLS rect` + `DRAWTEXT scale`, 1.9.6's AMOS-style multi-plane screen buffers (8 slots), 1.9.5's bitmap-plane double-buffer, and 1.9.2–1.9.4's `FILEEXISTS` / `DOWNLOAD` / `IMAGE GRAB/SAVE` / compound assignment. Graphics 1.0 milestone (1.9.0): full 2-D primitive set, blitter Phase 1, tilemap renderer, VSYNC pipeline, keyboard intrinsics, anti-alias toggle, two-word SPRITE/TILE/SHEET/IMAGE family. 
+
+*See `CHANGELOG.md` for the full versioned history and `docs/release-graphics-1.0.html` for the Graphics 1.0 announcement.*
 
 ## 💾 DOWNLOADS
 
