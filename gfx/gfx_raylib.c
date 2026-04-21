@@ -1813,18 +1813,48 @@ static void render_rgba_screen(const GfxVideoState *s, RenderTexture2D target,
         return;
     }
 
-    for (y = 0; y < src_h; y++) {
-        int py = y - sy;
-        if (py < 0 || py >= fb_h) continue;
-        for (x = 0; x < src_w; x++) {
-            int px = off_x + x - sx;
-            unsigned off;
-            if (px < 0 || px >= fb_w) continue;
-            off = ((unsigned)y * (unsigned)src_w + (unsigned)x) * 4u;
-            buf[py * fb_w + px].r = src[off + 0];
-            buf[py * fb_w + px].g = src[off + 1];
-            buf[py * fb_w + px].b = src[off + 2];
-            buf[py * fb_w + px].a = src[off + 3];
+    /* Scroll system (2.1): if any zone has a non-zero dx or any
+     * scanline has per-line dx set, sample source columns with
+     * modular wrap. The common case (no scroll state) takes the
+     * zero-branch identically to the pre-scroll code path. */
+    if (gfx_scroll_is_active()) {
+        for (y = 0; y < src_h; y++) {
+            int py = y - sy;
+            int row_dx;
+            int wrap_dx;
+            if (py < 0 || py >= fb_h) continue;
+            row_dx = gfx_scroll_effective_dx(y, src_h);
+            /* Normalize to [0, src_w) so the modulo below always
+             * lands in-bounds regardless of sign / magnitude. */
+            wrap_dx = row_dx % src_w;
+            if (wrap_dx < 0) wrap_dx += src_w;
+            for (x = 0; x < src_w; x++) {
+                int px = off_x + x - sx;
+                unsigned sxi;
+                unsigned off;
+                if (px < 0 || px >= fb_w) continue;
+                sxi = (unsigned)((x + wrap_dx) % src_w);
+                off = ((unsigned)y * (unsigned)src_w + sxi) * 4u;
+                buf[py * fb_w + px].r = src[off + 0];
+                buf[py * fb_w + px].g = src[off + 1];
+                buf[py * fb_w + px].b = src[off + 2];
+                buf[py * fb_w + px].a = src[off + 3];
+            }
+        }
+    } else {
+        for (y = 0; y < src_h; y++) {
+            int py = y - sy;
+            if (py < 0 || py >= fb_h) continue;
+            for (x = 0; x < src_w; x++) {
+                int px = off_x + x - sx;
+                unsigned off;
+                if (px < 0 || px >= fb_w) continue;
+                off = ((unsigned)y * (unsigned)src_w + (unsigned)x) * 4u;
+                buf[py * fb_w + px].r = src[off + 0];
+                buf[py * fb_w + px].g = src[off + 1];
+                buf[py * fb_w + px].b = src[off + 2];
+                buf[py * fb_w + px].a = src[off + 3];
+            }
         }
     }
 

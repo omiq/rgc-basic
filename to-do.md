@@ -1,5 +1,73 @@
 # Features to add/to-do
 
+## Scroll zones + per-scanline warp (proposed 2026-04-21)
+
+Originally dropped from the Graphics 1.0 (1.9) cycle in favour of
+"just use `IMAGE COPY` with a user-managed offset". That decision is
+fine for whole-screen scrolls but costs too much BASIC when you want
+*part* of the screen to scroll on its own, or when you want a
+per-scanline distortion (water ripple, heat haze, flag wave, CRT
+jitter). Scroll zones are back on the roadmap for 2.1.
+
+**Tier 1 — horizontal zone strip.**
+
+```
+SCROLL ZONE id, y, h        ' declare a horizontal rect (one-shot)
+SCROLL ZONE id, dx          ' add dx pixels to this frame's offset;
+                            '   wraps on zone width, offset persists
+SCROLL ZONE CLEAR id        ' forget the zone
+```
+
+Engine path: compositor reads `bitmap[(x + zone_dx) mod w][y]` for
+pixels inside the zone. One modulo per pixel in the zone, cost
+scales with zone area not with BASIC loop count. Unlocks
+message-strip scrollers, foreground-only scroll during cutscenes.
+
+**Tier 2 — parallax bands.** Falls out of Tier 1 for free: three
+zones with different `dx` per frame = sky / mid / ground parallax.
+No new verbs needed.
+
+**Tier 3 — per-scanline warp.**
+
+```
+SCROLL LINE y, dx
+```
+
+Each scanline gets its own horizontal offset. Implementation = one
+`int[screen_h]` offset table read inside the existing composite
+path. Classic Amiga copper-list trick reproduced in software.
+Unlocks:
+
+```basic
+' Water ripple across rows 120..199
+FOR Y = 120 TO 199
+  SCROLL LINE Y, INT(SIN((Y + T) * 0.2) * 6)
+NEXT
+VSYNC
+```
+
+`SCROLL LINE CLEAR` / `SCROLL RESET` restore the normal flat
+composite.
+
+**Backing work:**
+
+1. Extend `GfxVideoState` with `scroll_zone[]` (tier 1) and
+   `scroll_line_dx[rgba_h]` (tier 3).
+2. Parser entries: `SCROLL ZONE` / `SCROLL LINE` / `SCROLL RESET`.
+3. Composite hook in `gfx_video.c` / `gfx_raylib.c` reads either
+   zone-wise or per-scanline offsets when populating the render
+   texture row.
+4. Example programs: `gfx_scrollzone_demo.bas` (message strip +
+   parallax), `gfx_scrollwarp_demo.bas` (sine water + flag wave),
+   tutorial write-up for the 2.1 announcement.
+
+**Relationship to `IMAGE DRAW slot` (also queued 2.1):** orthogonal.
+`IMAGE DRAW` gives you an off-screen RGBA canvas to pre-compose wide
+strips; scroll zones give you the display-time panning. You'd use
+both for a polished scroller — pre-bake the long strip to an IMAGE,
+declare a scroll zone over the message row, each frame advance the
+zone's `dx`.
+
 ## `IMAGE DRAW slot` — retarget primitives to an off-screen RGBA image (proposed 2026-04-21)
 
 Mirror of the existing `SCREEN DRAW n` statement, but routes into

@@ -40,9 +40,13 @@ CLS
 BAND_Y = 40
 BAND_H = 40
 
-MSG$ = "  * * *   REVERSE-VIDEO GRADIENT SCROLLER   * * *   EACH CHARACTER CELL HAS ITS OWN VERTICAL GRADIENT; DRAWTEXT PUNCHES THE LETTER SHAPE OUT IN BLACK.   WELCOME TO RGC-BASIC 2.0.   "
+MSG$ = "REVERSE-VIDEO GRADIENT SCROLLER - EACH CELL HAS ITS OWN GRADIENT, DRAWTEXT PUNCHES THE LETTER OUT IN BLACK. WELCOME TO RGC-BASIC 2.0. "
 LEN_MSG = LEN(MSG$)
-SCROLL_X = 320
+' Start with the first letter just on-screen instead of 320 px
+' off-screen so paused screenshots show text knockouts straight
+' away. Set to 320 if you'd rather the message read in from the
+' right edge.
+SCROLL_X = 16
 
 ' At scale 2, the chargen cell is 16 px wide x 16 px tall. Text
 ' sits vertically centred in the band via the +12 offset below.
@@ -94,12 +98,13 @@ DO
   FILLRECT 0, BAND_Y TO 319, BAND_Y + BAND_H - 1
 
   ' Stamp the cached gradient tile at each on-screen cell slot.
-  ' Skip cells that are fully off-screen so we don't spam blits
-  ' the compositor would clip anyway.
+  ' IMAGE BLEND (not IMAGE COPY) because dst = 0 only routes to
+  ' the live RGBA framebuffer through BLEND — COPY needs dst to
+  ' be a loaded IMAGE slot. Skip cells fully off-screen.
   FOR I = 0 TO LEN_MSG - 1
     CX = SCROLL_X + I * CELL_W
     IF CX > -CELL_W AND CX < 320 THEN
-      IMAGE COPY 1, 0, 0, CELL_W, CELL_H TO 0, CX, TEXT_Y
+      IMAGE BLEND 1, 0, 0, CELL_W, CELL_H TO 0, CX, TEXT_Y
     END IF
   NEXT
 
