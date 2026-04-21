@@ -6078,6 +6078,101 @@ static void statement_drawtext(char **p)
 }
 
 /* SCROLL x, y — viewport offset in pixels (text/bitmap layer + sprites; basic-gfx / canvas WASM). */
+#ifdef GFX_VIDEO
+/* SCROLL sub-verbs (2.1 scroll system).
+ *
+ * Forms:
+ *   SCROLL dx, dy                     — legacy full-screen pan (unchanged)
+ *   SCROLL ZONE id, y, h              — declare / resize a horizontal zone
+ *   SCROLL ZONE id, dx                — add dx to that zone's running offset
+ *   SCROLL ZONE CLEAR id              — release the zone
+ *   SCROLL ZONE RESET id              — zero the offset, keep the rect
+ *   SCROLL LINE y, dx                 — set absolute per-scanline dx
+ *   SCROLL LINE RESET                 — zero every per-scanline entry
+ *   SCROLL RESET                      — nuke both zones + per-line state
+ *
+ * Dispatch is keyword-driven: after "SCROLL", we peek ZONE / LINE / RESET
+ * and dive into the matching sub-handler. If none of those match, fall
+ * back to the original "SCROLL dx, dy" pan statement. */
+static void statement_scroll_zone(char **p)
+{
+    struct value v1, v2, v3;
+    int id;
+    skip_spaces(p);
+    if (starts_with_kw(*p, "CLEAR")) {
+        *p += 5; skip_spaces(p);
+        v1 = eval_expr(p); ensure_num(&v1);
+        id = (int)v1.num;
+        if (gfx_scroll_zone_clear(id) != 0) {
+            runtime_error_hint("SCROLL ZONE CLEAR: invalid id",
+                                 "id must be 1..7 and the zone must have been declared.");
+        }
+        return;
+    }
+    if (starts_with_kw(*p, "RESET")) {
+        *p += 5; skip_spaces(p);
+        v1 = eval_expr(p); ensure_num(&v1);
+        id = (int)v1.num;
+        if (gfx_scroll_zone_reset(id) != 0) {
+            runtime_error_hint("SCROLL ZONE RESET: invalid id",
+                                 "id must be 1..7 and the zone must be active.");
+        }
+        return;
+    }
+    /* SCROLL ZONE id, y, h  — or — SCROLL ZONE id, dx (2-arg form) */
+    v1 = eval_expr(p); ensure_num(&v1);
+    id = (int)v1.num;
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("SCROLL ZONE expects id, y, h (declare) or id, dx (advance)",
+                             "Example: SCROLL ZONE 1, 80, 40  then each frame  SCROLL ZONE 1, -2");
+        return;
+    }
+    (*p)++; skip_spaces(p);
+    v2 = eval_expr(p); ensure_num(&v2);
+    skip_spaces(p);
+    if (**p == ',') {
+        (*p)++; skip_spaces(p);
+        v3 = eval_expr(p); ensure_num(&v3);
+        /* 3-arg form: declare / resize the rect */
+        if (gfx_scroll_zone_set(id, (int)v2.num, (int)v3.num) != 0) {
+            runtime_error_hint("SCROLL ZONE: declare failed",
+                                 "id 1..7, h > 0. Example: SCROLL ZONE 1, 80, 40.");
+        }
+        return;
+    }
+    /* 2-arg form: advance the running dx */
+    if (gfx_scroll_zone_advance(id, (int)v2.num) != 0) {
+        runtime_error_hint("SCROLL ZONE advance: zone not active",
+                             "Declare the zone first: SCROLL ZONE id, y, h.");
+    }
+}
+
+static void statement_scroll_line(char **p)
+{
+    struct value v1, v2;
+    skip_spaces(p);
+    if (starts_with_kw(*p, "RESET")) {
+        *p += 5; skip_spaces(p);
+        gfx_scroll_line_reset();
+        return;
+    }
+    v1 = eval_expr(p); ensure_num(&v1);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("SCROLL LINE expects y, dx",
+                             "Example: SCROLL LINE 120, INT(SIN(T)*6)");
+        return;
+    }
+    (*p)++; skip_spaces(p);
+    v2 = eval_expr(p); ensure_num(&v2);
+    if (gfx_scroll_line_set((int)v1.num, (int)v2.num) != 0) {
+        runtime_error_hint("SCROLL LINE: y out of range",
+                             "y must be 0..rgba_h-1 (200 on SCREEN 2, 400 on SCREEN 4).");
+    }
+}
+#endif /* GFX_VIDEO */
+
 static void statement_scroll(char **p)
 {
 #ifndef GFX_VIDEO
@@ -6088,6 +6183,23 @@ static void statement_scroll(char **p)
     struct value vx, vy;
     int dx, dy;
     skip_spaces(p);
+    /* Sub-verb dispatch. ZONE / LINE / RESET delegate; plain SCROLL
+     * followed by a number falls through to the legacy pan form. */
+    if (starts_with_kw(*p, "ZONE")) {
+        *p += 4; skip_spaces(p);
+        statement_scroll_zone(p);
+        return;
+    }
+    if (starts_with_kw(*p, "LINE")) {
+        *p += 4; skip_spaces(p);
+        statement_scroll_line(p);
+        return;
+    }
+    if (starts_with_kw(*p, "RESET")) {
+        *p += 5; skip_spaces(p);
+        gfx_scroll_reset_all();
+        return;
+    }
     vx = eval_expr(p);
     ensure_num(&vx);
     skip_spaces(p);

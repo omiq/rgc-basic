@@ -355,5 +355,91 @@ void gfx_video_bitmap_stamp_glyph_px_scaled(GfxVideoState *s,
  * plane or chars[]. */
 void gfx_video_bitmap_scroll_up_cell(GfxVideoState *s);
 
+/* ----------------------------------------------------------------
+ * IMAGE DRAW slot retarget (2.1).
+ *
+ * Swaps the live RGBA draw target so every SCREEN 2 / SCREEN 4
+ * primitive (LINE, FILLRECT, CIRCLE, DRAWTEXT, PSET, POLYGON, …)
+ * writes into an off-screen IMAGE CREATE surface instead of the
+ * visible framebuffer. All primitives read `s->bitmap_rgba` /
+ * `rgba_w` / `rgba_h`, so we just repoint the triple to the
+ * IMAGE slot's RGBA + w/h; BASIC's `IMAGE DRAW 0` restores the
+ * saved triple.
+ *
+ * Semantics:
+ *   * No-op on non-RGBA screens (SCREEN 0 / 1 / 3). Returns -1.
+ *   * Re-entrant: calling with a new slot while already retargeted
+ *     keeps the original framebuffer saved; only `IMAGE DRAW 0`
+ *     restores. Nested saves not supported.
+ *   * SPRITE STAMP / DRAWSPRITE / tilemap verbs are unaffected —
+ *     those have their own queue and aren't primitive-buffer
+ *     writers.
+ *
+ * `gfx_image_draw_target_slot()` returns the current active slot
+ * (0 = live framebuffer), handy for runtime errors and introspection.
+ * ---------------------------------------------------------------- */
+
+int  gfx_set_image_draw_target(int slot);    /* 0 = restore live */
+int  gfx_image_draw_target_slot(void);
+
+/* ----------------------------------------------------------------
+ * Scroll zones + per-scanline warp (2.1 scroll system).
+ *
+ * Two stacked mechanisms applied during the RGBA composite (SCREEN 2
+ * and SCREEN 4 only for now):
+ *
+ *   1. Per-scanline horizontal offset — each visible pixel row has
+ *      its own `dx`. The renderer reads the source pixel at column
+ *      `(x + dx) mod rgba_w` and wraps, so one row of bitmap appears
+ *      shifted by `dx` pixels without BASIC ever touching the buffer.
+ *      Classic Amiga copper-list / raster-line tricks: water ripple,
+ *      flag wave, heat haze, CRT jitter.
+ *
+ *   2. Rectangular scroll zones — a named y..y+h-1 band with its own
+ *      persistent dx. Simpler to drive from BASIC than line-by-line
+ *      (one zone dx advance per frame ≈ whole message strip scrolls).
+ *      Applied before per-line offsets, so per-line warp can layer on
+ *      top of a scrolling zone. Up to GFX_MAX_SCROLL_ZONES active at
+ *      once.
+ *
+ * No dynamic allocation — both tables live on `GfxVideoState`. The
+ * composite path skips the rewrite loop entirely when no zone is
+ * active AND no scanline has a non-zero dx (the common case). See
+ * `gfx_scroll_is_active` for the fast-path flag.
+ * ---------------------------------------------------------------- */
+
+#define GFX_MAX_SCROLL_ZONES 8u
+
+typedef struct GfxScrollZone {
+    int16_t  y;      /* top row (inclusive) */
+    int16_t  h;      /* height in pixel rows */
+    int32_t  dx;     /* horizontal offset applied to every row of the zone */
+    uint8_t  active; /* 1 = zone in use, 0 = free slot */
+} GfxScrollZone;
+
+/* Declare / update a scroll zone. `id` is 1..GFX_MAX_SCROLL_ZONES-1
+ * (slot 0 reserved for "no zone"); y/h clipped at composite time. */
+int  gfx_scroll_zone_set(int id, int y, int h);
+int  gfx_scroll_zone_advance(int id, int dx);   /* add dx to zone's running offset */
+int  gfx_scroll_zone_reset(int id);             /* zero the offset, keep rect */
+int  gfx_scroll_zone_clear(int id);             /* release the zone slot */
+
+/* Per-scanline absolute dx for a single row. y clipped to the current
+ * RGBA plane height at composite time. */
+int  gfx_scroll_line_set(int y, int dx);
+void gfx_scroll_line_reset(void);               /* zero every row */
+
+/* Wipe every zone + every per-line dx. */
+void gfx_scroll_reset_all(void);
+
+/* Fast-path check used by the composite: true when at least one zone
+ * has dx != 0 or any scanline entry is non-zero. When false the
+ * renderer can skip the rewrite loop entirely. */
+int  gfx_scroll_is_active(void);
+
+/* Read out the effective dx for row y (zone + per-line stacked).
+ * Returns 0 when both layers are zero or the row is out of range. */
+int  gfx_scroll_effective_dx(int y, int rgba_h);
+
 #endif /* GFX_VIDEO_H */
 

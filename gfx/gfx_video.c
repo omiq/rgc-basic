@@ -1105,3 +1105,141 @@ void gfx_bitmap_line(GfxVideoState *s, int x0, int y0, int x1, int y1, int on)
     }
 }
 
+/* ----------------------------------------------------------------
+ * Scroll zones + per-scanline warp (2.1).
+ *
+ * Module-scope globals — the composite path reads them directly each
+ * frame. Keeping state here (rather than on every GfxVideoState)
+ * lets the pure headless unit tests leave the scroll system alone,
+ * and means the renderer only has to look at one place regardless
+ * of which plane is active.
+ * ---------------------------------------------------------------- */
+
+static GfxScrollZone g_scroll_zones[GFX_MAX_SCROLL_ZONES];
+static int32_t       g_scroll_line_dx[GFX_RGBA_HI_H];
+static uint8_t       g_scroll_zone_any = 0;  /* fast-path: any zone active? */
+static uint8_t       g_scroll_line_any = 0;  /* fast-path: any line dx != 0? */
+
+int gfx_scroll_zone_set(int id, int y, int h)
+{
+    if (id < 1 || (unsigned)id >= GFX_MAX_SCROLL_ZONES) return -1;
+    if (h <= 0) return -1;
+    g_scroll_zones[id].y = (int16_t)y;
+    g_scroll_zones[id].h = (int16_t)h;
+    g_scroll_zones[id].active = 1u;
+    /* dx preserved — repeated SCROLL ZONE id, y, h calls don't reset
+     * the running offset, so a program can resize a zone mid-scroll
+     * without a position hiccup. Explicit reset is via the _reset
+     * helper below. */
+    g_scroll_zone_any = 1u;
+    return 0;
+}
+
+int gfx_scroll_zone_advance(int id, int dx)
+{
+    if (id < 1 || (unsigned)id >= GFX_MAX_SCROLL_ZONES) return -1;
+    if (!g_scroll_zones[id].active) return -1;
+    g_scroll_zones[id].dx += (int32_t)dx;
+    if (g_scroll_zones[id].dx != 0) g_scroll_zone_any = 1u;
+    return 0;
+}
+
+int gfx_scroll_zone_reset(int id)
+{
+    int i;
+    if (id < 1 || (unsigned)id >= GFX_MAX_SCROLL_ZONES) return -1;
+    if (!g_scroll_zones[id].active) return -1;
+    g_scroll_zones[id].dx = 0;
+    /* Re-evaluate the fast-path flag: any remaining zone with
+     * non-zero dx? */
+    g_scroll_zone_any = 0u;
+    for (i = 1; i < (int)GFX_MAX_SCROLL_ZONES; i++) {
+        if (g_scroll_zones[i].active && g_scroll_zones[i].dx != 0) {
+            g_scroll_zone_any = 1u;
+            break;
+        }
+    }
+    return 0;
+}
+
+int gfx_scroll_zone_clear(int id)
+{
+    int i;
+    if (id < 1 || (unsigned)id >= GFX_MAX_SCROLL_ZONES) return -1;
+    g_scroll_zones[id].active = 0u;
+    g_scroll_zones[id].dx = 0;
+    g_scroll_zone_any = 0u;
+    for (i = 1; i < (int)GFX_MAX_SCROLL_ZONES; i++) {
+        if (g_scroll_zones[i].active && g_scroll_zones[i].dx != 0) {
+            g_scroll_zone_any = 1u;
+            break;
+        }
+    }
+    return 0;
+}
+
+int gfx_scroll_line_set(int y, int dx)
+{
+    if (y < 0 || (unsigned)y >= GFX_RGBA_HI_H) return -1;
+    g_scroll_line_dx[y] = (int32_t)dx;
+    if (dx != 0) g_scroll_line_any = 1u;
+    else {
+        /* A single clear could have been the last non-zero row.
+         * Re-scan to keep the fast-path flag honest. Cost is one
+         * 400-entry pass, called only when setting dx to exactly
+         * zero — common case (wiggle through zero) still pays it
+         * but the full composite rewrite is the expensive thing.
+         */
+        int i;
+        g_scroll_line_any = 0u;
+        for (i = 0; i < (int)GFX_RGBA_HI_H; i++) {
+            if (g_scroll_line_dx[i] != 0) {
+                g_scroll_line_any = 1u;
+                break;
+            }
+        }
+    }
+    return 0;
+}
+
+void gfx_scroll_line_reset(void)
+{
+    memset(g_scroll_line_dx, 0, sizeof(g_scroll_line_dx));
+    g_scroll_line_any = 0u;
+}
+
+void gfx_scroll_reset_all(void)
+{
+    memset(g_scroll_zones, 0, sizeof(g_scroll_zones));
+    memset(g_scroll_line_dx, 0, sizeof(g_scroll_line_dx));
+    g_scroll_zone_any = 0u;
+    g_scroll_line_any = 0u;
+}
+
+int gfx_scroll_is_active(void)
+{
+    return (g_scroll_zone_any || g_scroll_line_any) ? 1 : 0;
+}
+
+int gfx_scroll_effective_dx(int y, int rgba_h)
+{
+    int dx = 0;
+    int i;
+    if (y < 0 || y >= rgba_h) return 0;
+    /* Zone layer first — highest-numbered matching zone wins on
+     * overlap, so a program can punch a warped sub-band out of a
+     * parent scrolling band. */
+    if (g_scroll_zone_any) {
+        for (i = 1; i < (int)GFX_MAX_SCROLL_ZONES; i++) {
+            const GfxScrollZone *z = &g_scroll_zones[i];
+            if (!z->active) continue;
+            if (y >= z->y && y < z->y + z->h) dx = (int)z->dx;
+        }
+    }
+    /* Per-scanline layer stacks on top of the zone. */
+    if (g_scroll_line_any && (unsigned)y < GFX_RGBA_HI_H) {
+        dx += (int)g_scroll_line_dx[y];
+    }
+    return dx;
+}
+

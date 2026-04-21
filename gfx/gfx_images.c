@@ -58,6 +58,19 @@ static const uint8_t c64_png_palette[16][4] = {
  * gfx_image_bind_visible; NULL before basic-gfx wires the state in. */
 static GfxVideoState *g_visible_state = NULL;
 
+/* IMAGE DRAW retarget globals (2.1). Storage declared here so the
+ * early code path can reference them; the setter that actually
+ * touches g_slots[] is defined AFTER GfxImageSlot + g_slots[] appear. */
+static int      g_image_draw_slot = 0;
+static uint8_t *g_image_draw_saved_rgba = NULL;
+static uint16_t g_image_draw_saved_w = 0;
+static uint16_t g_image_draw_saved_h = 0;
+
+int gfx_image_draw_target_slot(void)
+{
+    return g_image_draw_slot;
+}
+
 static void bmp_put_u16(uint8_t *dst, uint16_t v)
 {
     dst[0] = (uint8_t)(v & 0xFF);
@@ -83,6 +96,51 @@ typedef struct {
 } GfxImageSlot;
 
 static GfxImageSlot g_slots[GFX_IMAGE_MAX_SLOTS];
+
+/* IMAGE DRAW retarget (2.1). Swaps the live framebuffer's
+ * bitmap_rgba pointer + rgba_w/h so every SCREEN 2 / SCREEN 4
+ * primitive (LINE / FILLRECT / CIRCLE / DRAWTEXT / PSET / POLYGON)
+ * writes into an off-screen IMAGE CREATE surface instead of the
+ * visible framebuffer. `IMAGE DRAW 0` restores the saved triple.
+ *
+ * RGBA primitives all read gfx_vs->bitmap_rgba + rgba_w/rgba_h —
+ * swapping the triple retargets every primitive with no per-call
+ * dispatch. Non-RGBA screen modes return -1 (indexed / 1bpp
+ * primitives touch different buffers and aren't reachable by this
+ * pointer swap). */
+int gfx_set_image_draw_target(int slot)
+{
+    if (!g_visible_state) return -1;
+    if (slot == 0) {
+        if (g_image_draw_saved_rgba) {
+            g_visible_state->bitmap_rgba = g_image_draw_saved_rgba;
+            g_visible_state->rgba_w = g_image_draw_saved_w;
+            g_visible_state->rgba_h = g_image_draw_saved_h;
+            g_image_draw_saved_rgba = NULL;
+        }
+        g_image_draw_slot = 0;
+        return 0;
+    }
+    if (g_visible_state->screen_mode != GFX_SCREEN_RGBA &&
+        g_visible_state->screen_mode != GFX_SCREEN_RGBA_HI) return -1;
+    if (slot < 1 || slot >= GFX_IMAGE_MAX_SLOTS) return -1;
+    {
+        GfxImageSlot *s = &g_slots[slot];
+        if (!s->loaded || !s->rgba) return -1;
+        /* First retarget saves the live triple so IMAGE DRAW 0
+         * restores after any number of intermediate retargets. */
+        if (!g_image_draw_saved_rgba) {
+            g_image_draw_saved_rgba = g_visible_state->bitmap_rgba;
+            g_image_draw_saved_w    = g_visible_state->rgba_w;
+            g_image_draw_saved_h    = g_visible_state->rgba_h;
+        }
+        g_visible_state->bitmap_rgba = s->rgba;
+        g_visible_state->rgba_w = (uint16_t)s->w;
+        g_visible_state->rgba_h = (uint16_t)s->h;
+        g_image_draw_slot = slot;
+    }
+    return 0;
+}
 
 void gfx_image_bind_visible(GfxVideoState *s)
 {
