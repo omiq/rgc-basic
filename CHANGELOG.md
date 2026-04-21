@@ -1,5 +1,123 @@
 ## Changelog
 
+### 2.0.0 – pending (tested live + desktop, then `scripts/tag-version.sh 2.0.0`)
+
+**Music milestone.** Streaming tracker-module playback ships end to
+end on **basic-gfx** and **basic-wasm-raylib**, with nine bundled
+Public Domain MODs and a rich music demo.
+
+**New BASIC statements:**
+
+- `LOADMUSIC slot, "path"` / `UNLOADMUSIC slot` — load / free a
+  streaming track (MOD / XM / S3M / IT / OGG / MP3).
+- `PLAYMUSIC slot` / `STOPMUSIC slot` / `PAUSEMUSIC slot` /
+  `RESUMEMUSIC slot` — transport control.
+- `MUSICVOLUME slot, 0.0..1.0` / `MUSICLOOP slot, 0|1` — per-slot
+  gain + repeat-on-end.
+
+**New BASIC functions:**
+
+- `MUSICPLAYING(slot)` — 1 while audible, 0 when idle / paused.
+- `MUSICLENGTH(slot)` — total seconds. For MOD the length is computed
+  in `gfx_sound.c` by walking the pattern / order table honouring
+  `Fxx` (speed / BPM), `Bxx` (order jump), `Dxx` (pattern break), and
+  `E6x` (pattern loop), with a 2-visit cap per order entry and a
+  200 000-row budget. Cached at `LOADMUSIC`. Non-MOD formats fall
+  back to raylib's `GetMusicTimeLength`. Returns `0.0` when unknown.
+- `MUSICTIME(slot)` — elapsed seconds via `GetMusicTimePlayed`.
+  Wraps on loop. Requires the raudio `modCount` cap patch (below).
+- `MUSICPEAK()` — `0..1` master-mix held-peak, decays ~`0.92` per
+  mix chunk. Suitable for VU bars. Global (raylib's stream-processor
+  API carries no userdata).
+- `MUSICTITLE$(slot)` — 20-byte MOD title, trimmed.
+- `MUSICSAMPLENAME$(slot, idx)` — 22-byte sample name, idx 0..30.
+- `MUSICCHANNELS(slot)` — parsed from the MOD tag at offset 1080.
+- `MUSICPATTERNS(slot)` — unique patterns = `max(order[]) + 1`.
+- `MUSICORDERS(slot)` — order-table length (MOD song-length byte).
+- `MUSICSAMPLECOUNT(slot)` — 31 for classic MODs, 0 otherwise.
+
+**Under the hood:**
+
+- `gfx/gfx_sound.c` — tracker-module pool separate from the WAV pool,
+  per-slot length cache + 20-byte title + 31-sample name table parsed
+  at load time, master-mix peak tap via `AttachAudioMixedProcessor`.
+- `patches/jar_mod_max_samples.patch` — chunked 4096-sample decode for
+  `jar_mod_max_samples` (web freeze mitigation — see 2026-04-20 entry
+  below for the history).
+- `patches/raudio_mod_skip_max_samples.patch` — now also caps the
+  `GetMusicTimePlayed` modulo at `INT_MAX` when `music.frameCount ==
+  UINT_MAX` (the unconditional MOD skip). Without this the upstream
+  `(int)music.frameCount` underflows to `-1` and `MUSICTIME()` sticks
+  at zero on MOD tracks.
+- `scripts/build-raylib-native.sh` + `scripts/build-raylib-native.cmd`
+  — clone + patch raylib 5.5 into `third_party/raylib-native/`, build
+  a static `libraylib.a` that `basic-gfx` links against. No system
+  libraylib dependency; no MinGW mingw-w64-raylib dependency on
+  Windows. See the "build system" hunk for the per-OS link set.
+- `.gitattributes` — `patches/*.patch text eol=lf` pins LF on the
+  patch tree so Git-for-Windows `autocrlf` doesn't silently rewrite
+  them to CRLF and cause `git apply` to fail the whitespace check.
+- CI: nightly + tag workflows (`.github/workflows/{nightly,ci}.yml`)
+  drop the old system-raylib install and build the patched raylib
+  from source on Linux / macOS / Windows. "Not a full CI without the
+  patched audio path" is now enforced end-to-end.
+- IDE asset preload (`src/ide/ui.ts`, `src/ide/shareexport.ts`,
+  `rgc-basic-iframe.html`, `rgc-basic-raylib-iframe.html`) — regex
+  now also catches string literals whose extension matches a known
+  asset type, so programs that stash paths in variables or DIM arrays
+  (e.g. `PATH$(N) = "music/foo.mod"`) get their assets auto-fetched
+  into MEMFS before the program runs.
+- `scripts/sync-rgc-basic.sh` — tracker modules copied into
+  `presets/rgc-basic/music/` preserving the subdir (was flat before,
+  which meant `LOADMUSIC "music/foo.mod"` missed on the IDE).
+- `rgc-basic-raylib-iframe.html` — `keyIndex` now forwards all
+  printable ASCII (32..126) into `key_state[]`, not just alpha +
+  digits. Fixes `KEYPRESS(ASC("+"))` / `ASC("=")` / `ASC("-")` in the
+  music-volume controls (and any program using punctuation keys).
+
+**Docs:**
+
+- `README.md` feature bullet for music, alongside the existing sound
+  bullet.
+- `retrodocs/.../rgc-basic/language.md` intrinsic table extended with
+  the whole `MUSIC*` family.
+- `docs/rgc-sound-sample-spec.md` status flipped from "design only"
+  to "shipped" with pointer back to this CHANGELOG entry.
+
+**Tooling / CLI:**
+
+- `-v` / `-V` / `--version` flag on `basic` and `basic-gfx` prints
+  `RGC-BASIC <version> (<release-date>) — <variant>` and the repo
+  URL, then exits. Version is injected at build time via
+  `git describe --tags --dirty --always`; release date is the
+  tagged commit's committer-date. Release tarballs without a
+  `.git` directory fall through to `dev` / `unknown`, overridable
+  with `make RGC_BASIC_GIT_VERSION=v2.0.0
+  RGC_BASIC_GIT_DATE=2026-04-21`. Defines are also plumbed into
+  every `basic-wasm*` build for the browser console banner.
+
+**Bundled demo:**
+
+- `examples/gfx_music_demo.bas` — keys 1..9, two-column track list,
+  NOW PLAYING strip with title + channel / pattern / order / sample
+  counts + first 4 sample names, elapsed / length display,
+  proportional progress bar, 32-bar green/yellow/red VU, 32-bar
+  volume meter. `DOUBLEBUFFER ON` + `VSYNC` so the VU doesn't
+  flicker. Synced to `presets/rgc-basic/gfx_music_demo.bas`.
+- `examples/music/` — nine Public Domain tracks from modarchive.org
+  (total ~1.4 MB). See `examples/music/LICENSES.md` for credits.
+
+### Music metadata + VU meter (2026-04-21)
+
+_(Historical working entry; folded into **2.0.0** above. Kept here
+for the incremental diff record.)_
+
+- `MUSICLENGTH(slot)`, `MUSICTIME(slot)`, `MUSICPEAK()` added.
+- MOD length computed via pattern-walker in `gfx_sound.c`.
+- `AttachAudioMixedProcessor` master-mix peak tap.
+- `examples/gfx_music_demo.bas` rewritten with time display, progress
+  bar, VU meter, volume meter.
+
 ### MOD load freeze fix (2026-04-20)
 
 **Bug:** `LOADMUSIC <slot>, "*.mod"` froze the browser on the

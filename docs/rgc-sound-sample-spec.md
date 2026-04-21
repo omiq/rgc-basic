@@ -1,6 +1,15 @@
 # RGC-BASIC: sample sound playback (design spec)
 
-**Status:** design only — not implemented.  
+**Status:** **shipped.** WAV single-voice (`LOADSOUND` / `PLAYSOUND` /
+`STOPSOUND` / `UNLOADSOUND` / `SOUNDPLAYING()`) and tracker-module
+streaming (`LOADMUSIC` / `PLAYMUSIC` / `STOPMUSIC` / `PAUSEMUSIC` /
+`RESUMEMUSIC` / `MUSICVOLUME` / `MUSICLOOP` / `UNLOADMUSIC` /
+`MUSICPLAYING` / `MUSICLENGTH` / `MUSICTIME` / `MUSICPEAK`) now live
+in `gfx/gfx_sound.c` on **basic-gfx** and **basic-wasm-raylib**. Canvas
+WASM is frozen and still raises a runtime error. The spec below is the
+original MVP design; section 15 and the CHANGELOG cover what finally
+shipped, including the Windows `jar_mod_max_samples` mitigation and
+the MOD length parser we wrote to replace it.
 **Scope:** **basic-gfx** (native + Raylib) and **canvas WASM** only. The terminal / non-`GFX_VIDEO` build is **out of scope** unless explicitly added later.
 
 ---

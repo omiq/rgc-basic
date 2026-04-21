@@ -1,5 +1,36 @@
 # Features to add/to-do
 
+## Music tracker info — live + oscilloscope (proposed 2026-04-21)
+
+`MUSICTITLE$` / `MUSICCHANNELS` / `MUSICPATTERNS` / `MUSICSAMPLECOUNT`
+/ `MUSICSAMPLENAME$` ship in this drop as pure file-parse (MOD
+header + sample records at `LOADMUSIC`, zero raylib patching).
+The richer info shown by players like
+`med.planet-d.net/demo/web/modplayer/` needs the live tracker state
+and per-channel mix:
+
+1. **Live tracker state** (`MUSICROW(slot)` / `MUSICORDER(slot)` /
+   `MUSICBPM(slot)` / `MUSICSPEED(slot)`): requires a small patch
+   exposing `jar_mod_context_t` — `music.ctxData` is opaque today.
+   Add a raylib helper `raylib_get_mod_context(Music)` in a new
+   `patches/*.patch`, then read `ctx->tablepos` / `ctx->patternpos`
+   / `ctx->bpm` / `ctx->song_speed` each frame. Guard on
+   `music.ctxType == MUSIC_MODULE_MOD`.
+
+2. **Oscilloscope / waveform** (`MUSICWAVE(i)` returning the last
+   N mix samples): the existing `AttachAudioMixedProcessor` already
+   sees the float PCM stream; keep a 512-sample ring, expose a
+   slot-less reader. Pairs with the VU bars in `gfx_music_demo.bas`.
+
+3. **Per-channel meters / spectrum** (`MUSICCHANVOL(slot, ch)` /
+   `MUSICCHANPERIOD(slot, ch)`): reaches further into jar_mod's
+   per-voice state (`ctx->channels[ch].volume`, `.period`,
+   `.sampnum`). Same patch vehicle as (1). Optional spectrum bars
+   via a cheap FFT over the mix ring.
+
+Demo can stay as-is until (1) lands; (1) alone unlocks a "NOW
+PLAYING" pattern/row/BPM strip in `gfx_music_demo.bas`.
+
 ## Linter / static checker (proposed 2026-04-20)
 
 Catch common source-level mistakes before the interpreter runs — right

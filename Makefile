@@ -28,6 +28,25 @@ EMCC    ?= emcc
 # WASM: same as native; override e.g. `make basic-wasm WASM_CFLAGS='-Wall -Wextra'`
 WASM_CFLAGS ?= -w
 
+# ---------------------------------------------------------------
+# Version injection. `basic --version` / `-v` prints the values
+# below. Sourced at build time from git so release binaries report
+# the exact tag they were built from; dev checkouts report
+# "v2.0.0-3-gABCDEF[-dirty]" style. Release source tarballs (no
+# .git directory) fall through to "dev" / "unknown" — override with
+# `make RGC_BASIC_GIT_VERSION=v2.0.0 RGC_BASIC_GIT_DATE=2026-04-21`
+# when packaging.
+# ---------------------------------------------------------------
+RGC_BASIC_GIT_VERSION := $(shell git describe --tags --dirty --always 2>/dev/null)
+RGC_BASIC_GIT_DATE    := $(shell git log -1 --format=%as 2>/dev/null)
+ifeq ($(strip $(RGC_BASIC_GIT_VERSION)),)
+  RGC_BASIC_GIT_VERSION := dev
+endif
+ifeq ($(strip $(RGC_BASIC_GIT_DATE)),)
+  RGC_BASIC_GIT_DATE := unknown
+endif
+VERSION_DEFINES = -DRGC_BASIC_VERSION='"$(RGC_BASIC_GIT_VERSION)"' -DRGC_BASIC_BUILD_DATE='"$(RGC_BASIC_GIT_DATE)"'
+
 # Basic cross-platform tweaks for Windows vs POSIX
 ifeq ($(OS),Windows_NT)
   EXE := .exe
@@ -78,7 +97,7 @@ endif
 all: $(TARGET)$(EXE)
 
 $(TARGET)$(EXE): $(SRCS)
-	$(CC) $(CFLAGS) -o $@ $(SRCS) $(LDFLAGS)
+	$(CC) $(CFLAGS) $(VERSION_DEFINES) -o $@ $(SRCS) $(LDFLAGS)
 
 gfx_video_test: $(GFX_SRCS)
 	$(CC) $(CFLAGS) -Igfx -o $@$(EXE) $(GFX_SRCS) $(LDFLAGS)
@@ -90,7 +109,7 @@ $(RAYLIB_NATIVE_LIB):
 	$(RAYLIB_NATIVE_BUILD)
 
 basic-gfx: $(GFX_BIN_SRCS) $(RAYLIB_NATIVE_LIB)
-	$(CC) $(CFLAGS) -DGFX_VIDEO -Igfx $(RAYLIB_NATIVE_INC) -o $@$(EXE) $(GFX_BIN_SRCS) $(LDFLAGS) $(RAYLIB_NATIVE_LIB) $(RAYLIB_NATIVE_LDLIBS)
+	$(CC) $(CFLAGS) $(VERSION_DEFINES) -DGFX_VIDEO -Igfx $(RAYLIB_NATIVE_INC) -o $@$(EXE) $(GFX_BIN_SRCS) $(LDFLAGS) $(RAYLIB_NATIVE_LIB) $(RAYLIB_NATIVE_LDLIBS)
 
 EMCC ?= emcc
 
@@ -99,7 +118,7 @@ EMCC ?= emcc
 # Requires: emcc (emsdk)
 basic-wasm:
 	@mkdir -p web
-	$(EMCC) -w -O2 -s WASM=1 \
+	$(EMCC) -w -O2 $(VERSION_DEFINES) -s WASM=1 \
 		-s EXPORTED_FUNCTIONS='["_basic_load","_basic_run","_basic_halted","_basic_load_and_run","_basic_apply_arg_string","_wasm_push_key"]' \
 		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","HEAPU8","HEAP16","wasmMemory","getValue"]' \
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
@@ -113,7 +132,7 @@ basic-wasm:
 # JS calls createBasicModular(opts).then(function(Module) { ... }).
 basic-wasm-modular:
 	@mkdir -p web
-	$(EMCC) -w -O2 -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME=createBasicModular \
+	$(EMCC) -w -O2 $(VERSION_DEFINES) -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME=createBasicModular \
 		-s EXPORTED_FUNCTIONS='["_basic_load","_basic_run","_basic_halted","_basic_load_and_run","_basic_apply_arg_string","_wasm_push_key"]' \
 		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","HEAPU8","HEAP16","wasmMemory","getValue"]' \
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
@@ -126,7 +145,7 @@ basic-wasm-modular:
 # PETSCII canvas (GFX_VIDEO, no Raylib): web/basic-canvas.js + web/basic-canvas.wasm + canvas.html
 basic-wasm-canvas:
 	@mkdir -p web
-	$(EMCC) -w -O2 -s WASM=1 -DGFX_VIDEO -Igfx \
+	$(EMCC) -w -O2 $(VERSION_DEFINES) -s WASM=1 -DGFX_VIDEO -Igfx \
 		-s EXPORTED_FUNCTIONS='["_basic_apply_arg_string","_basic_load_and_run_gfx","_basic_load_and_run_gfx_argline","_wasm_push_key","_wasm_gfx_rgba_ptr","_wasm_gfx_rgba_version_read","_wasm_gfx_bitmap_pixel_at","_wasm_gfx_screen_screencode_at","_wasm_gfx_key_state_set","_wasm_gfx_key_state_clear","_wasm_gfx_key_state_ptr","_wasm_gamepad_buttons_ptr","_wasm_gamepad_axes_ptr","_wasm_mouse_js_frame","_wasm_canvas_build_stamp","_wasm_canvas_set_debug","_wasm_canvas_set_debug_trace_for","_wasm_debug_log_stacks","_wasm_gfx_set_js_sprite_backend","_wasm_gfx_get_js_sprite_backend","_wasm_gfx_sprite_rgba_ptr","_wasm_gfx_sprite_w","_wasm_gfx_sprite_h","_wasm_gfx_sprite_version","_wasm_gfx_sprite_draw_params","_malloc"]' \
 		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","HEAPU8","HEAP16","wasmMemory","getValue"]' \
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
@@ -150,7 +169,7 @@ $(RAYLIB_WEB_LIB):
 
 basic-wasm-raylib: $(RAYLIB_WEB_LIB)
 	@mkdir -p web
-	$(EMCC) -w -O2 -s WASM=1 -DGFX_VIDEO -DGFX_USE_RAYLIB -Igfx -I$(RAYLIB_WEB_SRC) \
+	$(EMCC) -w -O2 $(VERSION_DEFINES) -s WASM=1 -DGFX_VIDEO -DGFX_USE_RAYLIB -Igfx -I$(RAYLIB_WEB_SRC) \
 		-s USE_GLFW=3 -s FULL_ES2=1 -s ALLOW_MEMORY_GROWTH=1 \
 		-s EXPORTED_FUNCTIONS='["_basic_apply_arg_string","_basic_load_and_run_gfx","_basic_load_and_run_gfx_argline","_wasm_push_key","_wasm_gfx_key_state_set","_wasm_gfx_key_state_clear","_wasm_gfx_key_state_ptr","_wasm_gamepad_buttons_ptr","_wasm_gamepad_axes_ptr","_malloc"]' \
 		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","HEAPU8","HEAP16","HEAPF32","wasmMemory","getValue"]' \
