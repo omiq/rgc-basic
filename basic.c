@@ -5246,7 +5246,7 @@ static void statement_line(char **p)
     y0 = (int)vy0.num;
     x1 = (int)vx1.num;
     y1 = (int)vy1.num;
-    gfx_bitmap_line(gfx_vs, x0, y0, x1, y1, 1);
+    gfx_bitmap_line(gfx_vs, x0, y0, x1, y1, (gfx_fg & 0x0F) ? 1 : 0);
 #endif
 }
 
@@ -5309,10 +5309,10 @@ static void statement_rect(char **p)
                            "Bitmap RECT needs basic-gfx or canvas WASM.");
         return;
     }
-    gfx_bitmap_line(gfx_vs, x0, y0, x1, y0, 1); /* top */
-    gfx_bitmap_line(gfx_vs, x0, y1, x1, y1, 1); /* bottom */
-    gfx_bitmap_line(gfx_vs, x0, y0, x0, y1, 1); /* left */
-    gfx_bitmap_line(gfx_vs, x1, y0, x1, y1, 1); /* right */
+    gfx_bitmap_line(gfx_vs, x0, y0, x1, y0, (gfx_fg & 0x0F) ? 1 : 0); /* top */
+    gfx_bitmap_line(gfx_vs, x0, y1, x1, y1, (gfx_fg & 0x0F) ? 1 : 0); /* bottom */
+    gfx_bitmap_line(gfx_vs, x0, y0, x0, y1, (gfx_fg & 0x0F) ? 1 : 0); /* left */
+    gfx_bitmap_line(gfx_vs, x1, y0, x1, y1, (gfx_fg & 0x0F) ? 1 : 0); /* right */
 #endif
 }
 
@@ -5377,17 +5377,17 @@ static void statement_circle(char **p)
     int cx, cy, r, x, y, d;
     if (parse_circle_coords(p, &cx, &cy, &r) != 0) return;
     if (!gfx_vs || r < 0) return;
-    if (r == 0) { gfx_bitmap_set_pixel(gfx_vs, cx, cy, 1); return; }
+    if (r == 0) { gfx_bitmap_set_pixel(gfx_vs, cx, cy, (gfx_fg & 0x0F) ? 1 : 0); return; }
     x = 0; y = r; d = 3 - 2 * r;
     while (x <= y) {
-        gfx_bitmap_set_pixel(gfx_vs, cx + x, cy + y, 1);
-        gfx_bitmap_set_pixel(gfx_vs, cx - x, cy + y, 1);
-        gfx_bitmap_set_pixel(gfx_vs, cx + x, cy - y, 1);
-        gfx_bitmap_set_pixel(gfx_vs, cx - x, cy - y, 1);
-        gfx_bitmap_set_pixel(gfx_vs, cx + y, cy + x, 1);
-        gfx_bitmap_set_pixel(gfx_vs, cx - y, cy + x, 1);
-        gfx_bitmap_set_pixel(gfx_vs, cx + y, cy - x, 1);
-        gfx_bitmap_set_pixel(gfx_vs, cx - y, cy - x, 1);
+        gfx_bitmap_set_pixel(gfx_vs, cx + x, cy + y, (gfx_fg & 0x0F) ? 1 : 0);
+        gfx_bitmap_set_pixel(gfx_vs, cx - x, cy + y, (gfx_fg & 0x0F) ? 1 : 0);
+        gfx_bitmap_set_pixel(gfx_vs, cx + x, cy - y, (gfx_fg & 0x0F) ? 1 : 0);
+        gfx_bitmap_set_pixel(gfx_vs, cx - x, cy - y, (gfx_fg & 0x0F) ? 1 : 0);
+        gfx_bitmap_set_pixel(gfx_vs, cx + y, cy + x, (gfx_fg & 0x0F) ? 1 : 0);
+        gfx_bitmap_set_pixel(gfx_vs, cx - y, cy + x, (gfx_fg & 0x0F) ? 1 : 0);
+        gfx_bitmap_set_pixel(gfx_vs, cx + y, cy - x, (gfx_fg & 0x0F) ? 1 : 0);
+        gfx_bitmap_set_pixel(gfx_vs, cx - y, cy - x, (gfx_fg & 0x0F) ? 1 : 0);
         if (d <= 0) d += 4 * x + 6;
         else { d += 4 * (x - y) + 10; y--; }
         x++;
@@ -5408,13 +5408,13 @@ static void statement_fillcircle(char **p)
     int cx, cy, r, x, y, d;
     if (parse_circle_coords(p, &cx, &cy, &r) != 0) return;
     if (!gfx_vs || r < 0) return;
-    if (r == 0) { gfx_bitmap_set_pixel(gfx_vs, cx, cy, 1); return; }
+    if (r == 0) { gfx_bitmap_set_pixel(gfx_vs, cx, cy, (gfx_fg & 0x0F) ? 1 : 0); return; }
     x = 0; y = r; d = 3 - 2 * r;
     while (x <= y) {
-        gfx_bitmap_line(gfx_vs, cx - x, cy + y, cx + x, cy + y, 1);
-        gfx_bitmap_line(gfx_vs, cx - x, cy - y, cx + x, cy - y, 1);
-        gfx_bitmap_line(gfx_vs, cx - y, cy + x, cx + y, cy + x, 1);
-        gfx_bitmap_line(gfx_vs, cx - y, cy - x, cx + y, cy - x, 1);
+        gfx_bitmap_line(gfx_vs, cx - x, cy + y, cx + x, cy + y, (gfx_fg & 0x0F) ? 1 : 0);
+        gfx_bitmap_line(gfx_vs, cx - x, cy - y, cx + x, cy - y, (gfx_fg & 0x0F) ? 1 : 0);
+        gfx_bitmap_line(gfx_vs, cx - y, cy + x, cx + y, cy + x, (gfx_fg & 0x0F) ? 1 : 0);
+        gfx_bitmap_line(gfx_vs, cx - y, cy - x, cx + y, cy - x, (gfx_fg & 0x0F) ? 1 : 0);
         if (d <= 0) d += 4 * x + 6;
         else { d += 4 * (x - y) + 10; y--; }
         x++;
@@ -5447,10 +5447,10 @@ static int parse_ellipse_coords(char **p, int *cx, int *cy, int *rx, int *ry)
 /* 4-way symmetric plot helper for the midpoint ellipse rasteriser. */
 static void ellipse_plot4(int cx, int cy, int dx, int dy)
 {
-    gfx_bitmap_set_pixel(gfx_vs, cx + dx, cy + dy, 1);
-    gfx_bitmap_set_pixel(gfx_vs, cx - dx, cy + dy, 1);
-    gfx_bitmap_set_pixel(gfx_vs, cx + dx, cy - dy, 1);
-    gfx_bitmap_set_pixel(gfx_vs, cx - dx, cy - dy, 1);
+    gfx_bitmap_set_pixel(gfx_vs, cx + dx, cy + dy, (gfx_fg & 0x0F) ? 1 : 0);
+    gfx_bitmap_set_pixel(gfx_vs, cx - dx, cy + dy, (gfx_fg & 0x0F) ? 1 : 0);
+    gfx_bitmap_set_pixel(gfx_vs, cx + dx, cy - dy, (gfx_fg & 0x0F) ? 1 : 0);
+    gfx_bitmap_set_pixel(gfx_vs, cx - dx, cy - dy, (gfx_fg & 0x0F) ? 1 : 0);
 }
 #endif
 
@@ -5467,7 +5467,7 @@ static void statement_ellipse(char **p)
     long x, y, px, py, d;
     if (parse_ellipse_coords(p, &cx, &cy, &rx, &ry) != 0) return;
     if (!gfx_vs || rx < 0 || ry < 0) return;
-    if (rx == 0 && ry == 0) { gfx_bitmap_set_pixel(gfx_vs, cx, cy, 1); return; }
+    if (rx == 0 && ry == 0) { gfx_bitmap_set_pixel(gfx_vs, cx, cy, (gfx_fg & 0x0F) ? 1 : 0); return; }
     rx2 = (long)rx * rx;
     ry2 = (long)ry * ry;
     twoRx2 = 2 * rx2;
@@ -5519,14 +5519,14 @@ static void statement_fillellipse(char **p)
     long x, y, px, py, d;
     if (parse_ellipse_coords(p, &cx, &cy, &rx, &ry) != 0) return;
     if (!gfx_vs || rx < 0 || ry < 0) return;
-    if (rx == 0 && ry == 0) { gfx_bitmap_set_pixel(gfx_vs, cx, cy, 1); return; }
+    if (rx == 0 && ry == 0) { gfx_bitmap_set_pixel(gfx_vs, cx, cy, (gfx_fg & 0x0F) ? 1 : 0); return; }
     rx2 = (long)rx * rx;
     ry2 = (long)ry * ry;
     twoRx2 = 2 * rx2;
     twoRy2 = 2 * ry2;
     x = 0; y = ry; px = 0; py = twoRx2 * y;
-    gfx_bitmap_line(gfx_vs, cx - (int)x, cy + (int)y, cx + (int)x, cy + (int)y, 1);
-    gfx_bitmap_line(gfx_vs, cx - (int)x, cy - (int)y, cx + (int)x, cy - (int)y, 1);
+    gfx_bitmap_line(gfx_vs, cx - (int)x, cy + (int)y, cx + (int)x, cy + (int)y, (gfx_fg & 0x0F) ? 1 : 0);
+    gfx_bitmap_line(gfx_vs, cx - (int)x, cy - (int)y, cx + (int)x, cy - (int)y, (gfx_fg & 0x0F) ? 1 : 0);
     d = (long)(ry2 - rx2 * ry + 0.25 * rx2);
     while (px < py) {
         x++;
@@ -5538,8 +5538,8 @@ static void statement_fillellipse(char **p)
             py -= twoRx2;
             d += ry2 + px - py;
         }
-        gfx_bitmap_line(gfx_vs, cx - (int)x, cy + (int)y, cx + (int)x, cy + (int)y, 1);
-        gfx_bitmap_line(gfx_vs, cx - (int)x, cy - (int)y, cx + (int)x, cy - (int)y, 1);
+        gfx_bitmap_line(gfx_vs, cx - (int)x, cy + (int)y, cx + (int)x, cy + (int)y, (gfx_fg & 0x0F) ? 1 : 0);
+        gfx_bitmap_line(gfx_vs, cx - (int)x, cy - (int)y, cx + (int)x, cy - (int)y, (gfx_fg & 0x0F) ? 1 : 0);
     }
     d = (long)(ry2 * (x + 0.5) * (x + 0.5) + rx2 * (y - 1) * (y - 1) - rx2 * ry2);
     while (y > 0) {
@@ -5552,8 +5552,8 @@ static void statement_fillellipse(char **p)
             px += twoRy2;
             d += rx2 - py + px;
         }
-        gfx_bitmap_line(gfx_vs, cx - (int)x, cy + (int)y, cx + (int)x, cy + (int)y, 1);
-        gfx_bitmap_line(gfx_vs, cx - (int)x, cy - (int)y, cx + (int)x, cy - (int)y, 1);
+        gfx_bitmap_line(gfx_vs, cx - (int)x, cy + (int)y, cx + (int)x, cy + (int)y, (gfx_fg & 0x0F) ? 1 : 0);
+        gfx_bitmap_line(gfx_vs, cx - (int)x, cy - (int)y, cx + (int)x, cy - (int)y, (gfx_fg & 0x0F) ? 1 : 0);
     }
 #endif
 }
@@ -5599,9 +5599,9 @@ static void statement_triangle(char **p)
     int x1, y1, x2, y2, x3, y3;
     if (parse_triangle_coords(p, &x1, &y1, &x2, &y2, &x3, &y3) != 0) return;
     if (!gfx_vs) return;
-    gfx_bitmap_line(gfx_vs, x1, y1, x2, y2, 1);
-    gfx_bitmap_line(gfx_vs, x2, y2, x3, y3, 1);
-    gfx_bitmap_line(gfx_vs, x3, y3, x1, y1, 1);
+    gfx_bitmap_line(gfx_vs, x1, y1, x2, y2, (gfx_fg & 0x0F) ? 1 : 0);
+    gfx_bitmap_line(gfx_vs, x2, y2, x3, y3, (gfx_fg & 0x0F) ? 1 : 0);
+    gfx_bitmap_line(gfx_vs, x3, y3, x1, y1, (gfx_fg & 0x0F) ? 1 : 0);
 #endif
 }
 
@@ -5633,7 +5633,7 @@ static void statement_filltriangle(char **p)
         int xmin = vx[0], xmax = vx[0];
         if (vx[1] < xmin) xmin = vx[1]; if (vx[1] > xmax) xmax = vx[1];
         if (vx[2] < xmin) xmin = vx[2]; if (vx[2] > xmax) xmax = vx[2];
-        gfx_bitmap_line(gfx_vs, xmin, vy[0], xmax, vy[0], 1);
+        gfx_bitmap_line(gfx_vs, xmin, vy[0], xmax, vy[0], (gfx_fg & 0x0F) ? 1 : 0);
         return;
     }
     for (y = vy[0]; y <= vy[2]; y++) {
@@ -5651,7 +5651,7 @@ static void statement_filltriangle(char **p)
             else xb = vx[1] + (int)(((long)(vx[2] - vx[1]) * (y - vy[1])) / denom_b);
         }
         if (xa > xb) { t = xa; xa = xb; xb = t; }
-        gfx_bitmap_line(gfx_vs, xa, y, xb, y, 1);
+        gfx_bitmap_line(gfx_vs, xa, y, xb, y, (gfx_fg & 0x0F) ? 1 : 0);
     }
 #endif
 }
@@ -5706,7 +5706,7 @@ static void statement_floodfill(char **p)
         while (rx < (int)GFX_BITMAP_WIDTH - 1 &&
                gfx_bitmap_get_pixel(gfx_vs, (unsigned)(rx + 1), (unsigned)cy) == target) rx++;
         /* Fill the run. */
-        for (x = lx; x <= rx; x++) gfx_bitmap_set_pixel(gfx_vs, x, cy, 1);
+        for (x = lx; x <= rx; x++) gfx_bitmap_set_pixel(gfx_vs, x, cy, (gfx_fg & 0x0F) ? 1 : 0);
         /* Seed rows above and below where the neighbour is still the
          * target value — a simple (and slightly redundant) strategy
          * that's fine for 320x200. */
@@ -5828,7 +5828,7 @@ static void statement_polygon(char **p)
     if (!gfx_vs || n < 2) return;
     for (i = 0; i < n; i++) {
         int j = (i + 1) % n;
-        gfx_bitmap_line(gfx_vs, xs[i], ys[i], xs[j], ys[j], 1);
+        gfx_bitmap_line(gfx_vs, xs[i], ys[i], xs[j], ys[j], (gfx_fg & 0x0F) ? 1 : 0);
     }
 #undef POLY_MAX
 #endif
@@ -5870,7 +5870,7 @@ static void statement_fillpolygon(char **p)
             int xmin = vx[0], xmax = vx[0];
             if (vx[1] < xmin) xmin = vx[1]; if (vx[1] > xmax) xmax = vx[1];
             if (vx[2] < xmin) xmin = vx[2]; if (vx[2] > xmax) xmax = vx[2];
-            gfx_bitmap_line(gfx_vs, xmin, vy[0], xmax, vy[0], 1);
+            gfx_bitmap_line(gfx_vs, xmin, vy[0], xmax, vy[0], (gfx_fg & 0x0F) ? 1 : 0);
             continue;
         }
         for (y = vy[0]; y <= vy[2]; y++) {
@@ -5886,7 +5886,7 @@ static void statement_fillpolygon(char **p)
                 else xb = vx[1] + (int)(((long)(vx[2] - vx[1]) * (y - vy[1])) / denom_b);
             }
             if (xa > xb) { t = xa; xa = xb; xb = t; }
-            gfx_bitmap_line(gfx_vs, xa, y, xb, y, 1);
+            gfx_bitmap_line(gfx_vs, xa, y, xb, y, (gfx_fg & 0x0F) ? 1 : 0);
         }
     }
 #undef POLY_MAX
@@ -6042,29 +6042,176 @@ static void statement_drawtext(char **p)
                 }
             }
         }
-        if (gfx_vs->screen_mode == GFX_SCREEN_RGBA || gfx_vs->screen_mode == GFX_SCREEN_RGBA_HI) {
-            if (scale == 1) {
-                for (i = 0; vt.str[i] && i < MAX_STR_LEN; i++) {
-                    unsigned char sc = petscii_ascii_to_screencode((unsigned char)vt.str[i]);
-                    gfx_rgba_stamp_glyph_px(gfx_vs, x + i * 8, y, sc);
-                }
-            } else {
-                int step = 8 * scale;
-                for (i = 0; vt.str[i] && i < MAX_STR_LEN; i++) {
-                    unsigned char sc = petscii_ascii_to_screencode((unsigned char)vt.str[i]);
-                    gfx_rgba_stamp_glyph_px_scaled(gfx_vs, x + i * step, y, sc, scale);
-                }
-            }
-        } else if (scale == 1) {
-            for (i = 0; vt.str[i] && i < MAX_STR_LEN; i++) {
-                unsigned char sc = petscii_ascii_to_screencode((unsigned char)vt.str[i]);
-                gfx_video_bitmap_stamp_glyph_px(gfx_vs, x + i * 8, y, sc);
-            }
-        } else {
+        /* PETSCII reverse-video: bytes 18 (CHR$(18) / {REVERSE ON})
+         * and 146 (CHR$(146) / {REVERSE OFF}) toggle a per-segment
+         * reverse flag, matching PRINT behaviour. Control bytes are
+         * consumed (not stamped), so the cell-x cursor only advances
+         * for visible glyphs. Reverse segments fill the cell with the
+         * current pen (fg) first, then stamp the glyph with the
+         * background colour — classic Commodore flipped-cell look. */
+        {
+            int is_rgba = (gfx_vs->screen_mode == GFX_SCREEN_RGBA ||
+                           gfx_vs->screen_mode == GFX_SCREEN_RGBA_HI);
             int step = 8 * scale;
+            int rev  = 0;
+            int col  = 0;      /* cell-x offset from start in char cells */
+            /* PETSCII colour bytes → palette index map. Indexed by
+             * PETSCII colour-code byte; entries hold the 0..15 C64
+             * palette index PRINT would switch to. Sparse — zero
+             * slots are unused and ignored by the lookup below. */
+            static const int8_t kPetsciiColorMap[256] = {
+                [144]=0,  [5]=1,  [28]=2,  [159]=3,  [156]=4,  [30]=5,
+                [31]=6,   [158]=7, [129]=8, [149]=9, [150]=10, [151]=11,
+                [152]=12, [153]=13,[154]=14,[155]=15
+            };
             for (i = 0; vt.str[i] && i < MAX_STR_LEN; i++) {
-                unsigned char sc = petscii_ascii_to_screencode((unsigned char)vt.str[i]);
-                gfx_video_bitmap_stamp_glyph_px_scaled(gfx_vs, x + i * step, y, sc, scale);
+                unsigned char b = (unsigned char)vt.str[i];
+                unsigned char sc;
+                int gx;
+                /* Reverse-video toggles. */
+                if (b == 18)  { rev = 1; continue; }
+                if (b == 146) { rev = 0; continue; }
+                /* Colour bytes: update pen mid-string so one
+                 * DRAWTEXT call can render multi-colour text. Both
+                 * the bitmap_fg (index for SCREEN 1/3) and the RGBA
+                 * pen (for SCREEN 2/4) are updated so any branch
+                 * picks up the new colour on its next stamp. */
+                if (b == 5   || b == 28  || b == 30  || b == 31  ||
+                    b == 129 || b == 144 || b == 149 || b == 150 ||
+                    b == 151 || b == 152 || b == 153 || b == 154 ||
+                    b == 155 || b == 156 || b == 158 || b == 159) {
+                    int ci = kPetsciiColorMap[b];
+                    gfx_vs->bitmap_fg = (uint8_t)(ci & 0xFFu);
+                    gfx_vs->pen_r = gfx_c64_palette_rgb[ci & 0x0F][0];
+                    gfx_vs->pen_g = gfx_c64_palette_rgb[ci & 0x0F][1];
+                    gfx_vs->pen_b = gfx_c64_palette_rgb[ci & 0x0F][2];
+                    gfx_vs->pen_a = 0xFF;
+                    continue;
+                }
+                /* Cursor-move + screen-clear tokens are consumed
+                 * silently — DRAWTEXT is pixel-space, callers
+                 * position multi-line text with multiple DRAWTEXT
+                 * calls at different y values. These bytes would
+                 * otherwise render as stray glyphs. */
+                if (b == 10  /* LF   / \n   */ ||
+                    b == 13  /* CR   / \r   */ ||
+                    b == 17  /* DOWN  */ ||
+                    b == 145 /* UP    */ ||
+                    b == 29  /* RIGHT */ ||
+                    b == 157 /* LEFT  */ ||
+                    b == 19  /* HOME  */ ||
+                    b == 147 /* CLEAR */) continue;
+                sc = petscii_ascii_to_screencode(b);
+                gx = x + col * step;
+                if (!rev) {
+                    if (is_rgba) {
+                        if (scale == 1) gfx_rgba_stamp_glyph_px(gfx_vs, gx, y, sc);
+                        else            gfx_rgba_stamp_glyph_px_scaled(gfx_vs, gx, y, sc, scale);
+                    } else {
+                        if (scale == 1) gfx_video_bitmap_stamp_glyph_px(gfx_vs, gx, y, sc);
+                        else            gfx_video_bitmap_stamp_glyph_px_scaled(gfx_vs, gx, y, sc, scale);
+                    }
+                } else if (is_rgba) {
+                    /* RGBA reverse. Two flavours depending on bg arg:
+                     *   bg >= 0  (solid) — fill cell with fg, stamp
+                     *     glyph with the bg palette colour. Classic
+                     *     Commodore look, glyph-shaped bg cells.
+                     *   bg <  0  (transparent, the default when the
+                     *     caller omits the bg arg) — fill cell with
+                     *     fg only on NON-glyph pixels. Glyph pixels
+                     *     stay untouched so whatever was painted
+                     *     underneath (e.g. a gradient band) shows
+                     *     through the letter shape. Gives the
+                     *     "gradient-coloured text" demoscene look.
+                     *
+                     * Both flavours preserve the caller's pen
+                     * afterward so the next segment draws with the
+                     * original fg. */
+                    const uint8_t *glyph = &gfx_vs->chars[(unsigned)sc * 8u];
+                    int gr, gc, dx, dy;
+                    if (have_extended && bg >= 0 && bg < 256) {
+                        uint8_t pr = gfx_vs->pen_r, pg = gfx_vs->pen_g;
+                        uint8_t pb = gfx_vs->pen_b, pa = gfx_vs->pen_a;
+                        uint8_t br  = gfx_c64_palette_rgb[bg & 0xFFu][0];
+                        uint8_t bgv = gfx_c64_palette_rgb[bg & 0xFFu][1];
+                        uint8_t bb  = gfx_c64_palette_rgb[bg & 0xFFu][2];
+                        gfx_rgba_fill_rect(gfx_vs, gx, y,
+                                           gx + step - 1, y + step - 1);
+                        gfx_vs->pen_r = br; gfx_vs->pen_g = bgv;
+                        gfx_vs->pen_b = bb; gfx_vs->pen_a = 0xFF;
+                        if (scale == 1) gfx_rgba_stamp_glyph_px(gfx_vs, gx, y, sc);
+                        else            gfx_rgba_stamp_glyph_px_scaled(gfx_vs, gx, y, sc, scale);
+                        gfx_vs->pen_r = pr; gfx_vs->pen_g = pg;
+                        gfx_vs->pen_b = pb; gfx_vs->pen_a = pa;
+                    } else {
+                        /* Transparent-glyph flavour: iterate cell
+                         * pixels and write fg ONLY where the source
+                         * glyph bit is 0. Glyph bits stay untouched
+                         * — prior bitmap content (gradient, photo,
+                         * whatever) reads through those pixels. */
+                        for (gr = 0; gr < 8; gr++) {
+                            uint8_t bits = glyph[gr];
+                            for (gc = 0; gc < 8; gc++) {
+                                int glyph_on = (bits >> (7 - gc)) & 1u;
+                                for (dy = 0; dy < scale; dy++) {
+                                    for (dx = 0; dx < scale; dx++) {
+                                        int px = gx + gc * scale + dx;
+                                        int py = y  + gr * scale + dy;
+                                        if (glyph_on) continue;
+                                        gfx_rgba_set_pixel(gfx_vs, px, py);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    /* 1bpp / indexed (SCREEN 1 / 3) reverse.
+                     * Same two flavours as the RGBA path:
+                     *   bg >= 0: fill cell with fg (bits=1, colour
+                     *     plane = fg idx), then punch glyph pixels
+                     *     with cleared bits + bg_idx colour. Classic
+                     *     Commodore cell-swap.
+                     *   bg <  0: skip glyph pixels entirely — only
+                     *     non-glyph pixels get fg. Glyph shape shows
+                     *     whatever was there before (gradient etc.).
+                     * Direct colour-plane writes because
+                     * gfx_bitmap_line's on=0 path CLEARS bits when fg
+                     * happens to be palette index 0 (e.g. COLOUR
+                     * BLACK on SCREEN 3) and would leave the cell at
+                     * background. */
+                    const uint8_t *glyph = &gfx_vs->chars[(unsigned)sc * 8u];
+                    uint8_t fg_idx = (uint8_t)(gfx_vs->bitmap_fg & 0xFFu);
+                    int gr, gc, dx, dy, px, py;
+                    int solid_bg = (have_extended && bg >= 0);
+                    uint8_t bg_idx = (uint8_t)(solid_bg ? bg : gfx_vs->bg_color);
+                    for (gr = 0; gr < 8; gr++) {
+                        uint8_t bits = glyph[gr];
+                        for (gc = 0; gc < 8; gc++) {
+                            int glyph_on = (bits >> (7 - gc)) & 1u;
+                            for (dy = 0; dy < scale; dy++) {
+                                for (dx = 0; dx < scale; dx++) {
+                                    px = gx + gc * scale + dx;
+                                    py = y  + gr * scale + dy;
+                                    if (glyph_on) {
+                                        if (!solid_bg) continue;
+                                        gfx_bitmap_set_pixel(gfx_vs, px, py, 0);
+                                        if (px >= 0 && px < (int)GFX_BITMAP_WIDTH &&
+                                            py >= 0 && py < (int)GFX_BITMAP_HEIGHT) {
+                                            gfx_vs->bitmap_color[(unsigned)py * GFX_BITMAP_WIDTH + (unsigned)px] = bg_idx;
+                                        }
+                                    } else {
+                                        gfx_bitmap_set_pixel(gfx_vs, px, py, 1);
+                                        if (px >= 0 && px < (int)GFX_BITMAP_WIDTH &&
+                                            py >= 0 && py < (int)GFX_BITMAP_HEIGHT) {
+                                            gfx_vs->bitmap_color[(unsigned)py * GFX_BITMAP_WIDTH + (unsigned)px] = fg_idx;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                col++;
             }
         }
         gfx_vs->bitmap_fg = saved_fg;
@@ -6105,7 +6252,7 @@ static void statement_scroll_zone(char **p)
         id = (int)v1.num;
         if (gfx_scroll_zone_clear(id) != 0) {
             runtime_error_hint("SCROLL ZONE CLEAR: invalid id",
-                                 "id must be 1..7 and the zone must have been declared.");
+                                 "id must be 1..15 and the zone must have been declared.");
         }
         return;
     }
@@ -6115,7 +6262,7 @@ static void statement_scroll_zone(char **p)
         id = (int)v1.num;
         if (gfx_scroll_zone_reset(id) != 0) {
             runtime_error_hint("SCROLL ZONE RESET: invalid id",
-                                 "id must be 1..7 and the zone must be active.");
+                                 "id must be 1..15 and the zone must be active.");
         }
         return;
     }
@@ -14809,6 +14956,19 @@ static void execute_statement(char **p)
         if (starts_with_kw(q, "GRAB"))   { *p = q + 4; statement_image_grab(p);   return; }
         if (starts_with_kw(q, "CREATE")) { *p = q + 6; statement_image_create(p); return; }
         if (starts_with_kw(q, "BLEND"))  { *p = q + 5; statement_image_blend(p);  return; }
+        if (starts_with_kw(q, "DRAW"))   {
+            /* IMAGE DRAW slot — retarget RGBA primitives into an IMAGE
+             * CREATE surface. IMAGE DRAW 0 restores the live
+             * framebuffer. Only valid in SCREEN 2 / 4. */
+            struct value v;
+            *p = q + 4; skip_spaces(p);
+            v = eval_expr(p); ensure_num(&v);
+            if (gfx_set_image_draw_target((int)v.num) != 0) {
+                runtime_error_hint("IMAGE DRAW failed",
+                                     "slot must be 0 (live) or 1..31 and RGBA-created; SCREEN 2 / 4 only.");
+            }
+            return;
+        }
     }
 #endif
     if (c == 'L') {

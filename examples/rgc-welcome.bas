@@ -11,6 +11,7 @@ M = 0
 CX=0
 CY=0
 MAX_MSG=2
+DOUBLEBUFFER ON
 CLS
 
 
@@ -64,18 +65,25 @@ LOADSPRITE S+2, "scroller_strip.png"
 STRIP_W = SPRITEW(S+2)
 STRIP_H = SPRITEH(S+2)
 
+
+' COMPUTER SPRITES
+  LOADSPRITE S+3, "computer-sheet.png", 128, 128           
+	COMP = 1
+
+
 ' TIMERS FOR "MULTITASKING"
 TIMER 1,100,MOV
 TIMER 2,1000,MSG
 TIMER 3,10,CLOUD_MOVE
 TIMER 4,10,SCR
+TIMER 5,60,COMPS
 
 ' REPEATING MESSAGE
 DIM MSGLINE$(4)
 MSGLINE$(0)="Welcome"
 MSGLINE$(1)="to the"
 MSGLINE$(2)="Retro Game Coders IDE!"
-
+PHASE = 0
 
 ' MAIN LOOP
 DO
@@ -118,7 +126,7 @@ Function CLOUD_MOVE()
 
   CX = CX + 1
 
-End Function
+End Function 
 
 Function SCR()
 
@@ -140,5 +148,21 @@ Function SCR()
   T  = T  + FREQ
 
 
+
+End Function
+
+' RETRO COMPUTER SLIDE SHOW
+Function COMPS()
+
+    PHASE = PHASE + 0.04                    ' smaller = slower
+    IF PHASE >= 3.14159 * 2 THEN                                                
+      PHASE = 0                                                                 
+      COMP = COMP + 1                                                           
+      IF COMP > SPRITE FRAMES(S+3) THEN COMP = 1                                
+    END IF                                                                      
+    A = INT( (SIN(PHASE - 3.14159 / 2) + 1) * 127.5 )   ' 0..255..0 bell
+    SPRITEMODULATE S+3, A, 255, 255, 255, 1.0                                   
+    SPRITEFRAME S+3, COMP                                                       
+    DRAWSPRITE S+3, 128, 100, 5           
 
 End Function

@@ -777,12 +777,27 @@ void gfx_sprite_set_draw_frame(int slot, int frame_1based)
         frame_1based = sl->tile_count;
     }
     sl->draw_frame = frame_1based;
-    /* Invalidate any cached explicit crop — gfx_sprite_effective_source_rect
-     * prefers (draw_sx, draw_sy, draw_sw, draw_sh) when they're non-zero, so
-     * without this the first DRAWSPRITE's crop would stick forever and
-     * subsequent SPRITEFRAME changes wouldn't advance the displayed tile. */
-    sl->draw_sw = 0;
-    sl->draw_sh = 0;
+    /* Atomically update the explicit crop to the new tile rect instead
+     * of zeroing it. The render thread snapshots draws[] from slot
+     * state each frame independently of the command queue; if we
+     * zeroed draw_sw/sh here and the snapshot landed BEFORE the next
+     * DRAWSPRITE's queued DRAW command drained into the slot, the
+     * composite's `d->sw <= 0` fallback would render the full texture
+     * for that frame (visible as a whole-sheet flash between tile
+     * transitions, especially obvious when a SLEEP sits between
+     * SPRITEFRAME and DRAWSPRITE). Computing the tile rect here and
+     * writing draw_sx/sy/sw/sh in one critical section means
+     * effective_source_rect and the render snapshot always see the
+     * correct 32×32 crop. */
+    {
+        int idx0 = frame_1based - 1;
+        int tx   = idx0 % sl->tiles_x;
+        int ty   = idx0 / sl->tiles_x;
+        sl->draw_sx = tx * sl->tile_w;
+        sl->draw_sy = ty * sl->tile_h;
+        sl->draw_sw = sl->tile_w;
+        sl->draw_sh = sl->tile_h;
+    }
     pthread_mutex_unlock(&g_sprite_mutex);
 }
 
@@ -1029,6 +1044,18 @@ static void gfx_sprite_process_queue(void)
                 g_sprite_slots[c->slot].loaded = 1;
                 g_sprite_slots[c->slot].visible = 1;
                 g_sprite_slots[c->slot].draw_active = 0;
+                /* Reset the explicit-crop rect so the tile path in
+                 * gfx_sprite_effective_source_rect wins on the first
+                 * DRAWSPRITE after LOAD. Without this, stale
+                 * draw_sx/sy/sw/sh values from a previous use of
+                 * the slot (or a previous program run — g_sprite_slots
+                 * persists across runs) can pin the sprite to a
+                 * full-sheet rect, and the multiplexer demo flashes
+                 * the entire 320x200 font on the first few frames. */
+                g_sprite_slots[c->slot].draw_sx = 0;
+                g_sprite_slots[c->slot].draw_sy = 0;
+                g_sprite_slots[c->slot].draw_sw = 0;
+                g_sprite_slots[c->slot].draw_sh = 0;
                 strncpy(g_sprite_slots[c->slot].src_path, full,
                         GFX_SPRITE_PATH_MAX - 1);
                 g_sprite_slots[c->slot].src_path[GFX_SPRITE_PATH_MAX - 1] = '\0';

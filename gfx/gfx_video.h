@@ -408,7 +408,7 @@ int  gfx_image_draw_target_slot(void);
  * `gfx_scroll_is_active` for the fast-path flag.
  * ---------------------------------------------------------------- */
 
-#define GFX_MAX_SCROLL_ZONES 8u
+#define GFX_MAX_SCROLL_ZONES 16u   /* ids 1..15 usable; slot 0 = "no zone" sentinel */
 
 typedef struct GfxScrollZone {
     int16_t  y;      /* top row (inclusive) */

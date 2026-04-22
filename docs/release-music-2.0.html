@@ -48,16 +48,20 @@
 <h1>RGC-BASIC 2.0 — Music, true colour, and a writable palette</h1>
 <p class="lede">
 Release notes for <strong>v2.0</strong> / <strong>v2.0.1</strong>, tagged
-2026-04-21. 55 commits since v1.11.0, landing four big feature families on
+2026-04-21. 55+ commits since v1.11.0, landing six big feature families on
 top of the Graphics 1.0 bitmap engine: <strong>streaming tracker music</strong>
 (MOD / XM / S3M / IT / OGG / MP3), a <strong>true-colour + indexed
 screen mode set</strong> (SCREEN 2 RGBA, SCREEN 3 256-colour indexed,
 SCREEN 4 640×400 RGBA), a <strong>writable 256-entry palette</strong>
 with hot rotation and .pal I/O, <strong>RGBA blitter surfaces</strong>
-with alpha compositing, plus a polished language pass (string escape
-sequences, backslash integer divide, extended <code>DRAWTEXT</code>
-fg/bg/scale, single-voice WAV promoted to multi-voice-ready infra).
-And a <code>--version</code> flag on every binary, because you asked.
+with alpha compositing, <strong><code>IMAGE DRAW slot</code></strong>
+retargeting primitives into arbitrary-sized off-screen canvases, and
+<strong><code>SCROLL ZONE</code> + <code>SCROLL LINE</code></strong>
+for rectangle and per-scanline display-time scroll (demoscene copper-
+list effects without raster interrupts). Plus a polished language
+pass (string escape sequences, backslash integer divide, extended
+<code>DRAWTEXT</code> fg/bg/scale) and a <code>--version</code> flag
+on every binary, because you asked.
 </p>
 
 <p>
@@ -321,7 +325,78 @@ https://github.com/omiq/rgc-basic</pre>
 </div>
 
 <div class="card">
-<h3>8. Patched raylib built from source — native &amp; WASM</h3>
+<h3>8. <code>IMAGE DRAW slot</code> — retarget primitives to an off-screen canvas</h3>
+<p>
+Mirror of the existing <code>SCREEN DRAW n</code>, but routes into
+the IMAGE pool instead of the fixed-size SCREEN plane pool:
+</p>
+<pre>IMAGE CREATE 1, 1024, 64        ' arbitrary-size RGBA canvas
+IMAGE DRAW 1                    ' retarget primitives here
+LINE 0, 0 TO 1023, 63           ' draws into slot 1
+DRAWTEXT 8, 8, "BAKED!", 2
+IMAGE DRAW 0                    ' restore live framebuffer</pre>
+<p>
+Every SCREEN 2 / SCREEN 4 primitive (<code>LINE</code>,
+<code>FILLRECT</code>, <code>CIRCLE</code>, <code>DRAWTEXT</code>,
+<code>PSET</code>, <code>POLYGON</code>, …) reads
+<code>bitmap_rgba</code> + <code>rgba_w/h</code>; the retarget swaps
+that triple to point at the IMAGE slot, so every primitive lands in
+the off-screen canvas with no per-call dispatch. <code>IMAGE DRAW
+0</code> restores the saved triple. Unlocks: gradient-into-glyphs
+pre-baked scroller strips (finally — see
+<code>demo-scroller-png.bas</code> for the "pre-baked PNG"
+equivalent that used to be the only path), world-map assembly,
+HUD layer grabs, reusable sprite texture atlases built at runtime.
+</p>
+<p>
+Non-RGBA screen modes (SCREEN 0 / 1 / 3) return a runtime error —
+primitives in those modes write different buffers and aren't
+reachable by the pointer swap. 1bpp canvases via <code>IMAGE NEW</code>
+similarly rejected.
+</p>
+</div>
+
+<div class="card">
+<h3>9. <code>SCROLL ZONE</code> / <code>SCROLL LINE</code> — rectangle + per-scanline scroll</h3>
+<p>
+The display-time partner to <code>IMAGE DRAW</code>. Classic Amiga
+copper-list effects without raster interrupts.
+</p>
+<p><strong>Zones</strong> — named horizontal bands scroll
+independently:</p>
+<pre>SCROLL ZONE 1, 80, 40           ' declare zone id 1 = rows 80..119
+SCROLL ZONE 1, -2               ' advance dx by -2 px this frame
+                                '   (wraps on plane width, persistent)
+SCROLL ZONE CLEAR 1             ' release the zone
+SCROLL ZONE RESET 1             ' zero the offset, keep the rect</pre>
+<p>
+Up to 7 zones at once (ids 1..7). Zone state survives across frames
+— one advance call per frame = a smooth scroll, no bookkeeping.
+Parallax-multiple zones for sky / mid / ground bands. A zone at
+y=0..39 over the full screen = classic demo message-bar scroll
+with the rest of the screen static.
+</p>
+<p><strong>Per-scanline warp</strong> — each pixel row gets its own dx:</p>
+<pre>' Water ripple across rows 120..199
+FOR Y = 120 TO 199
+  SCROLL LINE Y, INT( SIN((Y + T) * 0.2) * 6 )
+NEXT
+VSYNC</pre>
+<p>
+Water, heat haze, flag wave, CRT jitter. Layer on top of a zone
+(the zone's bulk dx + the per-line wobble stack additively) for
+"scrolling text with ripple" effects.
+</p>
+<p>
+<code>SCROLL LINE RESET</code> zeroes every row;
+<code>SCROLL RESET</code> nukes both zones + per-line state.
+Fast-path flag in the compositor means zero-cost pass-through when
+no scroll state is active.
+</p>
+</div>
+
+<div class="card">
+<h3>10. Patched raylib built from source — native &amp; WASM</h3>
 <p>
 2.0 drops the system-raylib path on every CI target. Homebrew,
 MinGW and apt all ship un-patched raylib — that's how the Windows MOD
@@ -476,6 +551,18 @@ level they want and learn the idea behind each approach.
     <strong>map_editor.bas</strong>
     <em>RGC-BASIC port of the classic QB64 map editor demo. Inline rendering, precomputed tile palette — a readable reference for anyone building their own in-game editors.</em>
   </a>
+  <a href="https://ide.retrogamecoders.com/?file=gfx_scrollzone_demo.bas&platform=rgc-basic">
+    <strong>gfx_scrollzone_demo.bas</strong>
+    <em>Three simultaneous scroll layers on one painted bitmap: top zone pans left, middle band runs a per-scanline sine ripple, bottom zone pans right. SPACE pauses the animation.</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=gfx_imagedraw_demo.bas&platform=rgc-basic">
+    <strong>gfx_imagedraw_demo.bas</strong>
+    <em>Pre-bakes a 1024×64 gradient-into-glyphs scroller strip into an IMAGE CREATE surface via IMAGE DRAW, then scrolls windowed slices with IMAGE BLEND. The "true demoscene" scroller that wasn't possible before 2.0.</em>
+  </a>
+  <a href="https://ide.retrogamecoders.com/?file=demo-scroller-multiplex.bas&platform=rgc-basic">
+    <strong>demo-scroller-multiplex.bas</strong>
+    <em>12-sprite pool scrolls a long message by recycling each sprite (new letter, new hue) when it leaves the left edge. AMOS-style sprite multiplexing + per-letter SPRITEMODULATE rainbow.</em>
+  </a>
 </div>
 
 <h2>Where to read more</h2>
@@ -500,14 +587,6 @@ level they want and learn the idea behind each approach.
 <h2>What's next (2.1+)</h2>
 
 <ol>
-  <li><strong><code>IMAGE DRAW slot</code></strong> — retarget primitives
-      (<code>LINE</code>, <code>FILLRECT</code>, <code>DRAWTEXT</code>,
-      <code>PSET</code>, <code>CIRCLE</code>, …) to an off-screen RGBA
-      <code>IMAGE CREATE</code> surface. Mirror of the existing
-      <code>SCREEN DRAW n</code>, but unlocks arbitrary-sized off-screen
-      canvases. Pre-baked scroller strips with gradient-through-glyphs,
-      tilemap assembly, world-map compositing, HUD layer grabs all
-      become trivial one-liners.</li>
   <li><strong>Live MOD tracker info</strong> — <code>MUSICROW(slot)</code>,
       <code>MUSICORDER(slot)</code>, <code>MUSICBPM(slot)</code>,
       <code>MUSICSPEED(slot)</code>. Needs a small patch exposing
