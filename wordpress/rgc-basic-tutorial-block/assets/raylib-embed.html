@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RGC-BASIC raylib embed</title>
+  <style>
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; color: #ddd; font-family: sans-serif; overflow: hidden; }
+    #wrap { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; position: relative; }
+    #canvas {
+      display: block !important;
+      margin: auto !important;
+      width: min(100vw, calc(100vh * 320 / 200)) !important;
+      height: min(100vh, calc(100vw * 200 / 320)) !important;
+      image-rendering: pixelated;
+      outline: none;
+      background: #000;
+    }
+    #status { position: absolute; bottom: 4px; left: 4px; font-size: 11px; color: #666; background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 3px; font-family: ui-monospace, Menlo, monospace; z-index: 2; pointer-events: none; }
+    #audio-muted {
+      position: absolute; top: 8px; right: 8px;
+      width: 36px; height: 36px;
+      display: none;
+      align-items: center; justify-content: center;
+      background: rgba(0, 0, 0, 0.55);
+      border-radius: 6px;
+      z-index: 3;
+      pointer-events: none;
+      animation: audio-muted-pulse 1.6s ease-in-out infinite;
+    }
+    #audio-muted svg { width: 22px; height: 22px; fill: #ffdd66; }
+    @keyframes audio-muted-pulse {
+      0%, 100% { opacity: 0.85; }
+      50%      { opacity: 0.45; }
+    }
+  </style>
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="canvas" width="960" height="600" tabindex="0"></canvas>
+    <div id="status">Loading raylib runtime...</div>
+    <div id="audio-muted" title="Audio muted — click or press a key to enable sound">
+      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.3-3.9v2.2l2.3 2.3a2.5 2.5 0 0 1-.1 0zm2.5 0c0-1.8-.8-3.4-2-4.5v1.8a4.5 4.5 0 0 1 0 5.4v1.8a5.98 5.98 0 0 0 2-4.5zM4.3 3L3 4.3 7.7 9H3v6h4l5 5v-6.7l4.3 4.3 1.4-1.4L4.3 3z"/>
+      </svg>
+    </div>
+  </div>
+
+  <script>
+  /*
+   * RGC-BASIC raylib WASM iframe for the WordPress GFX embed block.
+   *
+   * The parent mount (gfx-embed-mount.js) creates one iframe per block and
+   * drives it with postMessage:
+   *
+   *   parent → iframe:
+   *     { type:"rgc-basic-run",    source, flags, files }
+   *     { type:"rgc-basic-stop" }
+   *     { type:"rgc-basic-pause" } / { type:"rgc-basic-resume" }
+   *     { type:"rgc-basic-reset" }
+   *     { type:"rgc-basic-vfs-write", path, bytes }
+   *     { type:"rgc-basic-vfs-read",  path, requestId }
+   *
+   *   iframe → parent:
+   *     { type:"rgc-basic-status", status: "ready"|"running"|"stopped"|"error", detail }
+   *     { type:"rgc-basic-runtime-error", line, message }
+   *     { type:"rgc-basic-vfs-read-result", requestId, bytes|error }
+   *
+   * basic-raylib.js + basic-raylib.wasm are loaded relative to this HTML
+   * file — i.e. from assets/wasm/ inside the plugin dir. No CORS issues.
+   */
+  (function () {
+    var params = new URLSearchParams(window.location.search);
+    var cacheBuster = params.get("cb") || params.get("v") || String(Date.now());
+
+    var jsUrl   = "wasm/basic-raylib.js?cb="   + encodeURIComponent(cacheBuster);
+    var wasmUrl = "wasm/basic-raylib.wasm?cb=" + encodeURIComponent(cacheBuster);
+
+    var canvas = document.getElementById("canvas");
+    var statusEl = document.getElementById("status");
+    var mutedBadge = document.getElementById("audio-muted");
+    var running = false;
+    var runtimeReady = false;
+    var pendingRunPayload = null;
+
+    function setStatus(msg) { if (statusEl) statusEl.textContent = msg || ""; }
+
+    function postToParent(msg) {
+      try { window.parent.postMessage(msg, "*"); } catch (e) {}
+    }
+    function postStatus(status, detail) {
+      postToParent({ type: "rgc-basic-status", status: status, detail: detail || "" });
+    }
+    function postRuntimeError(line, message) {
+      postToParent({ type: "rgc-basic-runtime-error", line: line || 0, message: message || "Runtime error" });
+    }
+
+    /* Autoplay gate — miniaudio AudioContexts stay suspended until the
+     * first user gesture. Show the speaker-off badge; resume on gesture. */
+    var audioUnlocked = false;
+    function showMutedBadge(show) { if (mutedBadge) mutedBadge.style.display = show ? "flex" : "none"; }
+    function audioUnlock() {
+      if (audioUnlocked) return;
+      audioUnlocked = true;
+      try {
+        if (typeof miniaudio !== "undefined" && miniaudio && miniaudio.devices) {
+          for (var i = 0; i < miniaudio.devices.length; i++) {
+            var d = miniaudio.devices[i];
+            if (d && d.webaudio && typeof d.webaudio.resume === "function") d.webaudio.resume();
+          }
+        }
+      } catch (e) {}
+      showMutedBadge(false);
+    }
+    showMutedBadge(true);
+    var unlockTargets = [window, document, canvas];
+    var unlockEvents = ["pointerdown", "touchstart", "keydown", "mousedown", "click"];
+    for (var ti = 0; ti < unlockTargets.length; ti++) {
+      for (var ei = 0; ei < unlockEvents.length; ei++) {
+        try { unlockTargets[ti].addEventListener(unlockEvents[ei], audioUnlock, { capture: true, once: false }); }
+        catch (e) {}
+      }
+    }
+    document.addEventListener("fullscreenchange",       audioUnlock, true);
+    document.addEventListener("webkitfullscreenchange", audioUnlock, true);
+
+    function ensureDir(path) {
+      if (!path || path === "/") return;
+      var parts = path.split("/");
+      var curr = "";
+      for (var i = 1; i < parts.length; i++) {
+        if (!parts[i]) continue;
+        curr += "/" + parts[i];
+        try { Module.FS.mkdir(curr); } catch (e) {}
+      }
+    }
+
+    function normalizeSource(src) {
+      if (typeof src !== "string") return "";
+      return src.replace(/\r\n/g, "\n");
+    }
+
+    function forwardRuntimeErrorFromStderr(t) {
+      var s = String(t || "");
+      var m = s.match(/Error on line\s+(\d+)\s*:\s*(.+)$/i);
+      if (m) postRuntimeError(parseInt(m[1], 10), m[2]);
+    }
+
+    window.Module = {
+      canvas: canvas,
+      webglContextAttributes: { preserveDrawingBuffer: true },
+      print:    function (text) { console.log(text); },
+      printErr: function (text) { console.warn(text); forwardRuntimeErrorFromStderr(text); },
+      onRuntimeInitialized: function () {
+        runtimeReady = true;
+        setStatus("");
+        postStatus("ready");
+        if (pendingRunPayload) {
+          var p = pendingRunPayload;
+          pendingRunPayload = null;
+          runProgram(p);
+        }
+      },
+      locateFile: function (path) {
+        if (path && path.endsWith(".wasm")) return wasmUrl;
+        return path;
+      },
+      /* Refresh miniaudio's cached Float32Array after ALLOW_MEMORY_GROWTH
+       * — same fix as the IDE iframe. Without this, first LOADMUSIC-triggered
+       * buffer grow detaches miniaudio's view and subsequent callbacks crash. */
+      onMemoryGrow: function () {
+        try {
+          if (typeof miniaudio !== "undefined" && miniaudio && miniaudio.devices) {
+            for (var i = 0; i < miniaudio.devices.length; i++) {
+              var d = miniaudio.devices[i];
+              if (d) d.intermediaryBufferView = null;
+            }
+          }
+        } catch (e) {}
+      },
+      onAbort: function (what) {
+        setStatus("Aborted: " + what);
+        postRuntimeError(0, "runtime abort: " + what);
+      }
+    };
+
+    async function runProgram(payload) {
+      if (!runtimeReady) { pendingRunPayload = payload; return; }
+      if (!payload) return;
+
+      pendingRunPayload = payload;
+      Module.wasmStopRequested = 0;
+      Module.wasmPaused = 0;
+
+      setStatus("");
+      running = true;
+      postStatus("running");
+
+      try {
+        var flags = payload.flags || "";
+        if (flags) {
+          var rc = Module.ccall("basic_apply_arg_string", "number", ["string"], [flags]);
+          if (rc !== 0) console.warn("basic_apply_arg_string returned", rc);
+        }
+
+        var files = payload.files || {};
+        Object.keys(files).forEach(function (path) {
+          if (!path || path[0] !== "/") return;
+          var bytes = files[path];
+          if (typeof bytes === "string") bytes = new TextEncoder().encode(bytes);
+          else if (!(bytes instanceof Uint8Array)) bytes = new Uint8Array(bytes);
+          ensureDir(path.substring(0, path.lastIndexOf("/")));
+          Module.FS.writeFile(path, bytes);
+        });
+
+        var programPath = "/program.bas";
+        var normalized = normalizeSource(payload.source || "10 END\n");
+        Module.FS.writeFile(programPath, normalized);
+
+        if (Module._wasm_gfx_key_state_clear) {
+          Module.ccall("wasm_gfx_key_state_clear", null, [], []);
+        }
+
+        canvas.focus();
+        await Module.ccall("basic_load_and_run_gfx", null, ["string"], [programPath], { async: true });
+
+        running = false;
+        setStatus("");
+        postStatus("stopped");
+      } catch (e) {
+        running = false;
+        var msg = (e && e.message) ? e.message : String(e);
+        setStatus("Error: " + msg);
+        postRuntimeError(0, msg);
+        postStatus("error", msg);
+      }
+    }
+
+    /* Keyboard — same key_state + INKEY$ push pattern as 8bitworkshop. */
+    function keyIndex(ev) {
+      var k = ev.key;
+      if (k === "Escape") return 27;
+      if (k === "Enter") return 13;
+      if (k === " " || k === "Spacebar") return 32;
+      if (k === "ArrowUp") return 145;
+      if (k === "ArrowDown") return 17;
+      if (k === "ArrowLeft") return 157;
+      if (k === "ArrowRight") return 29;
+      if (k === "Tab") return 9;
+      if (k && k.length === 1) {
+        var c = k.charCodeAt(0);
+        if (c >= 97 && c <= 122) c -= 32;
+        if (c >= 32 && c <= 126) return c;
+      }
+      return -1;
+    }
+    function keySync(ev, down) {
+      if (!window.Module || !Module.HEAPU8 || !Module._wasm_gfx_key_state_ptr) return;
+      var idx = keyIndex(ev);
+      if (idx < 0 || idx >= 256) return;
+      var base = Module._wasm_gfx_key_state_ptr();
+      if (base) Module.HEAPU8[base + idx] = down ? 1 : 0;
+    }
+    canvas.addEventListener("contextmenu", function (ev) { ev.preventDefault(); });
+    window.addEventListener("keydown", function (ev) {
+      if (ev.ctrlKey || ev.metaKey) return;
+      ev.preventDefault();
+      keySync(ev, true);
+      if (Module._wasm_push_key) {
+        if (ev.key === "Enter")           Module.ccall("wasm_push_key", null, ["number"], [13]);
+        else if (ev.key === "Escape")     Module.ccall("wasm_push_key", null, ["number"], [27]);
+        else if (ev.key === "Tab")        Module.ccall("wasm_push_key", null, ["number"], [9]);
+        else if (ev.key === "Backspace")  Module.ccall("wasm_push_key", null, ["number"], [8]);
+        else if (ev.key === "ArrowUp")    Module.ccall("wasm_push_key", null, ["number"], [145]);
+        else if (ev.key === "ArrowDown")  Module.ccall("wasm_push_key", null, ["number"], [17]);
+        else if (ev.key === "ArrowLeft")  Module.ccall("wasm_push_key", null, ["number"], [157]);
+        else if (ev.key === "ArrowRight") Module.ccall("wasm_push_key", null, ["number"], [29]);
+        else if (ev.key && ev.key.length === 1) Module.ccall("wasm_push_key", null, ["number"], [ev.key.charCodeAt(0) & 0xFF]);
+      }
+    }, true);
+    window.addEventListener("keyup", function (ev) { keySync(ev, false); }, true);
+    window.addEventListener("blur", function () {
+      if (Module && Module._wasm_gfx_key_state_clear) Module.ccall("wasm_gfx_key_state_clear", null, [], []);
+    });
+
+    /* Parent → iframe control channel. */
+    window.addEventListener("message", function (event) {
+      var d = event.data;
+      if (!d || !d.type) return;
+      if (d.type === "rgc-basic-run") {
+        runProgram(d);
+      }
+      else if (d.type === "rgc-basic-pause") {
+        if (!Module) return;
+        Module.wasmPaused = 1;
+        try {
+          if (typeof miniaudio !== "undefined" && miniaudio && miniaudio.devices) {
+            for (var pi = 0; pi < miniaudio.devices.length; pi++) {
+              var pd = miniaudio.devices[pi];
+              if (pd && pd.webaudio && typeof pd.webaudio.suspend === "function") pd.webaudio.suspend();
+            }
+          }
+        } catch (e) {}
+        setStatus("Paused");
+      }
+      else if (d.type === "rgc-basic-resume") {
+        if (!Module) return;
+        Module.wasmPaused = 0;
+        try {
+          if (typeof miniaudio !== "undefined" && miniaudio && miniaudio.devices) {
+            for (var ri = 0; ri < miniaudio.devices.length; ri++) {
+              var rd = miniaudio.devices[ri];
+              if (rd && rd.webaudio && typeof rd.webaudio.resume === "function") rd.webaudio.resume();
+            }
+          }
+        } catch (e) {}
+        setStatus(running ? "" : "");
+      }
+      else if (d.type === "rgc-basic-stop") {
+        if (!Module) return;
+        Module.wasmStopRequested = 1;
+        Module.wasmPaused = 0;
+      }
+      else if (d.type === "rgc-basic-reset") {
+        if (!Module) return;
+        Module.wasmStopRequested = 1;
+        Module.wasmPaused = 0;
+        if (pendingRunPayload) runProgram(pendingRunPayload);
+      }
+      else if (d.type === "rgc-basic-vfs-write") {
+        if (!Module || !Module.FS || !d.path) return;
+        try {
+          ensureDir(d.path.substring(0, d.path.lastIndexOf("/")));
+          var bytes = d.bytes;
+          if (typeof bytes === "string") bytes = new TextEncoder().encode(bytes);
+          else if (!(bytes instanceof Uint8Array)) bytes = new Uint8Array(bytes);
+          Module.FS.writeFile(d.path, bytes);
+        } catch (e) {
+          postToParent({ type: "rgc-basic-vfs-write-error", path: d.path, message: String(e && e.message || e) });
+        }
+      }
+      else if (d.type === "rgc-basic-vfs-read") {
+        if (!Module || !Module.FS) return;
+        try {
+          var data = Module.FS.readFile(d.path);
+          postToParent({ type: "rgc-basic-vfs-read-result", requestId: d.requestId, path: d.path, bytes: data });
+        } catch (e) {
+          postToParent({ type: "rgc-basic-vfs-read-result", requestId: d.requestId, path: d.path, error: String(e && e.message || e) });
+        }
+      }
+    });
+
+    /* Kick off runtime load. */
+    var s = document.createElement("script");
+    s.src = jsUrl;
+    s.async = false;
+    s.onerror = function () {
+      setStatus("Failed to load basic-raylib.js");
+      postRuntimeError(0, "basic-raylib.js not found at " + jsUrl);
+    };
+    document.body.appendChild(s);
+  })();
+  </script>
+</body>
+</html>

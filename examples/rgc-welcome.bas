@@ -163,6 +163,6 @@ Function COMPS()
     A = INT( (SIN(PHASE - 3.14159 / 2) + 1) * 127.5 )   ' 0..255..0 bell
     SPRITEMODULATE S+3, A, 255, 255, 255, 1.0                                   
     SPRITEFRAME S+3, COMP                                                       
-    DRAWSPRITE S+3, 128, 100, 5           
+    DRAWSPRITE S+3, 96, 100, 5           
 
 End Function

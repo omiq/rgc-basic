@@ -22,8 +22,10 @@
 #   blocks/gfx/block.json           (GFX block metadata — required for server-side register_block_type)
 #   build/*.js  build/*.css         (editor + frontend bundles)
 #   assets/js/*.js                  (tutorial-embed, gfx-embed-mount, vfs-helpers)
+#   assets/raylib-embed.html        (iframe shell for GFX block)
 #   assets/wasm/basic-modular.*     (terminal WASM)
-#   assets/wasm/basic-canvas.*      (GFX WASM)
+#   assets/wasm/basic-raylib.*      (GFX WASM — raylib/WebGL2)
+#   assets/wasm/.htaccess           (application/wasm MIME override)
 #   readme.txt  README.md  LICENSE (if present)
 #
 # Any junk like .DS_Store / *.map / node_modules is skipped.
@@ -120,13 +122,17 @@ else
 	echo "No basic-modular.js/.wasm. In the repo run: make basic-wasm-modular" >&2
 fi
 
-if [ -f "$REPO/web/basic-canvas.js" ] && [ -f "$REPO/web/basic-canvas.wasm" ]; then
-	cp -f "$REPO/web/basic-canvas.js"   "$ROOT/assets/wasm/"
-	cp -f "$REPO/web/basic-canvas.wasm" "$ROOT/assets/wasm/"
-	echo "Copied basic-canvas.js/.wasm (GFX embed block)"
+if [ -f "$REPO/web/basic-raylib.js" ] && [ -f "$REPO/web/basic-raylib.wasm" ]; then
+	cp -f "$REPO/web/basic-raylib.js"   "$ROOT/assets/wasm/"
+	cp -f "$REPO/web/basic-raylib.wasm" "$ROOT/assets/wasm/"
+	echo "Copied basic-raylib.js/.wasm (GFX embed block — WebGL2 / audio / 2.1 features)"
 else
-	echo "No basic-canvas.js/.wasm. For the GFX block run: make basic-wasm-canvas" >&2
+	echo "No basic-raylib.js/.wasm. For the GFX block run: make basic-wasm-raylib" >&2
 fi
+
+# Drop the old canvas WASM — GFX block now runs raylib via raylib-embed.html.
+# Remove stale copies so the deploy doesn't carry dead weight.
+rm -f "$ROOT/assets/wasm/basic-canvas.js" "$ROOT/assets/wasm/basic-canvas.wasm" 2>/dev/null || true
 
 # ----- blocks/*/block.json (server-side block metadata) -----
 # WP's register_block_type() only accepts files named exactly block.json under
@@ -176,6 +182,7 @@ if [ -n "$DEPLOY" ]; then
 	mkdir -p "$DEPLOY_DIR" \
 		"$DEPLOY_DIR/build" \
 		"$DEPLOY_DIR/blocks/gfx" \
+		"$DEPLOY_DIR/assets" \
 		"$DEPLOY_DIR/assets/js" \
 		"$DEPLOY_DIR/assets/wasm"
 
@@ -212,14 +219,29 @@ if [ -n "$DEPLOY" ]; then
 		fi
 	done
 
-	# WASM payloads (both interpreters, if built).
-	for f in basic-modular.js basic-modular.wasm basic-canvas.js basic-canvas.wasm; do
+	# GFX block iframe shell.
+	if [ -f "$ROOT/assets/raylib-embed.html" ]; then
+		cp -f "$ROOT/assets/raylib-embed.html" "$DEPLOY_DIR/assets/"
+	else
+		echo "warning: assets/raylib-embed.html missing (GFX block will not load)" >&2
+	fi
+
+	# WASM payloads. raylib is the GFX block backend now; keep basic-modular
+	# for the terminal block. basic-canvas is no longer shipped.
+	for f in basic-modular.js basic-modular.wasm basic-raylib.js basic-raylib.wasm; do
 		if [ -f "$ROOT/assets/wasm/$f" ]; then
 			cp -f "$ROOT/assets/wasm/$f" "$DEPLOY_DIR/assets/wasm/"
 		else
 			echo "note: assets/wasm/$f not present (skipped)" >&2
 		fi
 	done
+
+	# MIME override (.htaccess). Required on Siteground so .wasm serves as
+	# application/wasm instead of octet-stream. Copy as a dotfile explicitly
+	# — some cp globs skip hidden files.
+	if [ -f "$ROOT/assets/wasm/.htaccess" ]; then
+		cp -f "$ROOT/assets/wasm/.htaccess" "$DEPLOY_DIR/assets/wasm/.htaccess"
+	fi
 
 	# Strip macOS + editor junk.
 	find "$DEPLOY_DIR" \( -name .DS_Store -o -name '*.map' -o -name '*.bak' -o -name '*~' \) -delete 2>/dev/null || true
@@ -267,6 +289,13 @@ if [ -n "$UPLOAD" ]; then
 			scp -P "$SSH_PORT" -O -r -- * \
 				"$SSH_USER@$SSH_HOST:$SSH_PATH"/
 		)
+		# Shell glob skips dotfiles — upload .htaccess explicitly so the
+		# application/wasm MIME override lands on the server.
+		if [ -f "$DEPLOY_DIR/assets/wasm/.htaccess" ]; then
+			scp -P "$SSH_PORT" -O -- \
+				"$DEPLOY_DIR/assets/wasm/.htaccess" \
+				"$SSH_USER@$SSH_HOST:$SSH_PATH/assets/wasm/.htaccess"
+		fi
 	fi
 
 	echo "Upload complete."

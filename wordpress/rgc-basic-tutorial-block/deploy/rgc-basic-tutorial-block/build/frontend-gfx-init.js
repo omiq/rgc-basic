@@ -1,5 +1,5 @@
 /**
- * Mount RGC-BASIC GFX (canvas WASM) embeds. Config in
+ * Mount RGC-BASIC GFX embeds (raylib/WebGL2 iframe). Config in
  * <script type="application/json" class="rgc-basic-gfx-embed-config"> per block.
  */
 (function () {
