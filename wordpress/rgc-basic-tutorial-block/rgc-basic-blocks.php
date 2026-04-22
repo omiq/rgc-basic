@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       RGC-BASIC Tutorial Embed
  * Description:       Gutenberg block to embed RGC-BASIC interpreters (WASM) in posts and pages. Upload modular WASM assets to the plugin or set a custom base URL.
- * Version:           1.2.7
+ * Version:           1.3.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Chris Garrett
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'RGC_BASIC_TUTORIAL_BLOCK_VERSION', '1.2.7' );
+define( 'RGC_BASIC_TUTORIAL_BLOCK_VERSION', '1.3.0' );
 define( 'RGC_BASIC_TUTORIAL_BLOCK_DIR', plugin_dir_path( __FILE__ ) );
 define( 'RGC_BASIC_TUTORIAL_BLOCK_URL', plugin_dir_url( __FILE__ ) );
 
@@ -50,12 +50,13 @@ function rgc_basic_tutorial_wasm_files_present() {
 }
 
 /**
- * Whether canvas WASM files exist (GFX embed block).
+ * Whether raylib WASM files exist (GFX embed block — 2.1 audio / scroll zones).
  */
 function rgc_basic_tutorial_canvas_wasm_files_present() {
-	$wasm = RGC_BASIC_TUTORIAL_BLOCK_DIR . 'assets/wasm/basic-canvas.wasm';
-	$js   = RGC_BASIC_TUTORIAL_BLOCK_DIR . 'assets/wasm/basic-canvas.js';
-	return is_readable( $wasm ) && is_readable( $js );
+	$wasm = RGC_BASIC_TUTORIAL_BLOCK_DIR . 'assets/wasm/basic-raylib.wasm';
+	$js   = RGC_BASIC_TUTORIAL_BLOCK_DIR . 'assets/wasm/basic-raylib.js';
+	$html = RGC_BASIC_TUTORIAL_BLOCK_DIR . 'assets/raylib-embed.html';
+	return is_readable( $wasm ) && is_readable( $js ) && is_readable( $html );
 }
 
 /**
@@ -118,10 +119,16 @@ function rgc_basic_tutorial_register_assets() {
 		true
 	);
 
+	/*
+	 * gfx-embed-mount.js now creates an iframe that loads basic-raylib
+	 * inside assets/raylib-embed.html. VFS upload/download runs via
+	 * postMessage into the iframe, so vfs-helpers.js is not a dep. The
+	 * syntax highlighter still runs in the parent for the editor textarea.
+	 */
 	wp_register_script(
 		'rgc-basic-gfx-embed-mount',
 		RGC_BASIC_TUTORIAL_BLOCK_URL . 'assets/js/gfx-embed-mount.js',
-		array( 'rgc-basic-vfs-helpers', 'rgc-basic-highlight' ),
+		array( 'rgc-basic-highlight' ),
 		file_exists( RGC_BASIC_TUTORIAL_BLOCK_DIR . 'assets/js/gfx-embed-mount.js' )
 			? (string) filemtime( RGC_BASIC_TUTORIAL_BLOCK_DIR . 'assets/js/gfx-embed-mount.js' )
 			: RGC_BASIC_TUTORIAL_BLOCK_VERSION,
@@ -365,6 +372,8 @@ function rgc_basic_tutorial_render_gfx_block( $attributes, $content, $block ) {
 		'showVfsTools'      => true,
 		'posterImageUrl'    => '',
 		'interpreterFlags'  => '-petscii -charset lower -palette ansi -columns 40',
+		'autorun'           => false,
+		'canvasMode'        => 'visible',
 	);
 
 	$a = wp_parse_args( $attributes, $defaults );
@@ -374,6 +383,11 @@ function rgc_basic_tutorial_render_gfx_block( $attributes, $content, $block ) {
 
 	$poster = isset( $a['posterImageUrl'] ) ? trim( (string) $a['posterImageUrl'] ) : '';
 
+	$canvas_mode = isset( $a['canvasMode'] ) ? (string) $a['canvasMode'] : 'visible';
+	if ( ! in_array( $canvas_mode, array( 'visible', 'offscreen', 'hidden' ), true ) ) {
+		$canvas_mode = 'visible';
+	}
+
 	$opts = array(
 		'program'          => $program,
 		'showEditor'       => (bool) $a['showEditor'],
@@ -382,6 +396,8 @@ function rgc_basic_tutorial_render_gfx_block( $attributes, $content, $block ) {
 		'showVfsTools'     => (bool) $a['showVfsTools'],
 		'posterImageUrl'   => $poster,
 		'interpreterFlags' => isset( $a['interpreterFlags'] ) ? (string) $a['interpreterFlags'] : $defaults['interpreterFlags'],
+		'autorun'          => (bool) $a['autorun'],
+		'canvasMode'       => $canvas_mode,
 		'wasmBaseUrl'      => rgc_basic_tutorial_wasm_base_url(),
 	);
 
@@ -505,7 +521,7 @@ function rgc_basic_tutorial_admin_notice_missing_wasm() {
 		return;
 	}
 	echo '<div class="notice notice-warning"><p>';
-	echo esc_html__( 'RGC-BASIC Tutorial Embed: add basic-modular.js and basic-modular.wasm to wp-content/plugins/rgc-basic-tutorial-block/assets/wasm/ (run copy-web-assets.sh from the plugin folder) or configure Settings → RGC-BASIC Tutorial. For the GFX canvas block, also copy basic-canvas.js and basic-canvas.wasm.', 'rgc-basic-tutorial-block' );
+	echo esc_html__( 'RGC-BASIC Tutorial Embed: add basic-modular.js and basic-modular.wasm to wp-content/plugins/rgc-basic-tutorial-block/assets/wasm/ (run copy-web-assets.sh from the plugin folder) or configure Settings → RGC-BASIC Tutorial. For the GFX block, also copy basic-raylib.js, basic-raylib.wasm, and assets/raylib-embed.html.', 'rgc-basic-tutorial-block' );
 	echo '</p></div>';
 }
 

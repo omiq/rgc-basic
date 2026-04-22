@@ -28,7 +28,7 @@
 		apiVersion: 3,
 		title: __( 'RGC-BASIC GFX embed', 'rgc-basic-tutorial-block' ),
 		description: __(
-			'Interactive RGC-BASIC canvas (sprites, SCREEN 1). Host basic-canvas.js and basic-canvas.wasm on HTTPS.',
+			'Interactive RGC-BASIC runtime (raylib/WebGL2 — sprites, bitmap modes, audio, scroll zones). Host basic-raylib.js and basic-raylib.wasm on HTTPS.',
 			'rgc-basic-tutorial-block'
 		),
 		category: 'widgets',
@@ -43,6 +43,8 @@
 			showVfsTools:     { type: 'boolean', default: true },
 			posterImageUrl:   { type: 'string',  default: '' },
 			interpreterFlags: { type: 'string',  default: '-petscii -charset lower -palette ansi -columns 40' },
+			autorun:          { type: 'boolean', default: false },
+			canvasMode:       { type: 'string',  default: 'visible' },
 		},
 		edit: function ( props ) {
 			var attributes = props.attributes;
@@ -106,7 +108,37 @@
 							onChange: function ( v ) {
 								setAttributes( { interpreterFlags: v } );
 							},
-						} )
+						} ),
+						el( ToggleControl, {
+							label: __( 'Auto-run on page load', 'rgc-basic-tutorial-block' ),
+							help: __(
+								'Start the program as soon as WASM is ready — no Run button click. Combine with Canvas mode = offscreen/hidden for landing-page animations or headless tools. Audio still waits for a user gesture.',
+								'rgc-basic-tutorial-block'
+							),
+							checked: !! attributes.autorun,
+							onChange: function ( v ) {
+								setAttributes( { autorun: v } );
+							},
+						} ),
+						el( 'div', { style: { marginTop: '8px' } },
+							el( 'label', { style: { display: 'block', marginBottom: '4px', fontSize: '11px', fontWeight: '500', textTransform: 'uppercase' } },
+								__( 'Canvas mode', 'rgc-basic-tutorial-block' )
+							),
+							el( 'select', {
+								value: attributes.canvasMode || 'visible',
+								onChange: function ( e ) {
+									setAttributes( { canvasMode: e.target.value } );
+								},
+								style: { width: '100%' },
+							},
+								el( 'option', { value: 'visible' },   __( 'Visible (normal)', 'rgc-basic-tutorial-block' ) ),
+								el( 'option', { value: 'offscreen' }, __( 'Offscreen (hidden but rendering)', 'rgc-basic-tutorial-block' ) ),
+								el( 'option', { value: 'hidden' },    __( 'Hidden (headless — no GL)', 'rgc-basic-tutorial-block' ) )
+							),
+							el( 'p', { style: { fontSize: '12px', color: '#757575', marginTop: '4px' } },
+								__( 'Offscreen keeps WebGL rendering (needed for raylib) but hides the canvas. Hidden drops the canvas entirely; only useful for non-gfx utility code.', 'rgc-basic-tutorial-block' )
+							)
+						)
 					)
 				),
 				el(
