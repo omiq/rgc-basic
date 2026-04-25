@@ -94,9 +94,17 @@ int gfx_gamepad_axis_scaled(int port, int axis_code)
 
 #elif defined(GFX_VIDEO)
 #include "raylib.h"
+#include <stdio.h>
 
 int gfx_gamepad_button_down(int port, int button_code)
 {
+    static int probed = 0;
+    if (!probed) {
+        probed = 1;
+        fprintf(stderr, "[JOY probe] avail(0)=%d avail(1)=%d name0=%s\n",
+                IsGamepadAvailable(0), IsGamepadAvailable(1),
+                IsGamepadAvailable(0) ? GetGamepadName(0) : "(none)");
+    }
     if (port < 0 || port > 3) {
         return 0;
     }
