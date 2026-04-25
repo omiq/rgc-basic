@@ -25,9 +25,9 @@ PICK_COUNT = PCOLS * PROWS
 PICKER_X = 8
 PICKER_Y = TOOLBAR_H + 16
 
-' Map: 7 wide x 6 tall paintable grid.
-MCOLS = 7
-MROWS = 6
+' Map grid.
+MCOLS = 10
+MROWS = 10
 MAP_COUNT = MCOLS * MROWS
 MAP_X = 240
 MAP_Y = TOOLBAR_H + 16
