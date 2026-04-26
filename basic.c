@@ -15883,6 +15883,16 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
     int number;
     const char *resolved;
     int i;
+    /* Snapshot base_dir into a stack-local buffer. The caller's `base_dir`
+     * may alias get_base_dir's static buffer, which our recursive
+     * #INCLUDE call would overwrite — corrupting the parent's view of
+     * its own directory and breaking the second include in a row. */
+    char base_dir_local[MAX_INCLUDE_PATH];
+    if (base_dir) {
+        strncpy(base_dir_local, base_dir, sizeof(base_dir_local) - 1);
+        base_dir_local[sizeof(base_dir_local) - 1] = '\0';
+        base_dir = base_dir_local;
+    }
 
     if (include_depth >= MAX_INCLUDE_DEPTH) {
         fprintf(stderr, "Include nesting too deep: %s\n", path);
