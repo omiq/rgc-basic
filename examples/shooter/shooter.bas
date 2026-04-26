@@ -7,7 +7,7 @@
 '   - object layer with player spawn + enemies + boss trigger
 '   - auto vertical scroll (camera Y decreases each frame)
 '
-'  Controls:  A / D    move
+'  Controls:  W A S D  move (8-way)
 '             SPACE    fire
 '             Q        quit
 ' ============================================================
@@ -36,8 +36,10 @@ CAM_Y = MapPixelH() - VIEW_H               ' bottom of world in view to start
 
 ' --- player ---
 PX = MAP_OBJ_X(0)
-PY = 168                                   ' fixed near bottom of screen
+PY = 168                                   ' starts near bottom of screen
 PSPD = 3
+PY_MIN = 8                                 ' above the status row
+PY_MAX = 168                               ' bottom of viewport - sprite h
 PALIVE = 1
 
 ' --- player bullets (pool of 16) ---
@@ -66,7 +68,7 @@ GAME_OVER = 0
 WIN = 0
 
 ' --- key codes ---
-KQ = 81 : KA = 65 : KD = 68 : KSPACE = 32
+KQ = 81 : KW = 87 : KA = 65 : KS = 83 : KD = 68 : KSPACE = 32
 
 ' Edge-trigger SPACE so one tap = one bullet.
 PREV_FIRE = 0
@@ -96,8 +98,12 @@ FUNCTION HandleInput()
   IF GAME_OVER = 1 THEN RETURN 0
   IF KEYDOWN(KA) THEN PX = PX - PSPD
   IF KEYDOWN(KD) THEN PX = PX + PSPD
+  IF KEYDOWN(KW) THEN PY = PY - PSPD
+  IF KEYDOWN(KS) THEN PY = PY + PSPD
   IF PX < 0 THEN PX = 0
   IF PX > VIEW_W - 32 THEN PX = VIEW_W - 32
+  IF PY < PY_MIN THEN PY = PY_MIN
+  IF PY > PY_MAX THEN PY = PY_MAX
   FIRE = KEYDOWN(KSPACE)
   IF FIRE = 1 AND PREV_FIRE = 0 THEN
     SpawnBullet()
