@@ -92,16 +92,18 @@ DO
 
     FIRE = KEYDOWN(KSPACE)
     IF FIRE = 1 AND PREV_FIRE = 0 THEN
-      ' Find a free bullet slot.
+      ' Find a free bullet slot. Sentinel instead of GOTO because
+      ' rgc-basic's GOTO doesn't unwind FOR/IF nesting and would
+      ' leak if_depth across frames.
+      PB_DONE = 0
       FOR PBI = 0 TO PB_MAX - 1
-        IF PB_ACTIVE(PBI) = 0 THEN
+        IF PB_ACTIVE(PBI) = 0 AND PB_DONE = 0 THEN
           PB_X(PBI) = PX + 12
           PB_Y(PBI) = PY - 16
           PB_ACTIVE(PBI) = 1
-          GOTO BulletSpawned
+          PB_DONE = 1
         END IF
       NEXT PBI
-      BulletSpawned:
     END IF
     PREV_FIRE = FIRE
   END IF
@@ -126,28 +128,26 @@ DO
 
   ' --- spawn enemies entering view ---
   FOR OI = 1 TO MAP_OBJ_COUNT - 1
-    IF SPAWNED(OI) = 0 THEN
-      IF MAP_OBJ_TYPE$(OI) = "enemy" THEN
-        IF MAP_OBJ_Y(OI) >= CAM_Y - 32 AND MAP_OBJ_Y(OI) <= CAM_Y + VIEW_H THEN
-          FOR EJ = 0 TO EN_MAX - 1
-            IF EN_ACTIVE(EJ) = 0 THEN
-              EN_X(EJ) = MAP_OBJ_X(OI)
-              EN_Y(EJ) = MAP_OBJ_Y(OI)
-              EN_KIND$(EJ) = MAP_OBJ_KIND$(OI)
-              EN_HP(EJ) = 1
-              IF EN_KIND$(EJ) = "tank" THEN
-                EN_FRAME(EJ) = 1
-              ELSE
-                EN_FRAME(EJ) = 1
-              END IF
-              EN_ACTIVE(EJ) = 1
-              SPAWNED(OI) = 1
-              GOTO EnemySpawned
-            END IF
-          NEXT EJ
-          EnemySpawned:
-        END IF
+    SP_TRIG = 0
+    IF SPAWNED(OI) = 0 AND MAP_OBJ_TYPE$(OI) = "enemy" THEN
+      IF MAP_OBJ_Y(OI) >= CAM_Y - 32 AND MAP_OBJ_Y(OI) <= CAM_Y + VIEW_H THEN
+        SP_TRIG = 1
       END IF
+    END IF
+    IF SP_TRIG = 1 THEN
+      EN_DONE = 0
+      FOR EJ = 0 TO EN_MAX - 1
+        IF EN_ACTIVE(EJ) = 0 AND EN_DONE = 0 THEN
+          EN_X(EJ) = MAP_OBJ_X(OI)
+          EN_Y(EJ) = MAP_OBJ_Y(OI)
+          EN_KIND$(EJ) = MAP_OBJ_KIND$(OI)
+          EN_HP(EJ) = 1
+          EN_FRAME(EJ) = 1
+          EN_ACTIVE(EJ) = 1
+          SPAWNED(OI) = 1
+          EN_DONE = 1
+        END IF
+      NEXT EJ
     END IF
   NEXT OI
 
@@ -163,8 +163,9 @@ DO
     IF PB_ACTIVE(PBI) = 1 THEN
       BX = PB_X(PBI)
       BY = PB_Y(PBI)
+      HIT_DONE = 0
       FOR EI = 0 TO EN_MAX - 1
-        IF EN_ACTIVE(EI) = 1 THEN
+        IF EN_ACTIVE(EI) = 1 AND HIT_DONE = 0 THEN
           ESX = EN_X(EI)
           ESY = EN_Y(EI) - CAM_Y
           IF BX + 8 >= ESX AND BX <= ESX + 32 AND BY + 16 >= ESY AND BY <= ESY + 32 THEN
@@ -174,18 +175,18 @@ DO
               EN_ACTIVE(EI) = 0
               SCORE = SCORE + 100
             END IF
-            GOTO HitDone
+            HIT_DONE = 1
           END IF
         END IF
       NEXT EI
-      HitDone:
     END IF
   NEXT PBI
 
   ' --- player vs enemy collision ---
   IF PALIVE = 1 THEN
+    P_HIT_DONE = 0
     FOR EI = 0 TO EN_MAX - 1
-      IF EN_ACTIVE(EI) = 1 THEN
+      IF EN_ACTIVE(EI) = 1 AND P_HIT_DONE = 0 THEN
         ESX = EN_X(EI)
         ESY = EN_Y(EI) - CAM_Y
         IF PX + 32 >= ESX AND PX <= ESX + 32 AND PY + 32 >= ESY AND PY <= ESY + 32 THEN
@@ -195,11 +196,10 @@ DO
             PALIVE = 0
             GAME_OVER = 1
           END IF
-          GOTO PlayerHitDone
+          P_HIT_DONE = 1
         END IF
       END IF
     NEXT EI
-    PlayerHitDone:
   END IF
 
   ' --- player vs solid bg tile ---
