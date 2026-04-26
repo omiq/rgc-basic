@@ -1466,6 +1466,9 @@ struct udf_call_frame {
     int func_index;
     int saved_line;
     char *saved_pos;
+    int saved_while_top;   /* WHILE/WEND nesting at call site */
+    int saved_for_top;     /* FOR/NEXT nesting at call site */
+    int saved_if_depth;    /* block IF/END IF nesting at call site */
     struct value saved_params[MAX_UDF_PARAMS];
 };
 
@@ -11140,6 +11143,12 @@ static struct value invoke_udf(int func_index, struct value *args, int nargs)
     udf_call_stack[udf_call_depth].func_index = func_index;
     udf_call_stack[udf_call_depth].saved_line = current_line;
     udf_call_stack[udf_call_depth].saved_pos = statement_pos;
+    /* Snapshot WHILE/FOR/IF nesting so a RETURN that bypasses WEND /
+     * NEXT / END IF cannot leak counters back into the caller's
+     * statement stream. Restored in statement_return / statement_end_function. */
+    udf_call_stack[udf_call_depth].saved_while_top = while_top;
+    udf_call_stack[udf_call_depth].saved_for_top   = for_top;
+    udf_call_stack[udf_call_depth].saved_if_depth  = if_depth;
     for (i = 0; i < uf->param_count; i++) {
         param_var = find_or_create_var(uf->param_names[i], uf->param_is_string[i], 0, 0, NULL, 0);
         if (param_var && i < nargs) {
@@ -11164,6 +11173,12 @@ static struct value invoke_udf(int func_index, struct value *args, int nargs)
         param_var = find_or_create_var(uf->param_names[i], uf->param_is_string[i], 0, 0, NULL, 0);
         if (param_var) param_var->scalar = udf_call_stack[udf_call_depth].saved_params[i];
     }
+    /* Clear the global return flag so the *caller's* run_until_udf_return
+     * doesn't think the calling function has already returned. Without
+     * this, `outer()` that simply assigns `x = inner()` then has more
+     * work to do bails out of its own loop the moment inner() finishes,
+     * and outer's caller sees inner's return value instead of outer's. */
+    udf_returned = 0;
     return udf_return_value;
 }
 
@@ -13701,6 +13716,11 @@ static void statement_return(char **p)
         udf_call_depth--;
         current_line = udf_call_stack[udf_call_depth].saved_line;
         statement_pos = udf_call_stack[udf_call_depth].saved_pos;
+        /* Unwind any WHILE / FOR / IF blocks the UDF entered but did
+         * not close — the caller resumes with its own stacks intact. */
+        while_top = udf_call_stack[udf_call_depth].saved_while_top;
+        for_top   = udf_call_stack[udf_call_depth].saved_for_top;
+        if_depth  = udf_call_stack[udf_call_depth].saved_if_depth;
         return;
     }
     if (gosub_top <= 0) {
@@ -14072,6 +14092,10 @@ static void statement_end_function(char **p)
     udf_call_depth--;
     current_line = udf_call_stack[udf_call_depth].saved_line;
     statement_pos = udf_call_stack[udf_call_depth].saved_pos;
+    /* Unwind WHILE / FOR / IF stacks the UDF body left dangling. */
+    while_top = udf_call_stack[udf_call_depth].saved_while_top;
+    for_top   = udf_call_stack[udf_call_depth].saved_for_top;
+    if_depth  = udf_call_stack[udf_call_depth].saved_if_depth;
 }
 
 static void statement_while(char **p, char *while_pos)

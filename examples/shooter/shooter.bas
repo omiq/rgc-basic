@@ -10,6 +10,11 @@
 '  Controls:  A / D    move
 '             SPACE    fire
 '             Q        quit
+'
+'  Requires basic.c with the udf_returned reset fix in invoke_udf
+'  (see tests/function_nested_call_value.bas) — earlier builds
+'  failed with a spurious "Missing THEN" when a nested UDF returned
+'  inside a WHILE loop.
 ' ============================================================
 
 #INCLUDE "../maplib.bas"
