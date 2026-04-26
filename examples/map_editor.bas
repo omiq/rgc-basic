@@ -19,7 +19,7 @@ TOOLBAR_H = 32
 TILE_SIZE = 32
 
 ' Picker: 4 x 4 grid of the 16 sheet tiles.
-PCOLS = 4
+PCOLS = 8
 PROWS = 4
 PICK_COUNT = PCOLS * PROWS
 PICKER_X = 8
@@ -29,7 +29,7 @@ PICKER_Y = TOOLBAR_H + 16
 MCOLS = 10
 MROWS = 10
 MAP_COUNT = MCOLS * MROWS
-MAP_X = 240
+MAP_X = 280
 MAP_Y = TOOLBAR_H + 16
 
 BTN_LOAD_X0 = 8   : BTN_LOAD_Y0 = 4 : BTN_LOAD_X1 = 64  : BTN_LOAD_Y1 = 24
@@ -110,16 +110,6 @@ DO
       END IF
     END IF
 
-    ' Map paint.
-    IF MX >= MAP_X AND MX < MAP_X + MCOLS * TILE_SIZE AND MY >= MAP_Y AND MY < MAP_Y + MROWS * TILE_SIZE THEN
-      CX = (MX - MAP_X) \ TILE_SIZE
-      CY = (MY - MAP_Y) \ TILE_SIZE
-      IDX = CY * MCOLS + CX
-      IF IDX >= 0 AND IDX < MAP_COUNT THEN
-        MAP(IDX) = SELECTED
-        DrawMap()
-      END IF
-    END IF
   END IF
 
   IF R = 1 AND PREV_R = 0 THEN
@@ -131,6 +121,17 @@ DO
         MAP(IDX) = 0
         DrawMap()
       END IF
+    END IF
+  END IF
+  
+      ' Map paint.
+  IF L = 1 AND MX >= MAP_X AND MX < MAP_X + MCOLS * TILE_SIZE AND MY >= MAP_Y AND MY < MAP_Y + MROWS * TILE_SIZE THEN
+    CX = (MX - MAP_X) \ TILE_SIZE
+    CY = (MY - MAP_Y) \ TILE_SIZE
+    IDX = CY * MCOLS + CX
+    IF IDX >= 0 AND IDX < MAP_COUNT THEN
+      MAP(IDX) = SELECTED
+      DrawMap()
     END IF
   END IF
 
@@ -154,7 +155,7 @@ FUNCTION DrawChrome()
   COLORRGB 255, 255, 255
   DRAWTEXT BTN_LOAD_X0 + 8, BTN_LOAD_Y0 + 8, "LOAD"
   DRAWTEXT BTN_SAVE_X0 + 8, BTN_SAVE_Y0 + 8, "SAVE"
-  DRAWTEXT BTN_QUIT_X0 + 8, BTN_QUIT_Y0 + 8, "QUIT"
+  DRAWTEXT BTN_QUIT_X0 + 4, BTN_QUIT_Y0 + 8, "QUIT"
   COLORRGB 220, 220, 220
   DRAWTEXT PICKER_X, PICKER_Y - 12, "TILE PICKER"
   DRAWTEXT MAP_X,    MAP_Y    - 12, "MAP"
