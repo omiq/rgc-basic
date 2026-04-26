@@ -1,0 +1,30 @@
+[KEYPRESS] code=49 edge
+[gfx_music_load] enter slot=0 path=./music/drozerix_ai_renaissance.mod
+[gfx_music_load] return slot=0 buf=000002842F25A000 frameCount=4294967295
+[gfx_music_play] slot=0 playing=1
+[KEYPRESS] code=43 edge
+[KEYPRESS] code=61 edge
+[KEYPRESS] code=43 edge
+[KEYPRESS] code=61 edge
+[KEYPRESS] code=43 edge
+[KEYPRESS] code=61 edge
+[KEYPRESS] code=43 edge
+[KEYPRESS] code=61 edge
+[KEYPRESS] code=45 edge
+[KEYPRESS] code=45 edge
+[KEYPRESS] code=45 edge
+[KEYPRESS] code=45 edge
+[KEYPRESS] code=45 edge
+[KEYPRESS] code=45 edge
+[KEYPRESS] code=45 edge
+[KEYPRESS] code=45 edge
+[KEYPRESS] code=45 edge
+[KEYPRESS] code=45 edge
+[KEYPRESS] code=43 edge
+[KEYPRESS] code=61 edge
+[KEYPRESS] code=43 edge
+[KEYPRESS] code=61 edge
+[KEYPRESS] code=45 edge
+[KEYPRESS] code=43 edge
+[KEYPRESS] code=61 edge
+[KEYPRESS] code=45 edge

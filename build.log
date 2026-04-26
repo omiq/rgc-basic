@@ -1,0 +1,3 @@
+build-raylib-native: patch jar_mod_max_samples.patch already applied, skipping
+build-raylib-native: patch raudio_mod_skip_max_samples.patch already applied, skipping
+build-raylib-native: C:\Users\Chris.Garrett\github\rgc-basic\third_party\raylib-native\src\libraylib.a already built (set RAYLIB_FORCE=1 to rebuild)
