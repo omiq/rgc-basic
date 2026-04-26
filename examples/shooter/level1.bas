@@ -23,7 +23,7 @@ DIM MAP_FG(MAP_W * MAP_H - 1)
 
 ' Floor every cell with tile 1 — gives the bg something visible.
 FOR L1I = 0 TO MAP_W * MAP_H - 1
-  MAP_BG(L1I) = 1
+  MAP_BG(L1I) = 6
   MAP_FG(L1I) = 0
 NEXT L1I
 
