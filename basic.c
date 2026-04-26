@@ -15069,6 +15069,15 @@ static void execute_statement(char **p)
             statement_tilemap_draw(p);
             return;
         }
+        if (starts_with_kw(q, "CLEAR")) {
+            *p = q + 5;
+            /* Reset the per-frame TILEMAP / SPRITE STAMP cell list
+             * without touching the bitmap plane. Lets DOUBLEBUFFER ON
+             * loops drop CLS at the top of the frame and still avoid
+             * the 4096-cell append cap. */
+            gfx_cells_clear();
+            return;
+        }
     }
     if (c == 'T' && starts_with_kw(*p, "TILE")) {
         char *q = *p + 4;

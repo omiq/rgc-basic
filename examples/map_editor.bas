@@ -5,11 +5,16 @@
 '  toolbar buttons, tile picker, map grid, mouse paint, plus
 '  binary file SAVE / LOAD of the edited map.
 '
-'  Tile graphics come from walls.png (128x128, 4x4 grid of
-'  32x32 cells -> 16 tiles, 1-based for TILEMAP DRAW; 0 = blank).
+'  Tile graphics come from walls.png grid of
+'  32x32 cells -> TILEMAP DRAW; 0 = blank).
+'
+'  Render model: full-frame redraw. CLS each tick wipes both the
+'  bitmap plane and the per-frame TILEMAP cell list (cap 4096),
+'  so continuous paint can never overflow it.
 ' ============================================================
 
 SCREEN 4
+DOUBLEBUFFER ON
 BACKGROUNDRGB 32, 32, 48
 CLS
 
@@ -18,7 +23,7 @@ SPRITE LOAD 0, "walls.png", 32, 32
 TOOLBAR_H = 32
 TILE_SIZE = 32
 
-' Picker: 4 x 4 grid of the 16 sheet tiles.
+' Picker: grid of the loaded sheet tiles.
 PCOLS = 8
 PROWS = 4
 PICK_COUNT = PCOLS * PROWS
@@ -36,11 +41,15 @@ BTN_LOAD_X0 = 8   : BTN_LOAD_Y0 = 4 : BTN_LOAD_X1 = 64  : BTN_LOAD_Y1 = 24
 BTN_SAVE_X0 = 72  : BTN_SAVE_Y0 = 4 : BTN_SAVE_X1 = 128 : BTN_SAVE_Y1 = 24
 BTN_QUIT_X0 = 592 : BTN_QUIT_Y0 = 4 : BTN_QUIT_X1 = 632 : BTN_QUIT_Y1 = 24
 
-DIM PICKER(PICK_COUNT - 1)
-DIM MAP(MAP_COUNT - 1)
+DIM PICKER(PICK_COUNT)
+DIM MAP(MAP_COUNT)
 SELECTED = 1
 
-' Picker holds 1..16 (TILEMAP DRAW indices are 1-based; 0 = blank).
+' Status line state — re-stamped every frame after CLS.
+STATUS$ = "LEFT CLICK A TILE, THEN LEFT CLICK + DRAG ON THE MAP. RIGHT CLICK CLEARS."
+STATUS_R = 200 : STATUS_G = 200 : STATUS_B = 220
+
+' TILEMAP DRAW indices are 1-based; 0 = blank tile.
 FOR I = 0 TO PICK_COUNT - 1
   PICKER(I) = I + 1
 NEXT I
@@ -50,10 +59,8 @@ FOR I = 0 TO MAP_COUNT - 1
   MAP(I) = 0
 NEXT I
 
+' Bitmap-plane chrome only drawn once — TILEMAP CLEAR doesn't wipe it.
 DrawChrome()
-DrawPicker()
-DrawMap()
-DrawHighlight()
 
 PREV_L = 0
 PREV_R = 0
@@ -66,6 +73,7 @@ DO
   L  = ISMOUSEBUTTONDOWN(0)
   R  = ISMOUSEBUTTONDOWN(1)
 
+  ' --- input: edge-triggered clicks (buttons + picker) ---
   IF L = 1 AND PREV_L = 0 THEN
     IF MX >= BTN_QUIT_X0 AND MX <= BTN_QUIT_X1 AND MY >= BTN_QUIT_Y0 AND MY <= BTN_QUIT_Y1 THEN EXIT
 
@@ -75,65 +83,64 @@ DO
         PUTBYTE #1, MAP(I)
       NEXT I
       CLOSE #1
-      ClearStatus()
-      COLORRGB 200, 255, 200 : DRAWTEXT 8, 384, "SAVED map.bin"
+      STATUS$ = "SAVED map.bin"
+      STATUS_R = 200 : STATUS_G = 255 : STATUS_B = 200
     END IF
 
     IF MX >= BTN_LOAD_X0 AND MX <= BTN_LOAD_X1 AND MY >= BTN_LOAD_Y0 AND MY <= BTN_LOAD_Y1 THEN
       OPEN 1, 1, 0, "map.bin"
       IF ST = 1 THEN
-        ClearStatus()
-        COLORRGB 255, 200, 200 : DRAWTEXT 8, 384, "NO map.bin YET - SAVE FIRST"
+        STATUS$ = "NO map.bin YET - SAVE FIRST"
+        STATUS_R = 255 : STATUS_G = 200 : STATUS_B = 200
       ELSE
         FOR I = 0 TO MAP_COUNT - 1
           GETBYTE #1, B
           IF B >= 0 AND B <= PICK_COUNT THEN MAP(I) = B ELSE MAP(I) = 0
         NEXT I
         CLOSE #1
-        DrawMap()
-        ClearStatus()
-        COLORRGB 200, 200, 255 : DRAWTEXT 8, 384, "LOADED map.bin"
+        STATUS$ = "LOADED map.bin"
+        STATUS_R = 200 : STATUS_G = 200 : STATUS_B = 255
       END IF
     END IF
 
-    ' Tile picker click.
     IF MX >= PICKER_X AND MX < PICKER_X + PCOLS * TILE_SIZE AND MY >= PICKER_Y AND MY < PICKER_Y + PROWS * TILE_SIZE THEN
       CX = (MX - PICKER_X) \ TILE_SIZE
       CY = (MY - PICKER_Y) \ TILE_SIZE
       NEW_SEL = CY * PCOLS + CX + 1
       IF NEW_SEL >= 1 AND NEW_SEL <= PICK_COUNT THEN
         SELECTED = NEW_SEL
-        DrawPicker()
-        DrawHighlight()
-        ClearStatus()
-        COLORRGB 200, 200, 220 : DRAWTEXT 8, 384, "SELECTED TILE " + STR$(SELECTED)
-      END IF
-    END IF
-
-  END IF
-
-  IF R = 1 AND PREV_R = 0 THEN
-    IF MX >= MAP_X AND MX < MAP_X + MCOLS * TILE_SIZE AND MY >= MAP_Y AND MY < MAP_Y + MROWS * TILE_SIZE THEN
-      CX = (MX - MAP_X) \ TILE_SIZE
-      CY = (MY - MAP_Y) \ TILE_SIZE
-      IDX = CY * MCOLS + CX
-      IF IDX >= 0 AND IDX < MAP_COUNT THEN
-        MAP(IDX) = 0
-        DrawMap()
+        STATUS$ = "SELECTED TILE " + STR$(SELECTED)
+        STATUS_R = 200 : STATUS_G = 200 : STATUS_B = 220
       END IF
     END IF
   END IF
-  
-      ' Map paint.
+
+  ' --- continuous paint: left-drag stamps SELECTED into MAP() ---
   IF L = 1 AND MX >= MAP_X AND MX < MAP_X + MCOLS * TILE_SIZE AND MY >= MAP_Y AND MY < MAP_Y + MROWS * TILE_SIZE THEN
     CX = (MX - MAP_X) \ TILE_SIZE
     CY = (MY - MAP_Y) \ TILE_SIZE
     IDX = CY * MCOLS + CX
-    IF IDX >= 0 AND IDX < MAP_COUNT THEN
-      MAP(IDX) = SELECTED
-      DrawMap()
-    END IF
+    IF IDX >= 0 AND IDX < MAP_COUNT THEN MAP(IDX) = SELECTED
   END IF
+
+  ' --- right-drag erases ---
+  IF R = 1 AND MX >= MAP_X AND MX < MAP_X + MCOLS * TILE_SIZE AND MY >= MAP_Y AND MY < MAP_Y + MROWS * TILE_SIZE THEN
+    CX = (MX - MAP_X) \ TILE_SIZE
+    CY = (MY - MAP_Y) \ TILE_SIZE
+    IDX = CY * MCOLS + CX
+    IF IDX >= 0 AND IDX < MAP_COUNT THEN MAP(IDX) = 0
+  END IF
+
+  ' --- render: rebuild sprite layer from state ---
+  ' TILEMAP CLEAR drops the per-frame cell list (cap 4096) without
+  ' touching the bitmap plane, so toolbar/buttons drawn via FILLRECT
+  ' don't have to be redrawn every tick. Picker / map FILLRECTs
+  ' below cover their own area before re-stamping tiles.
+  TILEMAP CLEAR
+  DrawPicker()
+  DrawMap()
+  DrawHighlight()
+  DrawStatus()
 
   PREV_L = L
   PREV_R = R
@@ -159,8 +166,6 @@ FUNCTION DrawChrome()
   COLORRGB 220, 220, 220
   DRAWTEXT PICKER_X, PICKER_Y - 12, "TILE PICKER"
   DRAWTEXT MAP_X,    MAP_Y    - 12, "MAP"
-  COLORRGB 200, 200, 220
-  DRAWTEXT 8, 384, "LEFT CLICK A TILE, THEN LEFT CLICK THE MAP. RIGHT CLICK CLEARS."
 END FUNCTION
 
 FUNCTION DrawPicker()
@@ -197,6 +202,8 @@ FUNCTION DrawHighlight()
   RECT HX - 2, HY - 2 TO HX + TILE_SIZE + 1, HY + TILE_SIZE + 1
 END FUNCTION
 
-FUNCTION ClearStatus()
+FUNCTION DrawStatus()
   COLORRGB 32, 32, 48 : FILLRECT 0, 376 TO 639, 399
+  COLORRGB STATUS_R, STATUS_G, STATUS_B
+  DRAWTEXT 8, 384, STATUS$
 END FUNCTION
