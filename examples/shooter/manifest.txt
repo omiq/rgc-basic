@@ -1,0 +1,14 @@
+enemy-sprites.png 	128x32	cellw=32 cellh=32	enemy ship, enemy with jet flame, hit, exploded
+missiles.png		128x32	cellw=16 cellh=32	various enemy and player missiles/lasers
+player.png		32x32	cellw=32 cellh=32	player space ship
+tank.png		32x32	cellw=32 cellh=32	enemy tank
+walls.png		256x128	cellw=32 cellh=32	map tiles various
+
+All tiles are decorative apart from tile 20 and tile 13 for now which we can call obstacles until I create more
+10x100 map initially
+screen 320x200 but with a HUD either at top or bottom of screen 
+pacing of gfx_world_demo.bas is fine (shooter mvp does not require horizontal scrolling)
+
+
+
+
