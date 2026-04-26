@@ -76,19 +76,9 @@ FUNCTION MapRectHitsSolid(rx, ry, rw, rh)
   WHILE HR <= HR2
     HC = HC1
     WHILE HC <= HC2
-      HTID = 0
-      IF HC >= 0 AND HC < MAP_W AND HR >= 0 AND HR < MAP_H THEN
-        HTID = MAP_BG(HR * MAP_W + HC)
-      END IF
-      IF HTID > 0 THEN
-        HSOL = 0
-        HSI = 0
-        WHILE HSI < MAP_COLL_COUNT
-          IF MAP_COLL(HSI) = HTID THEN HSOL = 1
-          HSI = HSI + 1
-        WEND
-        IF HSOL = 1 THEN RETURN 1
-      END IF
+      HTID = MapTileBg(HC, HR)
+      HSOL = MapTileSolid(HTID)
+      IF HSOL = 1 THEN RETURN 1
       HC = HC + 1
     WEND
     HR = HR + 1
