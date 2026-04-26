@@ -10,11 +10,6 @@
 '  Controls:  A / D    move
 '             SPACE    fire
 '             Q        quit
-'
-'  Requires basic.c with the udf_returned reset fix in invoke_udf
-'  (see tests/function_nested_call_value.bas) — earlier builds
-'  failed with a spurious "Missing THEN" when a nested UDF returned
-'  inside a WHILE loop.
 ' ============================================================
 
 #INCLUDE "../maplib.bas"
@@ -40,7 +35,7 @@ CAM_X = 0
 CAM_Y = MapPixelH() - VIEW_H               ' bottom of world in view to start
 
 ' --- player ---
-PX = MAP_OBJ_X(0)                          ' x from level player-spawn (in screen coords; map is 320 wide)
+PX = MAP_OBJ_X(0)
 PY = 168                                   ' fixed near bottom of screen
 PSPD = 3
 PALIVE = 1
@@ -54,18 +49,14 @@ PB_SPEED = 6
 
 ' --- active enemies (pool of 32) ---
 EN_MAX = 32
-DIM EN_X(EN_MAX - 1)                       ' world coords
-DIM EN_Y(EN_MAX - 1)                       ' world coords
+DIM EN_X(EN_MAX - 1)
+DIM EN_Y(EN_MAX - 1)
 DIM EN_KIND$(EN_MAX - 1)
 DIM EN_HP(EN_MAX - 1)
-DIM EN_FRAME(EN_MAX - 1)                   ' 1-based sprite frame
+DIM EN_FRAME(EN_MAX - 1)
 DIM EN_ACTIVE(EN_MAX - 1)
 
-' Track which level objects already turned into active enemies so we
-' don't double-spawn the same level entry every frame it's in view.
 DIM SPAWNED(MAP_OBJ_COUNT - 1)
-
-' --- viewport tile array — rebuilt every frame from MAP_BG ---
 DIM VIEW_TILES(MAP_W * VIEW_ROWS - 1)
 
 ' --- scoring / state ---
@@ -82,51 +73,71 @@ PREV_FIRE = 0
 
 DO
   IF KEYDOWN(KQ) THEN EXIT
+  HandleInput()
+  UpdateBullets()
+  AdvanceCamera()
+  SpawnEnemies()
+  UpdateEnemies()
+  BulletEnemyCollide()
+  PlayerEnemyCollide()
+  PlayerTileCollide()
+  BulletTileCollide()
+  RenderFrame()
+  VSYNC
+LOOP
+END
 
-  ' --- input ---
-  IF PALIVE = 1 AND GAME_OVER = 0 THEN
-    IF KEYDOWN(KA) THEN PX = PX - PSPD
-    IF KEYDOWN(KD) THEN PX = PX + PSPD
-    IF PX < 0 THEN PX = 0
-    IF PX > VIEW_W - 32 THEN PX = VIEW_W - 32
+' ------------------------------------------------------------
+'  Game-loop step functions (each mutates globals, returns 0)
+' ------------------------------------------------------------
 
-    FIRE = KEYDOWN(KSPACE)
-    IF FIRE = 1 AND PREV_FIRE = 0 THEN
-      ' Find a free bullet slot. Sentinel instead of GOTO because
-      ' rgc-basic's GOTO doesn't unwind FOR/IF nesting and would
-      ' leak if_depth across frames.
-      PB_DONE = 0
-      FOR PBI = 0 TO PB_MAX - 1
-        IF PB_ACTIVE(PBI) = 0 AND PB_DONE = 0 THEN
-          PB_X(PBI) = PX + 12
-          PB_Y(PBI) = PY - 16
-          PB_ACTIVE(PBI) = 1
-          PB_DONE = 1
-        END IF
-      NEXT PBI
-    END IF
-    PREV_FIRE = FIRE
+FUNCTION HandleInput()
+  IF PALIVE = 0 THEN RETURN 0
+  IF GAME_OVER = 1 THEN RETURN 0
+  IF KEYDOWN(KA) THEN PX = PX - PSPD
+  IF KEYDOWN(KD) THEN PX = PX + PSPD
+  IF PX < 0 THEN PX = 0
+  IF PX > VIEW_W - 32 THEN PX = VIEW_W - 32
+  FIRE = KEYDOWN(KSPACE)
+  IF FIRE = 1 AND PREV_FIRE = 0 THEN
+    SpawnBullet()
   END IF
+  PREV_FIRE = FIRE
+END FUNCTION
 
-  ' --- bullets ---
+FUNCTION SpawnBullet()
+  PB_DONE = 0
+  FOR PBI = 0 TO PB_MAX - 1
+    IF PB_ACTIVE(PBI) = 0 AND PB_DONE = 0 THEN
+      PB_X(PBI) = PX + 12
+      PB_Y(PBI) = PY - 16
+      PB_ACTIVE(PBI) = 1
+      PB_DONE = 1
+    END IF
+  NEXT PBI
+END FUNCTION
+
+FUNCTION UpdateBullets()
   FOR PBI = 0 TO PB_MAX - 1
     IF PB_ACTIVE(PBI) = 1 THEN
       PB_Y(PBI) = PB_Y(PBI) - PB_SPEED
       IF PB_Y(PBI) < -16 THEN PB_ACTIVE(PBI) = 0
     END IF
   NEXT PBI
+END FUNCTION
 
-  ' --- camera scroll up (toward Y=0). Stop at top. ---
-  IF GAME_OVER = 0 AND WIN = 0 THEN
-    IF CAM_Y > 0 THEN
-      CAM_Y = CAM_Y - MAP_CAM_SPEED_PX_PER_FRAME
-      IF CAM_Y < 0 THEN CAM_Y = 0
-    ELSE
-      WIN = 1
-    END IF
+FUNCTION AdvanceCamera()
+  IF GAME_OVER = 1 THEN RETURN 0
+  IF WIN = 1 THEN RETURN 0
+  IF CAM_Y > 0 THEN
+    CAM_Y = CAM_Y - MAP_CAM_SPEED_PX_PER_FRAME
+    IF CAM_Y < 0 THEN CAM_Y = 0
+  ELSE
+    WIN = 1
   END IF
+END FUNCTION
 
-  ' --- spawn enemies entering view ---
+FUNCTION SpawnEnemies()
   FOR OI = 1 TO MAP_OBJ_COUNT - 1
     SP_TRIG = 0
     IF SPAWNED(OI) = 0 AND MAP_OBJ_TYPE$(OI) = "enemy" THEN
@@ -150,15 +161,17 @@ DO
       NEXT EJ
     END IF
   NEXT OI
+END FUNCTION
 
-  ' --- update enemies (despawn off bottom of view) ---
+FUNCTION UpdateEnemies()
   FOR EI = 0 TO EN_MAX - 1
     IF EN_ACTIVE(EI) = 1 THEN
       IF EN_Y(EI) > CAM_Y + VIEW_H + 32 THEN EN_ACTIVE(EI) = 0
     END IF
   NEXT EI
+END FUNCTION
 
-  ' --- bullet vs enemy collision ---
+FUNCTION BulletEnemyCollide()
   FOR PBI = 0 TO PB_MAX - 1
     IF PB_ACTIVE(PBI) = 1 THEN
       BX = PB_X(PBI)
@@ -181,41 +194,34 @@ DO
       NEXT EI
     END IF
   NEXT PBI
+END FUNCTION
 
-  ' --- player vs enemy collision ---
-  IF PALIVE = 1 THEN
-    P_HIT_DONE = 0
-    FOR EI = 0 TO EN_MAX - 1
-      IF EN_ACTIVE(EI) = 1 AND P_HIT_DONE = 0 THEN
-        ESX = EN_X(EI)
-        ESY = EN_Y(EI) - CAM_Y
-        IF PX + 32 >= ESX AND PX <= ESX + 32 AND PY + 32 >= ESY AND PY <= ESY + 32 THEN
-          EN_ACTIVE(EI) = 0
-          LIVES = LIVES - 1
-          IF LIVES <= 0 THEN
-            PALIVE = 0
-            GAME_OVER = 1
-          END IF
-          P_HIT_DONE = 1
-        END IF
-      END IF
-    NEXT EI
-  END IF
-
-  ' --- player vs solid bg tile ---
-  IF PALIVE = 1 THEN
-    PWX = PX
-    PWY = PY + CAM_Y
-    IF MapRectHitsSolid(PWX + 4, PWY + 4, 24, 24) = 1 THEN
-      LIVES = LIVES - 1
-      IF LIVES <= 0 THEN
-        PALIVE = 0
-        GAME_OVER = 1
+FUNCTION PlayerEnemyCollide()
+  IF PALIVE = 0 THEN RETURN 0
+  P_HIT_DONE = 0
+  FOR EI = 0 TO EN_MAX - 1
+    IF EN_ACTIVE(EI) = 1 AND P_HIT_DONE = 0 THEN
+      ESX = EN_X(EI)
+      ESY = EN_Y(EI) - CAM_Y
+      IF PX + 32 >= ESX AND PX <= ESX + 32 AND PY + 32 >= ESY AND PY <= ESY + 32 THEN
+        EN_ACTIVE(EI) = 0
+        DamagePlayer()
+        P_HIT_DONE = 1
       END IF
     END IF
-  END IF
+  NEXT EI
+END FUNCTION
 
-  ' --- bullet vs solid bg tile ---
+FUNCTION PlayerTileCollide()
+  IF PALIVE = 0 THEN RETURN 0
+  PWX = PX
+  PWY = PY + CAM_Y
+  IF MapRectHitsSolid(PWX + 4, PWY + 4, 24, 24) = 1 THEN
+    DamagePlayer()
+  END IF
+END FUNCTION
+
+FUNCTION BulletTileCollide()
   FOR PBI = 0 TO PB_MAX - 1
     IF PB_ACTIVE(PBI) = 1 THEN
       BWX = PB_X(PBI)
@@ -225,11 +231,26 @@ DO
       END IF
     END IF
   NEXT PBI
+END FUNCTION
 
-  ' --- render ---
+FUNCTION DamagePlayer()
+  LIVES = LIVES - 1
+  IF LIVES <= 0 THEN
+    PALIVE = 0
+    GAME_OVER = 1
+  END IF
+END FUNCTION
+
+FUNCTION RenderFrame()
   CLS
+  RenderTiles()
+  RenderEnemies()
+  RenderBullets()
+  RenderPlayer()
+  RenderHud()
+END FUNCTION
 
-  ' Build the visible-rows tile slice from MAP_BG.
+FUNCTION RenderTiles()
   ROW0 = CAM_Y \ MAP_TILE_H
   OFF_Y = -(CAM_Y - ROW0 * MAP_TILE_H)
   FOR VR = 0 TO VIEW_ROWS - 1
@@ -243,8 +264,9 @@ DO
     NEXT VC
   NEXT VR
   TILEMAP DRAW 0, 0, OFF_Y, MAP_W, VIEW_ROWS, VIEW_TILES()
+END FUNCTION
 
-  ' Enemies (z=10).
+FUNCTION RenderEnemies()
   FOR EI = 0 TO EN_MAX - 1
     IF EN_ACTIVE(EI) = 1 THEN
       ESX = EN_X(EI)
@@ -256,21 +278,23 @@ DO
       END IF
     END IF
   NEXT EI
+END FUNCTION
 
-  ' Player bullets (z=12).
+FUNCTION RenderBullets()
   FOR PBI = 0 TO PB_MAX - 1
     IF PB_ACTIVE(PBI) = 1 THEN
       SPRITE STAMP 4, PB_X(PBI), PB_Y(PBI), 1, 12
     END IF
   NEXT PBI
+END FUNCTION
 
-  ' Player (z=20).
+FUNCTION RenderPlayer()
   IF PALIVE = 1 THEN
     SPRITE STAMP 1, PX, PY, 1, 20
   END IF
+END FUNCTION
 
-  ' Score / state text — bitmap-plane, drawn before tiles each frame.
-  ' (Will be painted under tiles; acceptable for MVP.)
+FUNCTION RenderHud()
   COLORRGB 255, 255, 255
   DRAWTEXT 4, 4, "SCORE " + STR$(SCORE) + "  LIVES " + STR$(LIVES)
   IF GAME_OVER = 1 THEN
@@ -281,7 +305,4 @@ DO
     COLORRGB 80, 255, 80
     DRAWTEXT 130, 90, "STAGE CLEAR"
   END IF
-
-  VSYNC
-LOOP
-END
+END FUNCTION
