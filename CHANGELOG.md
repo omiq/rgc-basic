@@ -1,5 +1,35 @@
 ## Changelog
 
+### MAPLOAD — JSON map loader (2026-04-27)
+
+New `MAPLOAD path$` statement implements `docs/map-format.md` v1
+end-to-end. Reads the canonical map JSON, validates `format: 1`,
+populates the `MAP_*` globals the maplib.bas convention expects:
+
+- `MAP_W`, `MAP_H`, `MAP_TILE_W`, `MAP_TILE_H`
+- `MAP_BG(N)`, `MAP_FG(N)` — pre-DIMmed row-major tile arrays
+- `MAP_COLL_COUNT`, `MAP_COLL(N)` — solid tile ids derived from
+  `tilesets[].tiles[id].solid: true`
+- `MAP_OBJ_COUNT` and parallel `MAP_OBJ_TYPE$/KIND$/X/Y/W/H/ID(N)`
+- `MAP_TILESET_COUNT`, `MAP_TILESET_ID$/SRC$(N)` — caller routes to
+  `SPRITE LOAD slot, MAP_TILESET_SRC$(idx)`
+- `MAP_CAM_START_X/Y`, `MAP_CAM_SCROLL_DIR$`,
+  `MAP_CAM_SPEED_PX_PER_FRAME` (rounded from `speedPxPerSec / 60`)
+
+Reads files of any size (no `MAX_STR_LEN` ceiling); a 32×32 map
+JSON is ~7.6 KB and would have blown the 4 KB string limit. Caller
+DIMs `MAP_*` arrays before calling; loader writes count globals so
+iteration is cap-free.
+
+Supported subset of v1 schema: tile + objects layers, multi-tileset
+`tilesets[]`, camera fields. Deferred: animations, RLE encoding,
+parallax, external tileset reuse, polygon shapes — all marked
+v1.1+ in the spec.
+
+Sample maps shipped: `examples/rpg/level1_overworld.json` and
+`level1_cave.json`, byte-equivalent to the BASIC `LoadOverworld()`
+/ `LoadCave()` builders that rpg.bas currently calls.
+
 ### OVERLAY plane — HUD/dialog above tilemap cells (2026-04-27)
 
 New `OVERLAY ON | OFF | CLS` statement in basic-wasm-raylib (and
