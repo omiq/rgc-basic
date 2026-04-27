@@ -6,16 +6,16 @@
 '  a kind="door" / kind="stairs" object.
 '
 '  Tileset: Overworld.png (40x36 @ 16x16, 1440 tiles).
-'    Tile ids picked from automatic colour classification + manual
-'    sweep — adjust freely as you author. See Overworld_ref.png for
-'    numbered overlay.
+'    Tile ids hand-picked against Overworld_ref.png (numbered overlay).
 '
-'    base ground:  1   (grass)
-'    path/dirt:    49
-'    sand:         204
-'    water solid:  17  (also 18,19,20 — using single tile for MVP)
-'    tree solid:   28  (dark-canopy single-tile tree)
-'    rock solid:   86
+'    base ground (grass):  1
+'    path / dirt:          1402
+'    sand:                 733
+'    water (solid):        17    (one of a 4-tile family 17..20)
+'    tree (solid):         563
+'    rock (solid):         86
+'    door (placeholder):   346   (real door is 2 tiles tall —
+'                                  swap for the wider sprite later)
 '
 '  Object list (placed in cell coords, converted to px below):
 '    0 = player spawn  cell (4, 28)
@@ -23,11 +23,13 @@
 '    2 = NPC           cell (8, 24)
 ' ============================================================
 
-TREE_TILE = 563
-DIRT_TILE = 1402
-SAND_TILE = 733
+GRASS_TILE = 1
+TREE_TILE  = 563
+DIRT_TILE  = 1402
+SAND_TILE  = 733
 WATER_TILE = 17
-ROCK_TILE = 86
+ROCK_TILE  = 86
+DOOR_TILE  = 346
 
 FUNCTION LoadOverworld()
   MAP_W      = 32
@@ -37,7 +39,7 @@ FUNCTION LoadOverworld()
 
   ' Floor every cell with grass.
   FOR L1I = 0 TO MAP_W * MAP_H - 1
-    MAP_BG(L1I) = 1
+    MAP_BG(L1I) = GRASS_TILE
     MAP_FG(L1I) = 0
   NEXT L1I
 
@@ -72,6 +74,11 @@ FUNCTION LoadOverworld()
       MAP_BG(L1R * MAP_W + L1C) = SAND_TILE
     NEXT L1C
   NEXT L1R
+
+  ' Door tile sits ON the sand patch (overwrite after the sand fill).
+  ' Real sprite is 2 cells tall — for MVP we use single-cell placeholder
+  ' tile 346 at the door cell; the door object trigger is unchanged.
+  MAP_BG(8 * MAP_W + 16) = DOOR_TILE
 
   ' A few scattered rocks (solid).
   MAP_BG(20 * MAP_W + 10) = ROCK_TILE
