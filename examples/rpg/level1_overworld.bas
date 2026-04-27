@@ -23,6 +23,8 @@
 '    2 = NPC           cell (8, 24)
 ' ============================================================
 
+TREE_TILE = 563
+
 FUNCTION LoadOverworld()
   MAP_W      = 32
   MAP_H      = 32
@@ -37,12 +39,12 @@ FUNCTION LoadOverworld()
 
   ' Border of trees around the map (solid).
   FOR L1C = 0 TO MAP_W - 1
-    MAP_BG(0 * MAP_W + L1C) = 28
-    MAP_BG((MAP_H - 1) * MAP_W + L1C) = 28
+    MAP_BG(0 * MAP_W + L1C) = TREE_TILE
+    MAP_BG((MAP_H - 1) * MAP_W + L1C) = TREE_TILE
   NEXT L1C
   FOR L1R = 0 TO MAP_H - 1
-    MAP_BG(L1R * MAP_W + 0) = 28
-    MAP_BG(L1R * MAP_W + (MAP_W - 1)) = 28
+    MAP_BG(L1R * MAP_W + 0) = TREE_TILE
+    MAP_BG(L1R * MAP_W + (MAP_W - 1)) = TREE_TILE
   NEXT L1R
 
   ' Pond of water in the middle (solid).
