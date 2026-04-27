@@ -1,0 +1,19 @@
+Overworld.png   640x576  cellw=16 cellh=16  overworld tileset (40x36 grid, 1440 tiles)
+cave.png        640x400  cellw=16 cellh=16  cave tileset (40x25 grid, 1000 tiles)
+character.png   272x256  cellw=16 cellh=32  player sprite (17x8 grid, 136 frames)
+NPC_test.png    64x128   cellw=16 cellh=32  NPC sprite (4x4 grid, 16 frames)
+objects.png     528x320  cellw=16 cellh=16  items + HUD bits
+
+Map: 32x32 overworld at 16x16 px = 512x512 world. Single cave room 20x12.
+Screen 320x200, HUD strip top 24px, playable 320x176 = 20x11 cells.
+
+Controls
+  W A S D  move (4-way)
+  SPACE    interact (NPC, door, stairs)
+  Q        quit
+
+Tiles called out by id in level1_overworld.bas / level1_cave.bas headers.
+Reference images: Overworld_ref.png + cave_ref.png (numbered overlay).
+
+Source: ArMM1998 "Zelda-like Tilesets and Sprites" (OpenGameArt).
+Verify CC0/license before public release.

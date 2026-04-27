@@ -1,87 +1,71 @@
-# MVP-2 Zelda-lite — asset spec
+# MVP-2 Zelda-lite — assets in this folder
 
-Drop assets in this directory (`examples/rpg/`). Manifest format
-matches `examples/shooter/manifest.txt`. Once delivered, the engine
-+ level files get scaffolded as `rpg.bas`, `level1.bas`,
-`level1_cave.bas`, all consuming `maplib.bas` (per
-`docs/map-format.md`).
+Using OpenGameArt **"Zelda-like Tilesets and Sprites"** by ArMM1998
+(originally https://opengameart.org/content/zelda-like-tilesets-and-sprites).
+Tiles are **16×16**, character/NPC sprites are **16×32**. Verify
+license before public release (typically CC0 for this pack).
 
-## Required
+Reference images with numbered cells exist alongside each sheet:
+`Overworld_ref.png`, `cave_ref.png`, `objects_ref.png`,
+`character_ref_16x32.png`, `NPC_test_ref.png`. Regenerate with
+`/tmp/tile_ref.py`.
 
-### Tilesets — exercises multi-tileset support
+## Sheet inventory
 
-```
-overworld.png   256x128  cellW=32 cellH=32    32 tiles: grass, water, sand,
-                                              path, tree, rock, fence, sign,
-                                              flowers, etc.
-cave.png        256x128  cellW=32 cellH=32    32 tiles: stone floor, wall,
-                                              door, stairs, torch, chest,
-                                              cracked-wall variant.
-```
+| File              | Size     | Cell  | Grid    | Tiles |
+|-------------------|----------|-------|---------|-------|
+| `Overworld.png`   | 640×576  | 16×16 | 40×36   | 1440  |
+| `cave.png`        | 640×400  | 16×16 | 40×25   | 1000  |
+| `Inner.png`       | 640×400  | 16×16 | 40×25   | 1000  |
+| `objects.png`     | 528×320  | 16×16 | 33×20   | 660   |
+| `log.png`         | 192×128  | 16×16 | 12×8    | 96    |
+| `font.png`        | 240×144  | —     | —       | —     |
+| `character.png`   | 272×256  | 16×32 | 17×8    | 136   |
+| `NPC_test.png`    | 64×128   | 16×32 | 4×4     | 16    |
 
-### Player + NPCs + enemies
+## MVP-1 picks (subject to user revision)
 
-```
-link.png        160x32   cellW=32 cellH=32    5 frames: idle + up + down +
-                                              left + right (one frame each;
-                                              animate later).
-npc.png         32x32                         single friendly NPC sprite
-                                              (old man / merchant).
-enemy.png       64x32    cellW=32 cellH=32    1 enemy, 2-frame walk anim
-                                              (slime / octorok).
-```
+### Overworld tile ids
+- Walkable: grass `1` (also 4,5,6 = grass variants)
+- Path/dirt: `49`
+- Sand: `204`
+- **solid** (water + tree + rock + walls): water family `17–22, 57–62`,
+  rock `15, 28`, building wall — TBD when authored
+- **door** (warp to cave): TBD pick (guess `67`)
 
-## Optional (skip if shipping faster matters)
+### Cave tile ids
+- Floor: `2` (darkgray)
+- **solid** (wall): `162, 163, 164, 168` family + water `282`
+- **stairs** (warp to overworld): TBD pick (guess `168`)
 
-```
-items.png       64x16    cellW=16 cellH=16    4 items: heart, key, sword,
-                                              gem (chest drops + HUD).
-heart.png       8x8                           HUD heart pip (lives display).
-effects.png     32x32                         sword-slash / sparkle one-shot.
-```
+### Sprite picks
+- **Player** (`character.png` 16×32):
+  - down idle: frame 1 (used in MVP-1)
+  - down walk: frames 1–4
+  - left/up/right/sword: TBD (rows 2, 3, 4, 5)
+- **NPC** (`NPC_test.png` 16×32): frame 1 (single bald guy)
+- **Enemy**: not in pack — placeholder = tint NPC red, or skip
 
-## Per-tileset metadata to provide
+## Map design
 
-For each tileset, list the **local tile ids** that fall into each
-category. (Per the format spec, ids are 1-based local to each sheet;
-0 = blank.)
-
-### `overworld.png`
-
-- **solid** (block player + projectiles): _list ids_
-- **damaging** + damage value (lava / spikes — optional): _list ids_
-- **kind: door** — id of any tile that triggers map transition on
-  walk-into: _list ids_
-
-### `cave.png`
-
-- **solid**: _list ids_
-- **kind: door** (back to overworld): _list ids_
-- **kind: chest** (interactable, drops items): _list ids_
-
-## Design choices to confirm before scaffold
-
-| Decision | Default proposal |
+| Decision | Value |
 |---|---|
-| Overworld map size | 32 × 32 cells (1024 × 1024 px world) |
-| Room size | 8 × 8 cells → 4 × 4 grid = 16 rooms (Zelda 1 screen-flip) |
-| Cave map | separate file `level1_cave.bas`, 8 × 8 cells (single room) |
-| Door pairing | one overworld door → cave entry; cave stairs → back to overworld |
-| Combat | sword swipe on bump — kills enemy if facing it (no projectiles) |
-| NPC interact | walk-into-NPC opens dialogue text in HUD strip; E or SPACE dismisses |
-| Camera mode | `room` — snap to current 8×8 room on player crossing boundary |
+| Overworld map size | 32 × 32 cells (512 × 512 px world) |
+| Room size | 20 × 12 cells = 320 × 192 px (full viewport less HUD strip) |
+| Room grid | overworld is 1.6 × 2.6 rooms — adjusted to 1 large area for MVP-1 |
+| Cave map | `level1_cave.bas`, 20 × 12 cells (single room) |
+| Door pairing | one overworld door tile → cave entry; cave stair tile → back |
+| Combat | sword swipe on bump (deferred — MVP-1 is exploration only) |
+| NPC interact | walk-into-NPC opens dialogue text in HUD; SPACE dismisses |
+| Camera mode | `room` — snap to current room on player crossing boundary |
 | HUD | top 24 px strip: hearts (lives) + dialogue text |
 
 ## What this MVP validates in `docs/map-format.md`
 
-- **multi-tileset map** (`tilesets[]` length 2; layers reference
-  `tilesetId`)
-- **multi-layer rendering** (terrain + decoration + hidden collision)
-- **camera.mode = "room"** snap behaviour
-- **door pairing** via `props.leadsTo` + `props.spawnAt`
-- **objects** with `kind: npc | enemy | door | chest | spawn`
-- **per-instance state** vs static tile flag (player has key 5 lives
-  in savegame domain; tile.solid is static tileset metadata)
+- multi-tileset map (`tilesets[]` length 2; layers reference `tilesetId`)
+- multi-layer rendering (terrain + decoration + collision)
+- `camera.mode = "room"` snap behaviour
+- door pairing via `props.leadsTo` + `props.spawnAt`
+- objects with `kind: npc | door | spawn`
 
-Together with MVP-1 shooter, every concept in v1 of the format
-(except polygon shapes — explicitly deferred) gets exercised.
+Polygon collision shapes — explicitly deferred (per format spec).
