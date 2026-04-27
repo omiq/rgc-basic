@@ -90,6 +90,13 @@ KQ = 81 : KW = 87 : KA = 65 : KS = 83 : KD = 68 : KSPACE = 32
 ' input scheme works.
 
 PREV_SPACE = 0
+' Set to 1 right after SwapLevel — blocks CheckDoor from re-firing
+' until the player has stepped fully OFF every door rect on the new
+' level. Without this the spawn point on the destination map sits
+' next to the return-door (Zelda 1 cave entrance pattern), and the
+' player's foot AABB overlaps the door on frame 1, ping-ponging back
+' to the previous level.
+JUST_WARPED = 0
 
 LoadOverworld()
 SetSpawn()
@@ -180,17 +187,25 @@ FUNCTION HandleInteract()
 END FUNCTION
 
 FUNCTION CheckDoor()
-  ' Walk-into door auto-warps.
+  ' Walk-into door auto-warps. JUST_WARPED gates re-trigger until the
+  ' player has stepped clear of every door rect on the current level —
+  ' otherwise the spawn-next-to-return-door pattern ping-pongs.
+  ANY_OVERLAP = 0
   FOR DI = 0 TO MAP_OBJ_COUNT - 1
     IF MAP_OBJ_TYPE$(DI) = "door" THEN
       IF PX + 14 >= MAP_OBJ_X(DI) AND PX + 2 <= MAP_OBJ_X(DI) + MAP_OBJ_W(DI) THEN
         IF PY + 28 >= MAP_OBJ_Y(DI) AND PY + 16 <= MAP_OBJ_Y(DI) + MAP_OBJ_H(DI) THEN
-          SwapLevel(MAP_OBJ_KIND$(DI))
-          RETURN 0
+          ANY_OVERLAP = 1
+          IF JUST_WARPED = 0 THEN
+            SwapLevel(MAP_OBJ_KIND$(DI))
+            RETURN 0
+          END IF
         END IF
       END IF
     END IF
   NEXT DI
+  ' Player has cleared every door — re-arm the trigger.
+  IF ANY_OVERLAP = 0 THEN JUST_WARPED = 0
 END FUNCTION
 
 FUNCTION SwapLevel(target$)
@@ -207,6 +222,9 @@ FUNCTION SwapLevel(target$)
     PX = 16 * 16
     PY = 9 * 16
   END IF
+  ' Block door re-trigger until the player walks off the new spawn
+  ' point — see CheckDoor / JUST_WARPED above.
+  JUST_WARPED = 1
 END FUNCTION
 
 FUNCTION UpdateCamera()
