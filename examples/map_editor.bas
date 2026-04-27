@@ -3,7 +3,8 @@
 '
 '  Demonstrates SCREEN 4 (640x400 RGBA) for a desktop-style UI:
 '  toolbar buttons, tile picker, map grid, mouse paint, plus
-'  binary file SAVE / LOAD of the edited map.
+'  JSON file SAVE / LOAD against the canonical map format
+'  (docs/map-format.md v1).
 '
 '  Tile graphics come from walls.png grid of
 '  32x32 cells -> TILEMAP DRAW; 0 = blank).
@@ -11,6 +12,10 @@
 '  Render model: full-frame redraw. CLS each tick wipes both the
 '  bitmap plane and the per-frame TILEMAP cell list (cap 4096),
 '  so continuous paint can never overflow it.
+'
+'  Save format: writes a v1 map.json file via PRINT# — a 10x10
+'  bg tile layer, no objects, no camera. Load uses the runtime's
+'  MAPLOAD statement, which validates schema and fills MAP_BG().
 ' ============================================================
 
 SCREEN 4
@@ -43,7 +48,23 @@ BTN_QUIT_X0 = 592 : BTN_QUIT_Y0 = 4 : BTN_QUIT_X1 = 632 : BTN_QUIT_Y1 = 24
 
 DIM PICKER(PICK_COUNT)
 DIM MAP(MAP_COUNT)
+' MAPLOAD targets — pre-DIMmed at MAP_COUNT so a JSON read fills
+' MAP_BG and we copy back into MAP(). Other MAP_* arrays exist so
+' MAPLOAD's writes don't crash on missing globals.
+DIM MAP_BG(MAP_COUNT - 1)
+DIM MAP_FG(MAP_COUNT - 1)
+DIM MAP_COLL(15)
+DIM MAP_OBJ_TYPE$(15)
+DIM MAP_OBJ_KIND$(15)
+DIM MAP_OBJ_X(15)
+DIM MAP_OBJ_Y(15)
+DIM MAP_OBJ_W(15)
+DIM MAP_OBJ_H(15)
+DIM MAP_OBJ_ID(15)
+DIM MAP_TILESET_ID$(7)
+DIM MAP_TILESET_SRC$(7)
 SELECTED = 1
+Q$ = CHR$(34)
 
 ' Status line state — re-stamped every frame after CLS.
 STATUS$ = "LEFT CLICK A TILE, THEN LEFT CLICK + DRAG ON THE MAP. RIGHT CLICK CLEARS."
@@ -78,29 +99,13 @@ DO
     IF MX >= BTN_QUIT_X0 AND MX <= BTN_QUIT_X1 AND MY >= BTN_QUIT_Y0 AND MY <= BTN_QUIT_Y1 THEN EXIT
 
     IF MX >= BTN_SAVE_X0 AND MX <= BTN_SAVE_X1 AND MY >= BTN_SAVE_Y0 AND MY <= BTN_SAVE_Y1 THEN
-      OPEN 1, 1, 1, "map.bin"
-      FOR I = 0 TO MAP_COUNT - 1
-        PUTBYTE #1, MAP(I)
-      NEXT I
-      CLOSE #1
-      STATUS$ = "SAVED map.bin"
+      SaveMapJson()
+      STATUS$ = "SAVED map.json"
       STATUS_R = 200 : STATUS_G = 255 : STATUS_B = 200
     END IF
 
     IF MX >= BTN_LOAD_X0 AND MX <= BTN_LOAD_X1 AND MY >= BTN_LOAD_Y0 AND MY <= BTN_LOAD_Y1 THEN
-      OPEN 1, 1, 0, "map.bin"
-      IF ST = 1 THEN
-        STATUS$ = "NO map.bin YET - SAVE FIRST"
-        STATUS_R = 255 : STATUS_G = 200 : STATUS_B = 200
-      ELSE
-        FOR I = 0 TO MAP_COUNT - 1
-          GETBYTE #1, B
-          IF B >= 0 AND B <= PICK_COUNT THEN MAP(I) = B ELSE MAP(I) = 0
-        NEXT I
-        CLOSE #1
-        STATUS$ = "LOADED map.bin"
-        STATUS_R = 200 : STATUS_G = 200 : STATUS_B = 255
-      END IF
+      LoadMapJson()
     END IF
 
     IF MX >= PICKER_X AND MX < PICKER_X + PCOLS * TILE_SIZE AND MY >= PICKER_Y AND MY < PICKER_Y + PROWS * TILE_SIZE THEN
@@ -206,4 +211,61 @@ FUNCTION DrawStatus()
   COLORRGB 32, 32, 48 : FILLRECT 0, 376 TO 639, 399
   COLORRGB STATUS_R, STATUS_G, STATUS_B
   DRAWTEXT 8, 384, STATUS$
+END FUNCTION
+
+' ------------------------------------------------------------
+'  JSON save / load — canonical map format v1
+' ------------------------------------------------------------
+
+FUNCTION SaveMapJson()
+  ' Writes a v1 map.json: format/size/tileSize/tilesets/layers[bg].
+  ' No object layer, no camera — this editor only paints a tile grid.
+  OPEN 1, 1, 1, "map.json"
+  PRINT#1, "{"
+  PRINT#1, "  " + Q$ + "format" + Q$ + ": 1,"
+  PRINT#1, "  " + Q$ + "id" + Q$ + ": " + Q$ + "editor-map" + Q$ + ","
+  PRINT#1, "  " + Q$ + "size" + Q$ + ": { " + Q$ + "cols" + Q$ + ": " + STR$(MCOLS) + ", " + Q$ + "rows" + Q$ + ": " + STR$(MROWS) + " },"
+  PRINT#1, "  " + Q$ + "tileSize" + Q$ + ": { " + Q$ + "w" + Q$ + ": 32, " + Q$ + "h" + Q$ + ": 32 },"
+  PRINT#1, "  " + Q$ + "tilesets" + Q$ + ": ["
+  PRINT#1, "    { " + Q$ + "id" + Q$ + ": " + Q$ + "walls" + Q$ + ", " + Q$ + "src" + Q$ + ": " + Q$ + "walls.png" + Q$ + ", " + Q$ + "cellW" + Q$ + ": 32, " + Q$ + "cellH" + Q$ + ": 32 }"
+  PRINT#1, "  ],"
+  PRINT#1, "  " + Q$ + "layers" + Q$ + ": ["
+  PRINT#1, "    { " + Q$ + "name" + Q$ + ": " + Q$ + "bg" + Q$ + ", " + Q$ + "type" + Q$ + ": " + Q$ + "tiles" + Q$ + ", " + Q$ + "tilesetId" + Q$ + ": " + Q$ + "walls" + Q$ + ","
+  PRINT#1, "      " + Q$ + "data" + Q$ + ": ["
+  FOR SI = 0 TO MAP_COUNT - 1
+    IF SI < MAP_COUNT - 1 THEN
+      PRINT#1, "        " + STR$(MAP(SI)) + ","
+    ELSE
+      PRINT#1, "        " + STR$(MAP(SI))
+    END IF
+  NEXT SI
+  PRINT#1, "      ]"
+  PRINT#1, "    }"
+  PRINT#1, "  ]"
+  PRINT#1, "}"
+  CLOSE #1
+END FUNCTION
+
+FUNCTION LoadMapJson()
+  ' Probe for the file first — MAPLOAD raises a runtime error on a
+  ' missing path, which would kill the editor. ST=1 after OPEN signals
+  ' "not found"; bail out with a friendly status instead.
+  OPEN 1, 1, 0, "map.json"
+  IF ST = 1 THEN
+    STATUS$ = "NO map.json YET - SAVE FIRST"
+    STATUS_R = 255 : STATUS_G = 200 : STATUS_B = 200
+    RETURN 0
+  END IF
+  CLOSE #1
+  MAPLOAD "map.json"
+  IF MAP_W = MCOLS AND MAP_H = MROWS THEN
+    FOR LI = 0 TO MAP_COUNT - 1
+      MAP(LI) = MAP_BG(LI)
+    NEXT LI
+    STATUS$ = "LOADED map.json"
+    STATUS_R = 200 : STATUS_G = 200 : STATUS_B = 255
+  ELSE
+    STATUS$ = "MAP SIZE MISMATCH - EXPECTED " + STR$(MCOLS) + "x" + STR$(MROWS)
+    STATUS_R = 255 : STATUS_G = 200 : STATUS_B = 200
+  END IF
 END FUNCTION
