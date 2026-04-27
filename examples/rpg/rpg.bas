@@ -261,9 +261,9 @@ FUNCTION RenderPlayer()
     PSX = PX - CAM_X
     PSY = PY - CAM_Y + HUD_H
     PFRAME = 1
-    IF PFACE$ = "left"  THEN PFRAME = 18
+    IF PFACE$ = "left"  THEN PFRAME = 52
     IF PFACE$ = "up"    THEN PFRAME = 35
-    IF PFACE$ = "right" THEN PFRAME = 52
+    IF PFACE$ = "right" THEN PFRAME = 18
     SPRITE STAMP 1, PSX, PSY, PFRAME, 20
   END IF
 END FUNCTION
