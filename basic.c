@@ -2927,6 +2927,7 @@ static void statement_join(char **p);
 static void statement_open(char **p);
 static void statement_close(char **p);
 static void statement_download(char **p);
+static void statement_mapload(char **p);
 #ifdef GFX_VIDEO
 static void statement_doublebuffer(char **p);
 static void statement_overlay(char **p);
@@ -3411,7 +3412,7 @@ static const char *const reserved_words[] = {
     "FILLRECT", "CIRCLE", "FILLCIRCLE", "ELLIPSE", "FILLELLIPSE", "TRIANGLE", "FILLTRIANGLE", "FLOODFILL", "POLYGON", "FILLPOLYGON", "VSYNC", "ANTIALIAS",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
-    "DOUBLEBUFFER", "DRAWSPRITE", "DRAWSPRITETILE", "DRAWTEXT", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "OVERLAY", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
+    "DOUBLEBUFFER", "DRAWSPRITE", "DRAWSPRITETILE", "DRAWTEXT", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "MAPLOAD", "OVERLAY", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
     "DO", "LOOP", "UNTIL", "EXIT",
     "GETBYTE",
     /* Named colour constants (C64 palette 0-15) and boolean/math constants */
@@ -7868,6 +7869,338 @@ static void statement_mouseshow(char **p)
     gfx_mouse_show_cursor();
 }
 #endif /* GFX_VIDEO */
+
+/* ============================================================
+ *  MAPLOAD — JSON map file loader (docs/map-format.md v1)
+ *
+ *  Reads the canonical map JSON and populates the MAP_* globals
+ *  the maplib.bas convention expects:
+ *
+ *    MAP_W, MAP_H                        cells
+ *    MAP_TILE_W, MAP_TILE_H              pixels
+ *    MAP_BG(N), MAP_FG(N)                row-major tile arrays (pre-DIMmed)
+ *    MAP_COLL_COUNT, MAP_COLL(N)         solid tile id list (derived from
+ *                                         tileset[*].tiles[id].solid==true)
+ *    MAP_OBJ_COUNT
+ *    MAP_OBJ_TYPE$(N), MAP_OBJ_KIND$(N)
+ *    MAP_OBJ_X(N), MAP_OBJ_Y(N), MAP_OBJ_W(N), MAP_OBJ_H(N), MAP_OBJ_ID(N)
+ *    MAP_TILESET_COUNT, MAP_TILESET_SRC$(N), MAP_TILESET_ID$(N)
+ *    MAP_CAM_START_X, MAP_CAM_START_Y
+ *    MAP_CAM_SCROLL_DIR$
+ *    MAP_CAM_SPEED_PX_PER_FRAME          rounded from speedPxPerSec / 60
+ *
+ *  Caller is responsible for DIMming the MAP_ arrays large enough to
+ *  hold the loaded map. Loader writes count globals so callers can
+ *  iterate without knowing the cap.
+ * ============================================================ */
+
+/* JSON helpers are defined further down the file; forward-declare the
+ * subset MAPLOAD uses so the loader compiles without reshuffling. */
+static int  json_skip_ws(const char **p);
+static void json_skip_value(const char **pp);
+static const char *json_parse_string(const char **pp, char *out, size_t out_size);
+static const char *json_navigate(const char *json, const char *path);
+static int  json_count_entries(const char *p);
+static int  json_extract_path(const char *json, const char *path,
+                              char *out, size_t out_size);
+
+static struct var *map_var(const char *name, int is_string)
+{
+    return find_or_create_var(name, is_string, 0, 0, NULL, 0);
+}
+
+static void map_set_num(const char *name, double n)
+{
+    struct var *v = map_var(name, 0);
+    if (v) v->scalar = make_num(n);
+}
+
+static void map_set_str(const char *name, const char *s)
+{
+    struct var *v = map_var(name, 1);
+    if (v) v->scalar = make_str(s ? s : "");
+}
+
+static int map_set_array_num(const char *name, int idx, double n)
+{
+    struct var *v = map_var(name, 0);
+    if (!v || !v->is_array) return -1;
+    if (idx < 0 || idx >= v->size) return -1;
+    v->array[idx] = make_num(n);
+    return 0;
+}
+
+static int map_set_array_str(const char *name, int idx, const char *s)
+{
+    struct var *v = map_var(name, 1);
+    if (!v || !v->is_array) return -1;
+    if (idx < 0 || idx >= v->size) return -1;
+    v->array[idx] = make_str(s ? s : "");
+    return 0;
+}
+
+static double map_json_num(const char *json, const char *path, double dflt)
+{
+    char buf[64];
+    if (json_extract_path(json, path, buf, sizeof(buf)) == 0) return dflt;
+    if (buf[0] == 0) return dflt;
+    return strtod(buf, NULL);
+}
+
+static int map_json_str(const char *json, const char *path, char *out, size_t cap)
+{
+    if (cap == 0) return 0;
+    out[0] = 0;
+    return json_extract_path(json, path, out, cap);
+}
+
+/* Walk JSON int array. *pp points just before '['. Writes up to cap
+ * integers into out[]. Returns count parsed (extras dropped). Advances
+ * *pp past closing ']'. */
+static int map_parse_int_array(const char **pp, int *out, int cap)
+{
+    const char *p = *pp;
+    int n = 0;
+    json_skip_ws(&p);
+    if (*p != '[') { *pp = p; return -1; }
+    p++;
+    json_skip_ws(&p);
+    while (*p && *p != ']') {
+        char *end;
+        long v = strtol(p, &end, 10);
+        if (end == p) { *pp = p; return -1; }
+        if (n < cap) out[n] = (int)v;
+        n++;
+        p = end;
+        json_skip_ws(&p);
+        if (*p == ',') { p++; json_skip_ws(&p); }
+    }
+    if (*p == ']') p++;
+    *pp = p;
+    return n;
+}
+
+/* Walk a tileset's "tiles" object collecting ids whose entry has
+ * solid:true. Appends to MAP_COLL[] starting at *coll_idx; updates
+ * *coll_idx with the new count. */
+static void map_collect_solids(const char *tiles_json, int *coll_idx)
+{
+    const char *p = tiles_json;
+    json_skip_ws(&p);
+    if (*p != '{') return;
+    p++;
+    while (*p) {
+        char keybuf[32];
+        const char *val_start;
+        char solid_buf[16];
+        int tile_id;
+        json_skip_ws(&p);
+        if (*p == '}') { p++; break; }
+        if (*p != '"') break;
+        if (!json_parse_string(&p, keybuf, sizeof(keybuf))) break;
+        tile_id = atoi(keybuf);
+        json_skip_ws(&p);
+        if (*p != ':') break;
+        p++;
+        json_skip_ws(&p);
+        val_start = p;
+        if (json_extract_path(val_start, "solid", solid_buf, sizeof(solid_buf))
+            && strcmp(solid_buf, "true") == 0) {
+            map_set_array_num("MAP_COLL", *coll_idx, (double)tile_id);
+            (*coll_idx)++;
+        }
+        json_skip_value(&p);
+        json_skip_ws(&p);
+        if (*p == ',') p++;
+    }
+}
+
+/* Walk objects[] inside a layer of type "objects". Writes into
+ * MAP_OBJ_*() arrays starting at *obj_idx; updates *obj_idx. */
+static void map_collect_objects(const char *layer_json, int *obj_idx)
+{
+    char count_buf[16];
+    int n_obj, oi;
+    const char *objs_root;
+    if (!json_extract_path(layer_json, "objects", count_buf, sizeof(count_buf))) return;
+    objs_root = json_navigate(layer_json, "objects");
+    if (!objs_root) return;
+    n_obj = json_count_entries(objs_root);
+    for (oi = 0; oi < n_obj; oi++) {
+        char base[32], path[64];
+        char tbuf[64];
+        int idx = *obj_idx;
+        snprintf(base, sizeof(base), "[%d]", oi);
+        snprintf(path, sizeof(path), "%s.type", base);
+        if (!map_json_str(objs_root, path, tbuf, sizeof(tbuf))) tbuf[0] = 0;
+        map_set_array_str("MAP_OBJ_TYPE", idx, tbuf);
+        snprintf(path, sizeof(path), "%s.kind", base);
+        if (!map_json_str(objs_root, path, tbuf, sizeof(tbuf))) tbuf[0] = 0;
+        map_set_array_str("MAP_OBJ_KIND", idx, tbuf);
+        snprintf(path, sizeof(path), "%s.x", base);
+        map_set_array_num("MAP_OBJ_X", idx, map_json_num(objs_root, path, 0));
+        snprintf(path, sizeof(path), "%s.y", base);
+        map_set_array_num("MAP_OBJ_Y", idx, map_json_num(objs_root, path, 0));
+        snprintf(path, sizeof(path), "%s.w", base);
+        map_set_array_num("MAP_OBJ_W", idx, map_json_num(objs_root, path, 0));
+        snprintf(path, sizeof(path), "%s.h", base);
+        map_set_array_num("MAP_OBJ_H", idx, map_json_num(objs_root, path, 0));
+        snprintf(path, sizeof(path), "%s.id", base);
+        map_set_array_num("MAP_OBJ_ID", idx, map_json_num(objs_root, path, 0));
+        (*obj_idx)++;
+    }
+}
+
+/* MAPLOAD path$ — top-level statement. Reads the JSON file at path,
+ * validates format=1, populates MAP_* globals. Caller must DIM the
+ * MAP_* arrays before calling. */
+static void statement_mapload(char **p)
+{
+    struct value vpath;
+    FILE *fp;
+    long len;
+    char *buf;
+    int format_ver;
+    int W, H, TW, TH;
+    int n_layers, li;
+    const char *layers_root;
+    int n_tilesets, ti;
+    const char *tilesets_root;
+    int coll_count = 0;
+    int obj_count = 0;
+    char tmpbuf[256];
+
+    skip_spaces(p);
+    vpath = eval_expr(p);
+    ensure_str(&vpath);
+    skip_spaces(p);
+
+    fp = fopen(vpath.str, "rb");
+    if (!fp) {
+        runtime_error_hint("MAPLOAD: cannot open file",
+            "Check the path; on browser builds the file must be bundled in the preset.");
+        return;
+    }
+    fseek(fp, 0, SEEK_END);
+    len = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    if (len <= 0 || len > 4 * 1024 * 1024) {
+        fclose(fp);
+        runtime_error_hint("MAPLOAD: file empty or > 4 MiB", NULL);
+        return;
+    }
+    buf = (char *)malloc((size_t)len + 1);
+    if (!buf) {
+        fclose(fp);
+        runtime_error_hint("MAPLOAD: out of memory", NULL);
+        return;
+    }
+    fread(buf, 1, (size_t)len, fp);
+    buf[len] = 0;
+    fclose(fp);
+
+    format_ver = (int)map_json_num(buf, "format", 0);
+    if (format_ver != 1) {
+        free(buf);
+        runtime_error_hint("MAPLOAD: unsupported format version",
+            "Loader expects \"format\": 1 (see docs/map-format.md).");
+        return;
+    }
+
+    W  = (int)map_json_num(buf, "size.cols", 0);
+    H  = (int)map_json_num(buf, "size.rows", 0);
+    TW = (int)map_json_num(buf, "tileSize.w", 16);
+    TH = (int)map_json_num(buf, "tileSize.h", 16);
+    if (W <= 0 || H <= 0) {
+        free(buf);
+        runtime_error_hint("MAPLOAD: invalid size — cols/rows missing", NULL);
+        return;
+    }
+    map_set_num("MAP_W", (double)W);
+    map_set_num("MAP_H", (double)H);
+    map_set_num("MAP_TILE_W", (double)TW);
+    map_set_num("MAP_TILE_H", (double)TH);
+
+    tilesets_root = json_navigate(buf, "tilesets");
+    n_tilesets = tilesets_root ? json_count_entries(tilesets_root) : 0;
+    map_set_num("MAP_TILESET_COUNT", (double)n_tilesets);
+    for (ti = 0; ti < n_tilesets; ti++) {
+        char base[32], path[64];
+        const char *tiles_obj;
+        snprintf(base, sizeof(base), "[%d]", ti);
+        snprintf(path, sizeof(path), "%s.id", base);
+        if (!map_json_str(tilesets_root, path, tmpbuf, sizeof(tmpbuf))) tmpbuf[0] = 0;
+        map_set_array_str("MAP_TILESET_ID", ti, tmpbuf);
+        snprintf(path, sizeof(path), "%s.src", base);
+        if (!map_json_str(tilesets_root, path, tmpbuf, sizeof(tmpbuf))) tmpbuf[0] = 0;
+        map_set_array_str("MAP_TILESET_SRC", ti, tmpbuf);
+        snprintf(path, sizeof(path), "%s.tiles", base);
+        tiles_obj = json_navigate(tilesets_root, path);
+        if (tiles_obj) map_collect_solids(tiles_obj, &coll_count);
+    }
+    map_set_num("MAP_COLL_COUNT", (double)coll_count);
+
+    layers_root = json_navigate(buf, "layers");
+    n_layers = layers_root ? json_count_entries(layers_root) : 0;
+    for (li = 0; li < n_layers; li++) {
+        char base[32], path[64];
+        char name[32], lt[16];
+        const char *data_root;
+        const char *layer_root;
+        snprintf(base, sizeof(base), "[%d]", li);
+        snprintf(path, sizeof(path), "%s.name", base);
+        if (!map_json_str(layers_root, path, name, sizeof(name))) name[0] = 0;
+        snprintf(path, sizeof(path), "%s.type", base);
+        if (!map_json_str(layers_root, path, lt, sizeof(lt))) lt[0] = 0;
+        layer_root = json_navigate(layers_root, base);
+        if (!layer_root) continue;
+        if (strcmp(lt, "tiles") == 0) {
+            const char *target = NULL;
+            int n_cells = W * H;
+            if (strcmp(name, "bg") == 0) target = "MAP_BG";
+            else if (strcmp(name, "fg") == 0) target = "MAP_FG";
+            if (target) {
+                struct var *av = map_var(target, 0);
+                if (av && av->is_array && av->size >= n_cells) {
+                    snprintf(path, sizeof(path), "%s.data", base);
+                    data_root = json_navigate(layers_root, path);
+                    if (data_root) {
+                        const char *p2 = data_root;
+                        int i, parsed;
+                        int *tmp = (int *)malloc((size_t)n_cells * sizeof(int));
+                        if (tmp) {
+                            for (i = 0; i < n_cells; i++) tmp[i] = 0;
+                            parsed = map_parse_int_array(&p2, tmp, n_cells);
+                            (void)parsed;
+                            for (i = 0; i < n_cells; i++) {
+                                av->array[i] = make_num((double)tmp[i]);
+                            }
+                            free(tmp);
+                        }
+                    }
+                }
+            }
+        } else if (strcmp(lt, "objects") == 0) {
+            map_collect_objects(layer_root, &obj_count);
+        }
+    }
+    map_set_num("MAP_OBJ_COUNT", (double)obj_count);
+
+    map_set_num("MAP_CAM_START_X", map_json_num(buf, "camera.start.x", 0));
+    map_set_num("MAP_CAM_START_Y", map_json_num(buf, "camera.start.y", 0));
+    if (map_json_str(buf, "camera.scrollDir", tmpbuf, sizeof(tmpbuf))) {
+        map_set_str("MAP_CAM_SCROLL_DIR", tmpbuf);
+    } else {
+        map_set_str("MAP_CAM_SCROLL_DIR", "free");
+    }
+    {
+        double sps = map_json_num(buf, "camera.speedPxPerSec", 0);
+        map_set_num("MAP_CAM_SPEED_PX_PER_FRAME",
+                    (double)((int)((sps / 60.0) + 0.5)));
+    }
+
+    free(buf);
+}
 
 #ifdef __EMSCRIPTEN__
 /* Browser WASM: read a MEMFS file and offer it to the user as a real
@@ -15151,6 +15484,11 @@ static void execute_statement(char **p)
             return;
         }
 #endif
+        if (starts_with_kw(*p, "MAPLOAD")) {
+            *p += 7;
+            statement_mapload(p);
+            return;
+        }
         if (starts_with_kw(*p, "MEMSET")) {
             *p += 6;
             statement_memset(p);

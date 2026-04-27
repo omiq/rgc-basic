@@ -1,6 +1,9 @@
 # Map / Level File format
 
-Status: **draft v1 — design phase.** No code shipping until two MVP games (vertical shooter + Zelda-lite) consume the format end-to-end.
+Status: **v1 shipped 2026-04-27.** Native loader is the `MAPLOAD path$`
+statement (basic.c). Sample maps live in `examples/rpg/*.json`. RLE,
+animations, parallax, external tileset reuse, and polygon shapes
+remain v1.1+ deferrals.
 
 ## Goals
 
