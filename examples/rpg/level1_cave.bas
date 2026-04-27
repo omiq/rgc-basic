@@ -11,10 +11,10 @@
 '    stairs back:      168   (kind="overworld" door object trigger)
 ' ============================================================
 
-CAVE_FLOOR  = 2
-CAVE_WALL   = 162
-CAVE_WATER  = 282
-CAVE_STAIRS = 168
+CAVE_FLOOR  = 1
+CAVE_WALL   = 202
+CAVE_WATER  = 322
+CAVE_STAIRS = 161
 
 FUNCTION LoadCave()
   MAP_W      = 20
