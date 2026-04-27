@@ -26,6 +26,19 @@ SPRITE LOAD 2, "enemy-sprites.png", 32, 32
 SPRITE LOAD 3, "tank.png"
 SPRITE LOAD 4, "missiles.png",      16, 32
 
+' --- shadow slots ----------------------------------------------------
+'   Slot 5  = duplicate of player.png, drawn 2px right + 4px down at z=-1
+'             so the real player (slot 1, z=2) sits on top of its own
+'             shadow. SPRITEMODULATE darkens + alpha-blends the copy.
+'   Slot 6  = duplicate of enemy-sprites.png — same trick for the flying
+'             enemy ships. The tank (slot 3) is ground armour, no shadow.
+SPRITE LOAD 5, "player.png"
+SPRITEMODULATE 5, 50, 0, 0, 0
+SPRITEVISIBLE 5, 1
+SPRITE LOAD 6, "enemy-sprites.png", 32, 32
+SPRITEMODULATE 6, 50, 0, 0, 0
+SPRITEVISIBLE 6, 1
+
 ' --- viewport / camera ---
 VIEW_W = 320
 VIEW_H = 200
@@ -244,6 +257,10 @@ FUNCTION DamagePlayer()
   IF LIVES <= 0 THEN
     PALIVE = 0
     GAME_OVER = 1
+    ' Hide both the ship and its shadow on death so neither lingers
+    ' as a SPRITE DRAW persistent slot after game-over.
+    SPRITEVISIBLE 5, 0
+    SPRITEVISIBLE 1, 0
   END IF
 END FUNCTION
 
@@ -278,8 +295,12 @@ FUNCTION RenderEnemies()
       ESX = EN_X(EI)
       ESY = EN_Y(EI) - CAM_Y
       IF EN_KIND$(EI) = "tank" THEN
+        ' Ground armour — no shadow.
         SPRITE STAMP 3, ESX, ESY, 1, 10
       ELSE
+        ' Flying ship — shadow via slot 6 (alpha-modulated copy of the
+        ' enemy sheet) at offset (+2,+4) z=9, real ship at z=10 on top.
+        SPRITE STAMP 6, ESX + 2, ESY + 4, EN_FRAME(EI), 9
         SPRITE STAMP 2, ESX, ESY, EN_FRAME(EI), 10
       END IF
     END IF
@@ -296,7 +317,11 @@ END FUNCTION
 
 FUNCTION RenderPlayer()
   IF PALIVE = 1 THEN
-    SPRITE STAMP 1, PX, PY, 1, 20
+    ' Shadow on slot 5 (z=-1) drawn 2px right + 4px down, real ship on
+    ' slot 1 (z=2) on top. SPRITE DRAW is one-instance-per-slot which is
+    ' fine for the player; multi-instance enemy ships use STAMP instead.
+    SPRITE DRAW 5, PX + 2, PY + 4, -1
+    SPRITE DRAW 1, PX, PY, 2
   END IF
 END FUNCTION
 
