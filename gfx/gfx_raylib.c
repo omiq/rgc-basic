@@ -1415,23 +1415,38 @@ static void gfx_sprite_composite_range(const GfxVideoState *vs, RenderTexture2D 
             pthread_mutex_unlock(&g_sprite_mutex);
             src = (Rectangle){ (float)cell->sx, (float)cell->sy,
                                 (float)cell->sw, (float)cell->sh };
-            /* When rotating, DrawTexturePro rotates around the origin
-             * argument — offset by half the destination size so rotation
-             * pivots around the sprite's centre, then add back to keep
-             * the cell's (x, y) meaning "top-left of the un-rotated
-             * quad". */
-            if (cell->rot != 0.0f) {
-                dest = (Rectangle){ cell->x - scx + (float)cell->sw * 0.5f,
-                                     cell->y - scy + (float)cell->sh * 0.5f,
-                                     (float)cell->sw, (float)cell->sh };
-                DrawTexturePro(t, src, dest,
-                               (Vector2){ (float)cell->sw * 0.5f,
-                                           (float)cell->sh * 0.5f },
-                               cell->rot, WHITE);
-            } else {
-                dest = (Rectangle){ cell->x - scx, cell->y - scy,
-                                     (float)cell->sw, (float)cell->sh };
-                DrawTexturePro(t, src, dest, (Vector2){ 0, 0 }, 0.0f, WHITE);
+            /* Honour SPRITEMODULATE on the source slot. Without this,
+             * STAMP cells render at full opacity and ignore tint —
+             * SPRITEMODULATE only affected SPRITE DRAW. The shadow
+             * pattern (a duplicate sprite slot with alpha+black mod
+             * stamped at an offset) needs the cell list to apply the
+             * slot's mod_a/r/g/b too. */
+            {
+                Color tint;
+                pthread_mutex_lock(&g_sprite_mutex);
+                tint.r = (unsigned char)g_sprite_slots[s].mod_r;
+                tint.g = (unsigned char)g_sprite_slots[s].mod_g;
+                tint.b = (unsigned char)g_sprite_slots[s].mod_b;
+                tint.a = (unsigned char)g_sprite_slots[s].mod_a;
+                pthread_mutex_unlock(&g_sprite_mutex);
+                /* When rotating, DrawTexturePro rotates around the
+                 * origin argument — offset by half the destination
+                 * size so rotation pivots around the sprite's centre,
+                 * then add back to keep the cell's (x, y) meaning
+                 * "top-left of the un-rotated quad". */
+                if (cell->rot != 0.0f) {
+                    dest = (Rectangle){ cell->x - scx + (float)cell->sw * 0.5f,
+                                         cell->y - scy + (float)cell->sh * 0.5f,
+                                         (float)cell->sw, (float)cell->sh };
+                    DrawTexturePro(t, src, dest,
+                                   (Vector2){ (float)cell->sw * 0.5f,
+                                               (float)cell->sh * 0.5f },
+                                   cell->rot, tint);
+                } else {
+                    dest = (Rectangle){ cell->x - scx, cell->y - scy,
+                                         (float)cell->sw, (float)cell->sh };
+                    DrawTexturePro(t, src, dest, (Vector2){ 0, 0 }, 0.0f, tint);
+                }
             }
         }
     }
