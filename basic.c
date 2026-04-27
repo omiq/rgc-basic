@@ -136,6 +136,29 @@ EM_ASYNC_JS(int, wasm_js_http_fetch_to_file_async, (const char *url, const char 
   return 0;
 });
 
+/* Host hook for write-file persistence (browser only). When the BASIC
+ * program CLOSEs a channel that was opened for write/append, we slurp
+ * the path's bytes from MEMFS and call Module.rgcHostFileWrite(path,
+ * data) so the iframe can postMessage them to the IDE workspace. The
+ * map editor relies on this to make `OPEN 1,1,1,"map.json"` durable
+ * across runs. No-op if the host didn't register the hook. */
+EM_JS(void, wasm_js_host_file_write, (const char *path_utf8, const char *data_ptr, int data_len), {
+  try {
+    var M = typeof Module !== 'undefined' ? Module : null;
+    var fn = M && (typeof M['rgcHostFileWrite'] === 'function' ? M['rgcHostFileWrite']
+      : (typeof M['onRgcFileWrite'] === 'function' ? M['onRgcFileWrite'] : null));
+    if (!fn) return;
+    var path = UTF8ToString(path_utf8);
+    /* Copy a fresh Uint8Array so the host can keep the bytes after we
+     * return — HEAPU8 is a view that gets clobbered when wasm grows. */
+    var bytes = new Uint8Array(data_len);
+    bytes.set(HEAPU8.subarray(data_ptr, data_ptr + data_len));
+    fn(path, bytes);
+  } catch (e) {
+    /* Swallow — host bug must not crash the BASIC interpreter. */
+  }
+});
+
 /*
  * Host hook for EXEC$ / SYSTEM (browser only). Calls Module.rgcHostExec(cmd) or
  * Module.onRgcExec(cmd) if function; otherwise EXEC$ -> "" and SYSTEM -> -1.
@@ -186,6 +209,15 @@ EM_ASYNC_JS(int, wasm_js_host_exec_async, (const char *cmd_utf8, char *out, int 
   }
   return 0;
 });
+#endif
+
+#ifndef __EMSCRIPTEN__
+/* Native + non-emscripten WASM: no IDE workspace to write back to.
+ * The CLOSE-after-write hook still calls this, so provide a no-op. */
+static void wasm_js_host_file_write(const char *path, const char *data, int len)
+{
+    (void)path; (void)data; (void)len;
+}
 #endif
 
 #if (defined(__unix__) || defined(__linux__) || defined(__APPLE__) || defined(__MACH__)) && !defined(__EMSCRIPTEN__)
@@ -1595,6 +1627,10 @@ static int data_line_start_index[MAX_DATA_LINES];
  * ST (status) is updated after INPUT#/GET#: 0=ok, 64=EOF, 1=error/not open. */
 #define MAX_OPEN_FILES 16
 static FILE *open_files[256];   /* 1-based; [0] unused; NULL = closed */
+/* Path + mode tracking per channel so CLOSE can forward write-mode
+ * files to the host (browser persists them into the IDE workspace). */
+static char *open_paths[256];   /* strdup'd at OPEN, free()'d at CLOSE */
+static char  open_modes[256];   /* 'r' | 'w' | 'a' (raw-mode prefix collapsed to 'w'/'r') */
 static void set_io_status(int st);
 
 /* BUFFER type — RAM-disk files for large payloads (HTTP responses, JSON, etc.)
@@ -2926,6 +2962,7 @@ static void statement_split(char **p);
 static void statement_join(char **p);
 static void statement_open(char **p);
 static void statement_close(char **p);
+static void close_channel(int lfn);
 static void statement_download(char **p);
 static void statement_mapload(char **p);
 #ifdef GFX_VIDEO
@@ -13551,9 +13588,11 @@ static void statement_open(char **p)
             }
         }
     }
-    if (open_files[lfn]) {
-        fclose(open_files[lfn]);
-        open_files[lfn] = NULL;
+    /* Re-OPEN same lfn: close the old channel first, including any
+     * write-mode forwarding, so a re-OPEN flushes the previous write
+     * back to the host workspace before we redirect the channel. */
+    if (open_files[lfn] || open_paths[lfn]) {
+        close_channel(lfn);
     }
     if (fname[0] == '\0') {
         runtime_error_hint("OPEN: filename required",
@@ -13586,6 +13625,16 @@ static void statement_open(char **p)
             return;
         }
         open_files[lfn] = fp;
+        /* Track path + mode so CLOSE can forward write/append output to
+         * the host (browser persists into the IDE workspace). Free any
+         * stale strdup from a previous OPEN on this lfn. */
+        if (open_paths[lfn]) { free(open_paths[lfn]); open_paths[lfn] = NULL; }
+        open_paths[lfn] = strdup(fname);
+        if (mode && (mode[0] == 'w' || mode[0] == 'a')) {
+            open_modes[lfn] = mode[0];
+        } else {
+            open_modes[lfn] = 'r';
+        }
         set_io_status(0);
     } else {
         set_io_status(1);
@@ -13595,16 +13644,56 @@ static void statement_open(char **p)
 }
 
 /* CLOSE [lfn [, lfn ...]] or CLOSE (close all) */
+/* Slurp the file at path and call wasm_js_host_file_write so the host
+ * can persist it (browser IDE workspace). Caller has already fclose'd
+ * the channel so the OS-side flush is durable. No-op if the file
+ * doesn't exist or the path is missing. */
+static void close_forward_to_host(const char *path)
+{
+    FILE *rfp;
+    long len;
+    char *buf;
+    if (!path || !path[0]) return;
+    rfp = fopen(path, "rb");
+    if (!rfp) return;
+    fseek(rfp, 0, SEEK_END);
+    len = ftell(rfp);
+    fseek(rfp, 0, SEEK_SET);
+    if (len < 0) { fclose(rfp); return; }
+    if (len > 16 * 1024 * 1024) { fclose(rfp); return; }   /* sanity cap */
+    buf = (char *)malloc((size_t)len);
+    if (!buf) { fclose(rfp); return; }
+    if (len > 0 && fread(buf, 1, (size_t)len, rfp) != (size_t)len) {
+        fclose(rfp); free(buf); return;
+    }
+    fclose(rfp);
+    wasm_js_host_file_write(path, buf, (int)len);
+    free(buf);
+}
+
+static void close_channel(int lfn)
+{
+    int forward;
+    if (lfn < 1 || lfn > 255) return;
+    forward = (open_modes[lfn] == 'w' || open_modes[lfn] == 'a');
+    if (open_files[lfn]) {
+        fclose(open_files[lfn]);
+        open_files[lfn] = NULL;
+    }
+    if (forward) {
+        close_forward_to_host(open_paths[lfn]);
+    }
+    if (open_paths[lfn]) { free(open_paths[lfn]); open_paths[lfn] = NULL; }
+    open_modes[lfn] = 0;
+}
+
 static void statement_close(char **p)
 {
     int lfn;
     skip_spaces(p);
     if (**p == '\0' || **p == ':') {
         for (lfn = 1; lfn < 256; lfn++) {
-            if (open_files[lfn]) {
-                fclose(open_files[lfn]);
-                open_files[lfn] = NULL;
-            }
+            if (open_files[lfn] || open_paths[lfn]) close_channel(lfn);
         }
         return;
     }
@@ -13612,10 +13701,7 @@ static void statement_close(char **p)
         if (!isdigit((unsigned char)**p)) break;
         lfn = atoi(*p);
         while (isdigit((unsigned char)**p)) (*p)++;
-        if (lfn >= 1 && lfn <= 255 && open_files[lfn]) {
-            fclose(open_files[lfn]);
-            open_files[lfn] = NULL;
-        }
+        close_channel(lfn);
         skip_spaces(p);
         if (**p != ',') break;
         (*p)++;
