@@ -13,7 +13,9 @@
 ' ============================================================
 
 #INCLUDE "../maplib.bas"
-#INCLUDE "level1.bas"
+' Level data lives in level1.json, loaded at runtime by MAPLOAD
+' (docs/map-format.md v1). The legacy BASIC builder level1.bas is
+' kept in git as authoring reference but no longer #INCLUDEd.
 
 SCREEN 2
 DOUBLEBUFFER ON
@@ -38,6 +40,23 @@ SPRITEVISIBLE 5, 1
 SPRITE LOAD 6, "enemy-sprites.png", 32, 32
 SPRITEMODULATE 6, 50, 0, 0, 0
 SPRITEVISIBLE 6, 1
+
+' --- map storage (DIMmed before MAPLOAD; sized for the largest map
+'     this game expects to load — current stage is 10×100 = 1000 cells).
+DIM MAP_BG(1023)
+DIM MAP_FG(1023)
+DIM MAP_COLL(15)
+DIM MAP_OBJ_TYPE$(31)
+DIM MAP_OBJ_KIND$(31)
+DIM MAP_OBJ_X(31)
+DIM MAP_OBJ_Y(31)
+DIM MAP_OBJ_W(31)
+DIM MAP_OBJ_H(31)
+DIM MAP_OBJ_ID(31)
+DIM MAP_TILESET_ID$(7)
+DIM MAP_TILESET_SRC$(7)
+
+MAPLOAD "level1.json"
 
 ' --- viewport / camera ---
 VIEW_W = 320
