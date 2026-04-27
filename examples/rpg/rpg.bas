@@ -162,23 +162,30 @@ END FUNCTION
 FUNCTION HandleInteract()
   SP = KEYDOWN(KSPACE)
   IF SP = 1 AND PREV_SPACE = 0 THEN
-    ' Find the nearest interactable object within 24px.
-    BEST = -1
-    BDIST = 99999
-    FOR II = 0 TO MAP_OBJ_COUNT - 1
-      IF MAP_OBJ_TYPE$(II) = "npc" THEN
-        DX = (MAP_OBJ_X(II) + 8) - (PX + 8)
-        DY = (MAP_OBJ_Y(II) + 16) - (PY + 16)
-        D = ABS(DX) + ABS(DY)
-        IF D < BDIST AND D < 32 THEN
-          BDIST = D
-          BEST = II
+    IF DIALOG$ <> "" THEN
+      ' SPACE while a dialog is open closes it (Zelda 1 advance/dismiss).
+      DIALOG$ = ""
+      DIALOG_TIMER = 0
+    ELSE
+      ' Find the nearest interactable object within 24px.
+      BEST = -1
+      BDIST = 99999
+      FOR II = 0 TO MAP_OBJ_COUNT - 1
+        IF MAP_OBJ_TYPE$(II) = "npc" THEN
+          DX = (MAP_OBJ_X(II) + 8) - (PX + 8)
+          DY = (MAP_OBJ_Y(II) + 16) - (PY + 16)
+          D = ABS(DX) + ABS(DY)
+          IF D < BDIST AND D < 32 THEN
+            BDIST = D
+            BEST = II
+          END IF
         END IF
+      NEXT II
+      IF BEST >= 0 THEN
+        DIALOG$ = "OLD MAN: TAKE THIS GUIDE TO THE CAVE."
+        ' Long timer is a fallback — SPACE dismisses immediately.
+        DIALOG_TIMER = 600
       END IF
-    NEXT II
-    IF BEST >= 0 THEN
-      DIALOG$ = "OLD MAN: TAKE THIS GUIDE TO THE CAVE."
-      DIALOG_TIMER = 180
     END IF
   END IF
   PREV_SPACE = SP

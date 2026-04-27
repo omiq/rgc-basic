@@ -1,5 +1,28 @@
 ## Changelog
 
+### OVERLAY plane — HUD/dialog above tilemap cells (2026-04-27)
+
+New `OVERLAY ON | OFF | CLS` statement in basic-wasm-raylib (and
+basic-gfx). Adds an RGBA overlay plane composited *after* the cell
+list (`TILEMAP DRAW` + `SPRITE STAMP`), so HUD text and Zelda-SNES
+style dialog frames sit above world tiles even during pixel-smooth
+scroll.
+
+Bitmap-plane primitives (`PSET`, `LINE`, `FILLRECT`, `RECT`,
+`DRAWTEXT`, `CLS`) redirect to the overlay buffer between
+`OVERLAY ON` and `OVERLAY OFF`. Lazy-alloc on first use;
+`DOUBLEBUFFER` flips the overlay pair atomically with the main
+RGBA pair on `VSYNC`. `CLS` while overlay is on clears just the
+overlay and skips the cell-list clear so the world tiles already
+submitted this frame survive.
+
+See `docs/overlay-plane.md` for the full spec and idiomatic frame
+loop. Production user: `examples/rpg/rpg.bas`.
+
+Canvas WASM (frozen) routes the writes correctly but its compositor
+still flattens everything to the bitmap; canvas overlay-above-cells
+support is out of scope until the freeze lifts.
+
 ### 2.0.1 – 2026-04-21
 
 Fix: bundled tracker modules (`examples/music/*.mod`) were missing
