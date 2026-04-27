@@ -71,13 +71,12 @@ CAM_X = 0
 CAM_Y = 0
 
 ' --- viewport tile staging buffer ---
-'   X scroll is pixel-smooth so we render +2 cols (left/right partials).
-'   Y scroll is snapped to MAP_TILE_H (see UpdateCamera) — the cell-list
-'   tilemap always composites OVER the bitmap HUD strip, so any partial
-'   tile row leaking into the HUD would obscure dialogue text. Snapping
-'   Y keeps the play area exactly PLAY_H \ 16 rows tall with no overlap.
+'   Both axes are pixel-smooth. The HUD strip lives on the OVERLAY
+'   plane (see RenderHud), so the cell-list tilemap composites BELOW
+'   the HUD and partial-row tile leak above the HUD bottom is hidden
+'   automatically — no need to snap CAM_Y to a tile boundary.
 VIEW_COLS = (VIEW_W \ 16) + 2
-VIEW_ROWS = (PLAY_H \ 16)
+VIEW_ROWS = (PLAY_H \ 16) + 2
 DIM VIEW_TILES(VIEW_COLS * VIEW_ROWS - 1)
 
 ' --- dialogue ---
@@ -221,8 +220,6 @@ FUNCTION UpdateCamera()
   IF TY < 0 THEN TY = 0
   IF TX > WMAX_X THEN TX = WMAX_X
   IF TY > WMAX_Y THEN TY = WMAX_Y
-  ' Y snaps to tile boundary (no partial top row leaking into HUD).
-  TY = (TY \ MAP_TILE_H) * MAP_TILE_H
   CAM_X = TX
   CAM_Y = TY
 END FUNCTION
@@ -239,8 +236,7 @@ FUNCTION RenderTiles()
   COL0 = CAM_X \ MAP_TILE_W
   ROW0 = CAM_Y \ MAP_TILE_H
   OFF_X = -(CAM_X - COL0 * MAP_TILE_W)
-  ' CAM_Y is tile-aligned, so OFF_Y is always exactly HUD_H — no leak.
-  OFF_Y = HUD_H
+  OFF_Y = -(CAM_Y - ROW0 * MAP_TILE_H) + HUD_H
   FOR VR = 0 TO VIEW_ROWS - 1
     WR = ROW0 + VR
     FOR VC = 0 TO VIEW_COLS - 1
@@ -280,14 +276,31 @@ FUNCTION RenderPlayer()
 END FUNCTION
 
 FUNCTION RenderHud()
-  ' HUD background strip.
+  ' HUD lives on the overlay plane so it always sits ABOVE the
+  ' tile cells (Zelda-SNES style top layer). Without this, partial
+  ' top tile rows from pixel-smooth Y scroll would composite over
+  ' the dialog text. CLS-on-overlay clears just the overlay; world
+  ' rendering above is untouched.
+  OVERLAY ON
+  CLS
   COLORRGB 16, 16, 16
   FILLRECT 0, 0 TO VIEW_W - 1, HUD_H - 1
   COLORRGB 255, 255, 255
   HUD_LBL$ = LEVEL$
   DRAWTEXT 4, 4, "LIFE " + STR$(LIVES) + "  AREA " + HUD_LBL$
   IF DIALOG$ <> "" THEN
+    ' Dialog box, SNES-style: dark frame near top of play area, yellow
+    ' text on top. Drawn on the overlay so the box never gets clipped
+    ' by world tiles even if the camera is mid-scroll.
+    COLORRGB 0, 0, 0
+    FILLRECT 8, HUD_H + 4 TO VIEW_W - 9, HUD_H + 28
+    COLORRGB 255, 255, 255
+    FILLRECT 9, HUD_H + 5 TO VIEW_W - 10, HUD_H + 5
+    FILLRECT 9, HUD_H + 27 TO VIEW_W - 10, HUD_H + 27
+    FILLRECT 9, HUD_H + 5 TO 9, HUD_H + 27
+    FILLRECT VIEW_W - 10, HUD_H + 5 TO VIEW_W - 10, HUD_H + 27
     COLORRGB 255, 240, 80
-    DRAWTEXT 4, 14, DIALOG$
+    DRAWTEXT 14, HUD_H + 12, DIALOG$
   END IF
+  OVERLAY OFF
 END FUNCTION

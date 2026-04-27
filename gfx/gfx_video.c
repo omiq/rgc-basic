@@ -167,6 +167,10 @@ void gfx_video_init(GfxVideoState *s)
     s->rgba_h = GFX_BITMAP_HEIGHT;
     s->pen_r = 0xFF; s->pen_g = 0xFF; s->pen_b = 0xFF; s->pen_a = 0xFF;
     s->bgrgba_r = 0; s->bgrgba_g = 0; s->bgrgba_b = 0; s->bgrgba_a = 0xFF;
+    s->bitmap_rgba_overlay = NULL;
+    s->bitmap_rgba_overlay_show = NULL;
+    s->target_overlay = 0;
+    s->overlay_active = 0;
     /* Populate palette entries 16..255 with the HSV rainbow once per
      * process. Safe to call repeatedly — reset is memcpy + compute. */
     gfx_palette_reset();
@@ -674,6 +678,10 @@ int gfx_rgba_alloc(GfxVideoState *s, unsigned w, unsigned h)
      * buffer forever) wastes a megabyte. */
     if (s->bitmap_rgba) { free(s->bitmap_rgba); s->bitmap_rgba = NULL; }
     if (s->bitmap_rgba_show) { free(s->bitmap_rgba_show); s->bitmap_rgba_show = NULL; }
+    /* Overlay shadows the same dimensions, so any size change invalidates
+     * its allocation. Drop it; OVERLAY ON will lazy-realloc at the new
+     * size on next use. */
+    gfx_rgba_overlay_free(s);
     s->bitmap_rgba = (uint8_t *)calloc(bytes, 1u);
     if (!s->bitmap_rgba) return -1;
     s->bitmap_rgba_show = (uint8_t *)calloc(bytes, 1u);
@@ -687,11 +695,86 @@ int gfx_rgba_alloc(GfxVideoState *s, unsigned w, unsigned h)
     return 0;
 }
 
+/* Pick the active RGBA draw buffer for bitmap-plane primitives. Falls
+ * back to bitmap_rgba whenever the overlay is requested but not yet
+ * allocated, so a stray write can't NULL-deref. */
+static uint8_t *rgba_active_draw(GfxVideoState *s)
+{
+    if (!s) return NULL;
+    if (s->target_overlay && s->bitmap_rgba_overlay) return s->bitmap_rgba_overlay;
+    return s->bitmap_rgba;
+}
+
+int gfx_rgba_overlay_alloc(GfxVideoState *s)
+{
+    size_t bytes;
+    if (!s) return -1;
+    /* Overlay piggybacks on the main RGBA plane's dimensions. If
+     * SCREEN 2/4 hasn't run yet there's nothing to shadow; auto-alloc
+     * the standard 320×200 plane so OVERLAY ON works in any context. */
+    if (!s->bitmap_rgba) {
+        if (gfx_rgba_alloc(s, GFX_BITMAP_WIDTH, GFX_BITMAP_HEIGHT) != 0) return -1;
+    }
+    bytes = (size_t)s->rgba_w * (size_t)s->rgba_h * 4u;
+    if (!s->bitmap_rgba_overlay) {
+        s->bitmap_rgba_overlay = (uint8_t *)calloc(bytes, 1u);
+        if (!s->bitmap_rgba_overlay) return -1;
+    }
+    if (!s->bitmap_rgba_overlay_show) {
+        s->bitmap_rgba_overlay_show = (uint8_t *)calloc(bytes, 1u);
+        if (!s->bitmap_rgba_overlay_show) {
+            free(s->bitmap_rgba_overlay);
+            s->bitmap_rgba_overlay = NULL;
+            return -1;
+        }
+    }
+    s->overlay_active = 1;
+    return 0;
+}
+
+void gfx_rgba_overlay_free(GfxVideoState *s)
+{
+    if (!s) return;
+    if (s->bitmap_rgba_overlay) { free(s->bitmap_rgba_overlay); s->bitmap_rgba_overlay = NULL; }
+    if (s->bitmap_rgba_overlay_show) { free(s->bitmap_rgba_overlay_show); s->bitmap_rgba_overlay_show = NULL; }
+    s->overlay_active = 0;
+    s->target_overlay = 0;
+}
+
+void gfx_rgba_overlay_set_target(GfxVideoState *s, int on)
+{
+    if (!s) return;
+    if (on) {
+        if (gfx_rgba_overlay_alloc(s) != 0) return;
+        s->target_overlay = 1;
+    } else {
+        s->target_overlay = 0;
+    }
+}
+
+void gfx_rgba_overlay_clear(GfxVideoState *s)
+{
+    if (!s || !s->bitmap_rgba_overlay) return;
+    /* Transparent (alpha 0) so the world below shows through anywhere
+     * the HUD hasn't drawn this frame. */
+    memset(s->bitmap_rgba_overlay, 0, (size_t)s->rgba_w * (size_t)s->rgba_h * 4u);
+}
+
 void gfx_rgba_clear(GfxVideoState *s)
 {
     uint8_t *p;
     size_t i, bytes;
-    if (!s || !s->bitmap_rgba) return;
+    if (!s) return;
+    /* CLS while OVERLAY ON wipes the overlay plane, not the world. The
+     * idiomatic Zelda-style frame is `CLS : TILEMAP : ... : OVERLAY ON :
+     * CLS : DRAWTEXT : OVERLAY OFF : VSYNC` — clearing one buffer per
+     * call is what callers expect from a target-redirected primitive. */
+    if (s->target_overlay && s->bitmap_rgba_overlay) {
+        memset(s->bitmap_rgba_overlay, 0,
+               (size_t)s->rgba_w * (size_t)s->rgba_h * 4u);
+        return;
+    }
+    if (!s->bitmap_rgba) return;
     bytes = (size_t)s->rgba_w * (size_t)s->rgba_h * 4u;
     p = s->bitmap_rgba;
     for (i = 0; i < bytes; i += 4u) {
@@ -704,15 +787,18 @@ void gfx_rgba_clear(GfxVideoState *s)
 
 void gfx_rgba_set_pixel(GfxVideoState *s, int x, int y)
 {
+    uint8_t *buf;
     unsigned off;
-    if (!s || !s->bitmap_rgba) return;
+    if (!s) return;
+    buf = rgba_active_draw(s);
+    if (!buf) return;
     if (x < 0 || y < 0) return;
     if ((unsigned)x >= s->rgba_w || (unsigned)y >= s->rgba_h) return;
     off = ((unsigned)y * s->rgba_w + (unsigned)x) * 4u;
-    s->bitmap_rgba[off + 0] = s->pen_r;
-    s->bitmap_rgba[off + 1] = s->pen_g;
-    s->bitmap_rgba[off + 2] = s->pen_b;
-    s->bitmap_rgba[off + 3] = s->pen_a;
+    buf[off + 0] = s->pen_r;
+    buf[off + 1] = s->pen_g;
+    buf[off + 2] = s->pen_b;
+    buf[off + 3] = s->pen_a;
 }
 
 void gfx_rgba_line(GfxVideoState *s, int x0, int y0, int x1, int y1)
@@ -759,10 +845,18 @@ int gfx_rgba_get_show_pixel(const GfxVideoState *s, unsigned x, unsigned y, uint
 
 void gfx_rgba_flip(GfxVideoState *s)
 {
+    size_t bytes;
     if (!s) return;
-    if (!s->bitmap_rgba || !s->bitmap_rgba_show) return;
-    memcpy(s->bitmap_rgba_show, s->bitmap_rgba,
-           (size_t)s->rgba_w * (size_t)s->rgba_h * 4u);
+    bytes = (size_t)s->rgba_w * (size_t)s->rgba_h * 4u;
+    if (s->bitmap_rgba && s->bitmap_rgba_show) {
+        memcpy(s->bitmap_rgba_show, s->bitmap_rgba, bytes);
+    }
+    /* DOUBLEBUFFER ON also commits the HUD overlay pair so the cell
+     * list, the world bitmap, and the overlay all flip atomically on
+     * VSYNC — no half-painted HUD between frames. */
+    if (s->bitmap_rgba_overlay && s->bitmap_rgba_overlay_show) {
+        memcpy(s->bitmap_rgba_overlay_show, s->bitmap_rgba_overlay, bytes);
+    }
 }
 
 void gfx_rgba_stamp_glyph_px(GfxVideoState *s, int x, int y, uint8_t screencode)

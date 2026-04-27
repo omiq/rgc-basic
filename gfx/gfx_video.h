@@ -126,6 +126,18 @@ typedef struct GfxVideoState {
     uint16_t  rgba_h;
     uint8_t   pen_r, pen_g, pen_b, pen_a;    /* RGBA pen for SCREEN 2/4 draws */
     uint8_t   bgrgba_r, bgrgba_g, bgrgba_b, bgrgba_a;  /* RGBA clear colour */
+    /* HUD overlay plane (SNES Zelda-style top layer). Allocated lazily by
+     * `OVERLAY ON`. Bitmap-plane primitives (PSET, LINE, FILLRECT, RECT,
+     * DRAWTEXT, …) write here while `target_overlay` is 1. The renderer
+     * composites this plane AFTER the cell list (TILEMAP DRAW + SPRITE
+     * STAMP), so HUD text and dialog boxes always appear on top of world
+     * tiles. Same dimensions as bitmap_rgba; transparent pixels (alpha 0)
+     * let the world show through. DOUBLEBUFFER ON also flips this pair
+     * via gfx_rgba_flip(). */
+    uint8_t  *bitmap_rgba_overlay;
+    uint8_t  *bitmap_rgba_overlay_show;
+    uint8_t   target_overlay;       /* 0 = main bitmap, 1 = overlay */
+    uint8_t   overlay_active;       /* 1 when overlay plane is allocated */
 } GfxVideoState;
 
 /* Advance 60 Hz jiffy counter (TI / TI$); wraps every 24h like C64. */
@@ -269,6 +281,26 @@ void gfx_rgba_flip(GfxVideoState *s);
 void gfx_rgba_stamp_glyph_px(GfxVideoState *s, int x, int y, uint8_t screencode);
 void gfx_rgba_stamp_glyph_px_scaled(GfxVideoState *s, int x, int y,
                                     uint8_t screencode, int scale);
+
+/* HUD overlay plane: bitmap-plane primitives optionally write here, and
+ * the raylib renderer composites it AFTER the cell list (TILEMAP DRAW /
+ * SPRITE STAMP) so HUD text and dialog boxes never get obscured by
+ * world tiles. Lazy-alloc on first OVERLAY ON.
+ *
+ *   gfx_rgba_overlay_alloc       — alloc the overlay plane (and its
+ *                                   DOUBLEBUFFER companion). Idempotent.
+ *   gfx_rgba_overlay_set_target  — 1 = subsequent bitmap writes target
+ *                                   the overlay. Auto-allocs on first 1.
+ *   gfx_rgba_overlay_clear       — clear overlay to transparent (alpha 0).
+ *   gfx_rgba_overlay_free        — release both overlay buffers and reset
+ *                                   target/active flags. Called when
+ *                                   bitmap_rgba is reallocated at a new
+ *                                   size to avoid dimension mismatch.
+ */
+int  gfx_rgba_overlay_alloc(GfxVideoState *s);
+void gfx_rgba_overlay_set_target(GfxVideoState *s, int on);
+void gfx_rgba_overlay_clear(GfxVideoState *s);
+void gfx_rgba_overlay_free(GfxVideoState *s);
 
 /* Copy the draw plane to the show plane. Called by VSYNC (and only
  * does work when `double_buffer` is 1 and draw != show). Safe to call

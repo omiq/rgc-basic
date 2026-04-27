@@ -1892,6 +1892,62 @@ static void render_rgba_screen(const GfxVideoState *s, RenderTexture2D target,
     EndTextureMode();
 }
 
+/* HUD overlay (Zelda-SNES top layer). Composited AFTER the sprite/
+ * tilemap cell list so that anything OVERLAY ON has drawn — dialog
+ * boxes, life count, status strip — is guaranteed to sit above the
+ * world. Transparent pixels (alpha 0) let the world below show
+ * through; alpha-blended pixels get a normal premultiplied composite
+ * via BLEND_ALPHA. Reuses g_pixtex (already sized to the target) so
+ * we don't pay an extra GPU texture allocation per frame. No-op when
+ * the overlay plane hasn't been touched. */
+static void render_rgba_overlay(const GfxVideoState *s, RenderTexture2D target)
+{
+    int y, x;
+    int fb_w = target.texture.width  > 0 ? target.texture.width  : NATIVE_W;
+    int fb_h = target.texture.height > 0 ? target.texture.height : NATIVE_H;
+    int src_w = (int)s->rgba_w;
+    int src_h = (int)s->rgba_h;
+    const uint8_t *src;
+    Color *buf;
+    int off_x;
+    if (!s->overlay_active) return;
+    src = (s->double_buffer && s->bitmap_rgba_overlay_show)
+        ? s->bitmap_rgba_overlay_show
+        : s->bitmap_rgba_overlay;
+    if (!src) return;
+    buf = ensure_pixbuf(fb_w, fb_h);
+    /* Start from a fully-transparent canvas so any pixel the overlay
+     * didn't write composites as a no-op (BLEND_ALPHA over the world
+     * leaves it visible). */
+    {
+        int total = fb_w * fb_h;
+        int i;
+        Color clear = { 0, 0, 0, 0 };
+        for (i = 0; i < total; i++) buf[i] = clear;
+    }
+    off_x = (fb_w - src_w) / 2;
+    if (off_x < 0) off_x = 0;
+    for (y = 0; y < src_h; y++) {
+        if (y < 0 || y >= fb_h) continue;
+        for (x = 0; x < src_w; x++) {
+            int px = off_x + x;
+            unsigned off;
+            if (px < 0 || px >= fb_w) continue;
+            off = ((unsigned)y * (unsigned)src_w + (unsigned)x) * 4u;
+            buf[y * fb_w + px].r = src[off + 0];
+            buf[y * fb_w + px].g = src[off + 1];
+            buf[y * fb_w + px].b = src[off + 2];
+            buf[y * fb_w + px].a = src[off + 3];
+        }
+    }
+    UpdateTexture(g_pixtex, buf);
+    BeginTextureMode(target);
+    BeginBlendMode(BLEND_ALPHA);
+    DrawTexture(g_pixtex, 0, 0, WHITE);
+    EndBlendMode();
+    EndTextureMode();
+}
+
 /* 320×200 hi-res: MSB of each byte is the leftmost pixel in that group of 8. */
 static void render_bitmap_screen(const GfxVideoState *s, RenderTexture2D target,
                                  int native_w)
@@ -2285,6 +2341,11 @@ int main(int argc, char **argv)
          * Negative z = behind positive z, but all are above text. */
         gfx_sprite_composite_range(&vs, target, nat_w, nat_h, -32768, 32767, 1);
 
+        /* HUD overlay sits ABOVE the cell list — Zelda-SNES top layer.
+         * No-op until a program calls OVERLAY ON; legacy code paths see
+         * no behaviour change. */
+        render_rgba_overlay(&vs, target);
+
         /* Fulfil any pending IMAGE GRAB now that target holds the fully
          * composited frame. Desktop-only: WASM does the readback inline
          * from the interpreter (single thread, no cond_wait). */
@@ -2517,6 +2578,9 @@ void wasm_gfx_refresh_js(void)
                                g_wasm_target.texture.width,
                                g_wasm_target.texture.height,
                                -32768, 32767, 1);
+
+    /* HUD overlay above the cell list. Mirrors the desktop path. */
+    render_rgba_overlay(&g_wasm_vs, g_wasm_target);
 
     win_w = GetScreenWidth();
     win_h = GetScreenHeight();

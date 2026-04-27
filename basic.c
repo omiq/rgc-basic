@@ -2929,6 +2929,7 @@ static void statement_close(char **p);
 static void statement_download(char **p);
 #ifdef GFX_VIDEO
 static void statement_doublebuffer(char **p);
+static void statement_overlay(char **p);
 static void statement_loadsound(char **p);
 static void statement_unloadsound(char **p);
 static void statement_playsound(char **p);
@@ -3410,7 +3411,7 @@ static const char *const reserved_words[] = {
     "FILLRECT", "CIRCLE", "FILLCIRCLE", "ELLIPSE", "FILLELLIPSE", "TRIANGLE", "FILLTRIANGLE", "FLOODFILL", "POLYGON", "FILLPOLYGON", "VSYNC", "ANTIALIAS",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
-    "DOUBLEBUFFER", "DRAWSPRITE", "DRAWSPRITETILE", "DRAWTEXT", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
+    "DOUBLEBUFFER", "DRAWSPRITE", "DRAWSPRITETILE", "DRAWTEXT", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "OVERLAY", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
     "DO", "LOOP", "UNTIL", "EXIT",
     "GETBYTE",
     /* Named colour constants (C64 palette 0-15) and boolean/math constants */
@@ -7192,6 +7193,62 @@ static void statement_doublebuffer(char **p)
         gfx_video_screen_set_show(gfx_vs, 0);
     }
     gfx_vs->double_buffer = (uint8_t)want;
+}
+
+/* OVERLAY ON | OFF | CLS  — HUD overlay layer (Zelda-SNES style).
+ *
+ * The raylib renderer composites the bitmap plane, then the cell list
+ * (TILEMAP DRAW + SPRITE STAMP), then — if any program has used
+ * OVERLAY — a second RGBA bitmap drawn over the cells. Bitmap-plane
+ * primitives (PSET, LINE, FILLRECT, RECT, DRAWTEXT, CLS, …) are
+ * redirected to the overlay buffer between OVERLAY ON and OVERLAY OFF,
+ * so HUD text and dialog boxes always sit above world tiles.
+ *
+ *   OVERLAY ON   redirect bitmap-plane writes to the overlay (lazy alloc)
+ *   OVERLAY OFF  back to the main bitmap (default)
+ *   OVERLAY CLS  clear overlay to fully transparent (alpha 0)
+ *
+ * Idiomatic loop:
+ *   DO
+ *     CLS                                       : REM clear world
+ *     TILEMAP DRAW 0, ...
+ *     SPRITE STAMP 1, ...
+ *     OVERLAY ON
+ *     CLS                                       : REM clear overlay
+ *     COLORRGB 0,0,0,255 : FILLRECT 0,0 TO 319,23
+ *     COLORRGB 255,240,80,255 : DRAWTEXT 4,4,"LIFE 3"
+ *     OVERLAY OFF
+ *     VSYNC
+ *   LOOP
+ *
+ * Hard-required by the IDE's raylib backend; canvas WASM (frozen)
+ * still draws the overlay flat onto the bitmap plane — works for
+ * static HUDs, but won't sit above tiles. */
+static void statement_overlay(char **p)
+{
+    skip_spaces(p);
+    if (!gfx_vs) {
+        runtime_error_hint("OVERLAY requires basic-gfx or canvas WASM",
+                           "OVERLAY needs the raylib renderer to composite a HUD plane.");
+        return;
+    }
+    if (starts_with_kw(*p, "ON")) {
+        *p += 2;
+        gfx_rgba_overlay_set_target(gfx_vs, 1);
+        return;
+    }
+    if (starts_with_kw(*p, "OFF")) {
+        *p += 3;
+        gfx_rgba_overlay_set_target(gfx_vs, 0);
+        return;
+    }
+    if (starts_with_kw(*p, "CLS")) {
+        *p += 3;
+        gfx_rgba_overlay_clear(gfx_vs);
+        return;
+    }
+    runtime_error_hint("OVERLAY expects ON, OFF, or CLS",
+                       "Usage: OVERLAY ON | OVERLAY OFF | OVERLAY CLS");
 }
 #endif
 
@@ -14873,6 +14930,13 @@ static void execute_statement(char **p)
             statement_open(p);
             return;
         }
+#ifdef GFX_VIDEO
+        if (starts_with_kw(*p, "OVERLAY")) {
+            *p += 7;
+            statement_overlay(p);
+            return;
+        }
+#endif
     }
     if (c == 'C') {
         if (starts_with_kw(*p, "CLOSE")) {
