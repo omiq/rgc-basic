@@ -18,8 +18,11 @@
 ' ============================================================
 
 #INCLUDE "../maplib.bas"
-#INCLUDE "level1_overworld.bas"
-#INCLUDE "level1_cave.bas"
+' Level data lives in level1_overworld.json and level1_cave.json,
+' loaded at runtime by MAPLOAD (docs/map-format.md v1). The legacy
+' BASIC builders level1_overworld.bas and level1_cave.bas are kept in
+' git as authoring reference but no longer #INCLUDEd — MAPLOAD fills
+' the same MAP_* globals from JSON.
 
 SCREEN 2
 DOUBLEBUFFER ON
@@ -53,6 +56,8 @@ DIM MAP_OBJ_Y(15)
 DIM MAP_OBJ_W(15)
 DIM MAP_OBJ_H(15)
 DIM MAP_OBJ_ID(15)
+DIM MAP_TILESET_ID$(7)
+DIM MAP_TILESET_SRC$(7)
 
 ' Tile slot used by RenderTiles(). Swapped on level change.
 TILE_SLOT = 0
@@ -98,7 +103,7 @@ PREV_SPACE = 0
 ' to the previous level.
 JUST_WARPED = 0
 
-LoadOverworld()
+MAPLOAD "level1_overworld.json"
 SetSpawn()
 
 DO
@@ -219,12 +224,12 @@ FUNCTION SwapLevel(target$)
   IF target$ = "cave" THEN
     LEVEL$ = "cave"
     TILE_SLOT = 3
-    LoadCave()
+    MAPLOAD "level1_cave.json"
     SetSpawn()
   ELSE
     LEVEL$ = "overworld"
     TILE_SLOT = 0
-    LoadOverworld()
+    MAPLOAD "level1_overworld.json"
     ' Spawn next to overworld door instead of default spawn.
     PX = 16 * 16
     PY = 9 * 16
