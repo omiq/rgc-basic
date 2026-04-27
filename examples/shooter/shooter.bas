@@ -36,7 +36,10 @@ SPRITE LOAD 5, "player.png"
 SPRITEMODULATE 5, 50, 0, 0, 0
 SPRITEVISIBLE 5, 1
 SPRITE LOAD 6, "enemy-sprites.png", 32, 32
-SPRITEMODULATE 6, 50, 0, 0, 0
+' DIAG 2026-04-27: temporary loud-red shadow to verify SPRITE STAMP cell
+' tint is being read from the slot. Will revert to (50,0,0,0) once the
+' transparency on STAMP-cells fix is confirmed live.
+SPRITEMODULATE 6, 255, 255, 0, 0
 SPRITEVISIBLE 6, 1
 
 ' --- viewport / camera ---
