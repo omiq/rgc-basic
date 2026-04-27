@@ -24,6 +24,10 @@
 ' ============================================================
 
 TREE_TILE = 563
+DIRT_TILE = 1402
+SAND_TILE = 733
+WATER_TILE = 17
+ROCK_TILE = 86
 
 FUNCTION LoadOverworld()
   MAP_W      = 32
@@ -50,35 +54,35 @@ FUNCTION LoadOverworld()
   ' Pond of water in the middle (solid).
   FOR L1R = 14 TO 17
     FOR L1C = 14 TO 19
-      MAP_BG(L1R * MAP_W + L1C) = 17
+      MAP_BG(L1R * MAP_W + L1C) = WATER_TILE
     NEXT L1C
   NEXT L1R
 
   ' Path of dirt from spawn (4,28) up to door (16,8) — rough L shape.
   FOR L1R = 8 TO 28
-    MAP_BG(L1R * MAP_W + 4) = 49
+    MAP_BG(L1R * MAP_W + 4) = DIRT_TILE
   NEXT L1R
   FOR L1C = 4 TO 16
-    MAP_BG(8 * MAP_W + L1C) = 49
+    MAP_BG(8 * MAP_W + L1C) = DIRT_TILE
   NEXT L1C
 
   ' Sand patch around the door so it stands out visually.
   FOR L1R = 7 TO 9
     FOR L1C = 15 TO 17
-      MAP_BG(L1R * MAP_W + L1C) = 204
+      MAP_BG(L1R * MAP_W + L1C) = SAND_TILE
     NEXT L1C
   NEXT L1R
 
   ' A few scattered rocks (solid).
-  MAP_BG(20 * MAP_W + 10) = 86
-  MAP_BG(22 * MAP_W + 22) = 86
-  MAP_BG(12 * MAP_W + 26) = 86
+  MAP_BG(20 * MAP_W + 10) = ROCK_TILE
+  MAP_BG(22 * MAP_W + 22) = ROCK_TILE
+  MAP_BG(12 * MAP_W + 26) = ROCK_TILE
 
   ' Solid tile id list (water + tree + rock).
   MAP_COLL_COUNT = 3
-  MAP_COLL(0) = 17
-  MAP_COLL(1) = 28
-  MAP_COLL(2) = 86
+  MAP_COLL(0) = WATER_TILE
+  MAP_COLL(1) = TREE_TILE
+  MAP_COLL(2) = ROCK_TILE
 
   ' Object list.
   MAP_OBJ_COUNT = 3

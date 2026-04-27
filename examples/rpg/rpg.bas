@@ -70,9 +70,14 @@ LIVES = 3
 CAM_X = 0
 CAM_Y = 0
 
-' --- viewport tile staging buffer (cols+2 wide, rows+2 tall worst case) ---
+' --- viewport tile staging buffer ---
+'   X scroll is pixel-smooth so we render +2 cols (left/right partials).
+'   Y scroll is snapped to MAP_TILE_H (see UpdateCamera) — the cell-list
+'   tilemap always composites OVER the bitmap HUD strip, so any partial
+'   tile row leaking into the HUD would obscure dialogue text. Snapping
+'   Y keeps the play area exactly PLAY_H \ 16 rows tall with no overlap.
 VIEW_COLS = (VIEW_W \ 16) + 2
-VIEW_ROWS = (PLAY_H \ 16) + 2
+VIEW_ROWS = (PLAY_H \ 16)
 DIM VIEW_TILES(VIEW_COLS * VIEW_ROWS - 1)
 
 ' --- dialogue ---
@@ -81,6 +86,9 @@ DIALOG_TIMER = 0
 
 ' --- key codes ---
 KQ = 81 : KW = 87 : KA = 65 : KS = 83 : KD = 68 : KSPACE = 32
+' Arrow-key constants from the interpreter (CHR$ numbering): KEY_UP=145,
+' KEY_DOWN=17, KEY_LEFT=157, KEY_RIGHT=29. Bound alongside WASD so either
+' input scheme works.
 
 PREV_SPACE = 0
 
@@ -115,19 +123,19 @@ FUNCTION HandleInput()
   IF PALIVE = 0 THEN RETURN 0
   NX = PX
   NY = PY
-  IF KEYDOWN(KA) THEN
+  IF KEYDOWN(KA) OR KEYDOWN(KEY_LEFT) THEN
     NX = PX - PSPD
     PFACE$ = "left"
   END IF
-  IF KEYDOWN(KD) THEN
+  IF KEYDOWN(KD) OR KEYDOWN(KEY_RIGHT) THEN
     NX = PX + PSPD
     PFACE$ = "right"
   END IF
-  IF KEYDOWN(KW) THEN
+  IF KEYDOWN(KW) OR KEYDOWN(KEY_UP) THEN
     NY = PY - PSPD
     PFACE$ = "up"
   END IF
-  IF KEYDOWN(KS) THEN
+  IF KEYDOWN(KS) OR KEYDOWN(KEY_DOWN) THEN
     NY = PY + PSPD
     PFACE$ = "down"
   END IF
@@ -213,6 +221,8 @@ FUNCTION UpdateCamera()
   IF TY < 0 THEN TY = 0
   IF TX > WMAX_X THEN TX = WMAX_X
   IF TY > WMAX_Y THEN TY = WMAX_Y
+  ' Y snaps to tile boundary (no partial top row leaking into HUD).
+  TY = (TY \ MAP_TILE_H) * MAP_TILE_H
   CAM_X = TX
   CAM_Y = TY
 END FUNCTION
@@ -229,7 +239,8 @@ FUNCTION RenderTiles()
   COL0 = CAM_X \ MAP_TILE_W
   ROW0 = CAM_Y \ MAP_TILE_H
   OFF_X = -(CAM_X - COL0 * MAP_TILE_W)
-  OFF_Y = -(CAM_Y - ROW0 * MAP_TILE_H) + HUD_H
+  ' CAM_Y is tile-aligned, so OFF_Y is always exactly HUD_H — no leak.
+  OFF_Y = HUD_H
   FOR VR = 0 TO VIEW_ROWS - 1
     WR = ROW0 + VR
     FOR VC = 0 TO VIEW_COLS - 1
