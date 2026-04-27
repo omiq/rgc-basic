@@ -6640,8 +6640,15 @@ static void statement_cls(char **p)
          * programs that do `CLS : ...STAMP : ...STAMP : ...` get a
          * fresh slate each tick. Without this the list accumulates
          * across frames and flickers when the renderer races the
-         * interpreter. */
-        gfx_cells_clear();
+         * interpreter.
+         *
+         * Skip when OVERLAY ON: the overlay is a HUD plane that lives
+         * ABOVE the cell list, so its CLS must not wipe the world tiles
+         * already submitted this frame. The overlay's own pixels were
+         * cleared inside gfx_clear_screen above (target-aware). */
+        if (!gfx_vs->target_overlay) {
+            gfx_cells_clear();
+        }
         return;
     }
 #else
