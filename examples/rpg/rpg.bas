@@ -108,14 +108,34 @@ PREV_SPACE = 0
 ' to the previous level.
 JUST_WARPED = 0
 
+' --- NPCs (parallel state arrays keyed by index 0..NPC_COUNT-1) ---
+'   NPC_test.png is a 4x4 sheet of 16x32 cells. Frame layout:
+'     row 0 (frames 1..4)   facing down
+'     row 1 (frames 5..8)   facing left
+'     row 2 (frames 9..12)  facing up (back of head)
+'     row 3 (frames 13..16) facing right
+'   Each row is a 4-frame walk cycle. NPC_DIR holds the row index;
+'   NPC_FRAME counts 0..3 within the cycle. Stamp = DIR * 4 + FRAME + 1.
+NPC_MAX = 8
+DIM NPC_OBJ_IDX(NPC_MAX - 1)
+DIM NPC_DIR(NPC_MAX - 1)
+DIM NPC_FRAME(NPC_MAX - 1)
+DIM NPC_ANIM_TIMER(NPC_MAX - 1)
+DIM NPC_MOVING(NPC_MAX - 1)
+DIM NPC_WANDER_TIMER(NPC_MAX - 1)
+NPC_COUNT = 0
+NPC_SPD = 1
+
 MAPLOAD "level1_overworld.json"
 SetSpawn()
+InitNpcs()
 
 DO
   IF KEYDOWN(KQ) THEN EXIT
   HandleInput()
   HandleInteract()
   CheckDoor()
+  UpdateNpcs()
   UpdateCamera()
   RenderFrame()
   VSYNC
@@ -239,6 +259,7 @@ FUNCTION SwapLevel(target$)
     PX = 16 * 16
     PY = 9 * 16
   END IF
+  InitNpcs()
   ' Block door re-trigger until the player walks off the new spawn
   ' point — see CheckDoor / JUST_WARPED above.
   JUST_WARPED = 1
@@ -292,7 +313,16 @@ FUNCTION RenderObjects()
       OSX = MAP_OBJ_X(OI) - CAM_X
       OSY = MAP_OBJ_Y(OI) - CAM_Y + HUD_H
       IF OSX > -16 AND OSX < VIEW_W AND OSY > -32 AND OSY < VIEW_H THEN
-        SPRITE STAMP 2, OSX, OSY, 1, 10
+        ' Look up the wander state for this object so the NPC plays
+        ' its 4-frame walk cycle in the current facing direction.
+        ' Default frame 1 (idle, facing down) if state isn't tracked.
+        NF = 1
+        FOR NJ = 0 TO NPC_COUNT - 1
+          IF NPC_OBJ_IDX(NJ) = OI THEN
+            NF = NPC_DIR(NJ) * 4 + NPC_FRAME(NJ) + 1
+          END IF
+        NEXT NJ
+        SPRITE STAMP 2, OSX, OSY, NF, 10
       END IF
     END IF
   NEXT OI
@@ -338,4 +368,86 @@ FUNCTION RenderHud()
     DRAWTEXT 14, HUD_H + 12, DIALOG$
   END IF
   OVERLAY OFF
+END FUNCTION
+
+' ------------------------------------------------------------
+'  NPCs — wander + walk-cycle animation
+' ------------------------------------------------------------
+
+' Snapshot every "npc" object into the parallel state arrays. Called
+' after MAPLOAD on level entry; resets timers + frames so the NPC
+' starts in a fresh idle pose. Cap at NPC_MAX entries.
+FUNCTION InitNpcs()
+  NPC_COUNT = 0
+  FOR INI = 0 TO MAP_OBJ_COUNT - 1
+    IF MAP_OBJ_TYPE$(INI) = "npc" AND NPC_COUNT < NPC_MAX THEN
+      NPC_OBJ_IDX(NPC_COUNT) = INI
+      NPC_DIR(NPC_COUNT) = 0
+      NPC_FRAME(NPC_COUNT) = 0
+      NPC_ANIM_TIMER(NPC_COUNT) = 0
+      NPC_MOVING(NPC_COUNT) = 0
+      ' First decision lands a few frames in so all NPCs don't act in
+      ' lockstep — RND seeds per spawn give a visible scatter.
+      NPC_WANDER_TIMER(NPC_COUNT) = 30 + INT(RND(1) * 60)
+      NPC_COUNT = NPC_COUNT + 1
+    END IF
+  NEXT INI
+END FUNCTION
+
+' Wander AI:
+'   - while idle, wait for NPC_WANDER_TIMER to hit 0, then roll a die:
+'     1-in-5 → idle again, otherwise pick a direction and start walking.
+'   - while walking, advance 1 px per frame in NPC_DIR. AABB-collide
+'     against solid tiles using the same foot rect as the player; if
+'     blocked, drop to idle so the next decision picks a fresh dir.
+'   - cycle through the 4 walk frames every 8 ticks for a slow shuffle.
+'   - mirror the new position back into MAP_OBJ_X/Y so HandleInteract
+'     sees the live spot when the player approaches for dialog.
+FUNCTION UpdateNpcs()
+  IF NPC_COUNT = 0 THEN RETURN 0
+  FOR UNI = 0 TO NPC_COUNT - 1
+    OBJ = NPC_OBJ_IDX(UNI)
+    NPC_WANDER_TIMER(UNI) = NPC_WANDER_TIMER(UNI) - 1
+    IF NPC_WANDER_TIMER(UNI) <= 0 THEN
+      ROLL = INT(RND(1) * 5)
+      IF ROLL = 4 THEN
+        NPC_MOVING(UNI) = 0
+        NPC_WANDER_TIMER(UNI) = 60 + INT(RND(1) * 60)
+      ELSE
+        NPC_DIR(UNI) = ROLL
+        NPC_MOVING(UNI) = 1
+        NPC_WANDER_TIMER(UNI) = 45 + INT(RND(1) * 60)
+      END IF
+    END IF
+    IF NPC_MOVING(UNI) = 1 THEN
+      NX = MAP_OBJ_X(OBJ)
+      NY = MAP_OBJ_Y(OBJ)
+      DI = NPC_DIR(UNI)
+      IF DI = 0 THEN NY = NY + NPC_SPD
+      IF DI = 1 THEN NX = NX - NPC_SPD
+      IF DI = 2 THEN NY = NY - NPC_SPD
+      IF DI = 3 THEN NX = NX + NPC_SPD
+      OK_MOVE = 1
+      IF MapRectHitsSolid(NX + 2, NY + 18, 12, 12) = 1 THEN OK_MOVE = 0
+      IF NX < 0 OR NX + 16 > MapPixelW() THEN OK_MOVE = 0
+      IF NY < 0 OR NY + 32 > MapPixelH() THEN OK_MOVE = 0
+      IF OK_MOVE = 1 THEN
+        MAP_OBJ_X(OBJ) = NX
+        MAP_OBJ_Y(OBJ) = NY
+      ELSE
+        ' Blocked — drop to idle and short-cycle the timer so the
+        ' next pick happens fast (avoids "wall scrape" stuck pose).
+        NPC_MOVING(UNI) = 0
+        NPC_WANDER_TIMER(UNI) = 20
+      END IF
+      NPC_ANIM_TIMER(UNI) = NPC_ANIM_TIMER(UNI) + 1
+      IF NPC_ANIM_TIMER(UNI) >= 8 THEN
+        NPC_ANIM_TIMER(UNI) = 0
+        NPC_FRAME(UNI) = (NPC_FRAME(UNI) + 1) MOD 4
+      END IF
+    ELSE
+      ' Resting — reset to the calm first frame of the current row.
+      NPC_FRAME(UNI) = 0
+    END IF
+  NEXT UNI
 END FUNCTION
