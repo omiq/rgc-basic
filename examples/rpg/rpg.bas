@@ -1,8 +1,6 @@
 ' ============================================================
 '  rpg/rpg.bas — MVP-2 Zelda-lite
 '
-'  Validates docs/map-format.md by walking the same MAP_* convention
-'  used by shooter, but with:
 '    - 16x16 tiles (vs shooter's 32x32)
 '    - 16x32 character sprite
 '    - tile-based 4-direction movement with AABB-vs-solid collision
@@ -13,8 +11,6 @@
 '             SPACE    interact (NPC, door, stairs)
 '             Q        quit
 '
-'  Asset pack: ArMM1998 "Zelda-like Tilesets and Sprites" (OpenGameArt).
-'  See manifest.txt + asset-spec.md for sheet inventory and tile-id picks.
 ' ============================================================
 
 #INCLUDE "../maplib.bas"
