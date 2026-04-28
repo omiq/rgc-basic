@@ -246,8 +246,14 @@ FUNCTION DrawHeader()
 END FUNCTION
 
 FUNCTION DrawPicker()
+  ' Fixed-size bg covers the maximum picker footprint (8 cols x 4
+  ' rows x 32 px = 256x128 plus a 2-px padding) regardless of the
+  ' current TILE_SIZE. Without this a 32->16 px tileset switch
+  ' leaves a stale 32-grid outline visible below the new picker
+  ' because TILEMAP CLEAR + DrawPicker don't repaint the area the
+  ' previous (larger) FILLRECT covered.
   COLORRGB 24, 24, 32
-  FILLRECT PICKER_X - 2, PICKER_Y - 2 TO PICKER_X + PCOLS * TILE_SIZE + 1, PICKER_Y + PROWS * TILE_SIZE + 1
+  FILLRECT PICKER_X - 2, PICKER_Y - 2 TO PICKER_X + 8 * 32 + 1, PICKER_Y + 4 * 32 + 1
   TILEMAP DRAW 0, PICKER_X, PICKER_Y, PCOLS, PROWS, PICKER()
   COLORRGB 80, 80, 100
   FOR PIDX =0 TO PICK_COUNT - 1
