@@ -234,16 +234,15 @@ FUNCTION DrawChrome()
 END FUNCTION
 
 ' Header band (path + dimensions) re-stamped each frame so cycle
-' button updates show without redrawing the whole toolbar.
+' button updates show without redrawing the whole toolbar. Path on
+' the left, dim summary on the right; picker / map labels dropped
+' because the path text already says what's loaded.
 FUNCTION DrawHeader()
   COLORRGB 32, 32, 48 : FILLRECT 0, HEADER_BAND_Y TO 639, HEADER_BAND_Y + HEADER_BAND_H - 1
   COLORRGB 220, 220, 220
-  DRAWTEXT 200, HEADER_BAND_Y + 4, CURRENT_MAP$
+  DRAWTEXT 8, HEADER_BAND_Y + 4, CURRENT_MAP$
   DIM_TXT$ = STR$(MCOLS) + "x" + STR$(MROWS) + " @ " + STR$(TILE_SIZE) + "px"
-  DRAWTEXT 460, HEADER_BAND_Y + 4, DIM_TXT$
-  COLORRGB 220, 220, 220
-  DRAWTEXT PICKER_X, PICKER_Y - 12, "TILE PICKER"
-  DRAWTEXT MAP_X,    MAP_Y    - 12, "MAP"
+  DRAWTEXT 540, HEADER_BAND_Y + 4, DIM_TXT$
 END FUNCTION
 
 FUNCTION DrawPicker()
@@ -436,8 +435,11 @@ FUNCTION ReloadTileset()
   PICK_COUNT = TILE COUNT(0)
   IF PICK_COUNT < 0 THEN PICK_COUNT = 0
   IF PICK_COUNT > 128 THEN PICK_COUNT = 128
+  ' Pad picker to a consistent 4-row box even when the loaded
+  ' tileset has fewer tiles than that — keeps the panel size
+  ' steady and the empty cells show as blank slots.
   PROWS_LIMIT = (PICK_COUNT + PCOLS - 1) \ PCOLS
-  IF PROWS_LIMIT < 1 THEN PROWS_LIMIT = 1
+  IF PROWS_LIMIT < 4 THEN PROWS_LIMIT = 4
   IF PROWS_LIMIT > 8 THEN PROWS_LIMIT = 8
   PROWS = PROWS_LIMIT
   FOR RI = 0 TO PCOLS * PROWS - 1
