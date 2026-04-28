@@ -306,15 +306,22 @@ FUNCTION DrawStatus()
 END FUNCTION
 
 ' Arrow keys pan the viewport over MCOLS x MROWS in 1-cell steps.
-' Edge-triggered via PAN_HOLD so a held key doesn't fly across the
-' map; a small repeat-after frames so deliberate scrolling is fast.
+' Home/End jump to the top-left / bottom-right corners. Page Up
+' and Page Down step a full viewport's worth of rows. Edge-trigger
+' all of them via PAN_HOLD so a held key doesn't fly across the
+' map; a 6-frame repeat keeps deliberate scrolling fast.
 FUNCTION HandlePan()
   KU = 0 : KD = 0 : KL = 0 : KR = 0
-  IF KEYDOWN(KEY_UP)    THEN KU = 1
-  IF KEYDOWN(KEY_DOWN)  THEN KD = 1
-  IF KEYDOWN(KEY_LEFT)  THEN KL = 1
-  IF KEYDOWN(KEY_RIGHT) THEN KR = 1
-  ANY_KEY = KU OR KD OR KL OR KR
+  KH = 0 : KE = 0 : KPU = 0 : KPD = 0
+  IF KEYDOWN(KEY_UP)       THEN KU = 1
+  IF KEYDOWN(KEY_DOWN)     THEN KD = 1
+  IF KEYDOWN(KEY_LEFT)     THEN KL = 1
+  IF KEYDOWN(KEY_RIGHT)    THEN KR = 1
+  IF KEYDOWN(KEY_HOME)     THEN KH = 1
+  IF KEYDOWN(KEY_END)      THEN KE = 1
+  IF KEYDOWN(KEY_PAGEUP)   THEN KPU = 1
+  IF KEYDOWN(KEY_PAGEDOWN) THEN KPD = 1
+  ANY_KEY = KU OR KD OR KL OR KR OR KH OR KE OR KPU OR KPD
   IF ANY_KEY = 0 THEN
     PAN_HOLD = 0
     PAN_REPEAT = 0
@@ -332,10 +339,20 @@ FUNCTION HandlePan()
   END IF
   PAN_HOLD = 1
   IF PAN_STEP = 1 THEN
-    IF KU = 1 THEN CAM_ROW = CAM_ROW - 1
-    IF KD = 1 THEN CAM_ROW = CAM_ROW + 1
-    IF KL = 1 THEN CAM_COL = CAM_COL - 1
-    IF KR = 1 THEN CAM_COL = CAM_COL + 1
+    IF KH = 1 THEN
+      CAM_COL = 0
+      CAM_ROW = 0
+    END IF
+    IF KE = 1 THEN
+      CAM_COL = MCOLS - VIEW_COLS
+      CAM_ROW = MROWS - VIEW_ROWS
+    END IF
+    IF KPU = 1 THEN CAM_ROW = CAM_ROW - VIEW_ROWS
+    IF KPD = 1 THEN CAM_ROW = CAM_ROW + VIEW_ROWS
+    IF KU  = 1 THEN CAM_ROW = CAM_ROW - 1
+    IF KD  = 1 THEN CAM_ROW = CAM_ROW + 1
+    IF KL  = 1 THEN CAM_COL = CAM_COL - 1
+    IF KR  = 1 THEN CAM_COL = CAM_COL + 1
     IF CAM_COL < 0 THEN CAM_COL = 0
     IF CAM_ROW < 0 THEN CAM_ROW = 0
     IF CAM_COL > MCOLS - VIEW_COLS THEN CAM_COL = MCOLS - VIEW_COLS
