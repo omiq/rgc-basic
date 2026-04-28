@@ -126,7 +126,12 @@ DIM NPC_WANDER_TIMER(NPC_MAX - 1)
 NPC_COUNT = 0
 NPC_SPD = 1
 
-MAPLOAD "level1_overworld.json"
+IF ARGC() > 0 AND ARG$(1)<>"" THEN 
+ MAPLOAD "level1_cave.json"
+ELSE
+ MAPLOAD "level1_overworld.json"
+END IF
+
 SetSpawn()
 InitNpcs()
 
