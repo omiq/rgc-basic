@@ -11910,7 +11910,7 @@ static struct value eval_factor(char **p)
             /* Built-in keyboard code constants used with KEYDOWN/KEYUP/KEYPRESS
              * and PEEK(GFX_KEY_BASE + code). Match C64 CHR$ numbering so
              * KEYDOWN(KEY_UP) <-> CHR$(145), etc. Added for menu/game demos. */
-            if (len >= 6 && len <= 10 && namebuf[0] == 'K' && namebuf[1] == 'E' && namebuf[2] == 'Y' && namebuf[3] == '_') {
+            if (len >= 6 && len <= 12 && namebuf[0] == 'K' && namebuf[1] == 'E' && namebuf[2] == 'Y' && namebuf[3] == '_') {
                 int kc = -1;
                 if (strcmp(namebuf + 4, "UP") == 0)      kc = 145;
                 else if (strcmp(namebuf + 4, "DOWN") == 0)  kc = 17;
