@@ -2211,6 +2211,12 @@ int main(int argc, char **argv)
         if (IsKeyDown(KEY_DOWN))   vs.key_state[17]  = 1; /* C64 CHR$ down */
         if (IsKeyDown(KEY_LEFT))   vs.key_state[157] = 1; /* C64 CHR$ left */
         if (IsKeyDown(KEY_RIGHT))  vs.key_state[29]  = 1; /* C64 CHR$ right */
+        /* Editor navigation keys — codes match KEY_HOME/END/PAGEUP/
+         * PAGEDOWN identifiers in basic.c and the iframe key map. */
+        if (IsKeyDown(KEY_HOME))      vs.key_state[19] = 1;
+        if (IsKeyDown(KEY_END))       vs.key_state[4]  = 1;
+        if (IsKeyDown(KEY_PAGE_UP))   vs.key_state[21] = 1;
+        if (IsKeyDown(KEY_PAGE_DOWN)) vs.key_state[22] = 1;
         if (IsKeyDown(KEY_A)) vs.key_state['A'] = 1;
         if (IsKeyDown(KEY_B)) vs.key_state['B'] = 1;
         if (IsKeyDown(KEY_C)) vs.key_state['C'] = 1;
