@@ -2965,6 +2965,7 @@ static void statement_close(char **p);
 static void close_channel(int lfn);
 static void statement_download(char **p);
 static void statement_mapload(char **p);
+static void statement_mapsave(char **p);
 #ifdef GFX_VIDEO
 static void statement_doublebuffer(char **p);
 static void statement_overlay(char **p);
@@ -3449,7 +3450,7 @@ static const char *const reserved_words[] = {
     "FILLRECT", "CIRCLE", "FILLCIRCLE", "ELLIPSE", "FILLELLIPSE", "TRIANGLE", "FILLTRIANGLE", "FLOODFILL", "POLYGON", "FILLPOLYGON", "VSYNC", "ANTIALIAS",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
-    "DOUBLEBUFFER", "DRAWSPRITE", "DRAWSPRITETILE", "DRAWTEXT", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "MAPLOAD", "OVERLAY", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
+    "DOUBLEBUFFER", "DRAWSPRITE", "DRAWSPRITETILE", "DRAWTEXT", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "MAPLOAD", "MAPSAVE", "OVERLAY", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
     "DO", "LOOP", "UNTIL", "EXIT",
     "GETBYTE",
     /* Named colour constants (C64 palette 0-15) and boolean/math constants */
@@ -7941,6 +7942,15 @@ static int  json_count_entries(const char *p);
 static int  json_extract_path(const char *json, const char *path,
                               char *out, size_t out_size);
 
+/* The most recent MAPLOAD's raw JSON bytes, retained verbatim so
+ * MAPSAVE can patch one layer's `data` array in place without
+ * losing tilesets / objects / camera / animation metadata that
+ * MAPLOAD doesn't fully round-trip into BASIC globals. NULL when
+ * no map has been loaded yet. */
+static char *g_map_raw = NULL;
+static long  g_map_raw_len = 0;
+static char *g_map_raw_path = NULL;
+
 static struct var *map_var(const char *name, int is_string)
 {
     return find_or_create_var(name, is_string, 0, 0, NULL, 0);
@@ -8236,7 +8246,236 @@ static void statement_mapload(char **p)
                     (double)((int)((sps / 60.0) + 0.5)));
     }
 
-    free(buf);
+    /* Retain the raw JSON bytes for MAPSAVE round-trip. Drop any
+     * previous load's buffer first; we own this allocation now. */
+    if (g_map_raw) { free(g_map_raw); g_map_raw = NULL; g_map_raw_len = 0; }
+    if (g_map_raw_path) { free(g_map_raw_path); g_map_raw_path = NULL; }
+    g_map_raw = buf;
+    g_map_raw_len = len;
+    g_map_raw_path = strdup(vpath.str);
+}
+
+/* Find the matching ']' for the '[' at *p_start. Walks forward,
+ * skipping over JSON string literals (inc. \" escapes) and tracking
+ * nested '[' depth. Returns pointer just past the closing bracket,
+ * or NULL on malformed input. */
+static const char *find_array_end(const char *p_start)
+{
+    const char *p;
+    int depth;
+    int in_string;
+    if (!p_start || *p_start != '[') return NULL;
+    p = p_start;
+    depth = 0;
+    in_string = 0;
+    while (*p) {
+        char c = *p;
+        if (in_string) {
+            if (c == '\\' && p[1]) { p += 2; continue; }
+            if (c == '"') in_string = 0;
+        } else {
+            if (c == '"') in_string = 1;
+            else if (c == '[') depth++;
+            else if (c == ']') {
+                depth--;
+                if (depth == 0) return p + 1;
+            }
+        }
+        p++;
+    }
+    return NULL;
+}
+
+/* MAPSAVE path$ [, layerName$] — write a copy of the most recently
+ * MAPLOAD'd JSON to `path`, but with the named layer's `data` array
+ * replaced by the live values in MAP_BG (default) or MAP_FG. Every
+ * other byte of the loaded JSON is copied verbatim, so tilesets,
+ * objects, camera, animations and any unknown future fields survive
+ * the editor round-trip.
+ *
+ * Default layer name is "bg". The interpreter's MAP_BG global must
+ * be DIM'd >= MAP_W*MAP_H entries.
+ *
+ * On success the file is overwritten atomically (write-rename not
+ * implemented yet — fopen "wb" only). On any error the file is left
+ * untouched. */
+static void statement_mapsave(char **p)
+{
+    struct value vpath;
+    struct value vlayer;
+    int have_layer = 0;
+    char layer_name[32];
+    const char *layers_root;
+    int n_layers, li;
+    const char *bg_data_start = NULL;
+    const char *bg_data_end = NULL;
+    int W, H, n_cells;
+    struct var *bg_var;
+    const char *target_array_name = "MAP_BG";
+    FILE *fp;
+
+    skip_spaces(p);
+    vpath = eval_expr(p);
+    ensure_str(&vpath);
+    skip_spaces(p);
+    if (**p == ',') {
+        (*p)++;
+        skip_spaces(p);
+        vlayer = eval_expr(p);
+        ensure_str(&vlayer);
+        have_layer = 1;
+    }
+    skip_spaces(p);
+
+    if (!g_map_raw || g_map_raw_len <= 0) {
+        runtime_error_hint("MAPSAVE: no map loaded — call MAPLOAD first",
+            "MAPSAVE rewrites one layer's data inside the JSON the latest "
+            "MAPLOAD opened. Without a prior MAPLOAD there's nothing to copy.");
+        return;
+    }
+
+    if (have_layer) {
+        size_t lncopy = strlen(vlayer.str);
+        if (lncopy >= sizeof(layer_name)) lncopy = sizeof(layer_name) - 1;
+        memcpy(layer_name, vlayer.str, lncopy);
+        layer_name[lncopy] = 0;
+        if (strcmp(layer_name, "fg") == 0) target_array_name = "MAP_FG";
+    } else {
+        strcpy(layer_name, "bg");
+    }
+
+    /* Walk layers[] looking for the named tile layer. */
+    layers_root = json_navigate(g_map_raw, "layers");
+    if (!layers_root) {
+        runtime_error_hint("MAPSAVE: loaded JSON has no \"layers\" array",
+                           "Schema check: top-level layers is required by v1.");
+        return;
+    }
+    n_layers = json_count_entries(layers_root);
+    for (li = 0; li < n_layers; li++) {
+        char base[16], path[64];
+        char nm[32], lt[16];
+        const char *data_root;
+        snprintf(base, sizeof(base), "[%d]", li);
+        snprintf(path, sizeof(path), "%s.name", base);
+        if (!json_extract_path(layers_root, path, nm, sizeof(nm))) continue;
+        if (strcmp(nm, layer_name) != 0) continue;
+        snprintf(path, sizeof(path), "%s.type", base);
+        if (!json_extract_path(layers_root, path, lt, sizeof(lt))) continue;
+        if (strcmp(lt, "tiles") != 0) continue;
+        snprintf(path, sizeof(path), "%s.data", base);
+        data_root = json_navigate(layers_root, path);
+        if (!data_root) continue;
+        /* json_navigate skips whitespace — we can land on '[' directly. */
+        if (*data_root != '[') {
+            int junk = json_skip_ws(&data_root);
+            (void)junk;
+        }
+        if (*data_root != '[') continue;
+        bg_data_start = data_root;
+        bg_data_end = find_array_end(data_root);
+        if (bg_data_end) break;
+    }
+    if (!bg_data_start || !bg_data_end) {
+        runtime_error_hint("MAPSAVE: layer not found or malformed `data` array",
+                           "Looked for a tile layer matching the name and a "
+                           "balanced [ ... ] data block.");
+        return;
+    }
+
+    /* Resolve MAP_W * MAP_H and the live tile array. */
+    {
+        struct var *vw = map_var("MAP_W", 0);
+        struct var *vh = map_var("MAP_H", 0);
+        if (!vw || !vh) {
+            runtime_error_hint("MAPSAVE: MAP_W / MAP_H not set",
+                               "Call MAPLOAD before MAPSAVE — those globals come from the load.");
+            return;
+        }
+        W = (int)vw->scalar.num;
+        H = (int)vh->scalar.num;
+    }
+    n_cells = W * H;
+    if (n_cells <= 0) {
+        runtime_error_hint("MAPSAVE: invalid map size",
+                           "Loaded MAP_W * MAP_H must be > 0.");
+        return;
+    }
+    bg_var = map_var(target_array_name, 0);
+    if (!bg_var || !bg_var->is_array || bg_var->size < n_cells) {
+        runtime_error_hint("MAPSAVE: target array missing or too small",
+                           "DIM the MAP_BG / MAP_FG array large enough to hold MAP_W * MAP_H ints.");
+        return;
+    }
+
+    /* Write file in three slabs so we never need to hold the full
+     * patched JSON in one buffer:
+     *   1) prefix:   raw[0 .. bg_data_start - raw]   (includes '[' )
+     *   2) replace inner content with comma-joined ints
+     *   3) suffix:   raw[bg_data_end - 1 .. raw_len] (includes ']' )
+     * Slab 1 ends right after the opening '['; slab 3 begins at the
+     * closing ']'. */
+    fp = fopen(vpath.str, "wb");
+    if (!fp) {
+        runtime_error_hint("MAPSAVE: cannot open file for writing",
+                           "Check the path; browser builds persist via the host "
+                           "rgcHostFileWrite hook, so the file must be writable in MEMFS.");
+        return;
+    }
+    {
+        size_t prefix_len = (size_t)((bg_data_start + 1) - g_map_raw);
+        size_t suffix_len = (size_t)((g_map_raw + g_map_raw_len) - (bg_data_end - 1));
+        int i;
+        char num[16];
+        if (fwrite(g_map_raw, 1, prefix_len, fp) != prefix_len) {
+            fclose(fp);
+            runtime_error_hint("MAPSAVE: write failed (prefix)", NULL);
+            return;
+        }
+        for (i = 0; i < n_cells; i++) {
+            int v = (int)bg_var->array[i].num;
+            int written = snprintf(num, sizeof(num), "%s%d",
+                                   (i == 0) ? "" : ",", v);
+            if (written < 0 || (size_t)written >= sizeof(num)) {
+                fclose(fp);
+                runtime_error_hint("MAPSAVE: tile id format overflow", NULL);
+                return;
+            }
+            if (fwrite(num, 1, (size_t)written, fp) != (size_t)written) {
+                fclose(fp);
+                runtime_error_hint("MAPSAVE: write failed (data)", NULL);
+                return;
+            }
+        }
+        if (fwrite(bg_data_end - 1, 1, suffix_len, fp) != suffix_len) {
+            fclose(fp);
+            runtime_error_hint("MAPSAVE: write failed (suffix)", NULL);
+            return;
+        }
+    }
+    fclose(fp);
+
+    /* Force the persistence host hook to see the new file (browser
+     * IDE relies on close-after-write to mirror MEMFS into the
+     * project workspace). Native is a no-op stub. */
+    {
+        FILE *rfp = fopen(vpath.str, "rb");
+        long flen = 0;
+        char *fbuf = NULL;
+        if (rfp) {
+            fseek(rfp, 0, SEEK_END);
+            flen = ftell(rfp);
+            fseek(rfp, 0, SEEK_SET);
+            if (flen > 0 && flen <= 16 * 1024 * 1024) {
+                fbuf = (char *)malloc((size_t)flen);
+                if (fbuf && fread(fbuf, 1, (size_t)flen, rfp) == (size_t)flen) {
+                    wasm_js_host_file_write(vpath.str, fbuf, (int)flen);
+                }
+                if (fbuf) free(fbuf);
+            }
+            fclose(rfp);
+        }
+    }
 }
 
 #ifdef __EMSCRIPTEN__
@@ -15573,6 +15812,11 @@ static void execute_statement(char **p)
         if (starts_with_kw(*p, "MAPLOAD")) {
             *p += 7;
             statement_mapload(p);
+            return;
+        }
+        if (starts_with_kw(*p, "MAPSAVE")) {
+            *p += 7;
+            statement_mapsave(p);
             return;
         }
         if (starts_with_kw(*p, "MEMSET")) {
