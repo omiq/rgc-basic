@@ -315,18 +315,18 @@ FUNCTION HandlePan()
     PAN_REPEAT = 0
     RETURN 0
   END IF
-  STEP = 0
+  PAN_STEP = 0
   IF PAN_HOLD = 0 THEN
-    STEP = 1
+    PAN_STEP = 1
   ELSE
     PAN_REPEAT = PAN_REPEAT + 1
     IF PAN_REPEAT >= 6 THEN
-      STEP = 1
+      PAN_STEP = 1
       PAN_REPEAT = 0
     END IF
   END IF
   PAN_HOLD = 1
-  IF STEP = 1 THEN
+  IF PAN_STEP = 1 THEN
     IF KU = 1 THEN CAM_ROW = CAM_ROW - 1
     IF KD = 1 THEN CAM_ROW = CAM_ROW + 1
     IF KL = 1 THEN CAM_COL = CAM_COL - 1
