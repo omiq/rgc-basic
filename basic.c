@@ -11921,6 +11921,16 @@ static struct value eval_factor(char **p)
                 else if (strcmp(namebuf + 4, "ESC") == 0)   kc = 27;
                 else if (strcmp(namebuf + 4, "TAB") == 0)   kc = 9;
                 else if (strcmp(namebuf + 4, "BACK") == 0)  kc = 8;
+                /* Editor-style navigation keys. Codes match the
+                 * iframe key mapper in rgc-basic-iframe.html /
+                 * rgc-basic-raylib-iframe.html — keep both sides
+                 * in sync. C64 had no PgUp/PgDn so we pick
+                 * unused control codes that don't collide with
+                 * existing CHR$ values. */
+                else if (strcmp(namebuf + 4, "HOME") == 0)  kc = 19;
+                else if (strcmp(namebuf + 4, "END") == 0)   kc = 4;
+                else if (strcmp(namebuf + 4, "PAGEUP") == 0)   kc = 21;
+                else if (strcmp(namebuf + 4, "PAGEDOWN") == 0) kc = 22;
                 if (kc >= 0) {
                     *p = q;
                     return make_num((double)kc);
