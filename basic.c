@@ -16701,7 +16701,22 @@ static void load_program(const char *path)
     int auto_line_no = 10;
     int use_explicit_numbers = -1;
     int first_line_seen = 0;
-    const char *base_dir = get_base_dir(path);
+    /* get_base_dir() returns a pointer into a static buffer that gets
+     * overwritten by every recursive #INCLUDE that calls the helper.
+     * Snapshot into a local buffer here so post-load consumers
+     * (gfx_set_sprite_base_dir, sound base, etc.) see this program's
+     * directory, not the last include's parent. Without this an
+     * #INCLUDE "../maplib.bas" inside rpg.bas leaks "rpg/.." back to
+     * sprite path resolution and SPRITE LOAD "Overworld.png" tries
+     * /rpg/../Overworld.png at fopen time. */
+    char base_dir_buf[MAX_INCLUDE_PATH];
+    {
+        const char *src = get_base_dir(path);
+        if (!src) src = ".";
+        strncpy(base_dir_buf, src, sizeof(base_dir_buf) - 1);
+        base_dir_buf[sizeof(base_dir_buf) - 1] = '\0';
+    }
+    const char *base_dir = base_dir_buf;
     int i;
 
     /* Browser IDE reuses the interpreter across runs: free old program_lines
