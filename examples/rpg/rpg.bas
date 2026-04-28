@@ -30,15 +30,12 @@ CLS
 '   1 = Player char
 '   2 = NPC
 '   3 = Cave tileset
+
 ' Tilesets are the *_mini.png packs produced by scripts/pack_tileset.py
-' from the canonical Overworld.png / cave.png — only the tile ids the
-' current map JSONs reference, renumbered 1..N. Stable small ids make
-' the IDE map editor's tile picker fit without paging and let us
-' redraw the tiles fresh without mucking with original sheets.
-SPRITE LOAD 0, "Overworld_mini.png", 16, 16
+SPRITE LOAD 0, "overworld_mini.png", 16, 16
 SPRITE LOAD 1, "character.png", 16, 32
-SPRITE LOAD 2, "NPC_test.png",  16, 32
-SPRITE LOAD 3, "cave_mini.png",      16, 16
+SPRITE LOAD 2, "npc.png",  16, 32
+SPRITE LOAD 3, "cave_mini.png", 16, 16
 
 VIEW_W = 320
 VIEW_H = 200
