@@ -128,5 +128,15 @@ unsigned char petscii_ascii_to_screencode(unsigned char c)
              ? (unsigned char)(0x01 + (c - 'a'))
              : (unsigned char)(0x01 + (c - 'a'));
     }
+    /* ASCII underscore '_' (0x5F) is C64 PETSCII left-arrow ←. When
+     * a program calls DRAWTEXT "level1_cave.json" it means the
+     * underscore glyph, not the arrow — same fix gfx_ascii_to_
+     * screencode applies for the PRINT path. SC 100 is the real
+     * bottom-bar underscore in both C64 ROMs. */
+    if (c == '_') return 100;
+    /* Bracket family '[' '\' ']' '^' likewise — petscii_to_screencode
+     * sends them to graphic glyphs in the upper/graphics ROM. SC
+     * 27..30 are the proper [ £ ] up-arrow shapes in both ROMs. */
+    if (c >= '[' && c <= '^') return (unsigned char)(c - '[' + 27);
     return petscii_to_screencode(c);
 }
