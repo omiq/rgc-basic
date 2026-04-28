@@ -316,10 +316,17 @@ FUNCTION RenderObjects()
         ' Look up the wander state for this object so the NPC plays
         ' its 4-frame walk cycle in the current facing direction.
         ' Default frame 1 (idle, facing down) if state isn't tracked.
+        '
+        ' NPC_test.png row order on disk is down / right / up / left
+        ' (rows 0..3), which doesn't match our movement-direction
+        ' encoding (0=down, 1=left, 2=up, 3=right). Swap rows 1 and
+        ' 3 at render time so left-walking faces left on the sheet.
         NF = 1
         FOR NJ = 0 TO NPC_COUNT - 1
           IF NPC_OBJ_IDX(NJ) = OI THEN
-            NF = NPC_DIR(NJ) * 4 + NPC_FRAME(NJ) + 1
+            ROW = NPC_DIR(NJ)
+            IF ROW = 1 THEN ROW = 3 ELSE IF ROW = 3 THEN ROW = 1
+            NF = ROW * 4 + NPC_FRAME(NJ) + 1
           END IF
         NEXT NJ
         SPRITE STAMP 2, OSX, OSY, NF, 10
