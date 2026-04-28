@@ -458,15 +458,35 @@ END FUNCTION
 ' ------------------------------------------------------------
 
 FUNCTION SaveCurrentMap()
-  ' Writes a v1 JSON: format/size/tileSize/tilesets/layers[bg].
-  ' Object/collision/animation layers from MAPLOAD are NOT preserved
-  ' yet — saving an RPG/shooter map here drops its NPCs, doors, and
-  ' triggers. That's intentional for the MVP editor (paints tiles
-  ' only). Round-trip-safe round-tripping is a TODO.
-  TS_SHORT$ = MAP_TILESET_SRC$(0)
-  IF TS_SHORT$ = "" THEN TS_SHORT$ = "walls.png"
-  TS_ID$ = MAP_TILESET_ID$(0)
-  IF TS_ID$ = "" THEN TS_ID$ = "walls"
+  ' MAPSAVE writes a copy of the JSON the latest MAPLOAD opened with
+  ' the bg layer's `data` array replaced by the live MAP_BG values.
+  ' Tilesets, objects (NPCs, doors, triggers), camera, animations
+  ' and any unknown future fields are preserved verbatim. MAP_BG has
+  ' to mirror MAP() before the call.
+  '
+  ' First-run special case: if the user clicks SAVE on the blank
+  ' "map.json" before ever LOADing it, there's no raw JSON to patch
+  ' yet. Fall back to the legacy hand-rolled writer so the editor
+  ' still creates an initial file from the painted grid.
+  FOR SI = 0 TO MAP_COUNT - 1
+    MAP_BG(SI) = MAP(SI)
+  NEXT SI
+  IF CURRENT_MAP$ = "map.json" AND MAP_W = 0 THEN
+    SaveBlankMapJson()
+    RETURN 0
+  END IF
+  MAPSAVE CURRENT_MAP$
+  STATUS$ = "SAVED " + CURRENT_MAP$
+  STATUS_R = 200 : STATUS_G = 255 : STATUS_B = 200
+END FUNCTION
+
+' Hand-rolled JSON writer used only when there's no prior MAPLOAD
+' to patch — i.e. first-run save of the editor's blank 10x10 grid.
+' After this runs once, the file exists and subsequent SAVEs round-
+' trip through MAPSAVE.
+FUNCTION SaveBlankMapJson()
+  TS_SHORT$ = "walls.png"
+  TS_ID$ = "walls"
   OPEN 1, 1, 1, CURRENT_MAP$
   PRINT#1, "{"
   PRINT#1, "  " + Q$ + "format" + Q$ + ": 1,"
@@ -491,6 +511,6 @@ FUNCTION SaveCurrentMap()
   PRINT#1, "  ]"
   PRINT#1, "}"
   CLOSE #1
-  STATUS$ = "SAVED " + CURRENT_MAP$
+  STATUS$ = "SAVED " + CURRENT_MAP$ + " (NEW)"
   STATUS_R = 200 : STATUS_G = 255 : STATUS_B = 200
 END FUNCTION
