@@ -37,6 +37,12 @@ SCREEN 4
 DOUBLEBUFFER ON
 BACKGROUNDRGB 32, 32, 48
 CLS
+' Switch to upper/lowercase charset so the file paths in the
+' header (level1_cave.json etc.) render with a real underscore
+' rather than the C64 upper/graphics glyph at position 95 (a
+' back-arrow). PRINT CHR$(14) reloads the charrom in lowercase
+' mode; CHR$(142) reverts.
+PRINT CHR$(14)
 
 ' --- map storage caps (covers shooter 10x100 = 1000 cells and RPG
 '     overworld 32x32 = 1024 cells; pick a comfortable upper bound).
