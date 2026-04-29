@@ -1,8 +1,8 @@
 # RGC BASIC — RPG tutorial: objects, loot, traps, enemies
 
-Companion to [`map-format.md`](map-format.md). Where `map-format.md` defines the JSON schema, this page defines the **gameplay vocabulary** — what to put inside the `obj` layer to build a Zelda-class RPG: spawns, doors, NPCs, loot, weapons, spells, traps, power-ups, McGuffins, enemies, AI, and attack patterns.
+Companion to the [`map-format.md`](map-format.md). Where the spec defines the JSON schema, this page defines the **gameplay vocabulary** — what to put inside the `obj` layer to build a Zelda-class RPG: spawns, doors, NPCs, loot, weapons, spells, traps, power-ups, McGuffins, enemies, AI, and attack patterns.
 
-The reference implementation is [`examples/rpg/rpg.bas`](../examples/rpg/rpg.bas), which currently handles `spawn` / `door` / `npc`. The other types described below are documented for future tutorial chapters and your own extensions — engine code lands in the same `RenderObjects` / `Update*` / `HandleCollide` pipeline `rpg.bas` already uses.
+The reference implementation is [`examples/rpg/rpg.bas`](https://github.com/omiq/rgc-basic/blob/main/examples/rpg/rpg.bas) ([open in IDE](https://ide.retrogamecoders.com/?file=rpg/rpg.bas&platform=rgc-basic)), which currently handles `spawn` / `door` / `npc`. The other types described below are documented for future tutorial chapters and your own extensions — engine code lands in the same `RenderObjects` / `Update*` / `HandleCollide` pipeline `rpg.bas` already uses.
 
 ---
 
@@ -56,7 +56,7 @@ After load, the engine reads:
 |-------|---------|--------|
 | `id` | Unique per map. Foreign key for `door.spawnAt`, savegame state, trigger linkages | int |
 | `type` | Discriminator — engine dispatches behaviour on this | `spawn`, `door`, `npc`, `enemy`, `loot`, `trap`, `trigger`, `marker`, `decoration`, … |
-| `kind` | Sub-type, free-form. Engine maps `kind` → spawn template (sprite slot, default props) | string (`player`, `cave`, `old_man`, `rupee`, `wooden_sword`, `octorok`, `boss`) |
+| `kind` | Sub-type, free-form. Engine maps `kind` → spawn template (sprite slot, default props) | string (`player`, `cave`, `old_man`, `coin`, `wooden_sword`, `octorok`, `boss`) |
 | `shape` | Geometry | `point` (no w/h), `rect` (default), `polygon` (`points: [[x,y],...]`), `ellipse` |
 | `x, y, w, h` | Pixels. Top-left origin (rect/ellipse) or vertex 0 (polygon). `point` ignores w/h | int |
 | `props` | Custom dictionary. Engine reads what it needs; safe to add fields without breaking older loaders | object |
@@ -111,11 +111,11 @@ After load, the engine reads:
 
 - **Purpose**: bump-on-touch consumable. AABB-collide → remove from active list → bump player counter.
 - **Required fields**: `type: "loot"`, `kind`, `shape: "rect"` (or `point`), `x, y, w, h`, `props.value`, optional `props.respawn`.
-- **Common `kind` values**: `rupee`, `coin`, `gem`, `key`, `bomb`, `arrow`, `bombs5`.
+- **Common `kind` values**: `coin`, `gem`, `key`, `bomb`, `arrow`, `bombs5`.
 - **Engine reads**: `kind` for sprite + counter to bump; `props.value` for amount; `props.respawn` (bool) for re-appear after leaving room.
 - **Example**:
   ```json
-  { "id": 10, "type": "loot", "kind": "rupee",
+  { "id": 10, "type": "loot", "kind": "coin",
     "shape": "rect", "x": 96, "y": 96, "w": 16, "h": 16,
     "props": { "value": 5, "respawn": false } }
   ```
@@ -308,7 +308,7 @@ Standard `props`:
 | `speed` | px per frame |
 | `damage` | contact damage to player |
 | `ai` | behaviour preset (see § 12) |
-| `drops` | loot `kind` on death (`heart`, `rupee`, `nothing`) |
+| `drops` | loot `kind` on death (`heart`, `coin`, `nothing`) |
 | `respawn` | re-appear on room re-entry (default false for bosses, true for grunts) |
 | `aggro_range` | px until chase begins |
 | `attack_cooldown_ms` | between attacks |
@@ -436,7 +436,7 @@ Per-type DIM arrays go next to the existing NPC ones near the top of `rpg.bas`. 
 |---------|------|-----------|
 | 1 | `spawn` + `door` + map switching | overworld + cave (already in repo) |
 | 2 | `npc` with `props.dialogue` | add second NPC with own line |
-| 3 | `loot` (rupee, key, chest) | drop pickups, count in HUD |
+| 3 | `loot` (coin, key, chest) | drop pickups, count in HUD |
 | 4 | `loot` weapons + inventory | wooden sword, swing animation, melee hitbox |
 | 5 | `trap` (spike, arrow) + tile-level `damaging` | trap corridor in cave |
 | 6 | `enemy` with `ai: "wander"` + contact damage | grunts in overworld |
@@ -451,10 +451,30 @@ Each chapter adds **one BASIC function** plus a few JSON object entries. The eng
 
 ---
 
+## 19. HUD authoring
+
+Full reference: [Graphics — HUD authoring](https://docs.retrogamecoders.com/basic/rgc-basic/graphics-raylib/#hud-authoring-panel-png-attribute-icons). Demo: [`examples/hud_demo.bas`](https://github.com/omiq/rgc-basic/blob/main/examples/hud_demo.bas) ([open in IDE](https://ide.retrogamecoders.com/?file=hud_demo.bas&platform=rgc-basic)).
+
+Quick rules for the Zelda-style strip at the top of `rpg.bas`:
+
+- **`SCREEN 2` (or `SCREEN 4`)** — required for `OVERLAY` redirect. `SCREEN 1` / `SCREEN 3` need the HUD painted directly onto the active plane after the world.
+- **Panel** — single PNG at framebuffer width (320 or 640). Load via `IMAGE CREATE` + `IMAGE LOAD` (RGBA, alpha preserved) and `IMAGE BLEND` into the overlay each frame.
+- **Icons** — pack as 16×16 tile sheet, load with `SPRITE LOAD slot, "icons.png", 16, 16`, draw with `SPRITE STAMP`.
+- **Counters** — mix `SPRITE STAMP` icons with `DRAWTEXT` numbers ("x3", "x12").
+- **Z order** — world tiles 0 → world sprites 50 → player 200 → HUD panel 250 → HUD icons 260 → overlay text on top.
+- **Asset preload** — list every `.png` referenced (panel + icon sheet + any JSON tileset) in an `ASSET_HINT$` array of literal strings so the IDE preloader stages them into MEMFS.
+
+Track in BASIC globals: `HEARTS`, `HEARTS_MAX`, `KEYS`, `COINS`, `AREA$`, `DIALOG$`. Bump them from loot pickups (§ 4) and damage triggers (§ 7); the HUD function reads and renders without owning state.
+
+---
+
 ## See also
 
-- [`map-format.md`](map-format.md) — JSON schema spec, decision log, v1.1+ deferrals.
-- [`overlay-plane.md`](overlay-plane.md) — HUD plane (life bar, dialog box) above the world.
-- [`examples/rpg/rpg.bas`](../examples/rpg/rpg.bas) — production engine for chapters 1-2.
-- [`examples/rpg/level1_overworld.json`](../examples/rpg/level1_overworld.json) — canonical example of `obj` layer with spawn + door + npc.
-- [retrodocs Level authoring](https://docs.retrogamecoders.com/basic/rgc-basic/level-authoring/) — JSON vs BASIC builder, migration path.
+- [`level-authoring`](https://docs.retrogamecoders.com/basic/rgc-basic/level-authoring/) — `MAPLOAD` vs BASIC builder, migration path.
+- [Graphics docs](https://docs.retrogamecoders.com/basic/rgc-basic/graphics-raylib/) — sprites, screen modes, `OVERLAY` HUD plane.
+- [Language reference](https://docs.retrogamecoders.com/basic/rgc-basic/language/) — `MAPLOAD` / `MAPSAVE` reference.
+- [Network & buffers](https://docs.retrogamecoders.com/basic/rgc-basic/network-and-buffers/) — load `.json` levels over HTTP for hot-reload during play-testing.
+- [Map format spec (in repo)](https://github.com/omiq/rgc-basic/blob/main/docs/map-format.md) — JSON schema, decision log, v1.1+ deferrals.
+- [Overlay plane (in repo)](https://github.com/omiq/rgc-basic/blob/main/docs/overlay-plane.md) — HUD plane (life bar, dialog box) above the world.
+- [`examples/rpg/rpg.bas`](https://github.com/omiq/rgc-basic/blob/main/examples/rpg/rpg.bas) — production engine for chapters 1-2 ([open in IDE](https://ide.retrogamecoders.com/?file=rpg/rpg.bas&platform=rgc-basic)).
+- [`examples/rpg/level1_overworld.json`](https://github.com/omiq/rgc-basic/blob/main/examples/rpg/level1_overworld.json) — canonical example of `obj` layer with spawn + door + npc.
