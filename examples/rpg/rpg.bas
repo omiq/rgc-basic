@@ -69,6 +69,20 @@ PFACE$ = "down"
 PALIVE = 1
 LIVES = 3
 
+' --- player walk-cycle animation ---
+'   character3.png is a 17-col x 8-row sheet of 16x32 cells.
+'   Direction rows: down=row 0, right=row 1, up=row 2, left=row 3.
+'   Col 0 of each row is the standing/idle pose; cols 1..3 are the
+'   3 walk-cycle poses. Stamp index = base + step, where:
+'       PBASE = 1  (down) | 18 (right) | 35 (up) | 52 (left)
+'       PWALK_STEP cycles 0..3 every PWALK_PERIOD frames while moving.
+'   Idle pins to step 0 so a stationary player draws as the same frame
+'   the level loaded with — no twitching on dialog open.
+PMOVING = 0
+PWALK_STEP = 0
+PWALK_TIMER = 0
+PWALK_PERIOD = 3
+
 ' --- camera (top-left of viewport in world px) ---
 CAM_X = 0
 CAM_Y = 0
@@ -155,6 +169,8 @@ END FUNCTION
 
 FUNCTION HandleInput()
   IF PALIVE = 0 THEN RETURN 0
+  OLD_PX = PX
+  OLD_PY = PY
   NX = PX
   NY = PY
   IF KEYDOWN(KA) OR KEYDOWN(KEY_LEFT) THEN
@@ -185,6 +201,11 @@ FUNCTION HandleInput()
       IF NY >= 0 AND NY + 32 <= MapPixelH() THEN PY = NY
     END IF
   END IF
+
+  ' Walk-cycle gate: only animate when the player actually moved this
+  ' frame (key held but blocked-by-wall = idle pose, no foot shuffle).
+  PMOVING = 0
+  IF PX <> OLD_PX OR PY <> OLD_PY THEN PMOVING = 1
 END FUNCTION
 
 FUNCTION HandleInteract()
@@ -337,10 +358,21 @@ FUNCTION RenderPlayer()
   IF PALIVE = 1 THEN
     PSX = PX - CAM_X
     PSY = PY - CAM_Y + HUD_H
-    PFRAME = 1
-    IF PFACE$ = "left"  THEN PFRAME = 52
-    IF PFACE$ = "up"    THEN PFRAME = 35
-    IF PFACE$ = "right" THEN PFRAME = 18
+    PBASE = 1
+    IF PFACE$ = "right" THEN PBASE = 18
+    IF PFACE$ = "up"    THEN PBASE = 35
+    IF PFACE$ = "left"  THEN PBASE = 52
+    IF PMOVING = 1 THEN
+      PWALK_TIMER = PWALK_TIMER + 1
+      IF PWALK_TIMER >= PWALK_PERIOD THEN
+        PWALK_TIMER = 0
+        PWALK_STEP = (PWALK_STEP + 1) MOD 4
+      END IF
+    ELSE
+      PWALK_TIMER = 0
+      PWALK_STEP = 0
+    END IF
+    PFRAME = PBASE + PWALK_STEP
     SPRITE STAMP 1, PSX, PSY, PFRAME, 20
   END IF
 END FUNCTION
