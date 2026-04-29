@@ -3433,7 +3433,7 @@ static char *dupstr_local(const char *s)
 static const char *const reserved_words[] = {
     "AND", "ARG", "ARGC", "ASC", "BACKGROUND", "NOT", "BITMAPCLEAR", "BUFFERFETCH", "BUFFERFREE", "BUFFERLEN", "BUFFERNEW", "BUFFERPATH", "CHR", "CLOSE", "CLR", "CLS", "COLOR", "PAPER",
     "COLOUR", "COS", "CURSOR", "DATA", "DEC", "DEF", "DIM", "DOWN", "END", "FUNCTION",
-    "ELSE", "ENV", "EVAL", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
+    "ELSE", "ELSEIF", "ENV", "EVAL", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
     "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LINE", "LOAD", "LOADSPRITE", "LOCATE", "LOG",
     "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET",     "PRINT", "PUTBYTE",
     "XOR",
@@ -14572,18 +14572,74 @@ static void skip_if_block_to_target(char **p, int want_else)
                     continue;
                 }
             }
-            if (nesting == 1 && starts_with_kw(q, "ELSE")) {
+            /* ELSE / ELSEIF / ELSE IF at outer nesting (== 1).
+             *
+             * - want_else=0 (took_then=1): all branches in this frame are
+             *   already done; just advance past the keyword(s) and keep
+             *   scanning for END IF.
+             * - want_else=1 (took_then=0): plain ELSE → land for the else
+             *   body to run. ELSE IF / ELSEIF → re-evaluate the new
+             *   condition inline. True → mark frame as taken, position *p
+             *   past THEN, return so the body runs. False → keep scanning
+             *   for the next ELSE / ELSE IF / END IF in the same frame.
+             *
+             * ELSEIF (one word) is checked first because starts_with_kw
+             * "ELSE" deliberately fails on identifiers like "ELSEIF" (next
+             * char alphanumeric) — keep it that way so the two-word form
+             * matches via "ELSE" + lookahead for "IF". */
+            if (nesting == 1 &&
+                (starts_with_kw(q, "ELSEIF") || starts_with_kw(q, "ELSE"))) {
+                int is_elseif = 0;
+                char *r;
+                if (starts_with_kw(q, "ELSEIF")) {
+                    r = q + 6;
+                    is_elseif = 1;
+                } else {
+                    r = q + 4;             /* past ELSE */
+                    skip_spaces(&r);
+                    if (starts_with_kw(r, "IF")) {
+                        r += 2;            /* past IF — two-word ELSE IF */
+                        is_elseif = 1;
+                    }
+                }
+                skip_spaces(&r);
+
                 if (want_else) {
-                    q += 4;
-                    skip_spaces(&q);
+                    if (is_elseif) {
+                        int cond;
+                        char *cond_p = r;
+                        cond = eval_condition(&cond_p);
+                        skip_spaces(&cond_p);
+                        if (!starts_with_kw(cond_p, "THEN")) {
+                            runtime_error_hint("ELSE IF: missing THEN",
+                                "Block ELSE IF must end with `THEN` on the same line: ELSE IF cond THEN.");
+                            return;
+                        }
+                        cond_p += 4;       /* past THEN */
+                        skip_spaces(&cond_p);
+                        if (cond) {
+                            /* Mark frame as taken so any subsequent ELSE /
+                             * ELSE IF / END IF in the same frame skip body. */
+                            if (if_depth > 0) {
+                                if_stack[if_depth - 1].took_then = 1;
+                            }
+                            current_line = line;
+                            statement_pos = cond_p;
+                            *p = cond_p;
+                            return;
+                        }
+                        /* False — keep looking for the next branch. */
+                        pos = cond_p;
+                        continue;
+                    }
+                    /* Plain ELSE — let the else body run. */
                     current_line = line;
-                    statement_pos = q;
-                    *p = q;
+                    statement_pos = r;
+                    *p = r;
                     return;
                 }
-                q += 4;
-                skip_spaces(&q);
-                pos = q;
+                /* want_else=0: just advance past the keyword(s). */
+                pos = r;
                 continue;
             }
             pos = strchr(pos, ':');
@@ -14768,6 +14824,19 @@ static void statement_else(char **p)
         return;
     }
     skip_spaces(p);
+    /* Block ELSE IF (two-word form) reached from a took_then=1 branch:
+     * the dispatcher consumed `ELSE`, leaving us pointed at `IF cond
+     * THEN ...`. Consume the `IF` so the skip-to-END-IF scanner doesn't
+     * mistake it for a nested block IF and inflate the nesting count.
+     * The `cond THEN` text is harmless to the scanner — `eval_condition`
+     * tokens don't match any keyword the scanner cares about, and
+     * `THEN` itself is benign mid-line. The took_then=0 case never
+     * reaches here for ELSE IF: skip_if_block_to_target lands the
+     * caller past `THEN` directly when it spots an ELSE IF inline. */
+    if (starts_with_kw(*p, "IF")) {
+        *p += 2;
+        skip_spaces(p);
+    }
     if (if_stack[if_depth - 1].took_then) {
         skip_if_block_to_target(p, 0);
     }
@@ -16159,6 +16228,17 @@ static void execute_statement(char **p)
         if (starts_with_kw(*p, "EXIT")) {
             *p += 4;  /* consume EXIT */
             statement_exit_do(p);
+            return;
+        }
+        if (starts_with_kw(*p, "ELSEIF")) {
+            /* ELSEIF (one word). Same handler as ELSE — statement_else
+             * peeks for IF after ELSE for the two-word form, but with
+             * ELSEIF we've already consumed the whole keyword. The skip
+             * scanner inside skip_if_block_to_target handles the
+             * re-evaluation of the new condition for the took_then=0
+             * path; took_then=1 just skips to END IF. */
+            *p += 6;
+            statement_else(p);
             return;
         }
         if (starts_with_kw(*p, "ELSE")) {
