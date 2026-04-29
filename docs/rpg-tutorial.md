@@ -468,9 +468,181 @@ Track in BASIC globals: `HEARTS`, `HEARTS_MAX`, `KEYS`, `COINS`, `AREA$`, `DIALO
 
 ---
 
+## 20. State machine + attract mode + dev launch
+
+A real game needs more than one mode — title screen, gameplay, pause, game-over, victory. The cleanest pattern in BASIC is one `STATE` integer + a snapshotted-dispatch master loop. Reference implementation: `examples/rpg/rpg.bas` (§17 of this tutorial maps each function to a state). [Open in IDE](https://ide.retrogamecoders.com/?file=rpg/rpg.bas&platform=rgc-basic).
+
+### State constants
+
+```basic
+STATE_TITLE    = 0      ' attract screen, waits for SPACE/ENTER
+STATE_PLAYING  = 1      ' normal gameplay (frame loop ticks the world)
+STATE_PAUSED   = 2      ' P toggle — overlay drawn, world frozen
+STATE_GAMEOVER = 3      ' LIVES = 0 — ENTER returns to title
+STATE_WON      = 4      ' end-of-quest screen — ENTER returns to title
+STATE = STATE_TITLE
+```
+
+Add more as your game grows: `STATE_INVENTORY`, `STATE_SHOP`, `STATE_CUTSCENE`. One integer, one source of truth.
+
+### Master loop — snapshot pattern
+
+```basic
+DO
+  IF KEYDOWN(KQ) THEN EXIT
+  S = STATE                              ' snapshot once per frame
+
+  IF S = STATE_TITLE THEN
+    RenderTitle()
+    IF KEYPRESS(KSPACE) THEN StartGame()
+    IF KEYPRESS(KENTER) THEN StartGame()
+  END IF
+
+  IF S = STATE_PLAYING THEN
+    HandleInput() : HandleInteract() : CheckDoor()
+    UpdateNpcs()  : UpdateCamera()    : RenderFrame()
+    IF KEYPRESS(KP) THEN STATE = STATE_PAUSED
+    IF LIVES <= 0 THEN STATE = STATE_GAMEOVER
+  END IF
+
+  IF S = STATE_PAUSED THEN
+    RenderFrame()                        ' draw frozen world below
+    RenderPauseOverlay()
+    IF KEYPRESS(KP) THEN STATE = STATE_PLAYING
+  END IF
+
+  ' ... STATE_GAMEOVER, STATE_WON ...
+  VSYNC
+LOOP
+```
+
+**Why snapshot?** Without it, a state transition mid-frame (`StartGame()` sets `STATE = STATE_PLAYING`) would let the next `IF` block also fire in the same iteration — title-render then game-tick in one frame. Snapshotting `S = STATE` at the top means transitions take effect on the next `VSYNC`-bounded frame.
+
+> **Note:** This pattern predates `ELSE IF` support. With `ELSE IF` (rgc-basic 2.1+) the master loop can be written as a single chain — `IF S = STATE_TITLE THEN … ELSE IF S = STATE_PLAYING THEN … ELSE IF … END IF` — which is shorter but equivalent. The snapshot pattern still works in both styles.
+
+### Attract mode — `welcome.png` + pulse text
+
+```basic
+TITLE_HAS_ART = 0
+IF FILEEXISTS("welcome.png") THEN
+  IMAGE CREATE 10, 320, 200
+  IMAGE LOAD 10, "welcome.png"
+  TITLE_HAS_ART = 1
+END IF
+
+FUNCTION RenderTitle()
+  CLS
+  IF TITLE_HAS_ART = 1 THEN
+    IMAGE BLEND 10, 0, 0, 320, 200 TO 0, 0, 0
+  ELSE
+    BACKGROUNDRGB 10, 10, 32 : CLS
+    COLORRGB 255, 240, 80
+    DRAWTEXT 80, 60, "MY RPG", 1, -1, 0, 2     ' 2x scale
+  END IF
+  ' Breathing prompt — TI ticks at 60Hz, sin-modulate the alpha so
+  ' the text fades in and out without dropping a single pixel.
+  PULSE = (SIN(TI / 12.0) + 1.0) * 0.5
+  ALPHA_BYTE = INT(160 + PULSE * 95)
+  COLORRGB 255, 255, 255, ALPHA_BYTE
+  DRAWTEXT 80, 168, "PRESS SPACE TO START"
+END FUNCTION
+```
+
+**`FILEEXISTS` gate** lets the program run before the artwork is drawn — falls back to a coloured backdrop + placeholder text. Same pattern works for any optional asset (custom font, splash music, etc.).
+
+### Dev launch — skip to a specific map
+
+Iterating on a level you can't reach without walking 3 screens is painful. Add a constant pair near the top:
+
+```basic
+DEV_SKIP_TITLE = 0           ' flip to 1 to skip the title screen
+DEV_MAP$ = "overworld"       ' or "cave"
+DEV_X = -1                   ' -1 = use map's spawn point
+DEV_Y = -1
+```
+
+Then early in startup:
+
+```basic
+IF DEV_SKIP_TITLE = 1 THEN StartGame()       ' StartGame respects DEV_*
+```
+
+`StartGame()` reads `DEV_MAP$` to choose the JSON, `DEV_X / DEV_Y` to override the spawn:
+
+```basic
+FUNCTION StartGame()
+  IF DEV_MAP$ = "cave" THEN
+    LEVEL$ = "cave" : TILE_SLOT = 3 : MAPLOAD "level1_cave.json"
+  ELSE
+    LEVEL$ = "overworld" : TILE_SLOT = 0 : MAPLOAD "level1_overworld.json"
+  END IF
+  IF DEV_X >= 0 AND DEV_Y >= 0 THEN
+    PX = DEV_X : PY = DEV_Y
+  ELSE
+    SetSpawn()
+  END IF
+  InitNpcs()
+  LIVES = 3 : PALIVE = 1 : DIALOG$ = ""
+  STATE = STATE_PLAYING
+END FUNCTION
+```
+
+### Native CLI override (basic-gfx only)
+
+`ARG$()` exposes command-line args on native builds. Wire them straight into the dev constants:
+
+```basic
+IF ARGC() > 0 AND ARG$(1) <> "" THEN
+  DEV_SKIP_TITLE = 1
+  DEV_MAP$ = ARG$(1)
+  IF ARGC() >= 3 THEN
+    DEV_X = VAL(ARG$(2))
+    DEV_Y = VAL(ARG$(3))
+  END IF
+END IF
+```
+
+Now from the shell:
+
+```bash
+./basic-gfx examples/rpg/rpg.bas                 # normal: title screen
+./basic-gfx examples/rpg/rpg.bas cave            # jump to cave at default spawn
+./basic-gfx examples/rpg/rpg.bas overworld 64 96 # jump to overworld at (64, 96)
+```
+
+`ARG$(1)` is `""` in browser WASM — toggle the `DEV_SKIP_TITLE` constant for IDE testing. URL query parameters into `ARG$` is a future IDE wiring; not yet exposed.
+
+### Game-over + reset
+
+`StartGame()` is also the reset path — calling it from `STATE_GAMEOVER` re-runs the spawn setup, restores `LIVES`, clears dialog state. Keep it idempotent.
+
+```basic
+IF S = STATE_GAMEOVER THEN
+  RenderFrame()
+  RenderGameOverOverlay()
+  IF KEYPRESS(KENTER) THEN STATE = STATE_TITLE
+END IF
+```
+
+Re-show the title rather than re-running `StartGame()` directly so the player sees the attract loop and chooses to retry intentionally.
+
+### Where each state lives
+
+| State | Drawn by | Input handled by | Exits to |
+|-------|----------|------------------|----------|
+| TITLE | `RenderTitle()` | SPACE/ENTER → `StartGame()` | PLAYING |
+| PLAYING | `RenderFrame()` (existing) | `HandleInput()`, P → PAUSED, LIVES≤0 → GAMEOVER | PAUSED / GAMEOVER / WON |
+| PAUSED | `RenderFrame()` + `RenderPauseOverlay()` | P/SPACE → PLAYING | PLAYING |
+| GAMEOVER | `RenderFrame()` + `RenderGameOverOverlay()` | ENTER → TITLE | TITLE |
+| WON | `RenderFrame()` + `RenderWonOverlay()` | ENTER → TITLE | TITLE |
+
+Pause / gameover / won overlays use the OVERLAY plane (`SCREEN 2/4` requirement) so they sit above the world without clobbering it. The overlay panel + dimmed background read as classic SNES modal screens.
+
+---
+
 ## See also
 
-- [`level-authoring`](https://docs.retrogamecoders.com/basic/rgc-basic/level-authoring/) — `MAPLOAD` vs BASIC builder, migration path.
+- [level-authoring](https://docs.retrogamecoders.com/basic/rgc-basic/level-authoring/) — `MAPLOAD` vs BASIC builder, migration path.
 - [Graphics docs](https://docs.retrogamecoders.com/basic/rgc-basic/graphics-raylib/) — sprites, screen modes, `OVERLAY` HUD plane.
 - [Language reference](https://docs.retrogamecoders.com/basic/rgc-basic/language/) — `MAPLOAD` / `MAPSAVE` reference.
 - [Network & buffers](https://docs.retrogamecoders.com/basic/rgc-basic/network-and-buffers/) — load `.json` levels over HTTP for hot-reload during play-testing.
