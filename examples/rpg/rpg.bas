@@ -100,8 +100,37 @@ DIM VIEW_TILES(VIEW_COLS * VIEW_ROWS - 1)
 DIALOG$ = ""
 DIALOG_TIMER = 0
 
+' --- state machine ---
+'   STATE_TITLE     attract screen, waits for SPACE/ENTER to start
+'   STATE_PLAYING   normal gameplay (frame loop ticks the world)
+'   STATE_PAUSED    P toggle — overlay drawn, world frozen
+'   STATE_GAMEOVER  LIVES = 0 — ENTER returns to title
+'   STATE_WON       end-of-quest screen — ENTER returns to title
+STATE_TITLE    = 0
+STATE_PLAYING  = 1
+STATE_PAUSED   = 2
+STATE_GAMEOVER = 3
+STATE_WON      = 4
+STATE = STATE_TITLE
+
+' --- dev-launch overrides (skip title, jump to a map for fast iteration) ---
+'   Set DEV_SKIP_TITLE = 1 + DEV_MAP$ to "overworld" / "cave" to bypass
+'   the attract screen and warp straight into the level you're testing.
+'   DEV_X / DEV_Y override the spawn point when both are >= 0; -1 falls
+'   back to MAP_OBJ "spawn" lookup via SetSpawn().
+'
+'   Native CLI also drives this:
+'       ./basic-gfx rpg.bas cave            jump to cave at default spawn
+'       ./basic-gfx rpg.bas overworld 64 96 jump to overworld at (64, 96)
+'   ARG$(1) on browser WASM is "" — use the constants for IDE testing.
+DEV_SKIP_TITLE = 0
+DEV_MAP$ = "overworld"
+DEV_X = -1
+DEV_Y = -1
+
 ' --- key codes ---
 KQ = 81 : KW = 87 : KA = 65 : KS = 83 : KD = 68 : KSPACE = 32
+KENTER = 13 : KP = 80
 ' Arrow-key constants from the interpreter (CHR$ numbering): KEY_UP=145,
 ' KEY_DOWN=17, KEY_LEFT=157, KEY_RIGHT=29. Bound alongside WASD so either
 ' input scheme works.
@@ -133,23 +162,78 @@ DIM NPC_WANDER_TIMER(NPC_MAX - 1)
 NPC_COUNT = 0
 NPC_SPD = 1
 
-IF ARGC() > 0 AND ARG$(1)<>"" THEN 
- MAPLOAD "level1_cave.json"
-ELSE
- MAPLOAD "level1_overworld.json"
+' --- native CLI override → drives the dev-launch path ---
+IF ARGC() > 0 AND ARG$(1) <> "" THEN
+  DEV_SKIP_TITLE = 1
+  DEV_MAP$ = ARG$(1)
+  IF ARGC() >= 3 THEN
+    DEV_X = VAL(ARG$(2))
+    DEV_Y = VAL(ARG$(3))
+  END IF
 END IF
 
-SetSpawn()
-InitNpcs()
+' --- title art ---
+'   welcome.png is optional; if missing, the title screen renders a
+'   solid backdrop + DRAWTEXT placeholder so the program still runs.
+TITLE_HAS_ART = 0
+IF FILEEXISTS("welcome.png") THEN
+  IMAGE CREATE 10, 320, 200
+  IMAGE LOAD 10, "welcome.png"
+  TITLE_HAS_ART = 1
+END IF
 
+' --- launch path ---
+'   DEV_SKIP_TITLE = 1 → init the requested map immediately and start
+'   in STATE_PLAYING. Otherwise stay on the title screen until the
+'   player hits SPACE / ENTER.
+IF DEV_SKIP_TITLE = 1 THEN
+  StartGame()
+END IF
+
+' --- master loop ---
+'   Dispatches on STATE via an ELSE IF chain (rgc-basic 2.1+). At most
+'   one branch fires per frame, so a state transition inside a tick
+'   (StartGame promotes TITLE → PLAYING; LIVES <= 0 promotes PLAYING →
+'   GAMEOVER) takes effect on the next iteration after VSYNC — no need
+'   to snapshot STATE first.
 DO
   IF KEYDOWN(KQ) THEN EXIT
-  HandleInput()
-  HandleInteract()
-  CheckDoor()
-  UpdateNpcs()
-  UpdateCamera()
-  RenderFrame()
+
+  IF STATE = STATE_TITLE THEN
+    RenderTitle()
+    IF KEYPRESS(KSPACE) THEN StartGame()
+    IF KEYPRESS(KENTER) THEN StartGame()
+
+  ELSE IF STATE = STATE_PLAYING THEN
+    HandleInput()
+    HandleInteract()
+    CheckDoor()
+    UpdateNpcs()
+    UpdateCamera()
+    RenderFrame()
+    IF KEYPRESS(KP) THEN STATE = STATE_PAUSED
+    IF LIVES <= 0 THEN STATE = STATE_GAMEOVER
+
+  ELSE IF STATE = STATE_PAUSED THEN
+    RenderFrame()
+    RenderPauseOverlay()
+    IF KEYPRESS(KP) THEN STATE = STATE_PLAYING
+    IF KEYPRESS(KSPACE) THEN STATE = STATE_PLAYING
+
+  ELSE IF STATE = STATE_GAMEOVER THEN
+    RenderFrame()
+    RenderGameOverOverlay()
+    IF KEYPRESS(KENTER) THEN STATE = STATE_TITLE
+    IF KEYPRESS(KSPACE) THEN STATE = STATE_TITLE
+
+  ELSE IF STATE = STATE_WON THEN
+    RenderFrame()
+    RenderWonOverlay()
+    IF KEYPRESS(KENTER) THEN STATE = STATE_TITLE
+    IF KEYPRESS(KSPACE) THEN STATE = STATE_TITLE
+
+  END IF
+
   VSYNC
 LOOP
 END
@@ -487,4 +571,99 @@ FUNCTION UpdateNpcs()
       NPC_FRAME(UNI) = 0
     END IF
   NEXT UNI
+END FUNCTION
+
+' ------------------------------------------------------------
+'  State-machine helpers
+' ------------------------------------------------------------
+
+' Load the chosen DEV_MAP$ (or default overworld) and switch to
+' STATE_PLAYING. Called by the title screen on SPACE/ENTER and by
+' the dev-skip path at startup.
+FUNCTION StartGame()
+  IF DEV_MAP$ = "cave" THEN
+    LEVEL$ = "cave"
+    TILE_SLOT = 3
+    MAPLOAD "level1_cave.json"
+  ELSE
+    LEVEL$ = "overworld"
+    TILE_SLOT = 0
+    MAPLOAD "level1_overworld.json"
+  END IF
+  IF DEV_X >= 0 AND DEV_Y >= 0 THEN
+    PX = DEV_X
+    PY = DEV_Y
+  ELSE
+    SetSpawn()
+  END IF
+  InitNpcs()
+  LIVES = 3
+  PALIVE = 1
+  PFACE$ = "down"
+  PMOVING = 0
+  PWALK_STEP = 0
+  DIALOG$ = ""
+  DIALOG_TIMER = 0
+  STATE = STATE_PLAYING
+END FUNCTION
+
+' Title / attract screen. Renders welcome.png if available, else a
+' coloured backdrop + placeholder text. SCREEN 2 means we can paint
+' fade-in / pulse text by varying COLORRGB alpha.
+FUNCTION RenderTitle()
+  CLS
+  IF TITLE_HAS_ART = 1 THEN
+    IMAGE BLEND 10, 0, 0, 320, 200 TO 0, 0, 0
+  ELSE
+    BACKGROUNDRGB 10, 10, 32
+    CLS
+    COLORRGB 255, 240, 80
+    DRAWTEXT 80, 60, "RGC RPG ADVENTURE", 1, -1, 0, 2
+  END IF
+  ' Pulsing prompt — TI ticks at 60Hz, sin-modulate alpha for a soft
+  ' breathing effect. Stays readable on dark or light artwork.
+  PULSE = (SIN(TI / 12.0) + 1.0) * 0.5
+  ALPHA_BYTE = INT(160 + PULSE * 95)
+  COLORRGB 255, 255, 255, ALPHA_BYTE
+  DRAWTEXT 80, 168, "PRESS SPACE TO START"
+  COLORRGB 180, 180, 200, 220
+  DRAWTEXT 80, 184, "Q QUIT"
+END FUNCTION
+
+' Pause overlay — drawn on top of the frozen world. World rendered
+' first by RenderFrame() so the player still sees their map below.
+FUNCTION RenderPauseOverlay()
+  OVERLAY ON
+    OVERLAY CLS
+    COLORRGB 0, 0, 0, 180
+    FILLRECT 60, 80 TO 259, 119
+    COLORRGB 255, 255, 255, 255
+    DRAWTEXT 130, 92, "PAUSED"
+    COLORRGB 180, 180, 200, 220
+    DRAWTEXT 84, 108, "P / SPACE TO RESUME"
+  OVERLAY OFF
+END FUNCTION
+
+FUNCTION RenderGameOverOverlay()
+  OVERLAY ON
+    OVERLAY CLS
+    COLORRGB 0, 0, 0, 220
+    FILLRECT 40, 70 TO 279, 129
+    COLORRGB 220, 60, 60, 255
+    DRAWTEXT 110, 84, "GAME OVER"
+    COLORRGB 255, 255, 255, 255
+    DRAWTEXT 80, 108, "ENTER TO RETRY"
+  OVERLAY OFF
+END FUNCTION
+
+FUNCTION RenderWonOverlay()
+  OVERLAY ON
+    OVERLAY CLS
+    COLORRGB 0, 0, 0, 220
+    FILLRECT 40, 70 TO 279, 129
+    COLORRGB 80, 240, 120, 255
+    DRAWTEXT 100, 84, "QUEST COMPLETE"
+    COLORRGB 255, 255, 255, 255
+    DRAWTEXT 80, 108, "ENTER FOR TITLE"
+  OVERLAY OFF
 END FUNCTION
