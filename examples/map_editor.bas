@@ -20,18 +20,24 @@
 ' ============================================================
 
 ' Asset literals used here so the IDE asset preloader scans them
-' into MEMFS at run time, even when SPRITE LOAD is dynamic:
+' into MEMFS at run time, even when SPRITE LOAD is dynamic.
+' MUST cover every preset JSON's tileset.src too — MAPLOAD reads the
+' JSON then SPRITE LOAD requests the src by path; if it isn't in
+' MEMFS the iframe shows "FILEIO: [./rpg/cave.png] Failed to open".
+' Pattern: list both the *_mini editor thumbnail AND the full sheet.
 '   walls.png / rpg/Overworld_mini.png / rpg/cave_mini.png /
+'   rpg/cave.png (level1_cave.json src) /
 '   shooter/walls.png / rpg/level1_overworld.json / rpg/level1_cave.json /
 '   shooter/level1.json
-DIM ASSET_HINT$(6)
+DIM ASSET_HINT$(7)
 ASSET_HINT$(0) = "walls.png"
 ASSET_HINT$(1) = "rpg/Overworld_mini.png"
 ASSET_HINT$(2) = "rpg/cave_mini.png"
-ASSET_HINT$(3) = "shooter/walls.png"
-ASSET_HINT$(4) = "rpg/level1_overworld.json"
-ASSET_HINT$(5) = "rpg/level1_cave.json"
-ASSET_HINT$(6) = "shooter/level1.json"
+ASSET_HINT$(3) = "rpg/cave.png"
+ASSET_HINT$(4) = "shooter/walls.png"
+ASSET_HINT$(5) = "rpg/level1_overworld.json"
+ASSET_HINT$(6) = "rpg/level1_cave.json"
+ASSET_HINT$(7) = "shooter/level1.json"
 
 SCREEN 4
 DOUBLEBUFFER ON
