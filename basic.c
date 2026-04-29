@@ -1365,7 +1365,7 @@ static void init_console_ansi(void)
 #define MAX_INCLUDE_PATH  512
 
 static char include_path_store[MAX_INCLUDE_DEPTH][MAX_INCLUDE_PATH];
-#define MAX_VARS 128
+#define MAX_VARS 512
 #define VAR_NAME_MAX 32
 #define MAX_GOSUB 64
 #define MAX_FOR 32
