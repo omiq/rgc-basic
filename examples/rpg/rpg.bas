@@ -31,11 +31,11 @@ CLS
 '   2 = NPC
 '   3 = Cave tileset
 
-' Tilesets are the *_mini.png packs produced by scripts/pack_tileset.py
-SPRITE LOAD 0, "overworld_mini.png", 16, 16
-SPRITE LOAD 1, "character.png", 16, 32
+' Tilesets 
+SPRITE LOAD 0, "overworld.png", 16, 16
+SPRITE LOAD 1, "character3.png", 16, 32
 SPRITE LOAD 2, "npc.png",  16, 32
-SPRITE LOAD 3, "cave_mini.png", 16, 16
+SPRITE LOAD 3, "cave.png", 16, 16
 
 VIEW_W = 320
 VIEW_H = 200
