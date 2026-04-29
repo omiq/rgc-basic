@@ -4,7 +4,7 @@
 '    - 16x16 tiles (vs shooter's 32x32)
 '    - 16x32 character sprite
 '    - tile-based 4-direction movement with AABB-vs-solid collision
-'    - level swap (overworld <-> cave) via "door" objects
+'    - level swap (overworld <-> dungeon) via "door" objects
 '    - HUD strip with hearts + dialogue
 '
 '  Controls:  W A S D  move
@@ -14,7 +14,7 @@
 ' ============================================================
 
 #INCLUDE "../maplib.bas"
-' Level data lives in level1_overworld.json and level1_cave.json,
+' Level data lives in level1_overworld.json and level1_dungeon.json,
 ' loaded at runtime by MAPLOAD (docs/map-format.md v1). The legacy
 ' BASIC builders level1_overworld.bas and level1_cave.bas are kept in
 ' git as authoring reference but no longer #INCLUDEd — MAPLOAD fills
@@ -29,13 +29,13 @@ CLS
 '   0 = Overworld tileset
 '   1 = Player char
 '   2 = NPC
-'   3 = Cave tileset
+'   3 = dungeon tileset
 
 ' Tilesets 
 SPRITE LOAD 0, "overworld.png", 16, 16
 SPRITE LOAD 1, "character3.png", 16, 32
 SPRITE LOAD 2, "npc.png",  16, 32
-SPRITE LOAD 3, "cave.png", 16, 16
+SPRITE LOAD 3, "cave2.png", 16, 16
 
 VIEW_W = 320
 VIEW_H = 200
@@ -59,7 +59,7 @@ DIM MAP_TILESET_SRC$(7)
 
 ' Tile slot used by RenderTiles(). Swapped on level change.
 TILE_SLOT = 0
-LEVEL$ = "overworld"
+LEVEL$ = "Above Ground"
 
 ' --- player ---
 PX = 64                                    ' updated by SetSpawn after load
@@ -231,7 +231,7 @@ FUNCTION HandleInteract()
         END IF
       NEXT II
       IF BEST >= 0 THEN
-        DIALOG$ = "OLD MAN: TAKE THIS GUIDE TO THE CAVE."
+        DIALOG$ = "OLD MAN: TAKE THE PATH TO UNDERGROUND."
         ' Long timer is a fallback — SPACE dismisses immediately.
         DIALOG_TIMER = 600
       END IF
@@ -266,12 +266,12 @@ END FUNCTION
 
 FUNCTION SwapLevel(target$)
   IF target$ = "cave" THEN
-    LEVEL$ = "cave"
+    LEVEL$ = "Dungeon"
     TILE_SLOT = 3
     MAPLOAD "level1_cave.json"
     SetSpawn()
   ELSE
-    LEVEL$ = "overworld"
+    LEVEL$ = "Above Ground"
     TILE_SLOT = 0
     MAPLOAD "level1_overworld.json"
     ' Spawn next to overworld door instead of default spawn.
