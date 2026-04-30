@@ -9,6 +9,7 @@
   "INPUT":          { "tier": "portable" },
   "LET":            { "tier": "portable" },
   "REM":            { "tier": "portable" },
+  "OPTION":         { "tier": "conditional", "note": "rgc-basic-only directive; transpiler decays to REM on retro targets — charset/palette/columns settings have no ugBASIC analogue", "suggest": "use #OPTION (with hash) for rgc-basic-portable code; bare OPTION runs natively but is silently ignored on retro" },
 
   "IF":             { "tier": "portable" },
   "ELSE":           { "tier": "portable" },

@@ -27,6 +27,89 @@ from ..rgc_lint.tokenizer import Statement, tokenize
 from ..rgc_lint.directives import preprocess
 
 
+# ugBASIC's lex is case-sensitive: keywords match uppercase only, and
+# the identifier rule is `[a-z_][A-Za-z0-9_]*` — must start with
+# lowercase. ALL-CAPS source (rgc-basic / classic BASIC convention)
+# collides catastrophically: `INIT` reads as `IN` keyword + stray
+# `I`+`T`. Fix: lowercase any token not in this set during emit.
+_KEEP_UPPERCASE = frozenset({
+    "PRINT", "INPUT", "LET", "REM", "IF", "THEN", "ELSE", "ELSEIF",
+    "ENDIF", "END", "FOR", "NEXT", "STEP", "TO", "WHILE", "WEND",
+    "DO", "LOOP", "UNTIL", "EXIT", "GOTO", "GOSUB", "RETURN", "ON",
+    "STOP", "DIM", "AS", "READ", "DATA", "RESTORE", "CLR", "CLS",
+    "AND", "OR", "NOT", "XOR", "MOD",
+    "RND", "INT", "ABS", "SGN", "SIN", "COS", "TAN", "SQR", "EXP",
+    "LOG", "CHR", "STR", "VAL", "LEN", "LEFT", "RIGHT", "MID",
+    "INSTR", "UCASE", "LCASE", "STRING", "TRIM", "LTRIM", "RTRIM",
+    "ASC", "TAB", "SPC", "HEX", "DEC", "TI", "INKEY",
+    "SCREEN", "BITMAP", "TILEMAP", "ENABLE", "DISABLE",
+    "EMPTY", "TILE", "EMPTYTILE",
+    "COLOR", "COLOUR", "INK", "PAPER", "BORDER", "BACKGROUND",
+    "LOCATE", "SLEEP", "WAIT", "VBL", "MS", "CYCLES",
+    "BAR", "BOX", "CIRCLE", "FCIRCLE", "ELLIPSE", "FELLIPSE",
+    "PLOT", "LINE", "DRAW", "DRAWTEXT", "PSET", "PRESET",
+    "FILLRECT", "FILLCIRCLE", "FILLELLIPSE", "RECT",
+    "POKE", "PEEK", "MEMSET", "MEMCPY",
+    "SPRITE", "SPRITES", "AT", "KEY", "STATE", "JOY", "JOYSTICK",
+    "FIRE", "KEYDOWN", "KEYUP", "KEYPRESS",
+    "IMAGE", "ATLAS", "FRAME", "SIZE", "LOAD", "SAVE",
+    "WIDTH", "HEIGHT",
+    "PROCEDURE", "PROC", "CONST", "DEF", "DEFINE", "FN", "FUNCTION",
+    "SHARED", "GLOBAL", "BYTE", "WORD", "DWORD", "POSITION",
+    "FLOAT", "DOUBLE", "ADDRESS", "SIGNED", "UNSIGNED",
+    "SCREEN_WIDTH", "SCREEN_HEIGHT", "OPTION", "INCLUDE",
+    "PETSCII", "LOWER", "UPPER",
+    "BLACK", "WHITE", "RED", "CYAN", "PURPLE", "GREEN", "BLUE",
+    "YELLOW", "ORANGE", "BROWN", "PINK",
+    "TRUE", "FALSE", "PI",
+})
+
+
+def _lowercase_identifiers(line: str) -> str:
+    """Lowercase tokens not in _KEEP_UPPERCASE. String literals pass
+    through verbatim. Used to make rgc-basic ALL-CAPS identifiers
+    (variables, labels) compatible with ugBASIC's case-sensitive
+    `[a-z_]...` identifier rule."""
+    out = []
+    in_string = False
+    i = 0
+    n = len(line)
+    while i < n:
+        c = line[i]
+        if in_string:
+            out.append(c)
+            if c == '"':
+                in_string = False
+            elif c == "\\" and i + 1 < n:
+                out.append(line[i + 1])
+                i += 2
+                continue
+            i += 1
+            continue
+        if c == '"':
+            in_string = True
+            out.append(c)
+            i += 1
+            continue
+        if c.isalpha() or c == "_":
+            j = i + 1
+            while j < n and (line[j].isalnum() or line[j] == "_"):
+                j += 1
+            if j < n and line[j] == "$":
+                j += 1
+            tok = line[i:j]
+            strip_dollar = tok.rstrip("$")
+            if strip_dollar.upper() in _KEEP_UPPERCASE:
+                out.append(strip_dollar.upper() + ("$" if tok.endswith("$") else ""))
+            else:
+                out.append(tok.lower())
+            i = j
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
 @dataclass
 class TranspileResult:
     text: str            # ugBASIC source
@@ -41,6 +124,15 @@ _SPRITE_DRAW_RE = re.compile(r"^\s*(\d+)\s*,\s*([^,]+)\s*,\s*([^,]+)(?:\s*,\s*([
 _SLEEP_RE = re.compile(r"^\s*(.+?)\s*$")
 _KEYDOWN_RE = re.compile(r"\bKEYDOWN\s*\(\s*([^)]+)\s*\)")
 _INKEY_RE = re.compile(r"\bINKEY\$\s*\(\s*\)")
+
+# Detect integer / float-literal division and inject (FLOAT) cast.
+# Without the cast ugBASIC's integer-first arithmetic truncates the
+# division before the float multiplication. Pattern: identifier / N.M.
+_FLOAT_DIV_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*/\s*(\d+\.\d+)")
+
+
+def _inject_float_cast(text: str) -> str:
+    return _FLOAT_DIV_RE.sub(lambda m: f"(FLOAT) {m.group(1)} / {m.group(2)}", text)
 _BACKGROUND_RE = re.compile(r"\bBACKGROUND\b")
 _LINE_TO_RE = re.compile(r"^\s*([^,]+)\s*,\s*([^ ]+)\s+TO\s+([^,]+)\s*,\s*([^ ]+)\s*$", re.IGNORECASE)
 _ELSE_IF_RE = re.compile(r"^\s*ELSE\s+IF\b", re.IGNORECASE)
@@ -58,6 +150,202 @@ def _emit_pass_through(stmt: Statement) -> list[str]:
 
 def _emit_rem(stmt: Statement) -> list[str]:
     return [f"REM {stmt.rest}" if stmt.rest else "REM"]
+
+
+# PETSCII brace-token table — mirrors basic.c's `token_map[]`. Used
+# to expand `{NAME}` and `{number}` braces in string literals into
+# CHR$(N) splices so ugBASIC sees concrete control / colour bytes.
+_PETSCII_TOKENS = {
+    "WHITE": 5, "RED": 28, "CYAN": 159, "PURPLE": 156,
+    "GREEN": 30, "BLUE": 31, "YELLOW": 158, "ORANGE": 129,
+    "BROWN": 149, "PINK": 150, "BLACK": 144,
+    "WHT": 5, "BLK": 144, "CYN": 159, "PUR": 156,
+    "GRN": 30, "BLU": 31, "YEL": 158,
+    "GRAY1": 151, "GREY1": 151, "DARKGREY": 151, "DARKGRAY": 151,
+    "GRAY2": 152, "GREY2": 152, "GREY": 152, "GRAY": 152,
+    "GRAY3": 155, "GREY3": 155, "LIGHTGREY": 155, "LIGHTGRAY": 155,
+    "LIGHTGREEN": 153, "LIGHT GREEN": 153,
+    "LIGHTBLUE": 154, "LIGHT BLUE": 154,
+    "LIGHT-RED": 150,
+    "HOME": 19, "DOWN": 17, "UP": 145, "LEFT": 157, "RIGHT": 29,
+    "DEL": 20, "DELETE": 20, "INS": 148, "INST": 148, "INSERT": 148,
+    "CLR": 147, "CLEAR": 147, "SPACE": 32, "RETURN": 13,
+    "SHIFT RETURN": 141,
+    "CURSOR UP": 145, "CURSOR DOWN": 17,
+    "CURSOR LEFT": 157, "CURSOR RIGHT": 29,
+    "CRSR UP": 145, "CRSR DOWN": 17,
+    "CRSR LEFT": 157, "CRSR RIGHT": 29,
+    "RVS": 18, "RVS ON": 18, "RVSON": 18, "REVERSE ON": 18,
+    "RVS OFF": 146, "RVSOFF": 146, "REVERSE OFF": 146,
+    "F1": 133, "F2": 137, "F3": 134, "F4": 138,
+    "F5": 135, "F6": 139, "F7": 136, "F8": 140,
+    "PI": 126,
+}
+
+
+def _parse_brace_token(body):
+    """Resolve a `{...}` body to a control byte, or None on miss.
+
+    Numeric forms: {147}, {$93}, {0x93}, {%10010011}.
+    """
+    t = body.strip().upper()
+    if t in _PETSCII_TOKENS:
+        return _PETSCII_TOKENS[t]
+    if t.isdigit():
+        n = int(t)
+        return n if 0 <= n <= 255 else None
+    if re.match(r"^\$[0-9A-F]+$", t):
+        n = int(t[1:], 16)
+        return n if 0 <= n <= 255 else None
+    if re.match(r"^0X[0-9A-F]+$", t):
+        n = int(t[2:], 16)
+        return n if 0 <= n <= 255 else None
+    if re.match(r"^%[01]+$", t):
+        n = int(t[1:], 2)
+        return n if 0 <= n <= 255 else None
+    return None
+
+
+def _expand_braces_in_line(line):
+    """Walk `line` and expand `{NAME}` / `{number}` brace tokens
+    inside string literals to `+ CHR$(N) +` concats. Tokens that
+    don't resolve are passed through verbatim so the user sees the
+    literal `{...}` in the output rather than silent loss."""
+    out = []
+    i = 0
+    n = len(line)
+    in_string = False
+    while i < n:
+        c = line[i]
+        if not in_string:
+            if c == '"':
+                in_string = True
+            out.append(c)
+            i += 1
+            continue
+        if c == '"':
+            in_string = False
+            out.append(c)
+            i += 1
+            continue
+        if c == "{":
+            close = line.find("}", i + 1)
+            if close < 0:
+                out.append(c)
+                i += 1
+                continue
+            body = line[i + 1:close]
+            val = _parse_brace_token(body)
+            if val is None:
+                out.append(line[i:close + 1])
+                i = close + 1
+                continue
+            out.append(f'" + CHR$({val}) + "')
+            i = close + 1
+            continue
+        if c == "\\" and i + 1 < n:
+            out.append(c)
+            out.append(line[i + 1])
+            i += 2
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+_temp_counter = 0
+
+
+def _next_temp(prefix: str) -> str:
+    """Per-transpile counter for synthesised temp variables (POKE
+    address stash, future MID$/LEFT$ scalar extracts, etc.). Reset
+    at the top of each transpile() call so output is deterministic."""
+    global _temp_counter
+    _temp_counter += 1
+    return f"_{prefix}_{_temp_counter}"
+
+
+def _split_top_level_args(text: str) -> list[str]:
+    """Split text at top-level commas (respect parens and strings)."""
+    parts = []
+    depth = 0
+    in_string = False
+    start = 0
+    i = 0
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if in_string:
+            if c == '"':
+                in_string = False
+            elif c == "\\" and i + 1 < n:
+                i += 2
+                continue
+            i += 1
+            continue
+        if c == '"':
+            in_string = True
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+        elif c == "," and depth == 0:
+            parts.append(text[start:i])
+            start = i + 1
+        i += 1
+    parts.append(text[start:])
+    return [p.strip() for p in parts]
+
+
+_SIMPLE_ADDR_RE = re.compile(r"^\s*[A-Za-z_][A-Za-z0-9_]*(\$|\([^)]*\))?\s*$")
+
+
+def _emit_poke(stmt: Statement) -> list[str]:
+    """POKE auto-fix: ugBASIC's POKE expects a typed address as its
+    first argument. Literal-led arithmetic (e.g. `POKE 1024+y*40+x, v`)
+    triggers `unexpected Integer` because the parser can't infer the
+    address type from a leading int literal. Stash complex address
+    expressions in a synthesised temp variable so ugBASIC's type
+    inference sees a normal var read."""
+    args = _split_top_level_args(stmt.rest)
+    if len(args) != 2:
+        return [f"POKE {stmt.rest}"]
+    addr, val = args
+    if _SIMPLE_ADDR_RE.match(addr):
+        return [f"POKE {addr}, {val}"]
+    tmp = _next_temp("poke_addr")
+    return [
+        f"{tmp} = {addr}",
+        f"POKE {tmp}, {val}",
+    ]
+
+
+def _emit_textat(stmt: Statement) -> list[str]:
+    """TEXTAT col, row, expr$  →  LOCATE col, row : PRINT expr$;
+
+    Trailing `;` suppresses the newline so absolute-position HUD-
+    style output doesn't scroll. ugBASIC has no TEXTAT primitive —
+    splitting into LOCATE+PRINT preserves the rgc-basic intent."""
+    args = _split_top_level_args(stmt.rest)
+    if len(args) < 3:
+        return [f"REM rgc2ugb: TEXTAT needs col, row, expr — got: {stmt.rest}"]
+    col = args[0]
+    row = args[1]
+    expr = ",".join(args[2:])
+    return [
+        f"LOCATE {col}, {row}",
+        f"PRINT {expr};",
+    ]
+
+
+def _emit_option(stmt: Statement) -> list[str]:
+    """Bare `OPTION ...` is rgc-basic interpreter syntax for the
+    same thing as the `#OPTION ...` preprocessor directive. The
+    preprocess step only strips the hash form; this handler swallows
+    the bare form into a `REM` so ugBASIC sees a comment, not a
+    stray identifier. CHARSET / PALETTE / COLUMNS / etc. all decay
+    this way — they're rgc-basic-only and have no ugBASIC analogue."""
+    return [f"REM rgc2ugb: OPTION {stmt.rest} (rgc-basic-only, ignored on retro)"]
 
 
 def _emit_screen(stmt: Statement) -> list[str]:
@@ -90,11 +378,23 @@ def _emit_vsync(stmt: Statement) -> list[str]:
     return ["WAIT VBL"]
 
 
+_empty_tile_emitted = False
+
+
 def _emit_cls(stmt: Statement) -> list[str]:
+    """ugBASIC TILEMAP-mode CLS fills with EMPTY TILE (default
+    glyph, often non-blank). Inject `EMPTY TILE = 32` (space) once
+    before the first CLS so the screen actually clears to blanks
+    the way rgc-basic / CBM-BASIC programmers expect."""
+    global _empty_tile_emitted
+    out = []
+    if not _empty_tile_emitted:
+        out.append("EMPTY TILE = 32")
+        _empty_tile_emitted = True
     if stmt.rest.strip():
-        return [f"REM rgc2ugb: CLS rect-form not portable; clearing whole screen",
-                "CLS"]
-    return ["CLS"]
+        out.append("REM rgc2ugb: CLS rect-form not portable; clearing whole screen")
+    out.append("CLS")
+    return out
 
 
 def _emit_background(stmt: Statement) -> list[str]:
@@ -180,11 +480,17 @@ def _emit_sprite_two_word(stmt: Statement) -> list[str]:
 
 
 def _replace_intrinsics_in_expression(text: str) -> str:
-    """Rewrite intrinsic calls embedded in expressions:
-       KEYDOWN(code) → KEY STATE(code)
-       INKEY$()      → INKEY$  (ugBASIC takes no parens)
-    Other intrinsics with same names (RND, INT, ABS, LEN, ...) pass
-    through unchanged."""
+    """Rewrite intrinsic calls + auto-fix integer/float-literal
+    division so ugBASIC doesn't truncate to integer.
+
+    Rewrites:
+      KEYDOWN(code) → KEY STATE(code)
+      INKEY$()      → INKEY$  (ugBASIC takes no parens)
+      X / 3.14      → (FLOAT) X / 3.14  (force float division)
+
+    Other intrinsics with the same names (RND, INT, ABS, LEN, …)
+    pass through unchanged."""
+    text = _inject_float_cast(text)
     text = _KEYDOWN_RE.sub(lambda m: f"KEY STATE({m.group(1)})", text)
     text = _INKEY_RE.sub("INKEY$", text)
     return text
@@ -246,6 +552,9 @@ def _emit_color(stmt: Statement) -> list[str]:
 
 _HANDLERS = {
     "REM":            _emit_rem,
+    "OPTION":         _emit_option,
+    "POKE":           _emit_poke,
+    "TEXTAT":         _emit_textat,
     "SCREEN":         _emit_screen,
     "SLEEP":          _emit_sleep,
     "VSYNC":          _emit_vsync,
@@ -275,6 +584,12 @@ def _emit_statement(stmt: Statement) -> list[str]:
     kw = stmt.first_word
     if not kw:
         return [stmt.raw.strip()]
+
+    # Label statements (`LBL:`) — emit with trailing colon so ugBASIC
+    # parses them as goto-targets. Bare identifier without colon would
+    # be a syntax error in ugBASIC.
+    if stmt.is_label:
+        return [f"{kw}:"]
 
     # Two-word ELSE IF: ELSE first_word, "IF cond THEN" in rest.
     if kw == "ELSE" and _ELSE_IF_RE.match(stmt.first_word + " " + stmt.rest):
@@ -311,7 +626,8 @@ def _detect_targets(source: str) -> str:
 
 
 def transpile(source: str, *, target: str = "c64",
-              emit_include: bool = True) -> TranspileResult:
+              emit_include: bool = True,
+              base_dir=None) -> TranspileResult:
     """Transpile rgc-basic source to ugBASIC source.
 
     `target` selects the ugBASIC target hint emitted as the
@@ -322,9 +638,46 @@ def transpile(source: str, *, target: str = "c64",
 
     `emit_include` toggles the leading directive — disable when
     composing transpiled output into a larger program.
+
+    `base_dir` is passed through to preprocess as the directory used
+    to resolve #INCLUDE paths. Native rgc-basic preprocess uses the
+    filesystem directly; the IDE worker uses a TS-side resolver
+    instead.
     """
-    pre = preprocess(source, tier="portable")
+    global _temp_counter, _empty_tile_emitted
+    _temp_counter = 0
+    _empty_tile_emitted = False
+    pre = preprocess(source, tier="portable", base_dir=base_dir)
     statements = list(tokenize(pre.text))
+
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    # ---- Numeric line label handling --------------------------------
+    # Mixed numbered/unnumbered code lines is an error: ugBASIC accepts
+    # numeric labels but conflating numbered + unnumbered statements is
+    # a clear authoring mistake (classic-BASIC source half-converted).
+    # Comment-only and blank lines don't count toward the mix.
+    numbered = 0
+    unnumbered = 0
+    for s in statements:
+        if s.first_word == "REM" or s.first_word == "":
+            continue
+        if s.line_num is not None:
+            numbered += 1
+        else:
+            unnumbered += 1
+    if numbered > 0 and unnumbered > 0:
+        errors.append(
+            "mixed numbered/unnumbered lines — pick one style "
+            f"(found {numbered} numbered, {unnumbered} unnumbered)"
+        )
+
+    # Collect numeric labels referenced by GOTO/GOSUB/THEN/ON/RESTORE.
+    # Only referenced labels are preserved on output — unreferenced
+    # numeric prefixes drop, keeping output clean and avoiding
+    # ugBASIC label-collision warnings.
+    referenced: set[int] = _collect_numeric_refs(statements)
 
     out: list[str] = []
     if emit_include:
@@ -332,6 +685,56 @@ def transpile(source: str, *, target: str = "c64",
         out.append(f"REM transpiled from rgc-basic by rgc2ugb v0")
         out.append("")
     for stmt in statements:
-        out.extend(_emit_statement(stmt))
+        emitted = list(_emit_statement(stmt))
+        for i, line in enumerate(emitted):
+            # Pipeline:
+            #   1. _expand_braces_in_line — splice {NAME}/{number}
+            #      PETSCII tokens into `+ CHR$(N) +` concats.
+            #   2. _lowercase_identifiers — case-fix per ugBASIC's
+            #      `[a-z_]...` identifier rule.
+            cooked = _lowercase_identifiers(_expand_braces_in_line(line))
+            # Prepend numeric label only on the first emitted output
+            # line of the source statement, only when referenced.
+            if i == 0 and stmt.line_num is not None and stmt.line_num in referenced:
+                cooked = f"{stmt.line_num} {cooked}"
+            out.append(cooked)
 
-    return TranspileResult(text="\n".join(out) + "\n")
+    return TranspileResult(text="\n".join(out) + "\n",
+                           errors=errors, warnings=warnings)
+
+
+# Match GOTO/GOSUB/THEN/ELSE-IF-THEN/RESTORE references. Captures any
+# numeric token immediately following the keyword. ON x GOTO N1,N2,N3
+# also matches via list-walker below.
+_REF_AFTER_KW_RE = re.compile(
+    r"\b(?:GOTO|GOSUB|THEN|RESTORE)\s+(\d+)",
+    re.IGNORECASE,
+)
+_ON_GOTO_RE = re.compile(
+    r"\bON\b.*?\b(?:GOTO|GOSUB)\s+([\d ,]+)",
+    re.IGNORECASE,
+)
+
+
+def _collect_numeric_refs(statements) -> set[int]:
+    """Walk every statement's text and gather numeric labels referenced
+    by control-flow keywords. Used to decide which numeric line labels
+    survive on output."""
+    refs: set[int] = set()
+    for s in statements:
+        text = s.rest if s.first_word != "REM" else ""
+        # Direct GOTO/GOSUB/THEN/RESTORE <num>
+        for m in _REF_AFTER_KW_RE.finditer(text):
+            refs.add(int(m.group(1)))
+        # ON x GOTO/GOSUB n1,n2,n3
+        for m in _ON_GOTO_RE.finditer(text):
+            for tok in m.group(1).split(","):
+                tok = tok.strip()
+                if tok.isdigit():
+                    refs.add(int(tok))
+        # First-word-is-GOTO/GOSUB form: rest may start with bare number.
+        if s.first_word in ("GOTO", "GOSUB") and text:
+            head = text.split(None, 1)[0].rstrip(",")
+            if head.isdigit():
+                refs.add(int(head))
+    return refs

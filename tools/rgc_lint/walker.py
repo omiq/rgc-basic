@@ -142,6 +142,51 @@ def lint(
         rules = load_rules()
     diags: list[Diagnostic] = []
 
+    # Materialise once — we need two passes: first to detect mixed
+    # numbered/unnumbered lines, then the per-statement keyword walk.
+    statements = list(statements)
+
+    # Mixed line-numbering check: classic-BASIC source either uses
+    # numeric labels on every code line or none. Mixing the two is
+    # almost always an authoring mistake (half-converted source). The
+    # transpiler errors on this; the linter mirrors it as E002 so the
+    # author sees the issue before transpile time.
+    numbered = 0
+    unnumbered = 0
+    first_unnumbered: Statement | None = None
+    first_numbered: Statement | None = None
+    for s in statements:
+        if s.first_word == "REM" or s.first_word == "":
+            continue
+        if s.line_num is not None:
+            numbered += 1
+            if first_numbered is None:
+                first_numbered = s
+        else:
+            unnumbered += 1
+            if first_unnumbered is None:
+                first_unnumbered = s
+    if numbered > 0 and unnumbered > 0:
+        anchor = first_unnumbered or first_numbered
+        diags.append(Diagnostic(
+            file=file,
+            line=anchor.line if anchor else 1,
+            col=anchor.col if anchor else 1,
+            severity="error",
+            code="E002",
+            keyword="",
+            message=(
+                f"mixed numbered/unnumbered lines "
+                f"({numbered} numbered, {unnumbered} unnumbered) — "
+                f"pick one style"
+            ),
+            suggestion=(
+                "either prefix every code line with a number "
+                "(`10 PRINT \"X\"`) or use labels exclusively "
+                "(`mainloop:` + `GOTO mainloop`)"
+            ),
+        ))
+
     for stmt in statements:
         seen_in_stmt: set[str] = set()
 
@@ -160,6 +205,112 @@ def lint(
         # spuriously flag them.
         if stmt.first_word == "REM":
             continue
+
+        # GOTO / GOSUB with a numeric-literal target in source that has
+        # NO numbered lines — the target can't resolve. (When source is
+        # numbered, transpiler preserves the referenced label, so this
+        # warning would be a false positive.) Author should either add
+        # a numeric label to the destination or convert to label form.
+        if (tier == "portable" and
+                stmt.first_word in ("GOTO", "GOSUB") and
+                re.match(r"^\s*\d+\s*$", stmt.rest or "") and
+                numbered == 0):
+            diags.append(Diagnostic(
+                file=file,
+                line=stmt.line,
+                col=stmt.col,
+                severity="warning",
+                code="W003",
+                keyword=stmt.first_word,
+                message=f"{stmt.first_word} {stmt.rest.strip()} — numeric line-number target won't survive transpile",
+                suggestion="convert to a label: `mylabel:` + `" + stmt.first_word + " mylabel`",
+            ))
+
+        # Trigonometric / log / exp functions — float results differ
+        # between rgc-basic (full IEEE float) and ugBASIC (per-target
+        # fixed-point or LUT-based math). Smooth motion math (sine
+        # waves for object movement) won't produce identical values.
+        # Recommend LUT pattern via #INCLUDE "trig_lut.rbas".
+        if tier == "portable" and stmt.rest:
+            for fn in ("SIN", "COS", "TAN", "ATN", "LOG", "EXP"):
+                if re.search(r"\b" + fn + r"\s*\(", stmt.rest):
+                    diags.append(Diagnostic(
+                        file=file,
+                        line=stmt.line,
+                        col=stmt.col,
+                        severity="warning",
+                        code="W006",
+                        keyword=fn,
+                        message=f"`{fn}(...)` — trig/log/exp output differs between rgc-basic float math and ugBASIC fixed-point; transpiled retro builds may produce different curves",
+                        suggestion=f"for portable smooth-motion math use a precomputed LUT (`#INCLUDE \"trig_lut.rbas\"` + ISIN(deg)) — identical output across rgc-basic native + every ugBASIC target",
+                    ))
+                    break
+
+        # Float-literal division — ugBASIC truncates integer / float
+        # to integer unless the LHS is cast. Transpiler auto-injects
+        # (FLOAT) but we still warn so the author understands what's
+        # happening (sine waves, scaling math, etc).
+        if tier == "portable" and stmt.rest:
+            for m in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*/\s*(\d+\.\d+)",
+                                 stmt.rest):
+                diags.append(Diagnostic(
+                    file=file,
+                    line=stmt.line,
+                    col=stmt.col,
+                    severity="warning",
+                    code="W005",
+                    keyword=m.group(1),
+                    message=f"`{m.group(1)} / {m.group(2)}` — ugBASIC integer division would truncate; transpiler auto-injects `(FLOAT)` cast",
+                    suggestion=f"prefer explicit `(FLOAT) {m.group(1)} / {m.group(2)}` in source for portability across BASIC dialects",
+                ))
+                break  # one warning per statement is enough
+
+        # POKE into a CBM-style screen RAM region: classic CBM idiom is
+        # `POKE 1024+y*40+x, charcode` to write directly to the C64's
+        # video matrix. ugBASIC has its own renderer that tracks a
+        # tilemap independently of raw screen RAM — these POKEs run
+        # but don't appear on screen.
+        #
+        # Suggest two alternatives:
+        #   1. LOCATE x, y : PRINT CHR$(charcode)  ← idiomatic, portable
+        #   2. _addr = base + offset : POKE _addr, val  ← mechanical, if
+        #      the user really wants raw memory write (e.g. VIC chip
+        #      registers, sound, sprite pointers — addresses outside
+        #      the screen-RAM range)
+        if tier == "portable" and stmt.first_word == "POKE":
+            m = re.match(r"^\s*(\d+)\b", stmt.rest or "")
+            if m:
+                addr = int(m.group(1))
+                # CBM screen-RAM bases:
+                #   C64       1024..2023  ($0400..$07E7)  also colour 55296..56295
+                #   VIC-20    7680..8191  ($1E00..$1FFF)
+                #   Plus/4    3072..4071  ($0C00..$0FE7)
+                #   PET      32768..33767 ($8000..$83E7)
+                in_screen_ram = (
+                    1024 <= addr <= 2023 or
+                    7680 <= addr <= 8191 or
+                    3072 <= addr <= 4071 or
+                    32768 <= addr <= 33767
+                )
+                in_color_ram = 55296 <= addr <= 56295  # C64 colour RAM
+                if in_screen_ram or in_color_ram:
+                    region = "colour RAM" if in_color_ram else "screen RAM"
+                    diags.append(Diagnostic(
+                        file=file,
+                        line=stmt.line,
+                        col=stmt.col,
+                        severity="warning",
+                        code="W004",
+                        keyword="POKE",
+                        message=f"POKE into CBM {region} (${addr:04X}) — ugBASIC's renderer ignores raw {region} writes",
+                        suggestion=(
+                            "use LOCATE col, row : PRINT CHR$(charcode) "
+                            "for portable text output, or stash address "
+                            "in a typed variable: `addr = base + offset "
+                            ": POKE addr, val` if you really need a "
+                            "non-display memory write"
+                        ),
+                    ))
 
         # Embedded keyword scan — pick up modern intrinsics buried in
         # expressions (HTTP$ on RHS, GETMOUSEX() in conditions, etc.).

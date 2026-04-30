@@ -1,0 +1,44 @@
+' ============================================================
+'  sine_lut_demo.rbas — portable sine wave via LUT
+'
+'  Identical output across rgc-basic native + every ugBASIC
+'  retro target (C64, VIC-20, Atari, CPC, MSX, ZX Spectrum,
+'  CoCo, Plus/4 …). No SIN() call — pure integer math.
+'
+'  Pattern: read sine value from precomputed table via GOSUB,
+'  scale by amplitude, offset to centre vertically, plot.
+'
+'  Why GOSUB and not FUNCTION? ugBASIC uses PROCEDURE / rgc-
+'  basic uses FUNCTION; GOSUB works in both. See trig_lut.rbas
+'  for the full discussion.
+' ============================================================
+
+#INCLUDE "trig_lut.rbas"
+
+' DIM as SIGNED WORD so intermediate math doesn't overflow on
+' ugBASIC's BYTE-default arithmetic. `AMP * ISIN_RESULT` reaches
+' 9 * 1000 = 9000 (fits WORD, blows BYTE). rgc-basic native uses
+' float; declaring as WORD keeps both dialects honest.
+DIM X      AS SIGNED WORD
+DIM Y      AS SIGNED WORD
+DIM AMP    AS SIGNED WORD
+DIM CENTRE AS SIGNED WORD
+
+CLS
+
+GOSUB init_trig_lut
+
+' Plot a 2-cycle sine wave across 40 columns, centred on row 10.
+'   AMP    = 9                (±9 row swing)
+'   CENTRE = 10               (vertical centre)
+'   2 cycles over 40 cols   = 720 degrees / 40 = 18 deg per X
+'   so DEG = X * 18.
+AMP = 9
+CENTRE = 10
+FOR X = 0 TO 39
+  ISIN_DEG = X * 18
+  GOSUB isin
+  Y = CENTRE + (AMP * ISIN_RESULT) / 1000
+  TEXTAT X, Y, "O"
+NEXT X
+END

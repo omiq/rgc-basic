@@ -4,16 +4,17 @@ REM transpiled from rgc-basic by rgc2ugb v0
 REM SCREEN 1 + SPRITE LOAD + SPRITE DRAW — portable surface.
 BITMAP ENABLE (16)
 PAPER 6
+EMPTY TILE = 32
 CLS
 _img_0 = LOAD IMAGE("ship.png")
 _spr_0 = SPRITE(_img_0)
 SPRITE _spr_0 ENABLE
-X = 0
+x = 0
 DO
 IF KEY STATE(81) THEN EXIT
-SPRITE _spr_0 AT X, 100
-X = X + 1
-IF X > 320 THEN X = 0
+SPRITE _spr_0 AT x, 100
+x = x + 1
+IF x > 320 THEN x = 0
 WAIT VBL
 LOOP
 END

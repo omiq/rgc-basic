@@ -1,0 +1,12 @@
+REM @include c64
+REM transpiled from rgc-basic by rgc2ugb v0
+
+PRINT "ONE"
+GOTO 50
+PRINT "SKIPPED"
+PRINT "ALSO SKIPPED"
+50 PRINT "TWO"
+GOSUB 100
+END
+100 PRINT "SUB"
+RETURN

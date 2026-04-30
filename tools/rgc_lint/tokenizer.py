@@ -33,6 +33,17 @@ class Statement:
 
     `line` and `col` point at the position of `first_word` in the
     original source — used for diagnostics.
+
+    `is_label` is True when the chunk is a bare identifier followed
+    by `:` (label marker for GOTO / GOSUB targets) — set in the
+    tokenizer so the transpiler can re-emit the trailing colon.
+
+    `line_num` carries a leading numeric line label (`10 PRINT "X"` →
+    line_num=10) when present. ugBASIC supports numeric labels up to
+    6 digits, so the transpiler can preserve them when referenced by
+    GOTO/GOSUB/THEN/ON ... rather than stripping unconditionally.
+    Only set on the FIRST statement of a multi-statement line — colon-
+    separated continuations don't get re-numbered.
     """
 
     line: int
@@ -40,6 +51,8 @@ class Statement:
     first_word: str
     rest: str
     raw: str  # whole statement chunk before splitting
+    is_label: bool = False
+    line_num: int | None = None
 
 
 _KW_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\$?")
@@ -86,7 +99,8 @@ def _strip_comment(line: str) -> str:
     return "".join(out_chars)
 
 
-def _split_statements(line_no: int, raw_line: str) -> Iterator[Statement]:
+def _split_statements(line_no: int, raw_line: str,
+                      line_num: int | None = None) -> Iterator[Statement]:
     """Split one source line on top-level `:` separators.
 
     Inside string literals the colon is preserved (BASIC strings can
@@ -121,16 +135,13 @@ def _split_statements(line_no: int, raw_line: str) -> Iterator[Statement]:
         i += 1
     chunks.append((start, line[start:]))
 
-    for col_offset, chunk in chunks:
+    for ci, (col_offset, chunk) in enumerate(chunks):
         text = chunk.lstrip()
         leading_ws = len(chunk) - len(text)
         if not text:
             continue
         m = _KW_RE.match(text)
         if not m:
-            # statement starts with a non-identifier (e.g. label `:` only,
-            # a `?` shorthand for PRINT, etc.). Yield with first_word
-            # blank — caller can decide what to do.
             yield Statement(
                 line=line_no,
                 col=col_offset + leading_ws + 1,
@@ -141,16 +152,27 @@ def _split_statements(line_no: int, raw_line: str) -> Iterator[Statement]:
             continue
         kw = m.group(0).upper()
         rest = text[m.end():].lstrip()
-        # `?` in BASIC = PRINT shorthand. Normalise so rules.json only
-        # needs one entry.
         if kw == "":
             kw = "PRINT"
+        # Label detection: bare-identifier chunk (no rest) AND there
+        # is at least one further chunk after this one — meaning the
+        # source had `LBL:` (separator landed after the identifier).
+        # The further chunk may be empty (label on its own line) or
+        # carry actual code (`LBL: PRINT "X"`); both forms make the
+        # bare-identifier chunk a label.
+        is_label = rest == "" and ci < len(chunks) - 1
+        # Only the first sub-statement (ci==0) of the line carries the
+        # numeric label — continuation chunks after `:` aren't on a new
+        # line, so they shouldn't be re-emitted with the number.
+        stmt_line_num = line_num if ci == 0 else None
         yield Statement(
             line=line_no,
             col=col_offset + leading_ws + 1,
             first_word=kw,
             rest=rest,
             raw=chunk,
+            is_label=is_label,
+            line_num=stmt_line_num,
         )
 
 
@@ -169,10 +191,13 @@ def tokenize(source: str) -> Iterator[Statement]:
     statements.
     """
     for idx, raw_line in enumerate(source.splitlines(), start=1):
-        # Strip line numbers ("10 PRINT 'X'") so the first word of the
-        # statement is the actual keyword, not a digit.
+        # Capture leading line number ("10 PRINT 'X'") into Statement
+        # so the transpiler can re-emit it when referenced. ugBASIC
+        # supports numeric labels up to 6 digits.
+        line_num: int | None = None
         m = _LINE_NUM_RE.match(raw_line)
         if m:
+            line_num = int(m.group(1))
             raw_line = raw_line[m.end():]
 
         # Whole-line comments — preserve so transpilers can echo them.
@@ -181,6 +206,7 @@ def tokenize(source: str) -> Iterator[Statement]:
             yield Statement(
                 line=idx, col=1, first_word="REM",
                 rest=rem_m.group(1), raw=raw_line,
+                line_num=line_num,
             )
             continue
         tick_m = _LEADING_TICK_RE.match(raw_line)
@@ -188,10 +214,11 @@ def tokenize(source: str) -> Iterator[Statement]:
             yield Statement(
                 line=idx, col=1, first_word="REM",
                 rest=tick_m.group(1), raw=raw_line,
+                line_num=line_num,
             )
             continue
 
-        yield from _split_statements(idx, raw_line)
+        yield from _split_statements(idx, raw_line, line_num=line_num)
 
 
 def tokenize_file(path: str) -> list[Statement]:
