@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "objects-overlay",
+  "mode": "replace",
+  "objects": [
+    { "id": 1, "type": "spawn", "kind": "player", "shape": "point", "x": 32, "y": 32 },
+    { "id": 2, "type": "npc", "kind": "old_man", "shape": "rect", "x": 96, "y": 96, "w": 16, "h": 32 },
+    { "id": 3, "type": "loot", "kind": "coin", "shape": "rect", "x": 160, "y": 64, "w": 16, "h": 16 }
+  ]
+}

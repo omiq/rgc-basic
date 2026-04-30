@@ -640,6 +640,131 @@ Pause / gameover / won overlays use the OVERLAY plane (`SCREEN 2/4` requirement)
 
 ---
 
+## 21. Object overlays — wave / difficulty / mod variants
+
+The whole `obj` layer of a map (spawns, doors, NPCs, loot, traps, enemies) can live in a **separate file** loaded after the base map. One terrain JSON, N variant JSONs. Lets you ship:
+
+- **Difficulty modes** — `level1.easy.objects.json`, `level1.hard.objects.json`, `level1.nightmare.objects.json`. Same playfield, different enemy population.
+- **Wave-based shooters** (Galaxian / Galaga / Space Invaders style) — fixed playfield, 30 wave files: `wave_001.objects.json` through `wave_030.objects.json`. Each wave is a 30-line file with the formation in JSON.
+- **Mods / community content** — drop a third-party `.objects.json` into a folder, game picks it up.
+- **Procedural runs** — `OBJSAVE` a generated formation at runtime so the next room reuses it; or persist it for replays.
+
+### `OBJLOAD path$ [, mode$]`
+
+- **Purpose**: load an objects-overlay file into the `MAP_OBJ_*` arrays.
+- **Parameters**:
+  - `path$` — overlay file path.
+  - `mode$` — `"replace"` (default — clears `MAP_OBJ_COUNT` to 0 first) or `"append"` (stacks on top of whatever's already loaded).
+- **Returns**: nothing. Updates `MAP_OBJ_COUNT`.
+
+### `OBJSAVE path$`
+
+- **Purpose**: write the current `MAP_OBJ_*` arrays as a Shape A overlay JSON.
+- **Parameters**: `path$`.
+- **Returns**: nothing. `props` not preserved in this build.
+
+### Overlay schema (Shape A)
+
+```json
+{
+  "format": 1,
+  "kind": "objects-overlay",
+  "appliesTo": "level1-overworld",
+  "mode": "replace",
+  "objects": [
+    { "id": 100, "type": "enemy", "kind": "octorok",
+      "shape": "rect", "x": 64, "y": 64, "w": 16, "h": 16,
+      "props": { "hp": 1, "ai": "wander" } }
+  ]
+}
+```
+
+`appliesTo` is informational — the runtime accepts any overlay so a mismatch becomes the program's responsibility to detect (e.g. compare against `MAP_TILESET_ID$`). Shape B (full map JSON with only the `obj` layer populated) is also accepted as a fallback for editors that emit the wider schema.
+
+### Loading flow — RPG (difficulty)
+
+```basic
+MAPLOAD "level1.json"                ' base terrain + maybe a default obj layer
+
+IF DIFF$ = "hard" THEN
+  OBJLOAD "level1.hard.objects.json"  ' replace default obj with hard variant
+ELSE IF DIFF$ = "easy" THEN
+  OBJLOAD "level1.easy.objects.json"
+END IF
+' If DIFF$ falls through, the base map's default obj layer stays as-is.
+```
+
+### Loading flow — shooter (waves)
+
+```basic
+MAPLOAD "playfield.json"              ' starfield + boundary tiles
+
+WAVE = 1
+DO
+  PATH$ = "wave_" + RIGHT$("000" + STR$(WAVE), 3) + ".objects.json"
+  IF FILEEXISTS(PATH$) THEN
+    OBJLOAD PATH$
+    PlayWave()                        ' runs until ENEMY_COUNT = 0
+    WAVE = WAVE + 1
+  ELSE
+    EXIT                              ' no more waves — game won
+  END IF
+LOOP
+```
+
+Each `wave_NNN.objects.json` defines the formation:
+
+```json
+{
+  "format": 1,
+  "kind": "objects-overlay",
+  "objects": [
+    { "id": 1, "type": "enemy", "kind": "drone",
+      "shape": "rect", "x":  16, "y": 16, "w": 16, "h": 16 },
+    { "id": 2, "type": "enemy", "kind": "drone",
+      "shape": "rect", "x":  48, "y": 16, "w": 16, "h": 16 }
+    /* ... 8-30 entries laid out in a grid ... */
+  ]
+}
+```
+
+Designer hand-authors the formation in any text editor; programmer wires the loader. Shipping a new wave = adding one file.
+
+### Stacking overlays — `mode: "append"`
+
+```basic
+MAPLOAD "level1.json"
+OBJLOAD "level1.npcs.json"               ' base NPCs + doors
+OBJLOAD "level1.loot.greedy.json", "append"  ' extra chests + coins
+OBJLOAD "level1.enemies.hard.json", "append" ' extra enemies on top
+```
+
+Three concerns, three files, one run-time composition. Each overlay can be edited / re-balanced independently. Caller is responsible for picking unique `id` ranges across overlays so no collisions (e.g. `1-99` for NPCs, `100-199` for loot, `200-299` for enemies).
+
+### Using the editor
+
+The same `MAP_OBJ_*` arrays the engine reads are the ones the editor mutates. Workflow when object editing lands in `map_editor.bas`:
+
+1. `MAPLOAD "playfield.json"` — load base.
+2. `OBJLOAD "wave_005.objects.json"` — load the variant being edited (or start blank).
+3. Editor places / moves / deletes objects → `MAP_OBJ_*` arrays + `MAP_OBJ_COUNT` mutate.
+4. `OBJSAVE "wave_005.objects.json"` → file written. Browser: pair with `DOWNLOAD` for a real file.
+
+Tile edits → `MAPSAVE`. Object edits → `OBJSAVE`. Two surgical commands, no schema collision.
+
+### Why this beats one big file
+
+| | One big map.json | Base + overlay files |
+|---|---|---|
+| Difficulty modes | One obj layer — variants need fork+merge | Native — one file per mode |
+| Wave shooter | 30 maps with same tile data | 1 playfield + 30 tiny overlays |
+| Mod-ability | Replace whole map | Drop in one overlay |
+| Diff in git | Tile churn drowns spawn changes | Clean per-concern diffs |
+| Editor save | Rewrite whole JSON | Touch one file |
+| Composition | Not possible | `append` mode stacks overlays |
+
+---
+
 ## See also
 
 - [level-authoring](https://docs.retrogamecoders.com/basic/rgc-basic/level-authoring/) — `MAPLOAD` vs BASIC builder, migration path.

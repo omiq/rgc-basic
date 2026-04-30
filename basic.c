@@ -2966,6 +2966,8 @@ static void close_channel(int lfn);
 static void statement_download(char **p);
 static void statement_mapload(char **p);
 static void statement_mapsave(char **p);
+static void statement_objload(char **p);
+static void statement_objsave(char **p);
 #ifdef GFX_VIDEO
 static void statement_doublebuffer(char **p);
 static void statement_overlay(char **p);
@@ -3450,7 +3452,7 @@ static const char *const reserved_words[] = {
     "FILLRECT", "CIRCLE", "FILLCIRCLE", "ELLIPSE", "FILLELLIPSE", "TRIANGLE", "FILLTRIANGLE", "FLOODFILL", "POLYGON", "FILLPOLYGON", "VSYNC", "ANTIALIAS",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
-    "DOUBLEBUFFER", "DRAWSPRITE", "DRAWSPRITETILE", "DRAWTEXT", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "MAPLOAD", "MAPSAVE", "OVERLAY", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
+    "DOUBLEBUFFER", "DRAWSPRITE", "DRAWSPRITETILE", "DRAWTEXT", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "MAPLOAD", "MAPSAVE", "OBJLOAD", "OBJSAVE", "OVERLAY", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
     "DO", "LOOP", "UNTIL", "EXIT",
     "GETBYTE",
     /* Named colour constants (C64 palette 0-15) and boolean/math constants */
@@ -8523,6 +8525,251 @@ EM_JS(void, rgc_wasm_trigger_download, (const char *path), {
  *   Intended companion to IMAGE SAVE (PRINT# to a log file, audio
  *   capture, etc.). Kept as a separate statement so per-frame
  *   recorders don't spam download prompts. */
+/* OBJLOAD path$ [, mode$] — load an objects-overlay file into the
+ * MAP_OBJ_* arrays.
+ *
+ * Overlay schema (Shape A):
+ *
+ *   {
+ *     "format": 1,
+ *     "kind":   "objects-overlay",
+ *     "appliesTo": "level1-overworld",
+ *     "mode":   "replace" | "append",
+ *     "objects": [ { "id":..., "type":..., "kind":..., "shape":...,
+ *                    "x":..., "y":..., "w":..., "h":..., "props":{...} },
+ *                  ... ]
+ *   }
+ *
+ * `appliesTo` is informational; the runtime accepts any overlay so a
+ * mismatch becomes the program's responsibility to detect (e.g. via
+ * MAP_TILESET_ID$ vs the overlay's appliesTo string).
+ *
+ * Modes:
+ *   "replace" (default) — clear MAP_OBJ_COUNT to 0, then load.
+ *   "append"            — keep existing entries, stack overlay on top.
+ *
+ * Falls back to Shape B (full map JSON whose only populated layer is
+ * "obj") so a file authored as a tiny `{ "format":1, "layers":[ ... ] }`
+ * also loads. Caller is responsible for DIM'ing MAP_OBJ_* large enough
+ * to hold base-map + overlay total when mode="append".
+ *
+ * The file is also retained in g_map_raw so subsequent MAPSAVE /
+ * OBJSAVE round-trip the props blocks of overlay objects, not just the
+ * base map. */
+static void statement_objload(char **p)
+{
+    struct value vpath, vmode;
+    FILE *fp;
+    long len;
+    char *buf;
+    const char *objs_root = NULL;
+    int format_ver;
+    int existing_count = 0;
+    int append_mode = 0;
+    int obj_count_now;
+
+    skip_spaces(p);
+    vpath = eval_expr(p);
+    ensure_str(&vpath);
+    skip_spaces(p);
+    if (**p == ',') {
+        (*p)++;
+        skip_spaces(p);
+        vmode = eval_expr(p);
+        ensure_str(&vmode);
+        if (str_eq_ci(vmode.str, "append")) append_mode = 1;
+        else if (vmode.str[0] && !str_eq_ci(vmode.str, "replace")) {
+            runtime_error_hint("OBJLOAD: unknown mode",
+                "Mode must be \"replace\" (default) or \"append\".");
+            return;
+        }
+    }
+
+    fp = fopen(vpath.str, "rb");
+    if (!fp) {
+        runtime_error_hint("OBJLOAD: cannot open file",
+            "Check the path; on browser builds the overlay file must be bundled in the preset.");
+        return;
+    }
+    fseek(fp, 0, SEEK_END);
+    len = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    if (len <= 0 || len > 4 * 1024 * 1024) {
+        fclose(fp);
+        runtime_error_hint("OBJLOAD: file empty or > 4 MiB", NULL);
+        return;
+    }
+    buf = (char *)malloc((size_t)len + 1);
+    if (!buf) {
+        fclose(fp);
+        runtime_error_hint("OBJLOAD: out of memory", NULL);
+        return;
+    }
+    fread(buf, 1, (size_t)len, fp);
+    buf[len] = 0;
+    fclose(fp);
+
+    format_ver = (int)map_json_num(buf, "format", 0);
+    if (format_ver != 1) {
+        free(buf);
+        runtime_error_hint("OBJLOAD: unsupported format version",
+            "Loader expects \"format\": 1.");
+        return;
+    }
+
+    /* Shape A: top-level objects[]. Shape B: layers[].objects on a layer
+     * named "obj". Try A first, fall back to B. */
+    objs_root = json_navigate(buf, "objects");
+    if (!objs_root) {
+        const char *layers_root = json_navigate(buf, "layers");
+        int n_layers = layers_root ? json_count_entries(layers_root) : 0;
+        int li;
+        for (li = 0; li < n_layers; li++) {
+            char base[16], path[64], nm[32], lt[16];
+            snprintf(base, sizeof(base), "[%d]", li);
+            snprintf(path, sizeof(path), "%s.name", base);
+            if (!map_json_str(layers_root, path, nm, sizeof(nm))) continue;
+            if (strcmp(nm, "obj") != 0) continue;
+            snprintf(path, sizeof(path), "%s.type", base);
+            if (!map_json_str(layers_root, path, lt, sizeof(lt))) continue;
+            if (strcmp(lt, "objects") != 0) continue;
+            snprintf(path, sizeof(path), "%s.objects", base);
+            objs_root = json_navigate(layers_root, path);
+            if (objs_root) break;
+        }
+    }
+    if (!objs_root) {
+        free(buf);
+        runtime_error_hint("OBJLOAD: no objects array found",
+            "Overlay file must have a top-level \"objects\":[ ... ] (Shape A) or a layer named \"obj\" with type \"objects\" (Shape B).");
+        return;
+    }
+
+    /* Inline collector — clones map_collect_objects' shape but reads
+     * from the overlay's objs_root and respects append_mode. */
+    {
+        int n = json_count_entries(objs_root);
+        int oi;
+        if (append_mode) {
+            struct var *cv = map_var("MAP_OBJ_COUNT", 0);
+            if (cv) existing_count = (int)cv->scalar.num;
+            if (existing_count < 0) existing_count = 0;
+        }
+        obj_count_now = existing_count;
+        for (oi = 0; oi < n; oi++) {
+            char base[32], path[64];
+            char tbuf[64];
+            int idx = obj_count_now;
+            snprintf(base, sizeof(base), "[%d]", oi);
+            snprintf(path, sizeof(path), "%s.type", base);
+            if (!map_json_str(objs_root, path, tbuf, sizeof(tbuf))) tbuf[0] = 0;
+            map_set_array_str("MAP_OBJ_TYPE", idx, tbuf);
+            snprintf(path, sizeof(path), "%s.kind", base);
+            if (!map_json_str(objs_root, path, tbuf, sizeof(tbuf))) tbuf[0] = 0;
+            map_set_array_str("MAP_OBJ_KIND", idx, tbuf);
+            snprintf(path, sizeof(path), "%s.x", base);
+            map_set_array_num("MAP_OBJ_X", idx, map_json_num(objs_root, path, 0));
+            snprintf(path, sizeof(path), "%s.y", base);
+            map_set_array_num("MAP_OBJ_Y", idx, map_json_num(objs_root, path, 0));
+            snprintf(path, sizeof(path), "%s.w", base);
+            map_set_array_num("MAP_OBJ_W", idx, map_json_num(objs_root, path, 0));
+            snprintf(path, sizeof(path), "%s.h", base);
+            map_set_array_num("MAP_OBJ_H", idx, map_json_num(objs_root, path, 0));
+            snprintf(path, sizeof(path), "%s.id", base);
+            map_set_array_num("MAP_OBJ_ID", idx, map_json_num(objs_root, path, 0));
+            obj_count_now++;
+        }
+    }
+    map_set_num("MAP_OBJ_COUNT", (double)obj_count_now);
+
+    /* Free the overlay's raw bytes — we don't retain them. (g_map_raw
+     * stays whatever the last MAPLOAD produced.) */
+    free(buf);
+}
+
+/* OBJSAVE path$ — write the current MAP_OBJ_* arrays as a Shape A
+ * objects-overlay file:
+ *
+ *   { "format":1, "kind":"objects-overlay", "mode":"replace",
+ *     "objects":[ {... per object ...} ] }
+ *
+ * shape: emitted as "point" when both w == 0 and h == 0, else "rect".
+ * props: NOT preserved in this build — overlay output is regenerated
+ * from the live arrays only. Hand-edit the JSON if you need props
+ * round-trip; a future revision will read MAP_OBJ_PROPS$().
+ *
+ * Two-pass write: format the body in memory once so we can emit a
+ * compact, valid file even if MAP_OBJ_COUNT is large. */
+static void statement_objsave(char **p)
+{
+    struct value vpath;
+    FILE *fp;
+    int total = 0;
+    int i;
+    struct var *cv;
+
+    skip_spaces(p);
+    vpath = eval_expr(p);
+    ensure_str(&vpath);
+    skip_spaces(p);
+    if (!vpath.str[0]) {
+        runtime_error_hint("OBJSAVE requires a path",
+            "Example: OBJSAVE \"level1.hard.objects.json\"");
+        return;
+    }
+
+    cv = map_var("MAP_OBJ_COUNT", 0);
+    if (cv) total = (int)cv->scalar.num;
+    if (total < 0) total = 0;
+
+    fp = fopen(vpath.str, "wb");
+    if (!fp) {
+        runtime_error_hint("OBJSAVE: cannot open file for writing",
+            "Check the path; browser builds persist via the host (download a real file via DOWNLOAD).");
+        return;
+    }
+    fprintf(fp, "{\n");
+    fprintf(fp, "  \"format\": 1,\n");
+    fprintf(fp, "  \"kind\": \"objects-overlay\",\n");
+    fprintf(fp, "  \"mode\": \"replace\",\n");
+    fprintf(fp, "  \"objects\": [");
+    for (i = 0; i < total; i++) {
+        struct var *vt = map_var("MAP_OBJ_TYPE", 1);   /* MAP_OBJ_TYPE$ */
+        struct var *vk = map_var("MAP_OBJ_KIND", 1);   /* MAP_OBJ_KIND$ */
+        struct var *vx = map_var("MAP_OBJ_X", 0);
+        struct var *vy = map_var("MAP_OBJ_Y", 0);
+        struct var *vw = map_var("MAP_OBJ_W", 0);
+        struct var *vh = map_var("MAP_OBJ_H", 0);
+        struct var *vi = map_var("MAP_OBJ_ID", 0);
+        const char *tstr = "";
+        const char *kstr = "";
+        int x = 0, y = 0, w = 0, h = 0, id = 0;
+        const char *shape;
+        if (vt && vt->is_array && i < vt->size) {
+            tstr = vt->array[i].type == VAL_STR ? vt->array[i].str : "";
+        }
+        if (vk && vk->is_array && i < vk->size) {
+            kstr = vk->array[i].type == VAL_STR ? vk->array[i].str : "";
+        }
+        if (vx && vx->is_array && i < vx->size) x = (int)vx->array[i].num;
+        if (vy && vy->is_array && i < vy->size) y = (int)vy->array[i].num;
+        if (vw && vw->is_array && i < vw->size) w = (int)vw->array[i].num;
+        if (vh && vh->is_array && i < vh->size) h = (int)vh->array[i].num;
+        if (vi && vi->is_array && i < vi->size) id = (int)vi->array[i].num;
+        shape = (w == 0 && h == 0) ? "point" : "rect";
+        if (i > 0) fprintf(fp, ",");
+        fprintf(fp, "\n    { \"id\": %d, \"type\": \"%s\", \"kind\": \"%s\", \"shape\": \"%s\", \"x\": %d, \"y\": %d",
+                id, tstr, kstr, shape, x, y);
+        if (strcmp(shape, "rect") == 0) {
+            fprintf(fp, ", \"w\": %d, \"h\": %d", w, h);
+        }
+        fprintf(fp, " }");
+    }
+    if (total > 0) fprintf(fp, "\n  ");
+    fprintf(fp, "]\n}\n");
+    fclose(fp);
+}
+
 /* CHDIR path$ — change working directory. Native uses chdir; emscripten
  * MEMFS also honours chdir via its POSIX layer. Raises a runtime error
  * if the path is missing/unreadable so programs fail loudly instead of
@@ -15672,6 +15919,16 @@ static void execute_statement(char **p)
         if (starts_with_kw(*p, "OPEN")) {
             *p += 4;
             statement_open(p);
+            return;
+        }
+        if (starts_with_kw(*p, "OBJLOAD")) {
+            *p += 7;
+            statement_objload(p);
+            return;
+        }
+        if (starts_with_kw(*p, "OBJSAVE")) {
+            *p += 7;
+            statement_objsave(p);
             return;
         }
 #ifdef GFX_VIDEO
