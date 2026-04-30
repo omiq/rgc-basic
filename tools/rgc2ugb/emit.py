@@ -550,6 +550,116 @@ def _emit_color(stmt: Statement) -> list[str]:
     return [f"INK {stmt.rest}".rstrip()]
 
 
+# Match the FUNCTION header: `FUNCTION name(p1, p2)` or `FUNCTION name()`
+# or `FUNCTION name`. Captures name + optional comma-separated param list.
+_FUNCTION_HEADER_RE = re.compile(
+    r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(\s*(.*?)\s*\)\s*)?$",
+    re.IGNORECASE,
+)
+
+
+def _emit_function(stmt: Statement) -> list[str]:
+    """`FUNCTION name(p1, p2)` → `PROCEDURE name[p1, p2]`.
+    `FUNCTION name()` → `PROCEDURE name` (drop empty params per ugBASIC
+    convention; calls still use `name[]`)."""
+    m = _FUNCTION_HEADER_RE.match(stmt.rest or "")
+    if not m:
+        # Couldn't parse — leave a marker REM so the author sees it.
+        return [f"REM rgc2ugb: malformed FUNCTION header: {stmt.rest}"]
+    name, params = m.group(1), (m.group(2) or "").strip()
+    if params:
+        return [f"PROCEDURE {name}[{params}]"]
+    return [f"PROCEDURE {name}"]
+
+
+def _emit_end_function(stmt: Statement) -> list[str]:
+    return ["END PROC"]
+
+
+# User-defined function names (lowercased, since identifiers are
+# lowercased downstream) — populated by transpile() before per-line
+# emit so the call-site rewriter knows which `name(args)` forms to
+# convert to `name[args]`. Built-ins like CHR$/INT/SIN keep parens.
+_user_function_names: set[str] = set()
+
+
+def _collect_function_names(statements) -> set[str]:
+    names: set[str] = set()
+    for s in statements:
+        if s.first_word != "FUNCTION":
+            continue
+        m = _FUNCTION_HEADER_RE.match(s.rest or "")
+        if m:
+            names.add(m.group(1).lower())
+    return names
+
+
+def _rewrite_user_function_calls(line: str, names: set[str]) -> str:
+    """Convert `name(args)` → `name[args]` for every name in the user-
+    defined function set. Leaves built-in calls (CHR$(), INT(), etc.)
+    untouched. String literals pass through verbatim. Tracks paren
+    depth so nested commas don't confuse the boundary detection."""
+    if not names:
+        return line
+    out = []
+    i = 0
+    n = len(line)
+    in_string = False
+    while i < n:
+        c = line[i]
+        if in_string:
+            out.append(c)
+            if c == '"':
+                in_string = False
+            elif c == "\\" and i + 1 < n:
+                out.append(line[i + 1])
+                i += 2
+                continue
+            i += 1
+            continue
+        if c == '"':
+            in_string = True
+            out.append(c)
+            i += 1
+            continue
+        if c.isalpha() or c == "_":
+            j = i + 1
+            while j < n and (line[j].isalnum() or line[j] == "_"):
+                j += 1
+            tok = line[i:j]
+            # Allow optional whitespace between the identifier and `(`
+            # — the upstream `_rewrite_expression` joins first_word and
+            # rest with a single space, so a standalone-call statement
+            # like `OnTick()` arrives here as `ontick ()`.
+            paren_pos = j
+            while paren_pos < n and line[paren_pos] == " ":
+                paren_pos += 1
+            if tok.lower() in names and paren_pos < n and line[paren_pos] == "(":
+                # Find matching close-paren, respecting nested ().
+                depth = 1
+                k = paren_pos + 1
+                while k < n and depth > 0:
+                    if line[k] == "(":
+                        depth += 1
+                    elif line[k] == ")":
+                        depth -= 1
+                    k += 1
+                if depth == 0:
+                    inner = line[paren_pos + 1:k - 1]
+                    out.append(tok)
+                    out.append("[")
+                    out.append(inner)
+                    out.append("]")
+                    i = k
+                    continue
+            out.append(tok)
+            i = j
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
 _HANDLERS = {
     "REM":            _emit_rem,
     "OPTION":         _emit_option,
@@ -570,6 +680,7 @@ _HANDLERS = {
     "IF":             _emit_if,
     "ELSEIF":         _emit_else_if,
     "ENDIF":          _emit_end_if,
+    "FUNCTION":       _emit_function,
 
     # Bitmap primitives — keyword renames (body text passes through):
     "FILLRECT":       _rename("BAR"),
@@ -602,6 +713,10 @@ def _emit_statement(stmt: Statement) -> list[str]:
     # Block END IF: first_word=END, rest begins with IF.
     if kw == "END" and stmt.rest.upper().startswith("IF"):
         return _emit_end_if(stmt)
+
+    # Block END FUNCTION: rgc-basic FUNCTION terminator → ugBASIC END PROC.
+    if kw == "END" and stmt.rest.upper().startswith("FUNCTION"):
+        return _emit_end_function(stmt)
 
     handler = _HANDLERS.get(kw)
     if handler is not None:
@@ -679,11 +794,20 @@ def transpile(source: str, *, target: str = "c64",
     # ugBASIC label-collision warnings.
     referenced: set[int] = _collect_numeric_refs(statements)
 
+    # Collect user-defined FUNCTION names so call sites `name(args)`
+    # can be rewritten to ugBASIC's `name[args]`. ugBASIC procedure
+    # scoping is local-by-default; emit `GLOBAL "*"` once at the top
+    # so the procs see caller-side variables, matching rgc-basic's
+    # global-by-default semantics.
+    user_fn_names = _collect_function_names(statements)
+
     out: list[str] = []
     if emit_include:
         out.append(f"REM @include {target}")
         out.append(f"REM transpiled from rgc-basic by rgc2ugb v0")
         out.append("")
+    if user_fn_names:
+        out.append('GLOBAL "*"')
     for stmt in statements:
         emitted = list(_emit_statement(stmt))
         for i, line in enumerate(emitted):
@@ -692,7 +816,10 @@ def transpile(source: str, *, target: str = "c64",
             #      PETSCII tokens into `+ CHR$(N) +` concats.
             #   2. _lowercase_identifiers — case-fix per ugBASIC's
             #      `[a-z_]...` identifier rule.
+            #   3. _rewrite_user_function_calls — convert paren call
+            #      sites of user-defined FUNCTIONs to bracket form.
             cooked = _lowercase_identifiers(_expand_braces_in_line(line))
+            cooked = _rewrite_user_function_calls(cooked, user_fn_names)
             # Prepend numeric label only on the first emitted output
             # line of the source statement, only when referenced.
             if i == 0 and stmt.line_num is not None and stmt.line_num in referenced:
