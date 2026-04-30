@@ -1,0 +1,19 @@
+REM @include c64
+REM transpiled from rgc-basic by rgc2ugb v0
+
+REM SCREEN 1 + SPRITE LOAD + SPRITE DRAW — portable surface.
+BITMAP ENABLE (16)
+PAPER 6
+CLS
+_img_0 = LOAD IMAGE("ship.png")
+_spr_0 = SPRITE(_img_0)
+SPRITE _spr_0 ENABLE
+X = 0
+DO
+IF KEY STATE(81) THEN EXIT
+SPRITE _spr_0 AT X, 100
+X = X + 1
+IF X > 320 THEN X = 0
+WAIT VBL
+LOOP
+END

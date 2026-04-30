@@ -1,0 +1,6 @@
+REM @include c64
+REM transpiled from rgc-basic by rgc2ugb v0
+
+REM Hello world — pure portable subset.
+PRINT "HELLO, WORLD"
+END

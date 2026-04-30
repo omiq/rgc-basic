@@ -203,7 +203,7 @@ wasm-tutorial-test: basic-wasm-modular
 # runs the C unit test, the shell wrappers, and the headless .bas suite using
 # the same skip list as CI. WASM/Playwright tests are not included here; run
 # `make wasm-test wasm-canvas-test wasm-tutorial-test` separately for those.
-check: $(TARGET)$(EXE) gfx_video_test lint
+check: $(TARGET)$(EXE) gfx_video_test lint transpile
 	@echo "==> C unit tests"
 	./gfx_video_test$(EXE)
 	@echo "==> shell-wrapped .bas tests"
@@ -222,12 +222,19 @@ lint:
 	@echo "==> rgc-lint (portability linter)"
 	@sh tools/rgc_lint/test_lint.sh
 
+# rgc2ugb transpiler snapshot test — for every tests/portable/X.bas
+# with a matching tests/transpile/X.expected.ugb, transpile and diff.
+# UPDATE=1 sh tools/rgc2ugb/test_transpile.sh refreshes snapshots.
+transpile:
+	@echo "==> rgc2ugb (transpiler snapshot test)"
+	@sh tools/rgc2ugb/test_transpile.sh
+
 clean:
 	$(RM) $(TARGET)$(EXE) gfx_video_test$(EXE) gfx-demo$(EXE) basic-gfx$(EXE)
 	$(RM) web/basic.js web/basic.wasm web/basic.wasm.map 2>/dev/null || true
 	$(RM) web/basic-canvas.js web/basic-canvas.wasm web/basic-canvas.wasm.map 2>/dev/null || true
 	$(RM) web/basic-modular.js web/basic-modular.wasm web/basic-modular.wasm.map 2>/dev/null || true
 
-.PHONY: all clean check lint gfx_video_test gfx-demo basic-gfx basic-wasm basic-wasm-modular basic-wasm-canvas basic-wasm-raylib wasm-test wasm-canvas-test verify-canvas-wasm wasm-canvas-charset-test wasm-tutorial-test
+.PHONY: all clean check lint transpile gfx_video_test gfx-demo basic-gfx basic-wasm basic-wasm-modular basic-wasm-canvas basic-wasm-raylib wasm-test wasm-canvas-test verify-canvas-wasm wasm-canvas-charset-test wasm-tutorial-test
 
 # End of Makefile
