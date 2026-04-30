@@ -1,0 +1,29 @@
+REM @include c64
+REM transpiled from rgc-basic by rgc2ugb v0
+
+GLOBAL "*"
+_timer_1_active = FALSE
+PARALLEL PROCEDURE _timer_1
+  DO
+    IF _timer_1_active = FALSE THEN EXIT
+    WAIT 160 MS
+    IF _timer_1_active = FALSE THEN EXIT
+    ontick[]
+  LOOP
+END PROC
+tc = 0
+PROCEDURE ontick
+tc = tc + 1
+IF tc >= 5 THEN
+_timer_1_active = FALSE
+ENDIF
+END PROC
+_timer_1_active = TRUE
+SPAWN _timer_1
+loops = 0
+WHILE loops < 30
+WAIT 96 MS
+loops = loops + 1
+WEND
+_timer_1_active = FALSE
+PRINT "ticks=" + STR(INT(tc))
