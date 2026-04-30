@@ -154,6 +154,13 @@ def lint(
                 seen_in_stmt.add(kw_lookup)
                 _check_keyword(kw, rule, stmt.rest, stmt, file, tier, diags)
 
+        # Comment lines surface as Statement(first_word="REM"). Don't
+        # scan rest for keyword matches — the comment text might
+        # mention PLATFORM / HTTP / etc. as English words and we'd
+        # spuriously flag them.
+        if stmt.first_word == "REM":
+            continue
+
         # Embedded keyword scan — pick up modern intrinsics buried in
         # expressions (HTTP$ on RHS, GETMOUSEX() in conditions, etc.).
         # Skip the immediate next-word after a namespace dispatch so
