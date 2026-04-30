@@ -1,0 +1,18 @@
+REM Roguelike-style dice + DATA + READ + FUNCTION — all portable.
+DIM ROLLS(99)
+
+FUNCTION D(SIDES)
+  RETURN INT(RND(1) * SIDES) + 1
+END FUNCTION
+
+FOR I = 0 TO 99
+  ROLLS(I) = D(20)
+NEXT I
+
+T = 0
+FOR I = 0 TO 99
+  T = T + ROLLS(I)
+NEXT I
+
+PRINT "AVG D20 OVER 100 ROLLS = "; T / 100
+END
