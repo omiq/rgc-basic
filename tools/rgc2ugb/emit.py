@@ -44,6 +44,7 @@ _KEEP_UPPERCASE = frozenset({
     "ASC", "TAB", "SPC", "HEX", "DEC", "TI", "INKEY",
     "SCREEN", "BITMAP", "TILEMAP", "ENABLE", "DISABLE",
     "EMPTY", "TILE", "EMPTYTILE",
+    "PARALLEL", "SPAWN", "CALL",
     "COLOR", "COLOUR", "INK", "PAPER", "BORDER", "BACKGROUND",
     "LOCATE", "SLEEP", "WAIT", "VBL", "MS", "CYCLES",
     "BAR", "BOX", "CIRCLE", "FCIRCLE", "ELLIPSE", "FELLIPSE",
@@ -576,6 +577,102 @@ def _emit_end_function(stmt: Statement) -> list[str]:
     return ["END PROC"]
 
 
+# TIMER statement forms (rgc-basic native):
+#   TIMER N, MS, CALLBACK   -- register periodic callback
+#   TIMER STOP N            -- pause (callback no longer fires)
+#   TIMER CLEAR N           -- destroy
+#
+# ugBASIC has no TIMER. We map registrations to PARALLEL PROCEDURE
+# blocks (hoisted to the prologue) plus a `_timer_N_active` flag the
+# proc body checks at each iteration. STOP and CLEAR both flip the
+# flag false, causing the parallel proc to exit at its next yield.
+# CLEAR is functionally equivalent to STOP in ugBASIC because the
+# scheduler reaps the proc on EXIT.
+_TIMER_REG_RE = re.compile(
+    r"^\s*(\d+)\s*,\s*(\d+)\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\s*$"
+)
+_TIMER_CTRL_RE = re.compile(
+    r"^\s*(STOP|CLEAR)\s+(\d+)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _emit_timer(stmt: Statement) -> list[str]:
+    """Emit the call-site lines for a TIMER statement.
+
+    The PARALLEL PROCEDURE definition itself is hoisted into the
+    prologue by transpile() — see _collect_timers / _emit_timer_procs.
+    Here we only emit the activation (`_timer_N_active = TRUE` +
+    `SPAWN _timer_N`) or the deactivation flag flip for STOP/CLEAR.
+    """
+    rest = stmt.rest or ""
+    # Control form first (TIMER STOP N / TIMER CLEAR N).
+    cm = _TIMER_CTRL_RE.match(rest)
+    if cm:
+        _verb, tid = cm.group(1), cm.group(2)
+        return [f"_timer_{tid}_active = FALSE"]
+    # Registration form (TIMER N, MS, CALLBACK).
+    rm = _TIMER_REG_RE.match(rest)
+    if rm:
+        tid = rm.group(1)
+        return [
+            f"_timer_{tid}_active = TRUE",
+            f"SPAWN _timer_{tid}",
+        ]
+    # Unrecognised — leave a marker so author sees the issue.
+    return [f"REM rgc2ugb: malformed TIMER: {rest}"]
+
+
+def _collect_timers(statements):
+    """Walk source for TIMER N, MS, CB registrations. Returns a list
+    of (timer_id, interval_ms, callback_name) in source order. Used
+    to hoist PARALLEL PROCEDURE definitions into the program prologue.
+
+    Multiple registrations of the same id with different params:
+    first wins, later occurrences silently ignored at hoist time
+    (the per-statement emit still flips the flag and SPAWNs, which
+    is harmless if the proc already exists)."""
+    seen: dict[str, tuple[str, str, str]] = {}
+    order: list[tuple[str, str, str]] = []
+    for s in statements:
+        if s.first_word != "TIMER":
+            continue
+        m = _TIMER_REG_RE.match(s.rest or "")
+        if not m:
+            continue
+        tid, ms, cb = m.group(1), m.group(2), m.group(3)
+        if tid in seen:
+            continue
+        seen[tid] = (tid, ms, cb)
+        order.append((tid, ms, cb))
+    return order
+
+
+def _emit_timer_procs(timers) -> list[str]:
+    """For each registered timer id, emit a PARALLEL PROCEDURE that
+    waits the configured interval and calls the user FUNCTION (now a
+    PROCEDURE post-rewrite). The body checks `_timer_N_active` at the
+    top + after the WAIT so STOP/CLEAR takes effect promptly without
+    racing the in-flight callback."""
+    if not timers:
+        return []
+    out: list[str] = []
+    for tid, ms, cb in timers:
+        # Lowercase callback name here — hoisted lines bypass the
+        # post-emit pipeline that normally case-folds identifiers.
+        cb_lc = cb.lower()
+        out.append(f"_timer_{tid}_active = FALSE")
+        out.append(f"PARALLEL PROCEDURE _timer_{tid}")
+        out.append(f"  DO")
+        out.append(f"    IF _timer_{tid}_active = FALSE THEN EXIT")
+        out.append(f"    WAIT {ms} MS")
+        out.append(f"    IF _timer_{tid}_active = FALSE THEN EXIT")
+        out.append(f"    {cb_lc}[]")
+        out.append(f"  LOOP")
+        out.append(f"END PROC")
+    return out
+
+
 # User-defined function names (lowercased, since identifiers are
 # lowercased downstream) — populated by transpile() before per-line
 # emit so the call-site rewriter knows which `name(args)` forms to
@@ -681,6 +778,7 @@ _HANDLERS = {
     "ELSEIF":         _emit_else_if,
     "ENDIF":          _emit_end_if,
     "FUNCTION":       _emit_function,
+    "TIMER":          _emit_timer,
 
     # Bitmap primitives — keyword renames (body text passes through):
     "FILLRECT":       _rename("BAR"),
@@ -801,13 +899,25 @@ def transpile(source: str, *, target: str = "c64",
     # global-by-default semantics.
     user_fn_names = _collect_function_names(statements)
 
+    # Collect TIMER registrations so PARALLEL PROCEDURE blocks can be
+    # hoisted into the prologue (ugBASIC needs the proc defined before
+    # SPAWN can reach it; emitting them at top is the simplest way to
+    # guarantee that, regardless of where the original TIMER call was
+    # in source).
+    timers = _collect_timers(statements)
+
     out: list[str] = []
     if emit_include:
         out.append(f"REM @include {target}")
         out.append(f"REM transpiled from rgc-basic by rgc2ugb v0")
         out.append("")
-    if user_fn_names:
+    # GLOBAL "*" is needed when EITHER user FUNCTIONs OR TIMERs are
+    # used — TIMER's hoisted PARALLEL PROCEDUREs are also procs and
+    # need caller-side variable visibility.
+    if user_fn_names or timers:
         out.append('GLOBAL "*"')
+    for ln in _emit_timer_procs(timers):
+        out.append(ln)
     for stmt in statements:
         emitted = list(_emit_statement(stmt))
         for i, line in enumerate(emitted):
