@@ -2,13 +2,13 @@ REM @include c64
 REM transpiled from rgc-basic by rgc2ugb v0
 
 REM FOR / NEXT / IF / ELSE IF — all portable.
-FOR I = 1 TO 10
-IF I MOD 2 = 0 THEN
-PRINT I; " EVEN"
-ELSEIF I = 1 THEN
-PRINT I; " ONE"
+FOR i = 1 TO 10
+IF i MOD 2 = 0 THEN
+PRINT i; " EVEN"
+ELSEIF i = 1 THEN
+PRINT i; " ONE"
 ELSE
-PRINT I; " ODD"
+PRINT i; " ODD"
 ENDIF
-NEXT I
+NEXT i
 END

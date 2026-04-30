@@ -55,7 +55,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"rgc2ugb: {args.input}: {e}", file=sys.stderr)
         return 2
 
-    result = transpile(source, target=args.target)
+    result = transpile(source, target=args.target,
+                       base_dir=src_path.parent)
 
     if args.stdout:
         sys.stdout.write(result.text)

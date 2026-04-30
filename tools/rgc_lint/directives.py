@@ -94,7 +94,7 @@ def preprocess(source: str, *, tier: str = "portable",
             if in_block:
                 # Nested #IF — refuse for v1, keep simple.
                 out_lines.append(
-                    "#REM rgc-lint: nested #IF not supported (v1)"
+                    "REM rgc-lint: nested #IF not supported (v1)"
                 )
                 continue
             in_block = True
@@ -115,14 +115,14 @@ def preprocess(source: str, *, tier: str = "portable",
             full = full.resolve()
             if str(full) in _seen:
                 out_lines.append(
-                    f"#REM rgc-lint: skipping already-included {inc_path}"
+                    f"REM rgc-lint: skipping already-included {inc_path}"
                 )
                 continue
             try:
                 inc_text = full.read_text(encoding="utf-8")
             except OSError:
                 out_lines.append(
-                    f"#REM rgc-lint: cannot read INCLUDE {inc_path}"
+                    f"REM rgc-lint: cannot read INCLUDE {inc_path}"
                 )
                 continue
             _seen.add(str(full))
@@ -135,9 +135,9 @@ def preprocess(source: str, *, tier: str = "portable",
             )
             includes.extend(sub.includes)
             # Splice as a marker so the walker can attribute diags.
-            out_lines.append(f"#REM ===== INCLUDED {inc_path} =====")
+            out_lines.append(f"REM ===== INCLUDED {inc_path} =====")
             out_lines.extend(sub.text.splitlines())
-            out_lines.append(f"#REM ===== END INCLUDE {inc_path} =====")
+            out_lines.append(f"REM ===== END INCLUDE {inc_path} =====")
             continue
 
         if in_block and not block_keep:
