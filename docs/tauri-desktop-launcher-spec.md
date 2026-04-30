@@ -389,13 +389,265 @@ WebKitGTK. Acceptable trade for "double-click to run".
 - Replacing the existing browser-based ZIP export — the desktop launcher is
   *additive*. Browser export stays.
 
+## IDE integration plan (OMIQ IDE)
+
+**IDE location:** `/Users/chrisg/github/8bitworkshop` (folder name is
+historical — codebase is OMIQ/Chris Garrett's heavily-diverged fork, no
+longer tracking sehugg/8bitworkshop upstream). TypeScript / browser-only.
+Existing web-zip export: `src/ide/shareexport.ts:351` —
+`_downloadRgcBasicWebZipFile`. Uses **JSZip** + **file-saver** entirely
+client-side. **No server-side pipeline exists or is needed.**
+
+This forces architecture choice: **pre-built launcher templates served as
+static archives, assembled in the browser.** No Lambda / Worker / server
+Rust toolchain.
+
+### Architecture revision: external assets, not embedded
+
+POC (current state) bakes `resources/` into the binary via
+`tauri::generate_context!`. Per-export rebuild needs Rust + ~30 s compile —
+incompatible with browser-only IDE.
+
+**Switch the launcher to read assets from disk**, sibling to the binary,
+via a custom URI scheme handler in Rust:
+
+```rust
+fn main() {
+    tauri::Builder::default()
+        .register_uri_scheme_protocol("app", |_ctx, request| {
+            let path = request.uri().path().trim_start_matches('/');
+            let exe = std::env::current_exe().unwrap();
+            // mac: .app/Contents/MacOS/binary → ../Resources/app/
+            // win/linux: ./app/ next to the binary
+            let base = if cfg!(target_os = "macos") {
+                exe.parent().unwrap().join("../Resources/app")
+            } else {
+                exe.parent().unwrap().join("app")
+            };
+            let file = base.join(path);
+            let mime = mime_for_path(&file);
+            let body = std::fs::read(&file).unwrap_or_default();
+            tauri::http::Response::builder()
+                .header("Content-Type", mime)
+                .body(body).unwrap()
+        })
+        .invoke_handler(tauri::generate_handler![toggle_fullscreen])
+        .run(tauri::generate_context!())
+        .expect("launcher failed");
+}
+```
+
+`tauri.conf.json` window URL becomes `app://localhost/index.html`. Now the
+launcher binary is a **frozen template** — drop user files into the sibling
+folder, no recompile.
+
+### Distribution form: portable archives, not installers
+
+`.dmg` / `.AppImage` / NSIS-`.exe` are not modifiable in-browser:
+
+- `.dmg`: HFS+ image, no JS-side tooling.
+- `.AppImage`: squashfs, no JS-side tooling.
+- NSIS `.exe`: embedded archive, requires recompile.
+
+Ship as **portable archives** the IDE can unzip + repack with JSZip:
+
+```
+launcher-mac-arm64.zip        →  RGC-BASIC.app/
+                                   Contents/MacOS/rgc-basic-launcher
+                                   Contents/Resources/app/      ← inject here
+launcher-mac-x64.zip          →  same
+launcher-win-x64.zip          →  rgc-basic-launcher.exe
+                                   app/                          ← inject here
+launcher-linux-x64.tar.gz     →  rgc-basic-launcher
+                                   app/                          ← inject here
+```
+
+UX trade vs `.dmg` / `.AppImage`: user double-clicks the zip → Finder /
+Explorer / file-manager extracts → user runs the app inside. Same number
+of clicks as a dmg drag-install. AppImage portable still works on Linux
+without install (`chmod +x` then run).
+
+### Static template hosting
+
+Add CI workflow `.github/workflows/desktop-launcher-templates.yml` (rgc-basic
+repo). Triggers on changes to `desktop-launcher/**` or Tauri version bump.
+Outputs four archives, published as GitHub release assets or pushed to a
+static CDN (Cloudflare R2, GitHub Pages):
+
+| Filename | Size (est.) |
+|---|---|
+| `launcher-mac-arm64.zip` | ~3.5 MB |
+| `launcher-mac-x64.zip` | ~3.5 MB |
+| `launcher-win-x64.zip` | ~5 MB |
+| `launcher-linux-x64.tar.gz` | ~6 MB |
+
+Versioned URL e.g.
+`https://cdn.retrogamecoders.com/launcher/v0.1.0/launcher-mac-arm64.zip`.
+8bitworkshop pins a version; bump on launcher updates.
+
+### 8bitworkshop integration steps
+
+**1. Add launcher fetcher** (`src/ide/desktop-launcher.ts`, new file)
+
+```ts
+const LAUNCHER_BASE = "https://cdn.retrogamecoders.com/launcher/v0.1.0";
+type Platform = "mac-arm64" | "mac-x64" | "win-x64" | "linux-x64";
+const FILENAMES: Record<Platform, string> = {
+  "mac-arm64": "launcher-mac-arm64.zip",
+  "mac-x64":   "launcher-mac-x64.zip",
+  "win-x64":   "launcher-win-x64.zip",
+  "linux-x64": "launcher-linux-x64.tar.gz",
+};
+async function fetchLauncherTemplate(p: Platform): Promise<Uint8Array> {
+  const r = await fetch(`${LAUNCHER_BASE}/${FILENAMES[p]}`);
+  if (!r.ok) throw new Error(`launcher ${p}: ${r.status}`);
+  return new Uint8Array(await r.arrayBuffer());
+}
+```
+
+**2. Inject user files into template** (extend `shareexport.ts`)
+
+New function `_downloadRgcBasicDesktopZipFile(e, platform)` parallels
+existing `_downloadRgcBasicWebZipFile`:
+
+```ts
+export async function _downloadRgcBasicDesktopZipFile(e, platform: Platform) {
+  // Reuse current web-export builder to produce the resources payload
+  const webZip = await buildRgcBasicWebPayload();   // refactor existing fn
+
+  // Fetch + parse launcher template
+  const tplBytes = await fetchLauncherTemplate(platform);
+  const tplZip = await JSZip.loadAsync(tplBytes);
+
+  // Locate the inject path per platform
+  const injectRoot =
+    platform.startsWith("mac")
+      ? findAppBundleRoot(tplZip) + "/Contents/Resources/app"
+      : "app";
+
+  // Copy each web-export file into the launcher's app/ folder
+  webZip.forEach((path, file) => {
+    if (file.dir) return;
+    tplZip.file(`${injectRoot}/${path}`, file.async("uint8array"));
+  });
+
+  // Save
+  const out = await tplZip.generateAsync({ type: "blob" });
+  saveAs(out, `${projectName}-${platform}.zip`);
+}
+```
+
+For `linux-x64` (tar.gz), use `pako` (already a dep) for gzip + a tiny tar
+parser/writer (~200 lines, or grab `tar-stream` browser build).
+
+**3. UI: dropdown next to existing "Download Web Export" button**
+
+```html
+<button class="dropdown">Download
+  <ul>
+    <li>Web (HTML+ZIP)</li>           <!-- existing -->
+    <li>macOS (Apple Silicon)</li>
+    <li>macOS (Intel)</li>
+    <li>Windows</li>
+    <li>Linux</li>
+    <li>All platforms (combined ZIP)</li>
+  </ul>
+</button>
+```
+
+"All platforms" runs the four fetches in parallel, packs results into one
+outer zip with subfolders + a top-level `README-FIRST-RUN.txt`.
+
+**4. Production index.html template** (rgc-basic repo)
+
+POC reuses `web/raylib.html` smoke-test page. For distribution, add a
+stripped variant `web/templates/launcher-index.html`:
+
+- No textarea, no preset buttons, no log panel.
+- Auto-runs `program.bas` on `onRuntimeInitialized`.
+- `canvas-only` body class applied by default.
+- Optional minimal overlay: Pause / Restart / Quit. Or no overlay; Esc =
+  fullscreen toggle, ⌘Q closes window (native).
+- Reads `project-files.json` and `Module.FS.writeFile`s declared assets
+  before invoking `basic_load_and_run_gfx`.
+
+8bitworkshop's existing web export already templates `index.html`
+(`shareexport.ts:351–700` writes one inline). Add a desktop-mode flag that
+switches the template to the canvas-only variant.
+
+**5. First-run doc bundling**
+
+Generate `README-FIRST-RUN.txt` in each per-platform zip from the short
+version of [`docs/desktop-launcher-first-run.md`](desktop-launcher-first-run.md).
+Embed as a static string in `desktop-launcher.ts` (markdown, ~80 lines).
+
+**6. Per-project rebranding (M3 polish, defer for v1)**
+
+Once injection works, add per-export rebrand step:
+
+- macOS: edit `Contents/Info.plist` — `CFBundleName`,
+  `CFBundleDisplayName`, `CFBundleIdentifier`. JSZip can read/write the
+  plist as XML text.
+- Windows: rewrite PE resources via WebAssembly port of `rcedit` — or
+  skip, ship generic "RGC-BASIC.exe" v1.
+- Linux: rewrite `*.desktop` if any; trivial text edit.
+- Custom icon: if user uploads a PNG, convert in-browser:
+  - `.icns` via `png2icons` (npm, browser-compatible).
+  - `.ico` via same lib.
+  - Linux: just drop PNG.
+
+Skip rebranding entirely for v1 — generic "RGC-BASIC" name is acceptable
+launch UX. Add in v1.1.
+
+### Recommended v1 ship slice
+
+Steps **1 + 2 + 3 (mac-arm64 only) + 4 + 5**. Single-platform desktop
+download next to existing web download. Validates the pipeline end-to-end
+with smallest surface area. Add other platforms in v1.1.
+
+### Open questions resolved by 8bitworkshop check
+
+- ✅ **Where IDE lives:** browser TypeScript, `8bitworkshop/src/ide/`.
+- ✅ **Project storage:** browser `localforage` (IndexedDB), no cloud.
+- ✅ **Concurrent export load:** N/A — pure client-side.
+- ❓ **Per-project icons:** check if 8bitworkshop UI exposes icon upload.
+  If not, defer with the rest of step 6.
+- ❓ **CDN host:** decide between GitHub release assets (free, slower),
+  Cloudflare R2 (paid, fast), or 8bitworkshop's own static host.
+
+### Pipeline summary
+
+```
+8bitworkshop (browser)
+  ├─ existing: build webZip in memory
+  ├─ NEW: fetch launcher-{platform}.zip from CDN
+  ├─ NEW: load both with JSZip
+  ├─ NEW: copy webZip files into launcher's app/ subdir
+  ├─ NEW: generate combined zip
+  └─ saveAs("project-mac-arm64.zip")
+
+User
+  └─ unzip → double-click .app / .exe / linux binary → game runs
+```
+
+Zero server. Zero Rust on IDE side. Launcher templates rebuilt only when
+the Rust shell changes (rare — most updates are to the embedded
+`basic-raylib.{js,wasm}` which lives in the per-export injected payload,
+not the template).
+
 ## References
 
 - Existing web export: [`web/README.md`](../web/README.md),
   [`web/index.html`](../web/index.html).
+- OMIQ IDE export entrypoint (folder still named `8bitworkshop` for
+  historical reasons):
+  [`8bitworkshop/src/ide/shareexport.ts:351`](file:///Users/chrisg/github/8bitworkshop/src/ide/shareexport.ts).
 - WASM build flags: `Makefile` target `basic-wasm-raylib`.
 - Asset/HTTP loading rules:
   [`docs/wasm-assets-loadsprite-http.md`](wasm-assets-loadsprite-http.md).
+- POC: [`desktop-launcher-poc/README.md`](../desktop-launcher-poc/README.md).
+- First-run end-user doc:
+  [`docs/desktop-launcher-first-run.md`](desktop-launcher-first-run.md).
 - Tauri 2 docs: https://tauri.app/start/
 - WebView2 evergreen runtime:
   https://learn.microsoft.com/en-us/microsoft-edge/webview2/
