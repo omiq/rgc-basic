@@ -154,16 +154,43 @@ def _split_statements(line_no: int, raw_line: str) -> Iterator[Statement]:
         )
 
 
+_LINE_NUM_RE = re.compile(r"\s*(\d+)\s+")
+_LEADING_REM_RE = re.compile(r"^\s*REM\b\s?(.*)$", re.IGNORECASE)
+_LEADING_TICK_RE = re.compile(r"^\s*'\s?(.*)$")
+
+
 def tokenize(source: str) -> Iterator[Statement]:
     """Walk a full source string, yielding one Statement per top-level
     statement (split on `:` within a line, plus per-line splitting).
+
+    Whole-line comments (both REM- and `'`-style) are surfaced as
+    Statement(first_word="REM", rest=<comment text>). Trailing inline
+    comments are stripped by `_strip_comment` and don't surface as
+    statements.
     """
     for idx, raw_line in enumerate(source.splitlines(), start=1):
-        # Strip line numbers ("10 PRINT 'X'") if present so the first
-        # word of the statement is the actual keyword, not a digit.
-        m = re.match(r"\s*(\d+)\s+", raw_line)
+        # Strip line numbers ("10 PRINT 'X'") so the first word of the
+        # statement is the actual keyword, not a digit.
+        m = _LINE_NUM_RE.match(raw_line)
         if m:
             raw_line = raw_line[m.end():]
+
+        # Whole-line comments — preserve so transpilers can echo them.
+        rem_m = _LEADING_REM_RE.match(raw_line)
+        if rem_m:
+            yield Statement(
+                line=idx, col=1, first_word="REM",
+                rest=rem_m.group(1), raw=raw_line,
+            )
+            continue
+        tick_m = _LEADING_TICK_RE.match(raw_line)
+        if tick_m:
+            yield Statement(
+                line=idx, col=1, first_word="REM",
+                rest=tick_m.group(1), raw=raw_line,
+            )
+            continue
+
         yield from _split_statements(idx, raw_line)
 
 

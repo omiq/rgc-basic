@@ -225,12 +225,33 @@ def _emit_assignment_passthrough(stmt: Statement) -> list[str]:
     return _rewrite_expression(stmt)
 
 
+def _rename(target_keyword: str):
+    """Factory for handlers that just swap the first_word for a
+    different keyword (e.g. FILLRECT → BAR, FILLCIRCLE → FCIRCLE,
+    PSET → PLOT). Body text is preserved verbatim — the rgc-basic
+    syntax of `FILLRECT x1,y1 TO x2,y2` matches ugBASIC `BAR x1,y1
+    TO x2,y2` so no further rewriting needed."""
+    def _h(stmt: Statement) -> list[str]:
+        if stmt.rest:
+            return [f"{target_keyword} {stmt.rest}"]
+        return [target_keyword]
+    return _h
+
+
+def _emit_color(stmt: Statement) -> list[str]:
+    """COLOR n → INK n (ugBASIC convention; COLOR exists as a token
+    but INK is the canonical pen-set verb on every target)."""
+    return [f"INK {stmt.rest}".rstrip()]
+
+
 _HANDLERS = {
     "REM":            _emit_rem,
     "SCREEN":         _emit_screen,
     "SLEEP":          _emit_sleep,
     "VSYNC":          _emit_vsync,
     "CLS":            _emit_cls,
+    "COLOR":          _emit_color,
+    "COLOUR":         _emit_color,
     "BACKGROUND":     _emit_background,
     "LOADSPRITE":     _emit_loadsprite,
     "DRAWSPRITE":     _emit_drawsprite,
@@ -240,6 +261,13 @@ _HANDLERS = {
     "IF":             _emit_if,
     "ELSEIF":         _emit_else_if,
     "ENDIF":          _emit_end_if,
+
+    # Bitmap primitives — keyword renames (body text passes through):
+    "FILLRECT":       _rename("BAR"),
+    "RECT":           _rename("BOX"),
+    "FILLCIRCLE":     _rename("FCIRCLE"),
+    "FILLELLIPSE":    _rename("FELLIPSE"),
+    "PSET":           _rename("PLOT"),
 }
 
 
