@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "RGC-BASIC POC",
+  "version": "0.1.0",
+  "identifier": "com.retrogamecoders.rgc-basic-poc",
+  "build": {
+    "frontendDist": "../resources"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "RGC-BASIC POC",
+        "width": 1080,
+        "height": 760,
+        "resizable": true,
+        "fullscreen": false,
+        "url": "index.html"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' tauri: asset: blob: data:; script-src 'self' tauri: asset: 'wasm-unsafe-eval' 'unsafe-inline'; connect-src 'self' tauri: asset: ipc: http://ipc.localhost https:; img-src 'self' tauri: asset: data: blob:; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "icon": ["icons/icon.png"],
+    "resources": [],
+    "category": "DeveloperTool",
+    "shortDescription": "RGC-BASIC desktop POC",
+    "longDescription": "Proof-of-concept desktop launcher for RGC-BASIC raylib WebGL2 runtime."
+  }
+}
