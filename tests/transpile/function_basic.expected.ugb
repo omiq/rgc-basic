@@ -1,0 +1,14 @@
+REM @include c64
+REM transpiled from rgc-basic by rgc2ugb v0
+
+GLOBAL "*"
+tc = 0
+PROCEDURE ontick
+tc = tc + 1
+PRINT "tick"
+END PROC
+PROCEDURE add[a, b]
+RETURN a + b
+END PROC
+ontick[]
+PRINT "sum = " + STR(add[3, 4])
