@@ -44,7 +44,7 @@ _KEEP_UPPERCASE = frozenset({
     "ASC", "TAB", "SPC", "HEX", "DEC", "TI", "INKEY",
     "SCREEN", "BITMAP", "TILEMAP", "ENABLE", "DISABLE",
     "EMPTY", "TILE", "EMPTYTILE",
-    "PARALLEL", "SPAWN", "CALL",
+    "PARALLEL", "SPAWN", "CALL", "RUN",
     "COLOR", "COLOUR", "INK", "PAPER", "BORDER", "BACKGROUND",
     "LOCATE", "SLEEP", "WAIT", "VBL", "MS", "CYCLES",
     "BAR", "BOX", "CIRCLE", "FCIRCLE", "ELLIPSE", "FELLIPSE",
@@ -368,17 +368,21 @@ def _emit_screen(stmt: Statement) -> list[str]:
 
 
 def _emit_sleep(stmt: Statement) -> list[str]:
-    """SLEEP n (ticks at 60Hz) → WAIT (n*16) MS. Approximate — 1 tick
-    = 16.67 ms; we round down to integer ms for the ugBASIC token."""
+    """SLEEP n (rgc-basic: n jiffies @ 60Hz) → ugBASIC FOR loop with
+    RUN PARALLEL + WAIT VBL per iteration. RUN PARALLEL is required
+    so any active PARALLEL PROCEDUREs (e.g. TIMER-mapped callbacks)
+    get scheduled instead of starving while the main thread waits.
+    WAIT VBL is one jiffy → exact timing match with rgc-basic SLEEP
+    semantics."""
     expr = stmt.rest.strip()
     if not expr:
-        return ["WAIT 16 MS"]
-    # If the arg is a literal integer we can compute. Otherwise just
-    # multiply at runtime: WAIT (expr * 16) MS — ugBASIC accepts an
-    # integer expression for the count.
-    if expr.isdigit():
-        return [f"WAIT {int(expr) * 16} MS"]
-    return [f"WAIT ({expr}) * 16 MS"]
+        expr = "1"
+    return [
+        f"FOR _ugb_sleep_i = 1 TO {expr}",
+        f"  RUN PARALLEL",
+        f"  WAIT VBL",
+        f"NEXT _ugb_sleep_i",
+    ]
 
 
 def _emit_vsync(stmt: Statement) -> list[str]:
@@ -616,13 +620,13 @@ def _emit_timer(stmt: Statement) -> list[str]:
     cm = _TIMER_CTRL_RE.match(rest)
     if cm:
         _verb, tid = cm.group(1), cm.group(2)
-        return [f"_timer_{tid}_active = FALSE"]
+        return [f"_timer_{tid}_active = 0"]
     # Registration form (TIMER N, MS, CALLBACK).
     rm = _TIMER_REG_RE.match(rest)
     if rm:
         tid = rm.group(1)
         return [
-            f"_timer_{tid}_active = TRUE",
+            f"_timer_{tid}_active = 1",
             f"SPAWN _timer_{tid}",
         ]
     # Unrecognised — leave a marker so author sees the issue.
@@ -654,12 +658,26 @@ def _collect_timers(statements):
     return order
 
 
+def _emit_timer_proc_inits(timers) -> list[str]:
+    """Emit only the `_timer_N_active = 0` lines, which need to
+    happen BEFORE the `GLOBAL "*"` declaration so ugBASIC can mark
+    them as globally visible (vars must exist before being
+    globalised). Uses 0/1 instead of TRUE/FALSE since not all ugBASIC
+    target backends recognise the named constants in PARALLEL
+    PROCEDURE bodies."""
+    if not timers:
+        return []
+    return [f"_timer_{tid}_active = 0" for tid, _ms, _cb in timers]
+
+
 def _emit_timer_procs(timers) -> list[str]:
     """For each registered timer id, emit a PARALLEL PROCEDURE that
     waits the configured interval and calls the user FUNCTION (now a
     PROCEDURE post-rewrite). The body checks `_timer_N_active` at the
     top + after the WAIT so STOP/CLEAR takes effect promptly without
-    racing the in-flight callback."""
+    racing the in-flight callback. The flag-init line is emitted
+    separately by _emit_timer_proc_inits so it can sit before
+    GLOBAL "*"."""
     if not timers:
         return []
     out: list[str] = []
@@ -667,12 +685,20 @@ def _emit_timer_procs(timers) -> list[str]:
         # Lowercase callback name here — hoisted lines bypass the
         # post-emit pipeline that normally case-folds identifiers.
         cb_lc = cb.lower()
-        out.append(f"_timer_{tid}_active = FALSE")
+        # Convert ms → TICKS at 60Hz (1 tick = 16.67ms). PARALLEL
+        # PROCEDURE bodies require WAIT N TICKS (WAIT MS does not
+        # yield correctly to the scheduler in PARALLEL context).
+        if isinstance(ms, int):
+            wait_line = f"    WAIT {max(1, ms // 16)} TICKS"
+        elif isinstance(ms, str) and ms.isdigit():
+            wait_line = f"    WAIT {max(1, int(ms) // 16)} TICKS"
+        else:
+            wait_line = f"    WAIT (({ms}) / 16) TICKS"
         out.append(f"PARALLEL PROCEDURE _timer_{tid}")
         out.append(f"  DO")
-        out.append(f"    IF _timer_{tid}_active = FALSE THEN EXIT")
-        out.append(f"    WAIT {ms} MS")
-        out.append(f"    IF _timer_{tid}_active = FALSE THEN EXIT")
+        out.append(f"    IF _timer_{tid}_active = 0 THEN RETURN")
+        out.append(wait_line)
+        out.append(f"    IF _timer_{tid}_active = 0 THEN RETURN")
         out.append(f"    {cb_lc}[]")
         out.append(f"  LOOP")
         out.append(f"END PROC")
@@ -917,30 +943,61 @@ def transpile(source: str, *, target: str = "c64",
         out.append(f"REM @include {target}")
         out.append(f"REM transpiled from rgc-basic by rgc2ugb v0")
         out.append("")
-    # GLOBAL "*" is needed when EITHER user FUNCTIONs OR TIMERs are
-    # used — TIMER's hoisted PARALLEL PROCEDUREs are also procs and
-    # need caller-side variable visibility.
-    if user_fn_names or timers:
-        out.append('GLOBAL "*"')
-    for ln in _emit_timer_procs(timers):
-        out.append(ln)
+
+    # Three-way split: ugBASIC requires (1) procedures to be defined
+    # before any reference, (2) variables to exist before being marked
+    # GLOBAL, AND (3) hoisted PARALLEL PROCEDUREs to see caller-side
+    # globals. So we split main statements into "pre-proc" (var inits
+    # from before any FUNCTION definition) and "post-proc" (everything
+    # after), then emit:
+    #   prologue
+    #   → pre-proc main (var inits like `tc = 0`)
+    #   → GLOBAL "*"   (now vars exist, can be globalised)
+    #   → user procs
+    #   → timer parallel procs
+    #   → post-proc main (TIMER reg, loops, PRINT, ...)
+    pre_proc_main: list[str] = []
+    post_proc_main: list[str] = []
+    proc_lines: list[str] = []
+    in_function = False
+    seen_function = False
     for stmt in statements:
+        kw_upper = (stmt.first_word or "").upper()
+        rest_upper = (stmt.rest or "").upper()
+        is_func_open = kw_upper == "FUNCTION"
+        is_func_close = kw_upper == "END" and rest_upper.startswith("FUNCTION")
+        if is_func_open:
+            in_function = True
+            seen_function = True
         emitted = list(_emit_statement(stmt))
+        if in_function:
+            target_lines = proc_lines
+        elif seen_function:
+            target_lines = post_proc_main
+        else:
+            target_lines = pre_proc_main
         for i, line in enumerate(emitted):
-            # Pipeline:
-            #   1. _expand_braces_in_line — splice {NAME}/{number}
-            #      PETSCII tokens into `+ CHR$(N) +` concats.
-            #   2. _lowercase_identifiers — case-fix per ugBASIC's
-            #      `[a-z_]...` identifier rule.
-            #   3. _rewrite_user_function_calls — convert paren call
-            #      sites of user-defined FUNCTIONs to bracket form.
             cooked = _lowercase_identifiers(_expand_braces_in_line(line))
             cooked = _rewrite_user_function_calls(cooked, user_fn_names)
-            # Prepend numeric label only on the first emitted output
-            # line of the source statement, only when referenced.
             if i == 0 and stmt.line_num is not None and stmt.line_num in referenced:
                 cooked = f"{stmt.line_num} {cooked}"
-            out.append(cooked)
+            target_lines.append(cooked)
+        if is_func_close:
+            in_function = False
+
+    out.extend(pre_proc_main)
+    # Timer-active-flag inits MUST come before GLOBAL "*" so they are
+    # globalised correctly.
+    out.extend(_emit_timer_proc_inits(timers))
+    # GLOBAL "*" must come AFTER variable initializations — ugBASIC
+    # requires the variable to already exist before being declared
+    # global.
+    if user_fn_names or timers:
+        out.append('GLOBAL "*"')
+    out.extend(proc_lines)
+    for ln in _emit_timer_procs(timers):
+        out.append(ln)
+    out.extend(post_proc_main)
 
     return TranspileResult(text="\n".join(out) + "\n",
                            errors=errors, warnings=warnings)
