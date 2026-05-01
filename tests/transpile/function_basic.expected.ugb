@@ -1,8 +1,8 @@
 REM @include c64
 REM transpiled from rgc-basic by rgc2ugb v0
 
-GLOBAL "*"
 tc = 0
+GLOBAL "*"
 PROCEDURE ontick
 tc = tc + 1
 PRINT "tick"
