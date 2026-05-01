@@ -176,7 +176,7 @@
   "HIDECURSOR":     { "tier": "modern" },
   "SHOWCURSOR":     { "tier": "modern" },
 
-  "TIMER":          { "tier": "modern", "suggest": "ugBASIC EVERY ... DO ... is the closest analogue" },
+  "TIMER":          { "tier": "portable", "note": "transpiler maps to ugBASIC PARALLEL PROCEDURE + SPAWN; native rgc-basic uses real timer" },
 
   "DOWNLOAD":       { "tier": "modern" },
   "FILEEXISTS":     { "tier": "modern" },
@@ -200,5 +200,16 @@
   "PLATFORM":       { "tier": "modern" },
 
   "ANTIALIAS":      { "tier": "modern" },
-  "SCREENCODES":    { "tier": "modern" }
+  "SCREENCODES":    { "tier": "modern" },
+
+  "MAX":            { "tier": "portable", "note": "v1.18: array max" },
+  "MIN":            { "tier": "portable", "note": "v1.18: array min" },
+  "FLASH":          { "tier": "conditional", "note": "v1.18: graphics; not all targets" },
+  "TRIANGLE":       { "tier": "portable", "note": "v1.18: graphics primitive" },
+  "BITMAPADDRESS":  { "tier": "conditional", "note": "v1.18: target-specific bitmap mem address" },
+  "RESET":          { "tier": "portable", "note": "v1.18: control" },
+  "CHAIN":          { "tier": "conditional", "note": "v1.18: load + run another .prg; retro only" },
+  "NUMBER":         { "tier": "conditional", "note": "v1.18: arbitrary-length int (127B big / 255B little)" },
+  "MSPRITE":        { "tier": "conditional", "note": "v1.18: multi-sprite TYPE field" },
+  "COPPER":         { "tier": "conditional", "note": "v1.18: copper lists; atari/atarixl/c64/c64reu/c128 only" }
 }

@@ -63,6 +63,12 @@ _KEEP_UPPERCASE = frozenset({
     "BLACK", "WHITE", "RED", "CYAN", "PURPLE", "GREEN", "BLUE",
     "YELLOW", "ORANGE", "BROWN", "PINK",
     "TRUE", "FALSE", "PI",
+    # ugBASIC v1.18 additions
+    "MAX", "MIN", "FLASH", "TRIANGLE", "BITMAPADDRESS",
+    "RESET", "ERROR", "CHAIN",
+    "BEGIN", "COPPER", "MOVE", "STORE",
+    "NUMBER", "MSPRITE",
+    "ARRAY", "CHECK", "GET", "PUT", "REU",
 })
 
 
