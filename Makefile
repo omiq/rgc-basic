@@ -119,12 +119,12 @@ EMCC ?= emcc
 basic-wasm:
 	@mkdir -p web
 	$(EMCC) -w -O2 $(VERSION_DEFINES) -s WASM=1 \
-		-s EXPORTED_FUNCTIONS='["_basic_load","_basic_run","_basic_halted","_basic_load_and_run","_basic_apply_arg_string","_wasm_push_key"]' \
+		-s EXPORTED_FUNCTIONS='["_basic_load","_basic_run","_basic_halted","_basic_load_and_run","_basic_apply_arg_string","_wasm_push_key","_malloc","_free"]' \
 		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","HEAPU8","HEAP16","wasmMemory","getValue"]' \
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
 		-s INITIAL_MEMORY=33554432 \
 		-s STACK_SIZE=524288 \
-		-s ASYNCIFY=1 -s ASYNCIFY_IMPORTS='["emscripten_sleep","__asyncjs__wasm_js_http_fetch_async","__asyncjs__wasm_js_http_fetch_to_file_async","__asyncjs__wasm_js_host_exec_async"]' \
+		-s ASYNCIFY=1 -s ASYNCIFY_IMPORTS='["emscripten_sleep","__asyncjs__wasm_js_http_fetch_async","__asyncjs__wasm_js_http_fetch_async_dyn","__asyncjs__wasm_js_http_fetch_to_file_async","__asyncjs__wasm_js_host_exec_async"]' \
 		-o web/basic.js basic.c petscii.c -lm
 	@echo "Built web/basic.js and web/basic.wasm"
 
@@ -133,12 +133,12 @@ basic-wasm:
 basic-wasm-modular:
 	@mkdir -p web
 	$(EMCC) -w -O2 $(VERSION_DEFINES) -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME=createBasicModular \
-		-s EXPORTED_FUNCTIONS='["_basic_load","_basic_run","_basic_halted","_basic_load_and_run","_basic_apply_arg_string","_wasm_push_key"]' \
+		-s EXPORTED_FUNCTIONS='["_basic_load","_basic_run","_basic_halted","_basic_load_and_run","_basic_apply_arg_string","_wasm_push_key","_malloc","_free"]' \
 		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","HEAPU8","HEAP16","wasmMemory","getValue"]' \
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
 		-s INITIAL_MEMORY=33554432 \
 		-s STACK_SIZE=524288 \
-		-s ASYNCIFY=1 -s ASYNCIFY_IMPORTS='["emscripten_sleep","__asyncjs__wasm_js_http_fetch_async","__asyncjs__wasm_js_http_fetch_to_file_async","__asyncjs__wasm_js_host_exec_async"]' \
+		-s ASYNCIFY=1 -s ASYNCIFY_IMPORTS='["emscripten_sleep","__asyncjs__wasm_js_http_fetch_async","__asyncjs__wasm_js_http_fetch_async_dyn","__asyncjs__wasm_js_http_fetch_to_file_async","__asyncjs__wasm_js_host_exec_async"]' \
 		-o web/basic-modular.js basic.c petscii.c -lm
 	@echo "Built web/basic-modular.js and web/basic-modular.wasm"
 
@@ -146,12 +146,12 @@ basic-wasm-modular:
 basic-wasm-canvas:
 	@mkdir -p web
 	$(EMCC) -w -O2 $(VERSION_DEFINES) -s WASM=1 -DGFX_VIDEO -Igfx \
-		-s EXPORTED_FUNCTIONS='["_basic_apply_arg_string","_basic_load_and_run_gfx","_basic_load_and_run_gfx_argline","_wasm_push_key","_wasm_gfx_rgba_ptr","_wasm_gfx_rgba_version_read","_wasm_gfx_bitmap_pixel_at","_wasm_gfx_screen_screencode_at","_wasm_gfx_key_state_set","_wasm_gfx_key_state_clear","_wasm_gfx_key_state_ptr","_wasm_gamepad_buttons_ptr","_wasm_gamepad_axes_ptr","_wasm_mouse_js_frame","_wasm_canvas_build_stamp","_wasm_canvas_set_debug","_wasm_canvas_set_debug_trace_for","_wasm_debug_log_stacks","_wasm_gfx_set_js_sprite_backend","_wasm_gfx_get_js_sprite_backend","_wasm_gfx_sprite_rgba_ptr","_wasm_gfx_sprite_w","_wasm_gfx_sprite_h","_wasm_gfx_sprite_version","_wasm_gfx_sprite_draw_params","_malloc"]' \
+		-s EXPORTED_FUNCTIONS='["_basic_apply_arg_string","_basic_load_and_run_gfx","_basic_load_and_run_gfx_argline","_wasm_push_key","_wasm_gfx_rgba_ptr","_wasm_gfx_rgba_version_read","_wasm_gfx_bitmap_pixel_at","_wasm_gfx_screen_screencode_at","_wasm_gfx_key_state_set","_wasm_gfx_key_state_clear","_wasm_gfx_key_state_ptr","_wasm_gamepad_buttons_ptr","_wasm_gamepad_axes_ptr","_wasm_mouse_js_frame","_wasm_canvas_build_stamp","_wasm_canvas_set_debug","_wasm_canvas_set_debug_trace_for","_wasm_debug_log_stacks","_wasm_gfx_set_js_sprite_backend","_wasm_gfx_get_js_sprite_backend","_wasm_gfx_sprite_rgba_ptr","_wasm_gfx_sprite_w","_wasm_gfx_sprite_h","_wasm_gfx_sprite_version","_wasm_gfx_sprite_draw_params","_malloc","_free"]' \
 		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","HEAPU8","HEAP16","wasmMemory","getValue"]' \
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
 		-s INITIAL_MEMORY=67108864 \
 		-s STACK_SIZE=524288 \
-		-s ASYNCIFY=1 -s ASYNCIFY_STACK_SIZE=65536 -s ASYNCIFY_IMPORTS='["emscripten_sleep","__asyncjs__wasm_js_http_fetch_async","__asyncjs__wasm_js_http_fetch_to_file_async","__asyncjs__wasm_js_host_exec_async"]' \
+		-s ASYNCIFY=1 -s ASYNCIFY_STACK_SIZE=65536 -s ASYNCIFY_IMPORTS='["emscripten_sleep","__asyncjs__wasm_js_http_fetch_async","__asyncjs__wasm_js_http_fetch_async_dyn","__asyncjs__wasm_js_http_fetch_to_file_async","__asyncjs__wasm_js_host_exec_async"]' \
 		-o web/basic-canvas.js basic.c petscii.c gfx/gfx_video.c gfx/gfx_charrom.c gfx/pet_style_64c_data.c gfx/gfx_gamepad.c gfx/gfx_mouse.c gfx/gfx_canvas.c gfx/gfx_software_sprites.c gfx/gfx_images.c -lm
 	@echo "Built web/basic-canvas.js and web/basic-canvas.wasm"
 
@@ -176,7 +176,7 @@ basic-wasm-raylib: $(RAYLIB_WEB_LIB)
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
 		-s INITIAL_MEMORY=67108864 \
 		-s STACK_SIZE=524288 \
-		-s ASYNCIFY=1 -s ASYNCIFY_STACK_SIZE=65536 -s ASYNCIFY_IMPORTS='["emscripten_sleep","__asyncjs__wasm_js_http_fetch_async","__asyncjs__wasm_js_http_fetch_to_file_async","__asyncjs__wasm_js_host_exec_async"]' \
+		-s ASYNCIFY=1 -s ASYNCIFY_STACK_SIZE=65536 -s ASYNCIFY_IMPORTS='["emscripten_sleep","__asyncjs__wasm_js_http_fetch_async","__asyncjs__wasm_js_http_fetch_async_dyn","__asyncjs__wasm_js_http_fetch_to_file_async","__asyncjs__wasm_js_host_exec_async"]' \
 		-s ASYNCIFY_REMOVE=@scripts/asyncify-remove.txt \
 		-o web/basic-raylib.js basic.c petscii.c gfx/gfx_video.c gfx/gfx_charrom.c gfx/pet_style_64c_data.c gfx/gfx_gamepad.c gfx/gfx_mouse.c gfx/gfx_raylib.c gfx/gfx_images.c gfx/gfx_sound.c $(RAYLIB_WEB_LIB) -lm
 	@echo "Built web/basic-raylib.js and web/basic-raylib.wasm"

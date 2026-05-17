@@ -246,10 +246,15 @@ Shipped:
 
 Verified: native `basic` (`make`) and `basic-gfx` (`make basic-gfx`)
 both build clean and pass the full `tests/run_bas_suite.sh` (124
-.bas tests) under `-O2` and ASAN. WASM targets (`basic-wasm`,
-`basic-wasm-canvas`, `basic-wasm-raylib`) not built this session
-(emcc not on PATH); migration is in shared `basic.c` so compile
-expected — confirm with a wasm build before shipping a release.
+.bas tests) under `-O2` and ASAN. `make basic-wasm` confirmed
+compiling on user's emsdk after the first push.
+
+Follow-up: HTTP$ intake buffers (native curl-fork and WASM
+JS-fetch bridge) were still fixed-size `char[MAX_STR_LEN]`,
+masking the win. Switched to dynamic-buffer paths
+(`native_http_fetch_to_buf`, `wasm_js_http_fetch_async_dyn`) so
+HTTP$ returns the full response. Demo
+`examples/http_big_string_demo.bas` pulls 157 KB on native.
 
 ## String escape sequences — original spec (shipped, kept for context)
 

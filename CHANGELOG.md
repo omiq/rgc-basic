@@ -1,5 +1,28 @@
 ## Changelog
 
+### HTTP$ end-to-end big strings (2026-05-17)
+
+Follow-up to the big-strings refactor. HTTP$ was still capped at 4 KB
+in both native and WASM builds because the intake buffer was a fixed
+`char outbuf[MAX_STR_LEN]` on the stack — independent of the
+`struct value` widening.
+
+- Native: new `native_http_fetch_to_buf` grows a heap buffer as curl
+  streams the body. Status code parsed from the `--write-out` trailer
+  is reliable on >4 KB bodies now (used to be drained silently along
+  with the body overflow, leaving HTTPSTATUS()=0).
+- WASM: new `wasm_js_http_fetch_async_dyn` JS bridge does
+  `arrayBuffer()` + `_malloc(byteLength)` + `HEAPU8.set`, returns
+  ptr+len to C. C wraps in `make_str_bytes` and frees the buffer.
+- Makefile: `_malloc` / `_free` exported and
+  `__asyncjs__wasm_js_http_fetch_async_dyn` added to ASYNCIFY_IMPORTS
+  for all four WASM targets (`basic-wasm`, `basic-wasm-modular`,
+  `basic-wasm-canvas`, `basic-wasm-raylib`).
+
+`examples/http_big_string_demo.bas` now returns 157 KB from
+jsonplaceholder /comments and runs `INSTR` / `MID$` / `JSON$` across
+the full payload.
+
 ### Big strings — length-prefixed heap-backed strings (2026-05-17)
 
 `struct value` now carries an `rgc_str_t *str_h` instead of an inline

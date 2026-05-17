@@ -80,6 +80,37 @@ EM_ASYNC_JS(int, wasm_js_http_fetch_async, (const char *url, const char *method,
   return 0;
 });
 
+/* Dynamic-buffer variant: JS malloc's a buffer sized to the response,
+ * copies the bytes, writes ptr+len into the C-side out params. Caller
+ * frees the buffer (or it'll leak). Returns 0 on success, -1 on error. */
+EM_ASYNC_JS(int, wasm_js_http_fetch_async_dyn, (const char *url, const char *method, const char *body, int body_len, int *out_ptr, int *out_len, int *status_out), {
+  var urlJs = UTF8ToString(url);
+  var methodJs = method ? UTF8ToString(method) : "GET";
+  var init = { method: methodJs };
+  if (body && body_len > 0) {
+    init.body = HEAPU8.subarray(body, body + body_len >>> 0);
+  }
+  HEAP32[out_ptr >> 2] = 0;
+  HEAP32[out_len >> 2] = 0;
+  HEAP32[status_out >> 2] = 0;
+  try {
+    const resp = await fetch(urlJs, init);
+    HEAP32[status_out >> 2] = resp.status;
+    const ab = await resp.arrayBuffer();
+    const bytes = new Uint8Array(ab);
+    if (bytes.length === 0) return 0;
+    const p = _malloc(bytes.length);
+    if (!p) return -1;
+    HEAPU8.set(bytes, p);
+    HEAP32[out_ptr >> 2] = p;
+    HEAP32[out_len >> 2] = bytes.length;
+  } catch (e) {
+    HEAP32[status_out >> 2] = 0;
+    return -1;
+  }
+  return 0;
+});
+
 static void wasm_http_fetch_emscripten(const char *url, const char *method, const char *body, int body_len,
     char *out, size_t out_size, int *status_out)
 {
@@ -295,95 +326,105 @@ static int native_http_fetch_to_file(const char *url, const char *path, const ch
  * Returns 0 on success, -1 on error. Sets *status_out and fills out[0..out_cap-1].
  * If curl is not found (exit 127), prints a diagnostic and returns -1.
  */
-static int native_http_fetch_to_str(const char *url, char *out, size_t out_cap, int *status_out)
+/* Fetch URL via curl into a heap buffer. Caller owns *out_buf (free with
+ * free()). Sets *out_len = body length (status trailer stripped) and
+ * *status_out = HTTP status code. Returns 0 on success, -1 on error. */
+static int native_http_fetch_to_buf(const char *url, char **out_buf, size_t *out_len, int *status_out)
 {
     pid_t pid;
-    int body_pipe[2];   /* child stdout → response body */
-    int code_pipe[2];   /* child stderr redirect → status code via -w */
+    int body_pipe[2];
     int st;
-    char codebuf[32];
-    size_t cpos = 0, bpos = 0;
+    char codebuf[8];
+    char *buf = NULL;
+    size_t cap = 8192, len = 0;
     ssize_t n;
     int http_code = 0;
-    int curl_not_found = 0;
 
-    if (!url || !url[0] || !out || out_cap == 0 || !status_out) {
+    if (!url || !url[0] || !out_buf || !out_len || !status_out) {
         if (status_out) *status_out = 0;
         return -1;
     }
-    out[0] = '\0';
+    *out_buf = NULL;
+    *out_len = 0;
     *status_out = 0;
 
-    if (pipe(body_pipe) != 0) return -1;
-    if (pipe(code_pipe) != 0) { close(body_pipe[0]); close(body_pipe[1]); return -1; }
+    buf = (char *)malloc(cap);
+    if (!buf) return -1;
+
+    if (pipe(body_pipe) != 0) { free(buf); return -1; }
 
     pid = fork();
     if (pid < 0) {
         close(body_pipe[0]); close(body_pipe[1]);
-        close(code_pipe[0]); close(code_pipe[1]);
+        free(buf);
         return -1;
     }
     if (pid == 0) {
-        /* Child: body → stdout pipe, status code → code pipe via fd 3 */
+        int devnull;
         dup2(body_pipe[1], STDOUT_FILENO);
-        dup2(code_pipe[1], 3);
         close(body_pipe[0]); close(body_pipe[1]);
-        close(code_pipe[0]); close(code_pipe[1]);
-        /* Redirect stderr to /dev/null to keep output clean */
-        int devnull = open("/dev/null", 1 /* O_WRONLY */);
+        devnull = open("/dev/null", 1 /* O_WRONLY */);
         if (devnull >= 0) dup2(devnull, STDERR_FILENO);
         execlp("curl", "curl", "-sS", "-L", "--write-out", "%{http_code}", "--output", "-",
                "--stderr", "/dev/null", url, (char *)NULL);
         _exit(127);
     }
 
-    /* Parent: close write ends */
     close(body_pipe[1]);
-    close(code_pipe[1]);
 
-    /*
-     * curl --write-out goes to stdout AFTER body, so body + status are both
-     * on body_pipe. Read everything; last 3 bytes are the status code.
-     */
-    while (bpos < out_cap - 1) {
-        n = read(body_pipe[0], out + bpos, out_cap - 1 - bpos);
+    for (;;) {
+        if (len + 4096 > cap) {
+            size_t nc = cap * 2;
+            char *nb = (char *)realloc(buf, nc);
+            if (!nb) { free(buf); close(body_pipe[0]); waitpid(pid, &st, 0); return -1; }
+            buf = nb;
+            cap = nc;
+        }
+        n = read(body_pipe[0], buf + len, cap - len);
         if (n <= 0) break;
-        bpos += (size_t)n;
+        len += (size_t)n;
     }
-    /* Drain any overflow silently */
-    { char drain[256]; while (read(body_pipe[0], drain, sizeof(drain)) > 0) {} }
     close(body_pipe[0]);
-    close(code_pipe[0]);
 
     waitpid(pid, &st, 0);
 
     if (WIFEXITED(st) && WEXITSTATUS(st) == 127) {
-        curl_not_found = 1;
-    }
-
-    if (curl_not_found) {
         printf("HTTP$: curl not found — install curl to use HTTP$ in the terminal build\n");
         fflush(stdout);
-        out[0] = '\0';
-        *status_out = 0;
+        free(buf);
         return -1;
     }
 
-    /*
-     * The last 3 characters written by curl are the HTTP status digits.
-     * Strip them from the body and parse.
-     */
-    if (bpos >= 3) {
-        cpos = 3;
-        memcpy(codebuf, out + bpos - 3, 3);
+    /* Last 3 bytes are the HTTP status digits (--write-out %{http_code}). */
+    if (len >= 3) {
+        memcpy(codebuf, buf + len - 3, 3);
         codebuf[3] = '\0';
         http_code = (int)atoi(codebuf);
         if (http_code < 100 || http_code > 999) http_code = 0;
-        bpos -= 3;
+        len -= 3;
     }
-    out[bpos] = '\0';
+    *out_buf = buf;
+    *out_len = len;
     *status_out = http_code;
     return (http_code > 0) ? 0 : -1;
+}
+
+/* Legacy fixed-buffer wrapper kept for any in-tree callers that still
+ * want a stack buffer. New code should call native_http_fetch_to_buf. */
+static int native_http_fetch_to_str(const char *url, char *out, size_t out_cap, int *status_out)
+{
+    char *buf = NULL;
+    size_t blen = 0;
+    int rc = native_http_fetch_to_buf(url, &buf, &blen, status_out);
+    if (rc == 0 && buf) {
+        size_t n = blen < out_cap - 1 ? blen : out_cap - 1;
+        memcpy(out, buf, n);
+        out[n] = '\0';
+    } else if (out_cap > 0) {
+        out[0] = '\0';
+    }
+    free(buf);
+    return rc;
 }
 #endif /* unix native */
 
@@ -10303,16 +10344,34 @@ static struct value eval_function(const char *name, char **p)
         BEFORE_CSTDIO();
 #endif
         emscripten_sleep(0);
-        wasm_http_fetch_emscripten(V_DATA(v_url), meth, bod, blen, outbuf, sizeof(outbuf), &st);
-        http_last_status = st;
-        return make_str(outbuf);
+        {
+            const char *m = (meth && meth[0]) ? meth : "GET";
+            int ptr = 0, len = 0;
+            struct value out;
+            wasm_js_http_fetch_async_dyn(V_DATA(v_url), m, bod, blen, &ptr, &len, &st);
+            http_last_status = st;
+            if (ptr && len > 0) {
+                out = make_str_bytes((char *)(intptr_t)ptr, (size_t)len);
+                free((void *)(intptr_t)ptr);
+            } else {
+                out = make_str("");
+            }
+            return out;
+        }
 #elif (defined(__unix__) || defined(__linux__) || defined(__APPLE__) || defined(__MACH__))
         (void)meth;  /* GET-only for native MVP */
         (void)bod;
         (void)blen;
-        native_http_fetch_to_str(V_DATA(v_url), outbuf, sizeof(outbuf), &st);
-        http_last_status = st;
-        return make_str(outbuf);
+        {
+            char *body_buf = NULL;
+            size_t body_len = 0;
+            struct value out;
+            native_http_fetch_to_buf(V_DATA(v_url), &body_buf, &body_len, &st);
+            http_last_status = st;
+            out = make_str_bytes(body_buf ? body_buf : "", body_buf ? body_len : 0);
+            free(body_buf);
+            return out;
+        }
 #else
         (void)meth;
         (void)bod;
