@@ -1,5 +1,29 @@
 ## Changelog
 
+### Big strings — length-prefixed heap-backed strings (2026-05-17)
+
+`struct value` now carries an `rgc_str_t *str_h` instead of an inline
+`char str[MAX_STR_LEN]`. Strings are refcounted, length-prefixed,
+NUL-safe heap allocations. See `docs/big-string-plan.md`.
+
+Effects:
+
+- `HTTP$()`, `JSON$()`, `INPUT$()`, file reads no longer truncate at
+  4 KB.
+- Embedded NULs round-trip across concat, `MID$`, comparisons, file
+  I/O (`"A\0B" + "C\0D"` is now `LEN = 6`).
+- `struct value` shrinks ~4116 → ~24 bytes; locals, arrays,
+  `data_items`, UDF saved params all get proportionally cheaper.
+- `#OPTION MAXSTR UNLIMITED` (also `NONE`/`OFF`/`0`) lifts the cap;
+  default stays 4096 for portability. CLI: `-maxstr unlimited`.
+- Per-statement temp ring catches transient allocations; refcount
+  bumps on slot assignment, drains balance.
+
+Surface is unchanged — zero `.bas` edits required. New tests:
+`tests/bigstring_nul.bas`, `tests/bigstring_grow.bas`,
+`tests/bigstring_refcount.bas`. All existing `.bas` tests still
+green; ASAN run on the full suite is clean.
+
 ### MAPLOAD — JSON map loader (2026-04-27)
 
 New `MAPLOAD path$` statement implements `docs/map-format.md` v1
