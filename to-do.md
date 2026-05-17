@@ -1,6 +1,12 @@
 # Features to add/to-do
 
-## Scroll zones + per-scanline warp (proposed 2026-04-21)
+## Scroll zones + per-scanline warp — SHIPPED 2026-04-21
+
+**Status (2026-05-12 audit):** `SCROLL ZONE id, y, h` / `SCROLL ZONE id, dx`
+/ `SCROLL ZONE CLEAR id` / `SCROLL ZONE RESET id` live at `basic.c:6289`.
+`SCROLL LINE y, dx` / `SCROLL LINE RESET` live at `basic.c:6343`. All three
+tiers (horizontal zone strip, parallax bands, per-scanline warp) covered.
+Spec body below kept for historical context.
 
 Originally dropped from the Graphics 1.0 (1.9) cycle in favour of
 "just use `IMAGE COPY` with a user-managed offset". That decision is
@@ -68,7 +74,11 @@ both for a polished scroller — pre-bake the long strip to an IMAGE,
 declare a scroll zone over the message row, each frame advance the
 zone's `dx`.
 
-## `IMAGE DRAW slot` — retarget primitives to an off-screen RGBA image (proposed 2026-04-21)
+## `IMAGE DRAW slot` — retarget primitives to an off-screen RGBA image — SHIPPED 2026-04-21
+
+**Status (2026-05-12 audit):** `IMAGE DRAW slot` live at `basic.c:16082`
+via `gfx_set_image_draw_target`. `IMAGE DRAW 0` restores the live
+framebuffer. Spec body below kept for historical context.
 
 Mirror of the existing `SCREEN DRAW n` statement, but routes into
 the IMAGE pool (`IMAGE CREATE`'d RGBA surfaces of arbitrary size)
@@ -112,7 +122,14 @@ texture atlases on the fly.
   registry: cleanest long-term model, breaks the existing verb
   split (`SCREEN ...` vs `IMAGE ...`). Defer past 2.x.
 
-## Music tracker info — live + oscilloscope (proposed 2026-04-21)
+## Music tracker info — live + oscilloscope (partially SHIPPED 2026-04-21)
+
+**Status (2026-05-12 audit):** file-parse intrinsics SHIPPED —
+`MUSICTITLE$`, `MUSICCHANNELS`, `MUSICPATTERNS`, `MUSICSAMPLECOUNT`,
+`MUSICSAMPLENAME$`, `MUSICORDERS` live (see `FN_MUSIC*` at `basic.c:3175+`).
+Numbered items 1-3 below (live tracker state, oscilloscope/waveform,
+per-channel meters) still **proposed** — no `FN_MUSICROW` / `FN_MUSICWAVE`
+/ `FN_MUSICCHANVOL` in source. Need the `jar_mod_context_t` patch first.
 
 `MUSICTITLE$` / `MUSICCHANNELS` / `MUSICPATTERNS` / `MUSICSAMPLECOUNT`
 / `MUSICSAMPLENAME$` ship in this drop as pure file-parse (MOD
@@ -143,7 +160,11 @@ and per-channel mix:
 Demo can stay as-is until (1) lands; (1) alone unlocks a "NOW
 PLAYING" pattern/row/BPM strip in `gfx_music_demo.bas`.
 
-## Linter / static checker (proposed 2026-04-20)
+## Linter / static checker — SHIPPED 2026-04-20
+
+**Status (2026-05-12 audit):** `tools/rgc_lint/` shipped — `cli.py`,
+`walker.py`, `tokenizer.py`, `directives.py`, `rules.json`, `test_lint.sh`.
+Used by `rgc2ugb` portability pipeline. Spec body below kept for context.
 
 Catch common source-level mistakes before the interpreter runs — right
 now the parser just produces cryptic errors (e.g. "Expected ',' or ')'"
@@ -200,16 +221,28 @@ Fixing requires migrating strings from C null-terminated to
 length-prefixed — tracked below. `\0` still works when the
 literal sits alone without concat (`S$ = "\0"` gives LEN 1).
 
-## Length-prefixed string representation (proposed, 2026-04-20)
+## Big strings — length-prefixed, heap-backed (SHIPPED 2026-05-17)
 
-Current strings are `char[MAX_STR_LEN]` C null-terminated.
-Embedded NULs truncate — blocks `\0` escape, binary-data round-
-trips via BUFFER, and raw PETSCII control sequences that happen
-to include byte 0. A length-prefixed value struct
-(`str` + `len`) would fix this without breaking any existing
-BASIC program. Surface stays the same; all the strcpy/strcat
-sites in `basic.c` migrate in one pass. Not urgent — note for
-when string ops get a refactor.
+**Spec: `docs/big-string-plan.md`.** Companion to the BUFFER plan
+(`docs/buffer-type-plan.md` Step 1 already SHIPPED). BUFFER works around
+the 4 KB string cap by routing payloads through MEMFS; big strings fix the
+cap itself. Both coexist — BUFFER stays the right tool for streaming
+chunked file I/O on bounded RAM.
+
+Shipped:
+
+- `struct value.str_h` is a refcounted, length-prefixed `rgc_str_t *`.
+- `HTTP$()` / `JSON$()` / file reads no longer truncate at 4 KB.
+- Embedded NULs round-trip (`\0` escape, BUFFER binary I/O, PETSCII
+  byte 0). Tests: `tests/bigstring_nul.bas`.
+- `struct value` shrinks ~4116 → ~24 bytes.
+- `#OPTION maxstr unlimited` (also `none`/`off`/`0`) lifts the cap;
+  default stays 4096 for portability. CLI: `-maxstr unlimited`.
+- Per-statement temp ring drains transient allocations between
+  statements; balances rc bumps on slot assignment.
+- New tests: `tests/bigstring_grow.bas` (10K-byte concat under
+  unlimited), `tests/bigstring_nul.bas` (embedded NUL round-trip),
+  `tests/bigstring_refcount.bas` (independent reads after reassign).
 
 ## String escape sequences — original spec (shipped, kept for context)
 
@@ -304,7 +337,13 @@ at load time.
 - Multi-line string literals.
 - Verbatim `r"..."` raw strings.
 
-## Palette feature (proposed, 2026-04-20)
+## Palette feature — SHIPPED 2026-04-20
+
+**Status (2026-05-12 audit):** `PALETTE(i, chan)`, `PALETTEHEX$(i)`,
+`PALETTESET`, `PALETTESETHEX`, `PALETTERESET`, `PALETTEROTATE`,
+`PALETTELOAD`, `PALETTESAVE` all live (basic.c:3190+ and reserved-word
+list at basic.c:3450). Deferred items from "Related extensions" below
+(256-colour mode, `SPRITEPALETTE`, IDE picker) still proposed.
 
 Now that SCREEN 1 has a per-pixel colour plane and SCREEN 2 has
 true RGBA, the 16-entry C64 palette is a hard dependency baked in
@@ -600,6 +639,13 @@ real example needs to branch on type; for now `VAL()` + string prefix
 checks are enough.
 
 ## JSON payloads larger than `MAXSTR` (2026-04-19)
+
+**Status (2026-05-12 audit):** Option A workaround partially SHIPPED via
+the BUFFER type (use `BUFFERFETCH` + `OPEN` / `GET #` to stream chunks).
+Option B (`JSONFILE$`) **NOT shipped**. Big-strings plan
+(`docs/big-string-plan.md`) is the long-term root-cause fix — once
+strings can grow past 4 KB, this entire entry becomes moot. Until then
+`JSONFILE$` is the recommended near-term ship.
 
 `JSON$` input and output are both `struct value` strings — hard-capped
 at `MAX_STR_LEN` = 4096 bytes (the `#OPTION maxstr N` knob only reduces
@@ -1343,7 +1389,22 @@ Low-urgency cleanups noted during the April 2026 parser/CI hardening pass. None 
 
 ---
 
-## BUFFER type — large-data companion to strings
+## BUFFER type — large-data companion to strings — Step 1 SHIPPED
+
+**Status (2026-05-12 audit):** Step 1 SHIPPED (CHANGELOG:933) —
+`BUFFERNEW`, `BUFFERFETCH`, `BUFFERFREE`, `BUFFERLEN`, `BUFFERPATH$` live
+in `basic.c:6747+`; `statement_open` accepts string expressions so
+`OPEN 1, 1, 0, BUFFERPATH$(0)` works. Tests `tests/buffer_basic_test.bas`
++ `tests/buffer_slots_test.bas`. Example `examples/buffer_http_demo.bas`.
+
+Steps 2 (`JSONFILE$`) and 3 (`RESTORE BUFFER` / `RESTORE FILE`) still
+deferred.
+
+Long-term: the big-strings plan (`docs/big-string-plan.md`) addresses
+the root cause that motivated BUFFER (4 KB inline `struct value.str`).
+BUFFER stays useful for streaming file I/O ergonomics, but the "had to
+exist because `HTTP$` truncates" pressure goes away once big strings
+ship.
 
 Full design in **`docs/buffer-type-plan.md`**. `HTTP$` / `JSON$` silently cap at `MAX_STR_LEN` (4 KB) because every `struct value` carries an inline `char str[MAX_STR_LEN]`. Raising the cap grows every stack frame — non-starter. Instead: a BUFFER is a RAM-disk file. `BUFFERNEW B` allocates a slot and creates `/tmp/rgcbuf_NNNN`; `BUFFERFETCH B, url$` HTTPs into it; `BUFFERPATH$(B)` returns the path so programs use existing `OPEN`/`LINE INPUT #`/`GET #`/`CLOSE` verbs to stream through it. Canvas WASM gets this for free via Emscripten's MEMFS (already on; `HTTPFETCH` already writes there). Native uses real `/tmp`. Zero changes to `open_files[]`, `struct value`, or any existing file-I/O verb — BUFFER rides on top.
 

@@ -1369,7 +1369,7 @@ static char include_path_store[MAX_INCLUDE_DEPTH][MAX_INCLUDE_PATH];
 #define VAR_NAME_MAX 32
 #define MAX_GOSUB 64
 #define MAX_FOR 32
-#define MAX_STR_LEN 4096  /* default max; #OPTION maxstr N can reduce for C64 compatibility */
+#define MAX_STR_LEN 4096  /* default cap; #OPTION maxstr N tightens, "unlimited" lifts */
 #define DEFAULT_ARRAY_SIZE 11
 #define DEFAULT_PRINT_WIDTH 40
 #ifndef TICKS_PER_SEC_FALLBACK
@@ -1380,13 +1380,269 @@ static char include_path_store[MAX_INCLUDE_DEPTH][MAX_INCLUDE_PATH];
 #endif
 #endif
 
+/* ---------------------------------------------------------------
+ * rgc_str — length-prefixed, refcounted, NUL-safe heap string.
+ * See docs/big-string-plan.md.
+ * --------------------------------------------------------------- */
+#include <limits.h>
+
+typedef struct rgc_str {
+    int refcount;        /* >=1 live, INT_MAX for empty singleton */
+    size_t len;          /* logical byte length, NUL-safe */
+    size_t cap;          /* allocated capacity excluding +1 NUL guard */
+    char data[1];        /* flexible-ish; allocation always reserves cap+1 */
+} rgc_str_t;
+
+/* Empty singleton: data[0] == '\0', refcount pinned at INT_MAX so unref is a no-op. */
+static struct { int refcount; size_t len; size_t cap; char data[1]; }
+    rgc_str_empty_storage = { 2147483647, 0, 0, { '\0' } };
+#define rgc_str_empty ((rgc_str_t *)&rgc_str_empty_storage)
+
+static size_t max_str_limit_runtime(void);
+static void runtime_error_hint(const char *msg, const char *hint);
+
+/* Temp ring: catches freshly-allocated rgc_str_t* so abandoned temps
+ * (evaluator scratch, longjmp unwind) get freed at statement boundary
+ * even if no slot stored them. Drains are O(n) over a bounded array;
+ * we grow dynamically if the ring fills (rare).
+ *
+ * Ownership model: every freshly-allocated rgc_str_t starts with rc=1
+ * AND a ring entry. Slot assignment (v_set_rstr / v_assign) BUMPS rc.
+ * Ring drain unrefs every entry. Result: stores survive (rc=1+1-1=1);
+ * unstored temps die (rc=1-1=0, freed). */
+#define RGC_RING_INIT 256
+static rgc_str_t **rgc_temp_ring = NULL;
+static size_t rgc_temp_ring_len = 0;
+static size_t rgc_temp_ring_cap = 0;
+static int rgc_temp_ring_disabled = 0;  /* set during drain to avoid re-entrant push of unref-frees */
+
+static void rgc_temp_ring_push(rgc_str_t *s)
+{
+    if (!s || s->refcount == INT_MAX) return;
+    if (rgc_temp_ring_disabled) return;
+    if (rgc_temp_ring_len >= rgc_temp_ring_cap) {
+        size_t nc = rgc_temp_ring_cap ? rgc_temp_ring_cap * 2 : RGC_RING_INIT;
+        rgc_str_t **nb = (rgc_str_t **)realloc(rgc_temp_ring, nc * sizeof(*nb));
+        if (!nb) return;  /* OOM: drop tracking; leak rather than crash */
+        rgc_temp_ring = nb;
+        rgc_temp_ring_cap = nc;
+    }
+    rgc_temp_ring[rgc_temp_ring_len++] = s;
+}
+
+static void rgc_temp_ring_drain(void)
+{
+    size_t i, n = rgc_temp_ring_len;
+    rgc_temp_ring_disabled = 1;
+    for (i = 0; i < n; i++) {
+        rgc_str_t *s = rgc_temp_ring[i];
+        if (s && s->refcount != INT_MAX) {
+            if (--s->refcount <= 0) free(s);
+        }
+    }
+    rgc_temp_ring_len = 0;
+    rgc_temp_ring_disabled = 0;
+}
+
+static size_t rgc_str_roundup_cap(size_t n)
+{
+    size_t c = 16;
+    while (c < n) {
+        if (c > (SIZE_MAX >> 1)) { c = n; break; }
+        c <<= 1;
+    }
+    return c;
+}
+
+static void rgc_str_check_limit(size_t need)
+{
+    size_t lim = max_str_limit_runtime();
+    if (need > lim) {
+        runtime_error_hint("String too long",
+            "Raise #OPTION maxstr or set 'unlimited' to allow larger strings.");
+    }
+}
+
+static rgc_str_t *rgc_str_alloc_raw(size_t cap)
+{
+    rgc_str_t *s;
+    size_t bytes;
+    if (cap == 0) cap = 16;
+    rgc_str_check_limit(cap);
+    bytes = sizeof(rgc_str_t) + cap;  /* header has 1-byte stub; +cap covers cap+1 minus stub */
+    s = (rgc_str_t *)malloc(bytes);
+    if (!s) runtime_error_hint("Out of memory", "String allocation failed.");
+    s->refcount = 1;
+    s->len = 0;
+    s->cap = cap;
+    s->data[0] = '\0';
+    rgc_temp_ring_push(s);
+    return s;
+}
+
+static rgc_str_t *rgc_str_new(size_t cap)
+{
+    if (cap == 0) return rgc_str_empty;
+    return rgc_str_alloc_raw(rgc_str_roundup_cap(cap));
+}
+
+static rgc_str_t *rgc_str_from_bytes(const void *p, size_t n)
+{
+    rgc_str_t *s;
+    if (n == 0) return rgc_str_empty;
+    s = rgc_str_alloc_raw(rgc_str_roundup_cap(n));
+    if (p) memcpy(s->data, p, n);
+    s->len = n;
+    s->data[n] = '\0';
+    return s;
+}
+
+static rgc_str_t *rgc_str_from_cstr(const char *cs)
+{
+    if (!cs || !*cs) return rgc_str_empty;
+    return rgc_str_from_bytes(cs, strlen(cs));
+}
+
+static rgc_str_t *rgc_str_ref(rgc_str_t *s)
+{
+    if (s && s->refcount != INT_MAX) s->refcount++;
+    return s;
+}
+
+static void rgc_str_unref(rgc_str_t *s)
+{
+    if (!s || s->refcount == INT_MAX) return;
+    if (--s->refcount <= 0) free(s);
+}
+
+static rgc_str_t *rgc_str_concat(const rgc_str_t *a, const rgc_str_t *b)
+{
+    size_t la = a ? a->len : 0;
+    size_t lb = b ? b->len : 0;
+    size_t total = la + lb;
+    rgc_str_t *out;
+    if (total == 0) return rgc_str_empty;
+    out = rgc_str_alloc_raw(rgc_str_roundup_cap(total));
+    if (la) memcpy(out->data, a->data, la);
+    if (lb) memcpy(out->data + la, b->data, lb);
+    out->len = total;
+    out->data[total] = '\0';
+    return out;
+}
+
+static rgc_str_t *rgc_str_substr(const rgc_str_t *s, size_t off, size_t n)
+{
+    if (!s || off >= s->len || n == 0) return rgc_str_empty;
+    if (off + n > s->len) n = s->len - off;
+    return rgc_str_from_bytes(s->data + off, n);
+}
+
+static int rgc_str_cmp(const rgc_str_t *a, const rgc_str_t *b)
+{
+    size_t la = a ? a->len : 0;
+    size_t lb = b ? b->len : 0;
+    size_t m = la < lb ? la : lb;
+    int r = m ? memcmp(a->data, b->data, m) : 0;
+    if (r) return r;
+    if (la < lb) return -1;
+    if (la > lb) return 1;
+    return 0;
+}
+
+static int rgc_str_eq_cstr(const rgc_str_t *a, const char *cs)
+{
+    size_t la = a ? a->len : 0;
+    size_t lc = cs ? strlen(cs) : 0;
+    if (la != lc) return 0;
+    return la == 0 || memcmp(a->data, cs, la) == 0;
+}
+
+/* Convenience: get NUL-terminated pointer (safe only for callers that
+ * don't care about embedded NULs; .data is always NUL-guarded). */
+#define RS_DATA(s)  ((s) ? (s)->data : "")
+#define RS_LEN(s)   ((s) ? (s)->len : (size_t)0)
+/* --------------------------------------------------------------- */
+
 enum value_type { VAL_NUM = 0, VAL_STR = 1 };
 
 struct value {
     int type;
     double num;
-    char str[MAX_STR_LEN];
+    rgc_str_t *str_h;   /* heap str; NULL or rgc_str_empty for empty; ref-counted */
 };
+
+/* Convenience accessors on struct value. v_str_data is NUL-safe for legacy
+ * C string callers (data is always NUL-terminated at len). */
+#define V_DATA(v)   RS_DATA((v).str_h)
+#define V_LEN(v)    RS_LEN((v).str_h)
+#define VP_DATA(vp) RS_DATA((vp)->str_h)
+#define VP_LEN(vp)  RS_LEN((vp)->str_h)
+
+static void v_init_empty(struct value *v)
+{
+    v->type = VAL_NUM;
+    v->num = 0.0;
+    v->str_h = rgc_str_empty;
+}
+
+static void v_clear_str(struct value *v)
+{
+    rgc_str_unref(v->str_h);
+    v->str_h = rgc_str_empty;
+}
+
+/* Store a string ref into v. Bumps refcount on s (so caller's freshly-
+ * allocated, ring-tracked alloc survives the next ring drain). */
+static void v_set_rstr(struct value *v, rgc_str_t *s)
+{
+    rgc_str_t *old = v->str_h;
+    v->str_h = s ? rgc_str_ref(s) : rgc_str_empty;
+    rgc_str_unref(old);
+    v->type = VAL_STR;
+}
+
+/* Assign a temporary struct value into a slot. Bumps ref so the slot
+ * keeps the string alive past the temp ring drain. */
+static void v_assign(struct value *dst, struct value src)
+{
+    rgc_str_t *old = dst->str_h;
+    dst->type = src.type;
+    dst->num = src.num;
+    dst->str_h = src.str_h ? rgc_str_ref(src.str_h) : rgc_str_empty;
+    rgc_str_unref(old);
+}
+
+/* Copy a slot to a slot, bumping ref. */
+static void v_assign_share(struct value *dst, const struct value *src)
+{
+    rgc_str_t *old = dst->str_h;
+    dst->type = src->type;
+    dst->num = src->num;
+    dst->str_h = src->str_h ? rgc_str_ref(src->str_h) : rgc_str_empty;
+    rgc_str_unref(old);
+}
+
+static void v_set_bytes(struct value *v, const void *p, size_t n)
+{
+    rgc_str_t *s = rgc_str_from_bytes(p, n);
+    v_set_rstr(v, s);
+}
+
+static void v_set_cstr(struct value *v, const char *cs)
+{
+    rgc_str_t *s = rgc_str_from_cstr(cs);
+    v_set_rstr(v, s);
+}
+
+static void v_set_empty_str(struct value *v)
+{
+    v_set_rstr(v, rgc_str_empty);
+}
+
+static int v_strcmp(const struct value *a, const struct value *b)
+{
+    return rgc_str_cmp(a->str_h, b->str_h);
+}
 
 struct line {
     int number;
@@ -2562,8 +2818,15 @@ static int charrom_family_opt = 0;
  * #OPTION PETSCII from clobbering their choice with the default upper. */
 static int charset_explicit_opt = 0;
 static int charrom_family_cli = 0;
-/* Max string length (1..MAX_STR_LEN); default 4096; #OPTION maxstr 255 for C64 compatibility. */
-static int max_str_limit = 4096;
+/* Max string length in bytes; default 4096; #OPTION maxstr 255 for C64
+ * compatibility, #OPTION maxstr unlimited (or 0) to lift the cap.
+ * Internally: 0 means "no cap" — treated as SIZE_MAX at allocation sites. */
+static size_t max_str_limit = 4096;
+
+static size_t max_str_limit_runtime(void)
+{
+    return max_str_limit == 0 ? SIZE_MAX : max_str_limit;
+}
 
 /* Case-insensitive string compare. */
 static int str_eq_ci(const char *a, const char *b)
@@ -2702,12 +2965,16 @@ static int apply_option_directive(const char *name, const char *value)
         return -1;
     }
     if (str_eq_ci(name, "maxstr")) {
-        int n;
+        long n;
         char *end;
         if (!value || !value[0]) return -1;
-        n = (int)strtol(value, &end, 10);
-        if (end == value || *end != '\0' || n < 1 || n > MAX_STR_LEN) return -1;
-        max_str_limit = n;
+        if (str_eq_ci(value, "unlimited") || str_eq_ci(value, "none") || str_eq_ci(value, "off")) {
+            max_str_limit = 0;  /* 0 == unlimited (SIZE_MAX via max_str_limit_runtime) */
+            return 0;
+        }
+        n = strtol(value, &end, 10);
+        if (end == value || *end != '\0' || n < 0) return -1;
+        max_str_limit = (size_t)n;  /* 0 also means unlimited */
         return 0;
     }
     if (str_eq_ci(name, "columns")) {
@@ -3525,25 +3792,27 @@ static struct value make_num(double v)
     struct value out;
     out.type = VAL_NUM;
     out.num = v;
-    out.str[0] = '\0';
+    out.str_h = rgc_str_empty;
     return out;
 }
 
-/* Construct a string value wrapper. */
+/* Construct a string value wrapper from C string. */
 static struct value make_str(const char *s)
 {
     struct value out;
-    size_t lim;
     out.type = VAL_STR;
     out.num = 0.0;
-    lim = (size_t)max_str_limit;
-    if (lim > MAX_STR_LEN - 1) lim = MAX_STR_LEN - 1;
-    {
-        size_t len = strlen(s);
-        if (len > lim) len = lim;
-        memcpy(out.str, s, len);
-        out.str[len] = '\0';
-    }
+    out.str_h = rgc_str_from_cstr(s);
+    return out;
+}
+
+/* Construct a string value wrapper from raw bytes (NUL-safe). */
+static struct value make_str_bytes(const void *p, size_t n)
+{
+    struct value out;
+    out.type = VAL_STR;
+    out.num = 0.0;
+    out.str_h = rgc_str_from_bytes(p, n);
     return out;
 }
 
@@ -3718,16 +3987,16 @@ static void statement_read(char **p)
                 if (src.type != VAL_STR) {
                     char buf[64];
                     sprintf(buf, "%g", src.num);
-                    *vp = make_str(buf);
+                    v_assign(vp, make_str(buf));
                 } else {
-                    *vp = src;
+                    v_assign(vp, src);
                 }
             } else {
                 if (src.type != VAL_NUM) {
-                    double num = atof(src.str);
-                    *vp = make_num(num);
+                    double num = atof(V_DATA(src));
+                    v_assign(vp, make_num(num));
                 } else {
-                    *vp = src;
+                    v_assign(vp, src);
                 }
             }
         }
@@ -4118,7 +4387,7 @@ static void collect_data_from_program(void)
                 }
             }
             if (data_count < MAX_DATA_ITEMS) {
-                data_items[data_count++] = v;
+                v_assign(&data_items[data_count++], v);
             }
             while (*p == ' ' || *p == '\t') {
                 p++;
@@ -4137,7 +4406,7 @@ static void print_value(struct value *v)
 {
     if (v->type == VAL_STR) {
         char *s;
-        s = v->str;
+        s = VP_DATA(v);
         while (*s) {
             unsigned char c = (unsigned char)*s;
 #ifdef GFX_VIDEO
@@ -4858,7 +5127,7 @@ static void statement_palettesethex(char **p)
     }
     (*p)++; skip_spaces(p);
     vs = eval_expr(p); ensure_str(&vs);
-    s = vs.str;
+    s = V_DATA(vs);
     if (*s == '#') s++;
     {
         int len = 0, i;
@@ -4905,13 +5174,13 @@ static void statement_paletteload(char **p)
     struct value vpath;
     skip_spaces(p);
     vpath = eval_expr(p); ensure_str(&vpath);
-    if (!vpath.str[0]) {
+    if (!V_DATA(vpath)[0]) {
         runtime_error_hint("PALETTELOAD requires a path", "PALETTELOAD \"mypalette.pal\"");
         return;
     }
-    if (gfx_palette_load_file(vpath.str) != 0) {
+    if (gfx_palette_load_file(V_DATA(vpath)) != 0) {
         char hint[256];
-        snprintf(hint, sizeof(hint), "Could not read palette from '%s'.", vpath.str);
+        snprintf(hint, sizeof(hint), "Could not read palette from '%s'.", V_DATA(vpath));
         runtime_error_hint("PALETTELOAD failed", hint);
     }
 #else
@@ -4929,13 +5198,13 @@ static void statement_palettesave(char **p)
     struct value vpath;
     skip_spaces(p);
     vpath = eval_expr(p); ensure_str(&vpath);
-    if (!vpath.str[0]) {
+    if (!V_DATA(vpath)[0]) {
         runtime_error_hint("PALETTESAVE requires a path", "PALETTESAVE \"mypalette.pal\"");
         return;
     }
-    if (gfx_palette_save_file(vpath.str) != 0) {
+    if (gfx_palette_save_file(V_DATA(vpath)) != 0) {
         char hint[256];
-        snprintf(hint, sizeof(hint), "Could not write palette to '%s'.", vpath.str);
+        snprintf(hint, sizeof(hint), "Could not write palette to '%s'.", V_DATA(vpath));
         runtime_error_hint("PALETTESAVE failed", hint);
     }
 #else
@@ -4979,33 +5248,33 @@ static void statement_loadscreen(char **p)
         return;
     }
     if (gfx_vs->screen_mode == GFX_SCREEN_INDEXED) {
-        if (gfx_load_png_to_indexed(gfx_vs, vpath.str, dx, dy) != 0) {
+        if (gfx_load_png_to_indexed(gfx_vs, V_DATA(vpath), dx, dy) != 0) {
             char hint[256];
-            snprintf(hint, sizeof(hint), "Could not load '%s' (file missing, bad format, or path wrong).", vpath.str);
+            snprintf(hint, sizeof(hint), "Could not load '%s' (file missing, bad format, or path wrong).", V_DATA(vpath));
             runtime_error_hint("LOADSCREEN failed", hint);
         }
         return;
     }
     if (gfx_vs->screen_mode == GFX_SCREEN_RGBA || gfx_vs->screen_mode == GFX_SCREEN_RGBA_HI) {
-        if (gfx_load_png_to_rgba(gfx_vs, vpath.str, dx, dy) != 0) {
+        if (gfx_load_png_to_rgba(gfx_vs, V_DATA(vpath), dx, dy) != 0) {
             char hint[256];
-            snprintf(hint, sizeof(hint), "Could not load '%s' into RGBA plane.", vpath.str);
+            snprintf(hint, sizeof(hint), "Could not load '%s' into RGBA plane.", V_DATA(vpath));
             runtime_error_hint("LOADSCREEN failed", hint);
         }
         return;
     }
     if (gfx_vs->screen_mode == GFX_SCREEN_BITMAP) {
-        if (gfx_load_png_to_bitmap(gfx_vs, vpath.str, dx, dy) != 0) {
+        if (gfx_load_png_to_bitmap(gfx_vs, V_DATA(vpath), dx, dy) != 0) {
             char hint[256];
-            snprintf(hint, sizeof(hint), "Could not load '%s' into 1bpp bitmap plane.", vpath.str);
+            snprintf(hint, sizeof(hint), "Could not load '%s' into 1bpp bitmap plane.", V_DATA(vpath));
             runtime_error_hint("LOADSCREEN failed", hint);
         }
         return;
     }
     if (gfx_vs->screen_mode == GFX_SCREEN_TEXT) {
-        if (gfx_load_png_to_text(gfx_vs, vpath.str, dx, dy) != 0) {
+        if (gfx_load_png_to_text(gfx_vs, V_DATA(vpath), dx, dy) != 0) {
             char hint[256];
-            snprintf(hint, sizeof(hint), "Could not load '%s' into text plane.", vpath.str);
+            snprintf(hint, sizeof(hint), "Could not load '%s' into text plane.", V_DATA(vpath));
             runtime_error_hint("LOADSCREEN failed", hint);
         }
         return;
@@ -6042,7 +6311,7 @@ static void statement_drawtext(char **p)
         uint8_t saved_g   = gfx_vs->pen_g;
         uint8_t saved_b   = gfx_vs->pen_b;
         uint8_t saved_a   = gfx_vs->pen_a;
-        int text_px = scale * 8 * (int)strlen(vt.str);
+        int text_px = scale * 8 * (int)V_LEN(vt);
         int text_py = scale * 8;
 
         if (have_extended) {
@@ -6109,8 +6378,8 @@ static void statement_drawtext(char **p)
                 [31]=6,   [158]=7, [129]=8, [149]=9, [150]=10, [151]=11,
                 [152]=12, [153]=13,[154]=14,[155]=15
             };
-            for (i = 0; vt.str[i] && i < MAX_STR_LEN; i++) {
-                unsigned char b = (unsigned char)vt.str[i];
+            for (i = 0; V_DATA(vt)[i] && i < MAX_STR_LEN; i++) {
+                unsigned char b = (unsigned char)V_DATA(vt)[i];
                 unsigned char sc;
                 int gx;
                 /* Reverse-video toggles. */
@@ -6807,14 +7076,14 @@ static void statement_bufferfetch(char **p)
         skip_spaces(p);
         vmeth = eval_expr(p);
         ensure_str(&vmeth);
-        meth = vmeth.str;
+        meth = V_DATA(vmeth);
         skip_spaces(p);
         if (**p == ',') {
             (*p)++;
             skip_spaces(p);
             vbody = eval_expr(p);
             ensure_str(&vbody);
-            bod = vbody.str;
+            bod = V_DATA(vbody);
             blen = (int)strlen(bod);
         }
     }
@@ -6832,7 +7101,7 @@ static void statement_bufferfetch(char **p)
 #endif
     emscripten_sleep(0);
 #endif
-    rc = http_fetch_to_file_impl(vurl.str, g_buffers[slot].path, meth, bod, blen, &st);
+    rc = http_fetch_to_file_impl(V_DATA(vurl), g_buffers[slot].path, meth, bod, blen, &st);
     http_last_status = st;
     (void)rc;
 }
@@ -6923,7 +7192,7 @@ static void statement_loadsprite(char **p)
     skip_spaces(p);
     vpath = eval_expr(p);
     ensure_str(&vpath);
-    if (!path_ends_with_png(vpath.str)) {
+    if (!path_ends_with_png(V_DATA(vpath))) {
         runtime_error_hint("LOADSPRITE: use LOAD for non-PNG; PNG path must end in .png",
                              "Sprite paths must end in .png; use LOAD for other files.");
         return;
@@ -6959,9 +7228,9 @@ static void statement_loadsprite(char **p)
     }
     slot = (int)vslot.num;
     if (tw > 0 && th > 0) {
-        gfx_sprite_enqueue_load_ex(slot, vpath.str, tw, th);
+        gfx_sprite_enqueue_load_ex(slot, V_DATA(vpath), tw, th);
     } else {
-        gfx_sprite_enqueue_load(slot, vpath.str);
+        gfx_sprite_enqueue_load(slot, V_DATA(vpath));
     }
 }
 
@@ -7470,7 +7739,7 @@ static void statement_image_load(char **p)
     (*p)++; skip_spaces(p);
     vpath = eval_expr(p); ensure_str(&vpath);
     skip_spaces(p);
-    if (gfx_image_load(slot, vpath.str) != 0) {
+    if (gfx_image_load(slot, V_DATA(vpath)) != 0) {
         runtime_error_hint("IMAGE LOAD failed",
                            "Slot must be 1..31; path must be a readable PNG/BMP/JPG.");
     }
@@ -7492,7 +7761,7 @@ static void statement_image_save(char **p)
     (*p)++; skip_spaces(p);
     vpath = eval_expr(p); ensure_str(&vpath);
     skip_spaces(p);
-    if (gfx_image_save(slot, vpath.str) != 0) {
+    if (gfx_image_save(slot, V_DATA(vpath)) != 0) {
         runtime_error_hint("IMAGE SAVE failed",
                            "Check slot is loaded and the path is writable. "
                            "Extension .png writes RGBA PNG (alpha retained for slots 1..31); "
@@ -7961,13 +8230,13 @@ static struct var *map_var(const char *name, int is_string)
 static void map_set_num(const char *name, double n)
 {
     struct var *v = map_var(name, 0);
-    if (v) v->scalar = make_num(n);
+    if (v) v_assign(&v->scalar, make_num(n));
 }
 
 static void map_set_str(const char *name, const char *s)
 {
     struct var *v = map_var(name, 1);
-    if (v) v->scalar = make_str(s ? s : "");
+    if (v) v_assign(&v->scalar, make_str(s ? s : ""));
 }
 
 static int map_set_array_num(const char *name, int idx, double n)
@@ -7975,7 +8244,7 @@ static int map_set_array_num(const char *name, int idx, double n)
     struct var *v = map_var(name, 0);
     if (!v || !v->is_array) return -1;
     if (idx < 0 || idx >= v->size) return -1;
-    v->array[idx] = make_num(n);
+    v_assign(&v->array[idx], make_num(n));
     return 0;
 }
 
@@ -7984,7 +8253,7 @@ static int map_set_array_str(const char *name, int idx, const char *s)
     struct var *v = map_var(name, 1);
     if (!v || !v->is_array) return -1;
     if (idx < 0 || idx >= v->size) return -1;
-    v->array[idx] = make_str(s ? s : "");
+    v_assign(&v->array[idx], make_str(s ? s : ""));
     return 0;
 }
 
@@ -8124,7 +8393,7 @@ static void statement_mapload(char **p)
     ensure_str(&vpath);
     skip_spaces(p);
 
-    fp = fopen(vpath.str, "rb");
+    fp = fopen(V_DATA(vpath), "rb");
     if (!fp) {
         runtime_error_hint("MAPLOAD: cannot open file",
             "Check the path; on browser builds the file must be bundled in the preset.");
@@ -8222,7 +8491,7 @@ static void statement_mapload(char **p)
                             parsed = map_parse_int_array(&p2, tmp, n_cells);
                             (void)parsed;
                             for (i = 0; i < n_cells; i++) {
-                                av->array[i] = make_num((double)tmp[i]);
+                                v_assign(&av->array[i], make_num((double)tmp[i]));
                             }
                             free(tmp);
                         }
@@ -8254,7 +8523,7 @@ static void statement_mapload(char **p)
     if (g_map_raw_path) { free(g_map_raw_path); g_map_raw_path = NULL; }
     g_map_raw = buf;
     g_map_raw_len = len;
-    g_map_raw_path = strdup(vpath.str);
+    g_map_raw_path = strdup(V_DATA(vpath));
 }
 
 /* Find the matching ']' for the '[' at *p_start. Walks forward,
@@ -8337,9 +8606,9 @@ static void statement_mapsave(char **p)
     }
 
     if (have_layer) {
-        size_t lncopy = strlen(vlayer.str);
+        size_t lncopy = V_LEN(vlayer);
         if (lncopy >= sizeof(layer_name)) lncopy = sizeof(layer_name) - 1;
-        memcpy(layer_name, vlayer.str, lncopy);
+        memcpy(layer_name, V_DATA(vlayer), lncopy);
         layer_name[lncopy] = 0;
         if (strcmp(layer_name, "fg") == 0) target_array_name = "MAP_FG";
     } else {
@@ -8417,7 +8686,7 @@ static void statement_mapsave(char **p)
      *   3) suffix:   raw[bg_data_end - 1 .. raw_len] (includes ']' )
      * Slab 1 ends right after the opening '['; slab 3 begins at the
      * closing ']'. */
-    fp = fopen(vpath.str, "wb");
+    fp = fopen(V_DATA(vpath), "wb");
     if (!fp) {
         runtime_error_hint("MAPSAVE: cannot open file for writing",
                            "Check the path; browser builds persist via the host "
@@ -8461,7 +8730,7 @@ static void statement_mapsave(char **p)
      * IDE relies on close-after-write to mirror MEMFS into the
      * project workspace). Native is a no-op stub. */
     {
-        FILE *rfp = fopen(vpath.str, "rb");
+        FILE *rfp = fopen(V_DATA(vpath), "rb");
         long flen = 0;
         char *fbuf = NULL;
         if (rfp) {
@@ -8471,7 +8740,7 @@ static void statement_mapsave(char **p)
             if (flen > 0 && flen <= 16 * 1024 * 1024) {
                 fbuf = (char *)malloc((size_t)flen);
                 if (fbuf && fread(fbuf, 1, (size_t)flen, rfp) == (size_t)flen) {
-                    wasm_js_host_file_write(vpath.str, fbuf, (int)flen);
+                    wasm_js_host_file_write(V_DATA(vpath), fbuf, (int)flen);
                 }
                 if (fbuf) free(fbuf);
             }
@@ -8577,15 +8846,15 @@ static void statement_objload(char **p)
         skip_spaces(p);
         vmode = eval_expr(p);
         ensure_str(&vmode);
-        if (str_eq_ci(vmode.str, "append")) append_mode = 1;
-        else if (vmode.str[0] && !str_eq_ci(vmode.str, "replace")) {
+        if (str_eq_ci(V_DATA(vmode), "append")) append_mode = 1;
+        else if (V_DATA(vmode)[0] && !str_eq_ci(V_DATA(vmode), "replace")) {
             runtime_error_hint("OBJLOAD: unknown mode",
                 "Mode must be \"replace\" (default) or \"append\".");
             return;
         }
     }
 
-    fp = fopen(vpath.str, "rb");
+    fp = fopen(V_DATA(vpath), "rb");
     if (!fp) {
         runtime_error_hint("OBJLOAD: cannot open file",
             "Check the path; on browser builds the overlay file must be bundled in the preset.");
@@ -8712,7 +8981,7 @@ static void statement_objsave(char **p)
     vpath = eval_expr(p);
     ensure_str(&vpath);
     skip_spaces(p);
-    if (!vpath.str[0]) {
+    if (!V_DATA(vpath)[0]) {
         runtime_error_hint("OBJSAVE requires a path",
             "Example: OBJSAVE \"level1.hard.objects.json\"");
         return;
@@ -8722,7 +8991,7 @@ static void statement_objsave(char **p)
     if (cv) total = (int)cv->scalar.num;
     if (total < 0) total = 0;
 
-    fp = fopen(vpath.str, "wb");
+    fp = fopen(V_DATA(vpath), "wb");
     if (!fp) {
         runtime_error_hint("OBJSAVE: cannot open file for writing",
             "Check the path; browser builds persist via the host (download a real file via DOWNLOAD).");
@@ -8746,10 +9015,10 @@ static void statement_objsave(char **p)
         int x = 0, y = 0, w = 0, h = 0, id = 0;
         const char *shape;
         if (vt && vt->is_array && i < vt->size) {
-            tstr = vt->array[i].type == VAL_STR ? vt->array[i].str : "";
+            tstr = vt->array[i].type == VAL_STR ? RS_DATA((vt->array[i]).str_h) : "";
         }
         if (vk && vk->is_array && i < vk->size) {
-            kstr = vk->array[i].type == VAL_STR ? vk->array[i].str : "";
+            kstr = vk->array[i].type == VAL_STR ? RS_DATA((vk->array[i]).str_h) : "";
         }
         if (vx && vx->is_array && i < vx->size) x = (int)vx->array[i].num;
         if (vy && vy->is_array && i < vy->size) y = (int)vy->array[i].num;
@@ -8780,13 +9049,13 @@ static void statement_chdir(char **p)
     skip_spaces(p);
     vpath = eval_expr(p); ensure_str(&vpath);
     skip_spaces(p);
-    if (!vpath.str[0]) {
+    if (!V_DATA(vpath)[0]) {
         runtime_error_hint("CHDIR requires a path string", "Example: CHDIR \"/tmp\"");
         return;
     }
-    if (chdir(vpath.str) != 0) {
+    if (chdir(V_DATA(vpath)) != 0) {
         char hint[256];
-        snprintf(hint, sizeof(hint), "chdir '%s' failed — path must exist and be a directory.", vpath.str);
+        snprintf(hint, sizeof(hint), "chdir '%s' failed — path must exist and be a directory.", V_DATA(vpath));
         runtime_error_hint("CHDIR failed", hint);
     }
 }
@@ -8858,11 +9127,11 @@ static void statement_dir_into(char **p)
             have_count = 1;
         }
     }
-    dp = opendir(vpath.str[0] ? vpath.str : ".");
+    dp = opendir(V_DATA(vpath)[0] ? V_DATA(vpath) : ".");
     if (!dp) {
         if (have_count) {
             struct var *cv = find_or_create_var(count_name, 0, 0, 0, NULL, 0);
-            if (cv) { cv->scalar.type = VAL_NUM; cv->scalar.num = 0.0; cv->scalar.str[0] = '\0'; }
+            if (cv) { cv->scalar.type = VAL_NUM; cv->scalar.num = 0.0; v_clear_str(&cv->scalar); }
         }
         return;
     }
@@ -8874,10 +9143,7 @@ static void statement_dir_into(char **p)
             if (de->d_name[0] == '.') continue;
             if (n >= cap) break;
             len = strlen(de->d_name);
-            if (len >= MAX_STR_LEN) len = MAX_STR_LEN - 1;
-            if (len > (size_t)(max_str_limit - 1)) len = (size_t)(max_str_limit - 1);
-            memcpy(arr_var->array[n].str, de->d_name, len);
-            arr_var->array[n].str[len] = '\0';
+            v_set_bytes(&arr_var->array[n], de->d_name, len);
             arr_var->array[n].type = VAL_STR;
             arr_var->array[n].num = 0.0;
             n++;
@@ -8885,7 +9151,7 @@ static void statement_dir_into(char **p)
         closedir(dp);
         if (have_count) {
             struct var *cv = find_or_create_var(count_name, 0, 0, 0, NULL, 0);
-            if (cv) { cv->scalar.type = VAL_NUM; cv->scalar.num = (double)n; cv->scalar.str[0] = '\0'; }
+            if (cv) { cv->scalar.type = VAL_NUM; cv->scalar.num = (double)n; v_clear_str(&cv->scalar); }
         }
     }
 }
@@ -8911,9 +9177,9 @@ static void statement_loadsound(char **p)
     vpath = eval_expr(p); ensure_str(&vpath);
     skip_spaces(p);
 #if defined(GFX_VIDEO) && (!defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB))
-    if (gfx_sound_load(slot, vpath.str) != 0) {
+    if (gfx_sound_load(slot, V_DATA(vpath)) != 0) {
         char hint[256];
-        snprintf(hint, sizeof(hint), "Could not open '%s' as a WAV. Check the path and format.", vpath.str);
+        snprintf(hint, sizeof(hint), "Could not open '%s' as a WAV. Check the path and format.", V_DATA(vpath));
         runtime_error_hint("LOADSOUND failed", hint);
     }
 #else
@@ -8980,11 +9246,11 @@ static void statement_loadmusic(char **p)
     vpath = eval_expr(p); ensure_str(&vpath);
     skip_spaces(p);
 #if defined(GFX_VIDEO) && (!defined(__EMSCRIPTEN__) || defined(GFX_USE_RAYLIB))
-    if (gfx_music_load(slot, vpath.str) != 0) {
+    if (gfx_music_load(slot, V_DATA(vpath)) != 0) {
         char hint[256];
         snprintf(hint, sizeof(hint),
                  "Could not open '%s' as a MOD/XM/S3M/IT/OGG/MP3. Check path + format.",
-                 vpath.str);
+                 V_DATA(vpath));
         runtime_error_hint("LOADMUSIC failed", hint);
     }
 #else
@@ -9089,7 +9355,7 @@ static void statement_download(char **p)
     vpath = eval_expr(p); ensure_str(&vpath);
     skip_spaces(p);
 #ifdef __EMSCRIPTEN__
-    rgc_wasm_trigger_download(vpath.str);
+    rgc_wasm_trigger_download(V_DATA(vpath));
 #else
     {
         static int warned_once = 0;
@@ -9097,7 +9363,7 @@ static void statement_download(char **p)
             fprintf(stderr,
                     "DOWNLOAD is a no-op on native builds (path '%s' already "
                     "lives on the host filesystem).\n",
-                    vpath.str);
+                    V_DATA(vpath));
             warned_once = 1;
         }
     }
@@ -9344,18 +9610,18 @@ static void statement_get(char **p)
 #endif
     }
     if (ch == EOF) {
-        *vp = make_str("");
+        v_assign(vp, make_str(""));
     } else if (ch == '\n' || ch == '\r') {
         /* Map Enter/Return to PETSCII-style CHR$(13) so ASC(Y$)=13 works. */
         char buf[2];
         buf[0] = 13;
         buf[1] = '\0';
-        *vp = make_str(buf);
+        v_assign(vp, make_str(buf));
     } else {
         char buf[2];
         buf[0] = (char)ch;
         buf[1] = '\0';
-        *vp = make_str(buf);
+        v_assign(vp, make_str(buf));
     }
 }
 
@@ -10010,14 +10276,14 @@ static struct value eval_function(const char *name, char **p)
             skip_spaces(p);
             v_method = eval_expr(p);
             ensure_str(&v_method);
-            meth = v_method.str;
+            meth = V_DATA(v_method);
             skip_spaces(p);
             if (**p == ',') {
                 (*p)++;
                 skip_spaces(p);
                 v_body = eval_expr(p);
                 ensure_str(&v_body);
-                bod = v_body.str;
+                bod = V_DATA(v_body);
                 blen = (int)strlen(bod);
             }
         }
@@ -10037,14 +10303,14 @@ static struct value eval_function(const char *name, char **p)
         BEFORE_CSTDIO();
 #endif
         emscripten_sleep(0);
-        wasm_http_fetch_emscripten(v_url.str, meth, bod, blen, outbuf, sizeof(outbuf), &st);
+        wasm_http_fetch_emscripten(V_DATA(v_url), meth, bod, blen, outbuf, sizeof(outbuf), &st);
         http_last_status = st;
         return make_str(outbuf);
 #elif (defined(__unix__) || defined(__linux__) || defined(__APPLE__) || defined(__MACH__))
         (void)meth;  /* GET-only for native MVP */
         (void)bod;
         (void)blen;
-        native_http_fetch_to_str(v_url.str, outbuf, sizeof(outbuf), &st);
+        native_http_fetch_to_str(V_DATA(v_url), outbuf, sizeof(outbuf), &st);
         http_last_status = st;
         return make_str(outbuf);
 #else
@@ -10087,14 +10353,14 @@ static struct value eval_function(const char *name, char **p)
             skip_spaces(p);
             v_method = eval_expr(p);
             ensure_str(&v_method);
-            meth = v_method.str;
+            meth = V_DATA(v_method);
             skip_spaces(p);
             if (**p == ',') {
                 (*p)++;
                 skip_spaces(p);
                 v_body = eval_expr(p);
                 ensure_str(&v_body);
-                bod = v_body.str;
+                bod = V_DATA(v_body);
                 blen = (int)strlen(bod);
             }
         }
@@ -10115,7 +10381,7 @@ static struct value eval_function(const char *name, char **p)
 #endif
         emscripten_sleep(0);
 #endif
-        rc = http_fetch_to_file_impl(v_url.str, v_path.str, meth, bod, blen, &st);
+        rc = http_fetch_to_file_impl(V_DATA(v_url), V_DATA(v_path), meth, bod, blen, &st);
         http_last_status = st;
         if (rc != 0) {
             return make_num(0.0);
@@ -10647,13 +10913,13 @@ static struct value eval_function(const char *name, char **p)
             ensure_str(&v_search);
             if (code == FN_INDEXOF) {
                 for (i = 0; i < arr_var->size; i++) {
-                    if (strcmp(arr_var->array[i].str, v_search.str) == 0) {
+                    if (rgc_str_cmp((arr_var->array[i]).str_h, (v_search).str_h) == 0) {
                         return make_num((double)(i + 1));
                     }
                 }
             } else {
                 for (i = arr_var->size - 1; i >= 0; i--) {
-                    if (strcmp(arr_var->array[i].str, v_search.str) == 0) {
+                    if (rgc_str_cmp((arr_var->array[i]).str_h, (v_search).str_h) == 0) {
                         return make_num((double)(i + 1));
                     }
                 }
@@ -10780,10 +11046,10 @@ static struct value eval_function(const char *name, char **p)
         return make_num((double)rand() / (double)RAND_MAX);
     case FN_LEN:
         ensure_str(&arg);
-        return make_num((double)strlen(arg.str));
+        return make_num((double)V_LEN(arg));
     case FN_VAL:
         ensure_str(&arg);
-        return make_num(atof(arg.str));
+        return make_num(atof(V_DATA(arg)));
     case FN_STR:
         ensure_num(&arg);
         sprintf(outbuf, "%g", arg.num);
@@ -10796,9 +11062,8 @@ static struct value eval_function(const char *name, char **p)
             /* In gfx mode we want raw bytes so screen/control codes can be
              * interpreted by the gfx output backend (including {TOKENS}). */
             if (gfx_vs) {
-                outbuf[0] = (char)code;
-                outbuf[1] = '\0';
-                return make_str(outbuf);
+                char b = (char)code;
+                return make_str_bytes(&b, 1);
             }
 #endif
             if (petscii_mode) {
@@ -10948,16 +11213,17 @@ static struct value eval_function(const char *name, char **p)
                 /* Printable PETSCII: map to UTF-8 for terminal (block graphics, etc.) */
                 return make_str(petscii_code_to_utf8((unsigned char)code));
             }
-            outbuf[0] = (char)code;
-            outbuf[1] = '\0';
-            return make_str(outbuf);
+            {
+                char b = (char)code;
+                return make_str_bytes(&b, 1);
+            }
         }
     case FN_ASC:
         ensure_str(&arg);
-        if (arg.str[0] == '\0') {
+        if (V_DATA(arg)[0] == '\0') {
             return make_num(0.0);
         }
-        return make_num((unsigned char)arg.str[0]);
+        return make_num((unsigned char)V_DATA(arg)[0]);
     case FN_TAB: {
         int target;
         int cur;
@@ -11045,7 +11311,7 @@ static struct value eval_function(const char *name, char **p)
         }
         /* Convert to 0-based index. */
         start_pos -= 1;
-        s_len = (int)strlen(src.str);
+        s_len = (int)V_LEN(src);
         if (start_pos >= s_len) {
             return make_str("");
         }
@@ -11060,7 +11326,7 @@ static struct value eval_function(const char *name, char **p)
         }
         {
             char out[MAX_STR_LEN];
-            memcpy(out, src.str + start_pos, (size_t)sub_len);
+            memcpy(out, V_DATA(src) + start_pos, (size_t)sub_len);
             out[sub_len] = '\0';
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
             wasm_str_builtin_budget++;
@@ -11101,7 +11367,7 @@ static struct value eval_function(const char *name, char **p)
         if (sub_len <= 0) {
             return make_str("");
         }
-        s_len = (int)strlen(src.str);
+        s_len = (int)V_LEN(src);
         if (sub_len > s_len) {
             sub_len = s_len;
         }
@@ -11110,7 +11376,7 @@ static struct value eval_function(const char *name, char **p)
         }
         {
             char out[MAX_STR_LEN];
-            memcpy(out, src.str, (size_t)sub_len);
+            memcpy(out, V_DATA(src), (size_t)sub_len);
             out[sub_len] = '\0';
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
             wasm_str_builtin_budget++;
@@ -11152,7 +11418,7 @@ static struct value eval_function(const char *name, char **p)
         if (sub_len <= 0) {
             return make_str("");
         }
-        s_len = (int)strlen(src.str);
+        s_len = (int)V_LEN(src);
         if (sub_len > s_len) {
             sub_len = s_len;
         }
@@ -11165,7 +11431,7 @@ static struct value eval_function(const char *name, char **p)
         }
         {
             char out[MAX_STR_LEN];
-            memcpy(out, src.str + start_pos, (size_t)sub_len);
+            memcpy(out, V_DATA(src) + start_pos, (size_t)sub_len);
             out[sub_len] = '\0';
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
             wasm_str_builtin_budget++;
@@ -11227,8 +11493,8 @@ static struct value eval_function(const char *name, char **p)
             return make_num(0.0);
         }
 
-        s_len = (int)strlen(v_source.str);
-        sub_len = (int)strlen(v_search.str);
+        s_len = (int)V_LEN(v_source);
+        sub_len = (int)V_LEN(v_search);
         if (sub_len == 0 || s_len == 0 || start_pos >= s_len) {
             return make_num(0.0);
         }
@@ -11245,7 +11511,7 @@ static struct value eval_function(const char *name, char **p)
                 }
             }
 #endif
-            if (instr_match_at(v_source.str, s_len, i, v_search.str, sub_len, ign_case)) {
+            if (instr_match_at(V_DATA(v_source), s_len, i, V_DATA(v_search), sub_len, ign_case)) {
                 return make_num((double)(i + 1));
             }
         }
@@ -11288,10 +11554,10 @@ static struct value eval_function(const char *name, char **p)
         }
         (*p)++;
 
-        len = (int)strlen(v_str.str);
-        flen = (int)strlen(v_find.str);
-        rlen = (int)strlen(v_repl.str);
-        if (flen == 0) return make_str(v_str.str);
+        len = (int)V_LEN(v_str);
+        flen = (int)V_LEN(v_find);
+        rlen = (int)V_LEN(v_repl);
+        if (flen == 0) return make_str(V_DATA(v_str));
         out_len = 0;
         pos = 0;
         while (pos <= len - flen && out_len < (size_t)(max_str_limit - 1)) {
@@ -11304,16 +11570,16 @@ static struct value eval_function(const char *name, char **p)
                 }
             }
 #endif
-            if (strncmp(v_str.str + pos, v_find.str, (size_t)flen) == 0) {
+            if (strncmp(V_DATA(v_str) + pos, V_DATA(v_find), (size_t)flen) == 0) {
                 for (int j = 0; j < rlen && out_len < (size_t)(max_str_limit - 1); j++)
-                    out[out_len++] = v_repl.str[j];
+                    out[out_len++] = V_DATA(v_repl)[j];
                 pos += flen;
             } else {
-                out[out_len++] = v_str.str[pos++];
+                out[out_len++] = V_DATA(v_str)[pos++];
             }
         }
         while (pos < len && out_len < (size_t)(max_str_limit - 1))
-            out[out_len++] = v_str.str[pos++];
+            out[out_len++] = V_DATA(v_str)[pos++];
         out[out_len] = '\0';
         return make_str(out);
     }
@@ -11326,7 +11592,7 @@ static struct value eval_function(const char *name, char **p)
         size_t n;
 
         ensure_str(&arg);
-        s = arg.str;
+        s = V_DATA(arg);
         start = s;
         end = s + strlen(s);
         if (code != FN_RTRIM) {
@@ -11349,11 +11615,11 @@ static struct value eval_function(const char *name, char **p)
         char *endptr;
         long v;
         ensure_str(&arg);
-        if (arg.str[0] == '\0') {
+        if (V_DATA(arg)[0] == '\0') {
             return make_num(0.0);
         }
-        v = strtol(arg.str, &endptr, 16);
-        if (endptr == arg.str) {
+        v = strtol(V_DATA(arg), &endptr, 16);
+        if (endptr == V_DATA(arg)) {
             return make_num(0.0);
         }
         return make_num((double)v);
@@ -11374,8 +11640,8 @@ static struct value eval_function(const char *name, char **p)
          */
         FILE *probe;
         ensure_str(&arg);
-        if (!arg.str[0]) return make_num(0.0);
-        probe = fopen(arg.str, "rb");
+        if (!V_DATA(arg)[0]) return make_num(0.0);
+        probe = fopen(V_DATA(arg), "rb");
         if (!probe) return make_num(0.0);
         fclose(probe);
         return make_num(1.0);
@@ -11399,14 +11665,14 @@ static struct value eval_function(const char *name, char **p)
             (*p)++; skip_spaces(p);
             v_delim = eval_expr(p);
             ensure_str(&v_delim);
-            strncpy(delim, v_delim.str, sizeof(delim) - 1);
+            strncpy(delim, V_DATA(v_delim), sizeof(delim) - 1);
             delim[sizeof(delim) - 1] = '\0';
             skip_spaces(p);
         }
         if (**p == ')') (*p)++;
         skip_spaces(p);
-        if (!v_path.str[0]) return make_str("");
-        dp = opendir(v_path.str);
+        if (!V_DATA(v_path)[0]) return make_str("");
+        dp = opendir(V_DATA(v_path));
         if (!dp) return make_str("");
         while ((de = readdir(dp))) {
             size_t nlen, dlen;
@@ -11439,7 +11705,7 @@ static struct value eval_function(const char *name, char **p)
         skip_spaces(p);
         if (**p == ')') (*p)++;
         skip_spaces(p);
-        node = json_navigate(v_json.str, v_path.str);
+        node = json_navigate(V_DATA(v_json), V_DATA(v_path));
         if (!node) return make_num(0.0);
         return make_num((double)json_count_entries(node));
     }
@@ -11514,7 +11780,7 @@ static struct value eval_function(const char *name, char **p)
         skip_spaces(p);
         if (**p == ')') (*p)++;
         skip_spaces(p);
-        node = json_navigate(v_json.str, v_path.str);
+        node = json_navigate(V_DATA(v_json), V_DATA(v_path));
         if (!node) return make_str("");
         if (!json_nth_key(node, (int)v_n.num, kbuf, sizeof(kbuf))) return make_str("");
         return make_str(kbuf);
@@ -11551,10 +11817,10 @@ static struct value eval_function(const char *name, char **p)
         if (count >= MAX_STR_LEN) count = MAX_STR_LEN - 1;
 
         if (v_ch.type == VAL_STR) {
-            if (v_ch.str[0] == '\0') {
+            if (V_DATA(v_ch)[0] == '\0') {
                 ch = ' ';
             } else {
-                ch = v_ch.str[0];
+                ch = V_DATA(v_ch)[0];
             }
         } else {
             /* Treat numeric second arg as character code. */
@@ -11594,10 +11860,10 @@ static struct value eval_function(const char *name, char **p)
         char out[MAX_STR_LEN];
         size_t i, n;
         ensure_str(&arg);
-        n = strlen(arg.str);
+        n = V_LEN(arg);
         if (n >= MAX_STR_LEN) n = MAX_STR_LEN - 1;
         for (i = 0; i < n; i++)
-            out[i] = (char)toupper((unsigned char)arg.str[i]);
+            out[i] = (char)toupper((unsigned char)V_DATA(arg)[i]);
         out[n] = '\0';
         return make_str(out);
     }
@@ -11605,10 +11871,10 @@ static struct value eval_function(const char *name, char **p)
         char out[MAX_STR_LEN];
         size_t i, n;
         ensure_str(&arg);
-        n = strlen(arg.str);
+        n = V_LEN(arg);
         if (n >= MAX_STR_LEN) n = MAX_STR_LEN - 1;
         for (i = 0; i < n; i++)
-            out[i] = (char)tolower((unsigned char)arg.str[i]);
+            out[i] = (char)tolower((unsigned char)V_DATA(arg)[i]);
         out[n] = '\0';
         return make_str(out);
     }
@@ -11624,24 +11890,24 @@ static struct value eval_function(const char *name, char **p)
     }
     case FN_SYSTEM: {
         ensure_str(&arg);
-        return make_num((double)do_system(arg.str));
+        return make_num((double)do_system(V_DATA(arg)));
     }
     case FN_EXEC: {
         ensure_str(&arg);
-        do_exec(arg.str, outbuf, sizeof(outbuf));
+        do_exec(V_DATA(arg), outbuf, sizeof(outbuf));
         return make_str(outbuf);
     }
     case FN_ENV: {
         const char *val;
         ensure_str(&arg);
-        val = getenv(arg.str);
+        val = getenv(V_DATA(arg));
         return make_str(val ? val : "");
     }
     case FN_EVAL: {
         char *ep;
         struct value result;
         ensure_str(&arg);
-        if (strlen(arg.str) >= MAX_STR_LEN - 1) {
+        if (V_LEN(arg) >= MAX_STR_LEN - 1) {
             runtime_error_hint("EVAL: expression too long",
                                  "Shorten the string passed to EVAL(...); it must fit in one line buffer.");
             return make_num(0.0);
@@ -11649,7 +11915,7 @@ static struct value eval_function(const char *name, char **p)
         {
             char buf[MAX_STR_LEN];
             char *q;
-            strncpy(buf, arg.str, sizeof(buf) - 1);
+            strncpy(buf, V_DATA(arg), sizeof(buf) - 1);
             buf[sizeof(buf) - 1] = '\0';
             q = buf;
             skip_spaces(&q);
@@ -11677,7 +11943,7 @@ static struct value eval_function(const char *name, char **p)
                                 ensure_num(&rhs);
                                 rhs.type = VAL_NUM;
                             }
-                            v->scalar = rhs;
+                            v_assign(&v->scalar, rhs);
                             return rhs;
                         }
                     }
@@ -11705,7 +11971,7 @@ static struct value eval_function(const char *name, char **p)
         skip_spaces(p);
         if (**p == ')') (*p)++;
         skip_spaces(p);
-        if (json_extract_path(v_json.str, v_path.str, outbuf, sizeof(outbuf))) {
+        if (json_extract_path(V_DATA(v_json), V_DATA(v_path), outbuf, sizeof(outbuf))) {
             return make_str(outbuf);
         }
         return make_str("");
@@ -11748,8 +12014,8 @@ static struct value eval_function(const char *name, char **p)
 
         n = (int)v_n.num;
         if (n < 1) return make_str("");
-        s = v_str.str;
-        delim = v_delim.str;
+        s = V_DATA(v_str);
+        delim = V_DATA(v_delim);
         dlen = strlen(delim);
         if (dlen == 0) return make_str("");
         idx = 0;
@@ -11822,6 +12088,10 @@ static struct var *find_or_create_var(const char *name, int is_string, int want_
                                          "Could not allocate array storage; reduce DIM sizes or free variables.");
                     return v;
                 }
+                {
+                    int e;
+                    for (e = 0; e < total_size; e++) v->array[e].str_h = rgc_str_empty;
+                }
             }
             return v;
         }
@@ -11851,15 +12121,18 @@ static struct var *find_or_create_var(const char *name, int is_string, int want_
     }
     v->size = want_array ? total_size : 0;
     v->array = NULL;
-    v->scalar = make_num(0.0);
+    v_assign(&v->scalar, make_num(0.0));
     if (is_string) {
-        v->scalar = make_str("");
+        v_assign(&v->scalar, make_str(""));
     }
     if (want_array) {
         v->array = (struct value *)calloc(total_size, sizeof(struct value));
         if (!v->array) {
             runtime_error_hint("Out of memory",
                                  "Could not allocate array storage; reduce DIM sizes or free variables.");
+        } else {
+            int e;
+            for (e = 0; e < total_size; e++) v->array[e].str_h = rgc_str_empty;
         }
     }
     return v;
@@ -11969,6 +12242,10 @@ static struct value *get_var_reference(char **p, int *is_array_out, int *is_stri
                                      "Could not allocate implicit array storage; use DIM with explicit size.");
                 return NULL;
             }
+            {
+                int e;
+                for (e = 0; e < v->size; e++) v->array[e].str_h = rgc_str_empty;
+            }
         }
         if (dims == 0) {
             runtime_error_hint("Array subscript required", "Use A(0) or A(I), not the bare array name.");
@@ -12000,9 +12277,9 @@ static struct value *get_var_reference(char **p, int *is_array_out, int *is_stri
         valp = &v->array[flat_index];
     }
     if (is_string && valp->type != VAL_STR) {
-        *valp = make_str("");
+        v_assign(valp, make_str(""));
     } else if (!is_string && valp->type != VAL_NUM) {
-        *valp = make_num(0.0);
+        v_assign(valp, make_num(0.0));
     }
     return valp;
 }
@@ -12032,6 +12309,7 @@ static void run_until_udf_return(void)
         }
         statement_pos = p;
         execute_statement(&statement_pos);
+        rgc_temp_ring_drain();
         if (udf_returned || halted) break;
         if (statement_pos == NULL) continue;
         skip_spaces(&statement_pos);
@@ -12073,13 +12351,14 @@ static struct value invoke_udf(int func_index, struct value *args, int nargs)
         param_var = find_or_create_var(uf->param_names[i], uf->param_is_string[i], 0, 0, NULL, 0);
         if (param_var && i < nargs) {
             udf_call_stack[udf_call_depth].saved_params[i] = param_var->scalar;
+            rgc_str_ref(udf_call_stack[udf_call_depth].saved_params[i].str_h);
             if (uf->param_is_string[i]) {
                 ensure_str(&args[i]);
-                param_var->scalar = args[i];
+                v_assign(&param_var->scalar, args[i]);
                 param_var->scalar.type = VAL_STR;
             } else {
                 ensure_num(&args[i]);
-                param_var->scalar = args[i];
+                v_assign(&param_var->scalar, args[i]);
                 param_var->scalar.type = VAL_NUM;
             }
         }
@@ -12091,7 +12370,11 @@ static struct value invoke_udf(int func_index, struct value *args, int nargs)
     /* statement_return/statement_end_function already pops; restore params from saved frame */
     for (i = 0; i < uf->param_count; i++) {
         param_var = find_or_create_var(uf->param_names[i], uf->param_is_string[i], 0, 0, NULL, 0);
-        if (param_var) param_var->scalar = udf_call_stack[udf_call_depth].saved_params[i];
+        if (param_var) {
+            v_assign(&param_var->scalar, udf_call_stack[udf_call_depth].saved_params[i]);
+            rgc_str_unref(udf_call_stack[udf_call_depth].saved_params[i].str_h);
+            udf_call_stack[udf_call_depth].saved_params[i].str_h = rgc_str_empty;
+        }
     }
     /* Clear the global return flag so the *caller's* run_until_udf_return
      * doesn't think the calling function has already returned. Without
@@ -12381,17 +12664,19 @@ static struct value eval_factor(char **p)
                         param_var = find_or_create_var(pname_buf, uf->param_is_string, 0, 0, NULL, 0);
                         if (!param_var) { free(args); return make_num(0.0); }
                         saved_scalar = param_var->scalar;
+                        rgc_str_ref(saved_scalar.str_h);
                         if (uf->param_is_string) {
                             ensure_str(&args[0]);
-                            param_var->scalar = args[0];
+                            v_assign(&param_var->scalar, args[0]);
                             param_var->scalar.type = VAL_STR;
                         } else {
                             ensure_num(&args[0]);
-                            param_var->scalar = args[0];
+                            v_assign(&param_var->scalar, args[0]);
                             param_var->scalar.type = VAL_NUM;
                         }
                         { char *body_p = uf->body; result = eval_expr(&body_p); }
-                        param_var->scalar = saved_scalar;
+                        v_assign(&param_var->scalar, saved_scalar);
+                        rgc_str_unref(saved_scalar.str_h);
                         free(args);
                         return result;
                     }
@@ -12402,9 +12687,13 @@ static struct value eval_factor(char **p)
             }
             {
                 struct value *vp;
+                struct value out;
                 vp = get_var_reference(p, NULL, NULL, NULL);
                 if (!vp) return make_num(0.0);
-                return *vp;
+                out = *vp;
+                rgc_str_ref(out.str_h);   /* bump: returned temp shares slot's str */
+                rgc_temp_ring_push(out.str_h);  /* track so ring drain unrefs */
+                return out;
             }
         }
     }
@@ -12558,11 +12847,27 @@ static struct value eval_addsub(char **p)
                         }
                     }
 #endif
-                    cur = strlen(left.str);
-                    avail = (size_t)max_str_limit - cur;
-                    if (avail > MAX_STR_LEN - 1 - cur) avail = MAX_STR_LEN - 1 - cur;
-                    if (avail > 0) strncat(left.str, right.str, avail);
-                    left.str[max_str_limit] = '\0';
+                    cur = V_LEN(left);
+                    {
+                        size_t lim = max_str_limit_runtime();
+                        size_t rlen = V_LEN(right);
+                        size_t want = cur + rlen;
+                        if (want > lim) want = lim;
+                        rlen = want > cur ? want - cur : 0;
+                        if (rlen > 0) {
+                            rgc_str_t *ns = rgc_str_alloc_raw(rgc_str_roundup_cap(cur + rlen));
+                            if (cur) memcpy(ns->data, V_DATA(left), cur);
+                            memcpy(ns->data + cur, V_DATA(right), rlen);
+                            ns->len = cur + rlen;
+                            ns->data[ns->len] = '\0';
+                            /* TEMP write: shallow assign; ring keeps both old and new alive
+                             * across the statement, and drain frees them. NO refcount bump
+                             * here (left isn't a slot). */
+                            left.str_h = ns;
+                            left.type = VAL_STR;
+                        }
+                        avail = rlen; /* keep avail in scope */
+                    }
                 } else {
                     left.num += right.num;
                 }
@@ -12705,7 +13010,7 @@ static int eval_simple_condition(char **p)
                     if (left.type == VAL_STR || right.type == VAL_STR) {
                         ensure_str(&left);
                         ensure_str(&right);
-                        return strcmp(left.str, right.str) != 0;
+                        return rgc_str_cmp((left).str_h, (right).str_h) != 0;
                     }
                     return left.num != right.num;
                 }
@@ -12730,12 +13035,12 @@ static int eval_simple_condition(char **p)
                         ensure_str(&left);
                         ensure_str(&right);
                         if (op1 == '<') {
-                            return strcmp(left.str, right.str) < 0;
+                            return rgc_str_cmp((left).str_h, (right).str_h) < 0;
                         }
                         if (op1 == '>') {
-                            return strcmp(left.str, right.str) > 0;
+                            return rgc_str_cmp((left).str_h, (right).str_h) > 0;
                         }
-                        return strcmp(left.str, right.str) == 0;
+                        return rgc_str_cmp((left).str_h, (right).str_h) == 0;
                     }
                     if (op1 == '<') {
                         return left.num < right.num;
@@ -12748,7 +13053,7 @@ static int eval_simple_condition(char **p)
             }
             if (left.type == VAL_STR) {
                 ensure_str(&left);
-                return strlen(left.str) > 0;
+                return V_LEN(left) > 0;
             }
             return left.num != 0.0;
         }
@@ -12781,7 +13086,7 @@ static int eval_simple_condition(char **p)
         if (left.type == VAL_STR || right.type == VAL_STR) {
             ensure_str(&left);
             ensure_str(&right);
-            return strcmp(left.str, right.str) != 0;
+            return rgc_str_cmp((left).str_h, (right).str_h) != 0;
         } else {
             return left.num != right.num;
         }
@@ -12807,11 +13112,11 @@ static int eval_simple_condition(char **p)
             ensure_str(&left);
             ensure_str(&right);
             if (op1 == '<') {
-                return strcmp(left.str, right.str) < 0;
+                return rgc_str_cmp((left).str_h, (right).str_h) < 0;
             } else if (op1 == '>') {
-                return strcmp(left.str, right.str) > 0;
+                return rgc_str_cmp((left).str_h, (right).str_h) > 0;
             } else {
-                return strcmp(left.str, right.str) == 0;
+                return rgc_str_cmp((left).str_h, (right).str_h) == 0;
             }
         } else {
             if (op1 == '<') {
@@ -12826,7 +13131,7 @@ static int eval_simple_condition(char **p)
     /* No explicit relational operator: treat expression truthiness. */
     if (left.type == VAL_STR) {
         ensure_str(&left);
-        return strlen(left.str) > 0;
+        return V_LEN(left) > 0;
     }
     return left.num != 0.0;
 }
@@ -12999,7 +13304,7 @@ static void statement_textat(char **p)
         gfx_y = y;
         print_col = gfx_x;
         {
-            char *s = vtext.str;
+            char *s = V_DATA(vtext);
             while (*s) {
                 gfx_put_byte((unsigned char)*s++);
             }
@@ -13011,7 +13316,7 @@ static void statement_textat(char **p)
     /* Move cursor with ANSI: rows/cols are 1-based */
     BEFORE_CSTDIO();
     printf("\033[%d;%dH", y + 1, x + 1);
-    OUTS(vtext.str);
+    OUTS(V_DATA(vtext));
     OUTFLUSH();
 }
 
@@ -13251,7 +13556,7 @@ static void statement_input(char **p)
         struct value s;
         s = eval_factor(p);
         ensure_str(&s);
-        strncpy(prompt, s.str, sizeof(prompt) - 1);
+        strncpy(prompt, V_DATA(s), sizeof(prompt) - 1);
         prompt[sizeof(prompt) - 1] = '\0';
         skip_spaces(p);
         if (**p == ';' || **p == ',') {
@@ -13322,9 +13627,9 @@ static void statement_input(char **p)
         }
 #endif
         if (is_string) {
-            *vp = make_str(linebuf);
+            v_assign(vp, make_str(linebuf));
         } else {
-            *vp = make_num(atof(linebuf));
+            v_assign(vp, make_num(atof(linebuf)));
         }
         skip_spaces(p);
         if (**p == ',') {
@@ -13521,7 +13826,7 @@ static void statement_load(char **p)
             if (v->type == VAL_NUM)
                 b = (uint8_t)((int)v->num & 0xFF);
             else
-                b = (uint8_t)(v->str[0] ? (unsigned char)v->str[0] : 0);
+                b = (uint8_t)(VP_DATA(v)[0] ? (unsigned char)VP_DATA(v)[0] : 0);
             gfx_poke(gfx_vs, (uint16_t)(addr + i), b);
         }
     } else {
@@ -13705,10 +14010,10 @@ static void basic_clr_memory(void)
 
     for (i = 0; i < var_count; i++) {
         struct var *v = &vars[i];
-        v->scalar = v->is_string ? make_str("") : make_num(0.0);
+        v_assign(&v->scalar, v->is_string ? make_str("") : make_num(0.0));
         if (v->array && v->size > 0) {
             for (j = 0; j < v->size; j++) {
-                v->array[j] = v->is_string ? make_str("") : make_num(0.0);
+                v_assign(&v->array[j], v->is_string ? make_str("") : make_num(0.0));
             }
         }
     }
@@ -13739,7 +14044,7 @@ static int sort_cmp_num(const void *a, const void *b)
 
 static int sort_cmp_str(const void *a, const void *b)
 {
-    int r = strcmp(((const struct value *)a)->str, ((const struct value *)b)->str);
+    int r = rgc_str_cmp(((const struct value *)a)->str_h, ((const struct value *)b)->str_h);
     return sort_desc ? -r : r;
 }
 
@@ -13781,8 +14086,8 @@ static void statement_sort(char **p)
                 mode = (int)vm.num;
             } else {
                 ensure_str(&vm);
-                if (str_eq_ci(vm.str, "asc") || str_eq_ci(vm.str, "ascending")) mode = 1;
-                else if (str_eq_ci(vm.str, "desc") || str_eq_ci(vm.str, "descending")) mode = -1;
+                if (str_eq_ci(V_DATA(vm), "asc") || str_eq_ci(V_DATA(vm), "ascending")) mode = 1;
+                else if (str_eq_ci(V_DATA(vm), "desc") || str_eq_ci(V_DATA(vm), "descending")) mode = -1;
                 else mode = 1;
             }
         }
@@ -13849,8 +14154,8 @@ static void statement_split(char **p)
                              "DIM P$(20) before SPLIT … INTO P$.");
         return;
     }
-    s = v_str.str;
-    delim = v_delim.str;
+    s = V_DATA(v_str);
+    delim = V_DATA(v_delim);
     dlen = strlen(delim);
     if (dlen == 0) {
         runtime_error_hint("SPLIT: empty delimiter", "Delimiter must be non-empty (e.g. \",\" or \"|\").");
@@ -13864,10 +14169,7 @@ static void statement_split(char **p)
         if (end == NULL) end = (char *)(s + strlen(s));
         {
             size_t len = (size_t)(end - start);
-            if (len >= MAX_STR_LEN) len = MAX_STR_LEN - 1;
-            if (len > (size_t)(max_str_limit - 1)) len = (size_t)(max_str_limit - 1);
-            memcpy(arr_var->array[count].str, start, len);
-            arr_var->array[count].str[len] = '\0';
+            v_set_bytes(&arr_var->array[count], start, len);
             arr_var->array[count].type = VAL_STR;
             arr_var->array[count].num = 0.0;
         }
@@ -13877,7 +14179,7 @@ static void statement_split(char **p)
     }
     for (; count < arr_size; count++) {
         arr_var->array[count].type = VAL_STR;
-        arr_var->array[count].str[0] = '\0';
+        v_clear_str(&arr_var->array[count]);
         arr_var->array[count].num = 0.0;
     }
     split_count = count;
@@ -13951,22 +14253,37 @@ static void statement_join(char **p)
         }
         {
             size_t total = 0;
+            size_t cap = 64;
+            char *buf = (char *)malloc(cap);
+            size_t lim = max_str_limit_runtime();
             out->type = VAL_STR;
-            out->str[0] = '\0';
-            for (i = 0; i < n_elems && total < (size_t)(max_str_limit - 1); i++) {
+            if (!buf) runtime_error_hint("Out of memory", "JOIN buffer allocation failed.");
+            for (i = 0; i < n_elems && total < lim; i++) {
+                const char *src;
+                size_t need;
+                size_t srclen;
                 if (i > 0) {
-                    size_t dlen = strlen(v_delim.str);
-                    if (total + dlen < (size_t)(max_str_limit - 1)) {
-                        strncat(out->str, v_delim.str, max_str_limit - 1 - (int)total);
-                        total += dlen;
-                    }
+                    srclen = V_LEN(v_delim);
+                    if (srclen == 0) goto skip_delim;
+                    if (total + srclen > lim) srclen = lim - total;
+                    src = V_DATA(v_delim);
+                    need = total + srclen;
+                    while (cap < need) { cap *= 2; buf = (char *)realloc(buf, cap); if (!buf) runtime_error_hint("Out of memory", "JOIN buffer growth failed."); }
+                    memcpy(buf + total, src, srclen);
+                    total += srclen;
                 }
-                size_t elen = strlen(arr_var->array[i].str);
-                if (total + elen < (size_t)(max_str_limit - 1)) {
-                    strncat(out->str, arr_var->array[i].str, max_str_limit - 1 - (int)total);
-                    total += elen;
-                }
+            skip_delim:
+                srclen = RS_LEN(arr_var->array[i].str_h);
+                if (total + srclen > lim) srclen = lim - total;
+                if (srclen == 0) continue;
+                src = RS_DATA(arr_var->array[i].str_h);
+                need = total + srclen;
+                while (cap < need) { cap *= 2; buf = (char *)realloc(buf, cap); if (!buf) runtime_error_hint("Out of memory", "JOIN buffer growth failed."); }
+                memcpy(buf + total, src, srclen);
+                total += srclen;
             }
+            v_set_bytes(out, buf, total);
+            free(buf);
             out->num = 0.0;
         }
     }
@@ -13979,7 +14296,7 @@ static void set_io_status(int st)
     if (v) {
         v->scalar.type = VAL_NUM;
         v->scalar.num = (double)st;
-        v->scalar.str[0] = '\0';
+        v_clear_str(&v->scalar);
     }
 }
 
@@ -14077,9 +14394,9 @@ static void statement_open(char **p)
             struct value vpath = eval_expr(p);
             ensure_str(&vpath);
             {
-                size_t n = strlen(vpath.str);
+                size_t n = V_LEN(vpath);
                 if (n >= sizeof(fname)) n = sizeof(fname) - 1;
-                memcpy(fname, vpath.str, n);
+                memcpy(fname, V_DATA(vpath), n);
                 fname[n] = '\0';
             }
         }
@@ -14236,7 +14553,7 @@ static void statement_print_hash(char **p)
         any_output = 1;
         ended_with_sep = 0;
         if (v.type == VAL_STR) {
-            fputs(v.str, open_files[lfn]);
+            fputs(V_DATA(v), open_files[lfn]);
         } else {
             fprintf(open_files[lfn], "%g", v.num);
         }
@@ -14305,13 +14622,13 @@ static void statement_input_hash(char **p)
         }
         if (!read_file_token(open_files[lfn], tokbuf, sizeof(tokbuf))) {
             set_io_status(64);
-            *vp = is_string ? make_str("") : make_num(0.0);
+            v_assign(vp, is_string ? make_str("") : make_num(0.0));
         } else {
             set_io_status(0);
             if (is_string) {
-                *vp = make_str(tokbuf);
+                v_assign(vp, make_str(tokbuf));
             } else {
-                *vp = make_num(atof(tokbuf));
+                v_assign(vp, make_num(atof(tokbuf)));
             }
         }
         skip_spaces(p);
@@ -14350,20 +14667,20 @@ static void statement_get_hash(char **p)
     /* Channel not open → ST=1, return empty string. Program checks ST. */
     if (lfn < 1 || lfn > 255 || !open_files[lfn]) {
         set_io_status(1);
-        *vp = make_str("");
+        v_assign(vp, make_str(""));
         return;
     }
     c = fgetc(open_files[lfn]);
     if (c == EOF) {
         set_io_status(64);
-        *vp = make_str("");
+        v_assign(vp, make_str(""));
     } else {
         set_io_status(0);
         {
             char buf[2];
             buf[0] = (char)(unsigned char)c;
             buf[1] = '\0';
-            *vp = make_str(buf);
+            v_assign(vp, make_str(buf));
         }
     }
 }
@@ -14452,16 +14769,16 @@ static void statement_getbyte(char **p)
      * so the caller's loop can detect failure via ST or the -1 value. */
     if (lfn < 1 || lfn > 255 || !open_files[lfn]) {
         set_io_status(1);
-        *vp = make_num(-1.0);
+        v_assign(vp, make_num(-1.0));
         return;
     }
     c = fgetc(open_files[lfn]);
     if (c == EOF) {
         set_io_status(64);
-        *vp = make_num(-1.0);
+        v_assign(vp, make_num(-1.0));
     } else {
         set_io_status(0);
-        *vp = make_num((double)(c & 255));
+        v_assign(vp, make_num((double)(c & 255)));
     }
 }
 
@@ -14527,17 +14844,22 @@ static void statement_let(char **p)
                 }
                 ensure_str(&rhs);
                 ensure_str(vp);
-                la  = strlen(vp->str);
-                lb  = strlen(rhs.str);
-                lim = (size_t)max_str_limit;
-                if (la >= lim - 1) {
-                    vp->str[lim - 1] = '\0';
+                la  = VP_LEN(vp);
+                lb  = V_LEN(rhs);
+                lim = max_str_limit_runtime();
+                if (la >= lim) {
                     vp->type = VAL_STR;
                     return;
                 }
-                if (la + lb >= lim) lb = lim - 1 - la;
-                memcpy(vp->str + la, rhs.str, lb);
-                vp->str[la + lb] = '\0';
+                if (la + lb > lim) lb = lim - la;
+                if (lb > 0) {
+                    rgc_str_t *ns = rgc_str_alloc_raw(rgc_str_roundup_cap(la + lb));
+                    if (la) memcpy(ns->data, VP_DATA(vp), la);
+                    memcpy(ns->data + la, V_DATA(rhs), lb);
+                    ns->len = la + lb;
+                    ns->data[ns->len] = '\0';
+                    v_set_rstr(vp, ns);
+                }
                 vp->type = VAL_STR;
                 return;
             }
@@ -14575,7 +14897,7 @@ static void statement_let(char **p)
         ensure_num(&rhs);
         rhs.type = VAL_NUM;
     }
-    *vp = rhs;
+    v_assign(vp, rhs);
 }
 
 /* GOTO out of a structured block leaves orphaned IF / FOR / WHILE /
@@ -14717,9 +15039,9 @@ static void statement_return(char **p)
     if (udf_call_depth > 0) {
         skip_spaces(p);
         if (*p && **p && **p != ':' && (isalnum((unsigned char)**p) || **p == '(' || **p == '-' || **p == '+' || **p == '\"')) {
-            udf_return_value = eval_expr(p);
+            v_assign(&udf_return_value, eval_expr(p));
         } else {
-            udf_return_value = make_num(0.0);
+            v_assign(&udf_return_value, make_num(0.0));
         }
         udf_returned = 1;
         udf_call_depth--;
@@ -15168,7 +15490,7 @@ static void statement_end_function(char **p)
         return;
     }
     skip_spaces(p);
-    udf_return_value = make_num(0.0);
+    v_assign(&udf_return_value, make_num(0.0));
     udf_returned = 1;
     udf_call_depth--;
     current_line = udf_call_stack[udf_call_depth].saved_line;
@@ -15412,7 +15734,7 @@ static void statement_for(char **p)
     } else {
         stepv = make_num(1.0);
     }
-    *vp = startv;
+    v_assign(vp, startv);
 
     /* FOR stack needs the normalized loop variable name for NEXT and duplicate-FOR cleanup. */
     strncpy(for_stack[for_top].name, loop_name, VAR_NAME_MAX - 1);
@@ -15613,13 +15935,12 @@ static void statement_foreach(char **p)
     }
     if (is_string) {
         vp->type = VAL_STR;
-        strncpy(vp->str, arr_var->array[0].str, MAX_STR_LEN - 1);
-        vp->str[MAX_STR_LEN - 1] = '\0';
+        v_set_rstr(vp, rgc_str_ref(arr_var->array[0].str_h));
         vp->num = 0.0;
     } else {
         vp->type = VAL_NUM;
         vp->num = arr_var->array[0].num;
-        vp->str[0] = '\0';
+        v_clear_str(vp);
     }
     for_stack[for_top].each_idx = 1;  /* next index to load on NEXT */
     for_top++;
@@ -15711,13 +16032,12 @@ static void statement_next(char **p)
         }
         if (for_stack[for_top - 1].is_string) {
             vp->type = VAL_STR;
-            strncpy(vp->str, arr->array[idx].str, MAX_STR_LEN - 1);
-            vp->str[MAX_STR_LEN - 1] = '\0';
+            v_set_rstr(vp, rgc_str_ref(arr->array[idx].str_h));
             vp->num = 0.0;
         } else {
             vp->type = VAL_NUM;
             vp->num = arr->array[idx].num;
-            vp->str[0] = '\0';
+            v_clear_str(vp);
         }
         for_stack[for_top - 1].each_idx = idx + 1;
         current_line = for_stack[for_top - 1].line_index;
@@ -16774,17 +17094,19 @@ static void execute_statement(char **p)
                         param_var = find_or_create_var(pname_buf, uf->param_is_string, 0, 0, NULL, 0);
                         if (param_var) {
                             saved_scalar = param_var->scalar;
+                            rgc_str_ref(saved_scalar.str_h);
                             if (uf->param_is_string) {
                                 ensure_str(&args[0]);
-                                param_var->scalar = args[0];
+                                v_assign(&param_var->scalar, args[0]);
                                 param_var->scalar.type = VAL_STR;
                             } else {
                                 ensure_num(&args[0]);
-                                param_var->scalar = args[0];
+                                v_assign(&param_var->scalar, args[0]);
                                 param_var->scalar.type = VAL_NUM;
                             }
                             { char *body_p = uf->body; (void)eval_expr(&body_p); }
-                            param_var->scalar = saved_scalar;
+                            v_assign(&param_var->scalar, saved_scalar);
+                            rgc_str_unref(saved_scalar.str_h);
                         }
                         free(args);
                         return;
@@ -17455,6 +17777,7 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
         }
 #endif
         execute_statement(&statement_pos);
+        rgc_temp_ring_drain();
         timers_dispatch();
 #if defined(__EMSCRIPTEN__)
         wasm_stmt_budget++;
@@ -17589,18 +17912,24 @@ int basic_parse_arg_flags(int argc, char **argv, int start, int expect_program_p
                 return -1;
             }
         } else if (strcmp(argv[i], "-maxstr") == 0 || strcmp(argv[i], "--maxstr") == 0) {
-            int n;
+            long n;
             char *end;
+            const char *val;
             if (i + 1 >= argc) {
                 fprintf(stderr, "Missing value for -maxstr\n");
                 return -1;
             }
-            n = (int)strtol(argv[++i], &end, 10);
-            if (end == argv[i] || *end != '\0' || n < 1 || n > MAX_STR_LEN) {
-                fprintf(stderr, "Invalid -maxstr value (expected 1..%d)\n", MAX_STR_LEN);
+            val = argv[++i];
+            if (strcmp(val, "unlimited") == 0 || strcmp(val, "none") == 0 || strcmp(val, "off") == 0) {
+                max_str_limit = 0;  /* unlimited */
+                continue;
+            }
+            n = strtol(val, &end, 10);
+            if (end == val || *end != '\0' || n < 0) {
+                fprintf(stderr, "Invalid -maxstr value (positive integer or 'unlimited')\n");
                 return -1;
             }
-            max_str_limit = n;
+            max_str_limit = (size_t)n;  /* 0 also means unlimited */
         } else if (strcmp(argv[i], "-columns") == 0 || strcmp(argv[i], "--columns") == 0) {
             int n;
             char *end;
