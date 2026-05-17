@@ -1,6 +1,11 @@
 # Big strings — length-prefixed, heap-backed string representation
 
-Status: **proposed** (2026-05-12).
+Status: **SHIPPED** 2026-05-17 on `feat/big-strings`. Verified on
+native `basic` (`make`) and `basic-gfx` (`make basic-gfx`). WASM
+targets (`basic-wasm`, `basic-wasm-canvas`, `basic-wasm-raylib`) not
+built locally (no emcc on PATH this session); compile expected since
+all `.str` migration is in shared `basic.c`, no Emscripten-specific
+str access added.
 
 Relationship to BUFFER: `docs/buffer-type-plan.md` Step 1 already SHIPPED
 (`BUFFERNEW` / `BUFFERFETCH` / `BUFFERFREE` / `BUFFERLEN` / `BUFFERPATH$`),

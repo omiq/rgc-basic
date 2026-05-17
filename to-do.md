@@ -244,6 +244,13 @@ Shipped:
   unlimited), `tests/bigstring_nul.bas` (embedded NUL round-trip),
   `tests/bigstring_refcount.bas` (independent reads after reassign).
 
+Verified: native `basic` (`make`) and `basic-gfx` (`make basic-gfx`)
+both build clean and pass the full `tests/run_bas_suite.sh` (124
+.bas tests) under `-O2` and ASAN. WASM targets (`basic-wasm`,
+`basic-wasm-canvas`, `basic-wasm-raylib`) not built this session
+(emcc not on PATH); migration is in shared `basic.c` so compile
+expected — confirm with a wasm build before shipping a release.
+
 ## String escape sequences — original spec (shipped, kept for context)
 
 Programs authored by newcomers from C / Python / JS / shell reach
