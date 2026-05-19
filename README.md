@@ -24,9 +24,30 @@ The project started as an expansion on an original LLM-generated demo project by
 
 **Current release:**
 
-**2.0.1** (2026-04-21) — fixes bundled tracker modules being absent from the 2.0 release archives: `.gitignore`'s kernel-module rule (`*.mod*`) was also catching our `examples/music/*.mod` assets, so CI cloned a clean repo with no MODs to bundle. Negation rule added, MODs committed, archives now carry all nine. Same source, no functional changes vs 2.0.
+**2.1.1** (2026-05-19) — **big strings + level data milestone.**
+String values are now refcounted, length-prefixed, NUL-safe
+`rgc_str_t` heap allocations (`struct value` shrinks ~4116 → ~24
+bytes). `HTTP$()`, `JSON$()`, `INPUT$()`, and file reads no longer
+truncate at 4 KB, and embedded NULs round-trip through concat,
+`MID$`, comparisons, and file I/O. `#OPTION MAXSTR UNLIMITED`
+(also `NONE` / `OFF` / `0`, or CLI `-maxstr unlimited`) lifts the
+cap entirely; default stays 4096 for portability. `HTTP$` got
+matching dynamic intake buffers — native streams the body into a
+growing curl buffer with reliable status parsing; all four WASM
+targets (`basic-wasm`, `basic-wasm-modular`, `basic-wasm-canvas`,
+`basic-wasm-raylib`) malloc on the JS side and pass ptr+len back
+to C. Demoed by `examples/http_big_string_demo.bas` pulling 157 KB
+JSON through `INSTR` / `MID$` / `JSON$`. New `OVERLAY ON | OFF |
+CLS` HUD plane composites *after* the cell list so dialog frames
+sit above world tiles even mid-scroll; `MAPLOAD path$` reads
+canonical v1 JSON map files (`docs/map-format.md`) into the
+`MAP_*` globals — used in production by `examples/rpg/rpg.bas`
+and the shooter demo, plus a `map_editor` round-tripping via
+`MAPSAVE`. Block-form `ELSE IF` / `ELSEIF` parsing landed alongside
+new `rgc-lint` (portability linter) and `rgc2ugb` (ugBASIC
+transpiler) MVPs.
 
-**2.1** (pending) — **compositor + text pipeline milestone.**
+**2.1.0** (2026-04-22) — **compositor + text pipeline milestone.**
 `IMAGE DRAW slot` retargets every SCREEN 2 / 4 primitive into an
 off-screen `IMAGE CREATE` RGBA surface (LINE, FILLRECT, DRAWTEXT,
 CIRCLE, POLYGON, etc. all redirect via one pointer swap; `IMAGE
@@ -45,6 +66,8 @@ the letter shape = "gradient-coloured text" demoscene effect).
 PETSCII cursor-move tokens (`\n` / `\r` / `{HOME}` / `{CLEAR}` /
 `{UP}` / `{DOWN}` / `{LEFT}` / `{RIGHT}`) are consumed silently —
 DRAWTEXT is pixel-space, use separate calls for multi-line layout.
+
+**2.0.1** (2026-04-21) — fixes bundled tracker modules being absent from the 2.0 release archives: `.gitignore`'s kernel-module rule (`*.mod*`) was also catching our `examples/music/*.mod` assets, so CI cloned a clean repo with no MODs to bundle. Negation rule added, MODs committed, archives now carry all nine. Same source, no functional changes vs 2.0.
 
 **2.0** (2026-04-21) — **music streaming milestone.** Tracker modules (**MOD / XM / S3M / IT**) and long-form **OGG / MP3** play end-to-end on **basic-gfx** and **basic-wasm-raylib**: `LOADMUSIC` / `PLAYMUSIC` / `STOPMUSIC` / `PAUSEMUSIC` / `RESUMEMUSIC` / `MUSICVOLUME` / `MUSICLOOP` / `UNLOADMUSIC` transport, plus `MUSICPLAYING(slot)` / `MUSICLENGTH(slot)` / `MUSICTIME(slot)` / `MUSICPEAK()` and MOD metadata readers (`MUSICTITLE$` / `MUSICSAMPLENAME$` / `MUSICCHANNELS` / `MUSICPATTERNS` / `MUSICORDERS` / `MUSICSAMPLECOUNT`). Nine bundled Public Domain MODs in `examples/music/` and a rewritten `examples/gfx_music_demo.bas` with progress bar + VU meter. Ships alongside a patched raylib built from source (native + WASM) — no system raylib / MinGW raylib dependency, and a hand-rolled MOD length parser that avoids the `jar_mod_max_samples` Windows MinGW freeze. New `-v` / `--version` CLI flag on every binary for bug-report triage. Builds on 1.11.0's WAV sound MVP, 1.10.0's non-gfx utility batch (`TICKUS()/TICKMS()`, `CWD$()/CHDIR`, `DIR$/DIR INTO`, `JSONLEN/JSONKEY$`, `FOREACH`), 1.9.x's pixel-perfect mouse-over, `SPRITEAT`, `CLS rect`, `DRAWTEXT scale`, multi-plane screen buffers, double-buffer, `FILEEXISTS` / `DOWNLOAD` / `IMAGE GRAB/SAVE` / compound assignment, and the 1.9.0 Graphics 1.0 milestone (full 2-D primitive set, blitter Phase 1, tilemap renderer, VSYNC pipeline, keyboard intrinsics, anti-alias toggle, two-word SPRITE/TILE/SHEET/IMAGE family).
 

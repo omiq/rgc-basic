@@ -1,5 +1,24 @@
 ## Changelog
 
+### 2.1.1 – 2026-05-19
+
+**Big strings + level data milestone.** `struct value` becomes a
+refcounted, length-prefixed, NUL-safe `rgc_str_t` heap allocation
+— `HTTP$`, `JSON$`, `INPUT$`, and file reads no longer truncate
+at 4 KB, and embedded NULs round-trip through concat / `MID$` /
+file I/O. `#OPTION MAXSTR UNLIMITED` (CLI `-maxstr unlimited`)
+lifts the cap entirely. `HTTP$` intake buffers grow dynamically
+in native (curl streaming) and all four WASM targets. New
+`OVERLAY ON | OFF | CLS` HUD plane composites above the
+`TILEMAP DRAW` / `SPRITE STAMP` cell list so dialog frames sit
+above world tiles even mid-scroll; `MAPLOAD path$` reads canonical
+v1 JSON map files into `MAP_*` globals (used in production by
+`examples/rpg/rpg.bas` and the shooter demo, plus a `map_editor`
+round-tripping via `MAPSAVE`). Block-form `ELSE IF` / `ELSEIF`
+parsing lands alongside new `rgc-lint` portability linter and
+`rgc2ugb` ugBASIC transpiler MVPs. See the dated feature entries
+below for full detail.
+
 ### HTTP$ end-to-end big strings (2026-05-17)
 
 Follow-up to the big-strings refactor. HTTP$ was still capped at 4 KB
@@ -99,6 +118,40 @@ loop. Production user: `examples/rpg/rpg.bas`.
 Canvas WASM (frozen) routes the writes correctly but its compositor
 still flattens everything to the bitmap; canvas overlay-above-cells
 support is out of scope until the freeze lifts.
+
+### 2.1.0 – 2026-04-22
+
+**Compositor + text pipeline milestone.** Implementation landed in
+commits `7d7e7c2` ("new demos") and `3f6c052` ("scroller demo
+fixes") — titles undersell the scope. `IMAGE DRAW slot` retargets
+every SCREEN 2 / 4 primitive into an off-screen `IMAGE CREATE`
+RGBA surface (LINE / FILLRECT / DRAWTEXT / CIRCLE / POLYGON etc.
+all redirect via one pointer swap; `IMAGE DRAW 0` restores).
+
+`SCROLL ZONE id, y, h` + `SCROLL ZONE id, dx` declare up to 15
+horizontal bands that scroll independently at composite time with
+free wrap (`gfx_scroll_zone_set` / `_advance` / `_reset` /
+`_clear` in `gfx/gfx_video.{c,h}`); `SCROLL LINE y, dx` sets
+per-scanline horizontal offset for raster warp / water ripple /
+flag-wave effects without raster interrupts; `SCROLL RESET`
+clears all of it.
+
+`DRAWTEXT` honours inline PETSCII tokens — 16 colour bytes
+(`{RED}`, `{WHITE}`, `{GREEN}`, …) swap the pen mid-string so one
+call paints multi-colour text; `{REVERSE ON}` / `{REVERSE OFF}`
+toggle reverse-video in two flavours — solid bg (classic
+Commodore cell swap) or transparent bg (cell fills fg, glyph
+pixels stay untouched so a gradient painted beneath reads through
+the letter shape = "gradient-coloured text" demoscene effect).
+PETSCII cursor-move tokens (`\n` / `\r` / `{HOME}` / `{CLEAR}` /
+`{UP}` / `{DOWN}` / `{LEFT}` / `{RIGHT}`) are consumed silently —
+DRAWTEXT is pixel-space, use separate calls for multi-line layout.
+
+**Demos:** `examples/gfx_imagedraw_demo.bas`,
+`examples/gfx_scrollzone_demo.bas`,
+`examples/gfx_drawtext_tokens_demo.bas`,
+`examples/demo-scroller-reverse.bas`,
+`examples/demo-scroller-multiplex.bas`.
 
 ### 2.0.1 – 2026-04-21
 
