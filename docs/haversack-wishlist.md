@@ -59,6 +59,22 @@ A `DICTPUSHDICT` variant that deep-clones a source handle into the target array 
 
 Linked from `notehub/docs/TOOLS.md` script-helpers section "Building arrays of records".
 
+### 2d. `#OPTION` directives should override `-flag` defaults set at init (2026-05-22)
+
+Surfaced today while verifying §5a's flag-reset fix: with Haversack's host applying `["-nowrap"]` at init (because the browser pane reflows visually and column-wrap splits tokens mid-string), a per-script `#OPTION COLUMNS 40` directive becomes effectively ignored — it sets `print_width=40` correctly, but `terminal_no_wrap=1` from the init flag is still in force, so the wrap check at `basic.c:4225/4868/4899` short-circuits. The script-author's intent ("I want this script to use 40-col wrap") loses to the env default ("the host said nowrap").
+
+Mental model that would fix this: **`#OPTION` is per-script intent, `-flags` are environment defaults; per-script intent should win for the same conceptual setting.**
+
+Concrete behaviour shifts:
+
+- `#OPTION COLUMNS N` (a user explicitly opting *into* column-bounded output) implicitly sets `terminal_no_wrap = 0` so the directive actually does what its name suggests.
+- `#OPTION nowrap` continues to set `terminal_no_wrap = 1` (no change — it already wins because it's explicit).
+- Other conceptual pairs follow the same rule (e.g. if a `#OPTION wrap` is added in future, it'd flip terminal_no_wrap=0 explicitly).
+
+Alternative API: a dedicated `#OPTION wrap` counterpart to `#OPTION nowrap` instead of the implicit-via-COLUMNS clear. Cleaner conceptually (explicit > implicit) but adds a directive name. Lean the implicit shape because it matches the "obvious" reading of `#OPTION COLUMNS N` — anyone who writes that wants wrap behaviour.
+
+Either route closes the Haversack ergonomic gap where tool authors who want column-bounded output can't override a host-applied `-nowrap` from within the script.
+
 ### 2c. `DICTDUMP$(handle)` / `BUFFERDUMP$(slot)` — diagnostic snapshots (2026-05-22) — parked
 
 When chasing handle-leak / lifetime bugs in tools, having a way to dump the current slot table state (allocated slots, root types, child counts) as JSON would help. Could share output format with `JSON$(handle)` for the value contents, plus a metadata wrapper. Park until first real handle bug surfaces.
