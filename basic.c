@@ -3559,6 +3559,7 @@ static void statement_mapfree(char **p);
 static void statement_mapset(char **p);
 static void statement_mapsetnull(char **p);
 static void statement_mapsetbool(char **p);
+static void statement_mapdel(char **p);
 static void statement_open(char **p);
 static void statement_close(char **p);
 static void close_channel(int lfn);
@@ -10842,6 +10843,107 @@ static int map_obj_del(struct map_node *obj, const char *key, size_t key_len)
     return 0;
 }
 
+/* Append `value` to an array node. Takes ownership. Returns 0 on success. */
+static int map_arr_push(struct map_node *arr, struct map_node *value)
+{
+    if (!arr || arr->kind != MAP_ARRAY) { map_node_free(value); return -1; }
+    if (arr->u.arr.count + 1 > arr->u.arr.cap) {
+        int new_cap = arr->u.arr.cap ? arr->u.arr.cap * 2 : 4;
+        struct map_node **n = (struct map_node **)realloc(arr->u.arr.items,
+            sizeof(struct map_node *) * (size_t)new_cap);
+        if (!n) { map_node_free(value); return -1; }
+        arr->u.arr.items = n;
+        arr->u.arr.cap = new_cap;
+    }
+    arr->u.arr.items[arr->u.arr.count++] = value;
+    return 0;
+}
+
+/* Splice element at idx out of an array, shifting later items down. */
+static int map_arr_del(struct map_node *arr, int idx)
+{
+    int i;
+    if (!arr || arr->kind != MAP_ARRAY) return -1;
+    if (idx < 0 || idx >= arr->u.arr.count) return -1;
+    map_node_free(arr->u.arr.items[idx]);
+    for (i = idx; i + 1 < arr->u.arr.count; i++) {
+        arr->u.arr.items[i] = arr->u.arr.items[i + 1];
+    }
+    arr->u.arr.count--;
+    return 0;
+}
+
+/* Walk `path` from `*slot`, advancing through nested object/array nodes.
+ * `create=1` auto-vivifies missing intermediates and sparse-fills arrays
+ * with MAP_NULL. `create=0` is read-only; returns 0 on first miss.
+ *
+ * On success returns 1 and `*slot` (the original argument) is updated
+ * to point at the leaf slot — the caller can replace `**slot` to write,
+ * or read `*slot`'s pointee to introspect.
+ *
+ * Sets json_last_status = 2 on type-mismatch (e.g. path tries to descend
+ * through a scalar). */
+static int map_walk_for_write(struct map_node ***slot_io, const char *path, int create)
+{
+    struct map_node **slot = *slot_io;
+    const char *seg = path;
+    struct json_path_step step;
+    while (json_next_step(&seg, &step)) {
+        int need_kind = step.is_key ? MAP_OBJECT : MAP_ARRAY;
+        if (*slot == NULL) {
+            if (!create) return 0;
+            *slot = map_node_new(need_kind);
+            if (!*slot) return 0;
+        } else if ((*slot)->kind == MAP_NULL && create) {
+            map_node_free(*slot);
+            *slot = map_node_new(need_kind);
+            if (!*slot) return 0;
+        } else if ((*slot)->kind != need_kind) {
+            if (create) json_last_status = 2;
+            return 0;
+        }
+        if (step.is_key) {
+            size_t key_len = strlen(step.key);
+            int idx = map_obj_find(*slot, step.key, key_len);
+            if (idx < 0) {
+                if (!create) return 0;
+                if (map_obj_set(*slot, step.key, key_len, map_node_new(MAP_NULL)) != 0) {
+                    json_last_status = 3;
+                    return 0;
+                }
+                idx = (*slot)->u.obj.count - 1;
+            }
+            slot = &(*slot)->u.obj.entries[idx].value;
+        } else {
+            int idx = step.idx;
+            if (idx < 0) { json_last_status = 2; return 0; }
+            if (idx >= (*slot)->u.arr.count) {
+                if (!create) return 0;
+                while ((*slot)->u.arr.count <= idx) {
+                    if (map_arr_push(*slot, map_node_new(MAP_NULL)) != 0) {
+                        json_last_status = 3;
+                        return 0;
+                    }
+                }
+            }
+            slot = &(*slot)->u.arr.items[idx];
+        }
+    }
+    *slot_io = slot;
+    return 1;
+}
+
+/* Resolve a path for reading. Returns the node pointer or NULL on miss.
+ * Does NOT mutate the tree. */
+static struct map_node *map_walk_for_read(struct map_node *root, const char *path)
+{
+    struct map_node **slot = &root;
+    if (!root) return NULL;
+    if (!path || !*path) return root;
+    if (!map_walk_for_write(&slot, path, 0)) return NULL;
+    return *slot;
+}
+
 static const char *map_kind_name(int kind)
 {
     switch (kind) {
@@ -10892,16 +10994,13 @@ static double map_node_to_basic_num(struct map_node *node)
     }
 }
 
-/* Find or create the root object node for slot. Returns NULL if slot
- * isn't a valid in-use map. Touching a use-after-free handle sets
- * json_last_status = 4. */
-static struct map_node *map_slot_root_for_write(int slot)
+/* Pointer to the slot's root pointer for writes (callers pass to the
+ * walker so the first path step can decide whether root is an OBJECT
+ * or an ARRAY). Returns NULL if the handle is invalid / freed. */
+static struct map_node **map_slot_root_ptr_for_write(int slot)
 {
     if (!map_slot_in_use(slot)) { json_last_status = 4; return NULL; }
-    if (!g_maps[slot].root) {
-        g_maps[slot].root = map_node_new(MAP_OBJECT);
-    }
-    return g_maps[slot].root;
+    return &g_maps[slot].root;
 }
 
 static struct map_node *map_slot_root_for_read(int slot)
@@ -13058,149 +13157,43 @@ static struct value eval_function(const char *name, char **p)
     }
     case FN_MAPGET: {
         struct value v_h = arg;
-        struct value v_key;
-        struct map_node *root;
+        struct value v_path;
+        struct map_node *root, *node;
         int slot;
-        int idx;
         ensure_num(&v_h);
         skip_spaces(p);
         if (**p != ',') {
             runtime_error_hint("MAPGET$ requires 2 arguments",
-                                 "Use MAPGET$(handle, \"key\") — string coercion of the value at the key.");
+                                 "Use MAPGET$(handle, path$) — string coercion of the value at path.");
             return make_str("");
         }
         (*p)++; skip_spaces(p);
-        v_key = eval_expr(p); ensure_str(&v_key);
+        v_path = eval_expr(p); ensure_str(&v_path);
         skip_spaces(p);
         if (**p == ')') (*p)++;
         skip_spaces(p);
         json_last_status = 0;
         slot = (int)v_h.num;
         root = map_slot_root_for_read(slot);
-        if (!root || root->kind != MAP_OBJECT) return make_str("");
-        idx = map_obj_find(root, V_DATA(v_key), V_LEN(v_key));
-        if (idx < 0) return make_str("");
-        return map_node_to_basic_str(root->u.obj.entries[idx].value);
+        if (!root) return make_str("");
+        node = map_walk_for_read(root, V_DATA(v_path));
+        if (!node) return make_str("");
+        return map_node_to_basic_str(node);
     }
     case FN_MAPGETN: {
         struct value v_h = arg;
-        struct value v_key;
-        struct map_node *root;
-        int slot, idx;
+        struct value v_path;
+        struct map_node *root, *node;
+        int slot;
         ensure_num(&v_h);
         skip_spaces(p);
         if (**p != ',') {
             runtime_error_hint("MAPGETN requires 2 arguments",
-                                 "Use MAPGETN(handle, \"key\") — numeric value or 0 if missing.");
+                                 "Use MAPGETN(handle, path$) — numeric value or 0 if missing.");
             return make_num(0.0);
         }
         (*p)++; skip_spaces(p);
-        v_key = eval_expr(p); ensure_str(&v_key);
-        skip_spaces(p);
-        if (**p == ')') (*p)++;
-        skip_spaces(p);
-        json_last_status = 0;
-        slot = (int)v_h.num;
-        root = map_slot_root_for_read(slot);
-        if (!root || root->kind != MAP_OBJECT) return make_num(0.0);
-        idx = map_obj_find(root, V_DATA(v_key), V_LEN(v_key));
-        if (idx < 0) return make_num(0.0);
-        return make_num(map_node_to_basic_num(root->u.obj.entries[idx].value));
-    }
-    case FN_MAPGETBOOL: {
-        struct value v_h = arg;
-        struct value v_key;
-        struct map_node *root;
-        int slot, idx;
-        ensure_num(&v_h);
-        skip_spaces(p);
-        if (**p != ',') {
-            runtime_error_hint("MAPGETBOOL requires 2 arguments",
-                                 "Use MAPGETBOOL(handle, \"key\") — 1 if JSON true, else 0.");
-            return make_num(0.0);
-        }
-        (*p)++; skip_spaces(p);
-        v_key = eval_expr(p); ensure_str(&v_key);
-        skip_spaces(p);
-        if (**p == ')') (*p)++;
-        skip_spaces(p);
-        json_last_status = 0;
-        slot = (int)v_h.num;
-        root = map_slot_root_for_read(slot);
-        if (!root || root->kind != MAP_OBJECT) return make_num(0.0);
-        idx = map_obj_find(root, V_DATA(v_key), V_LEN(v_key));
-        if (idx < 0) return make_num(0.0);
-        {
-            struct map_node *n = root->u.obj.entries[idx].value;
-            if (n && n->kind == MAP_BOOL) return make_num(n->u.b ? 1.0 : 0.0);
-        }
-        return make_num(0.0);
-    }
-    case FN_MAPHAS: {
-        struct value v_h = arg;
-        struct value v_key;
-        struct map_node *root;
-        int slot, idx;
-        ensure_num(&v_h);
-        skip_spaces(p);
-        if (**p != ',') {
-            runtime_error_hint("MAPHAS requires 2 arguments",
-                                 "Use MAPHAS(handle, \"key\") — 1 if the key exists (even if null).");
-            return make_num(0.0);
-        }
-        (*p)++; skip_spaces(p);
-        v_key = eval_expr(p); ensure_str(&v_key);
-        skip_spaces(p);
-        if (**p == ')') (*p)++;
-        skip_spaces(p);
-        json_last_status = 0;
-        slot = (int)v_h.num;
-        root = map_slot_root_for_read(slot);
-        if (!root || root->kind != MAP_OBJECT) return make_num(0.0);
-        idx = map_obj_find(root, V_DATA(v_key), V_LEN(v_key));
-        return make_num(idx >= 0 ? 1.0 : 0.0);
-    }
-    case FN_MAPTYPE: {
-        struct value v_h = arg;
-        struct value v_key;
-        struct map_node *root;
-        int slot, idx;
-        ensure_num(&v_h);
-        skip_spaces(p);
-        if (**p != ',') {
-            runtime_error_hint("MAPTYPE$ requires 2 arguments",
-                                 "Use MAPTYPE$(handle, \"key\") — type name or \"\" if missing.");
-            return make_str("");
-        }
-        (*p)++; skip_spaces(p);
-        v_key = eval_expr(p); ensure_str(&v_key);
-        skip_spaces(p);
-        if (**p == ')') (*p)++;
-        skip_spaces(p);
-        json_last_status = 0;
-        slot = (int)v_h.num;
-        root = map_slot_root_for_read(slot);
-        if (!root || root->kind != MAP_OBJECT) return make_str("");
-        idx = map_obj_find(root, V_DATA(v_key), V_LEN(v_key));
-        if (idx < 0) return make_str("");
-        return make_str(map_kind_name(root->u.obj.entries[idx].value
-                                        ? root->u.obj.entries[idx].value->kind
-                                        : MAP_NULL));
-    }
-    case FN_MAPLEN: {
-        struct value v_h = arg;
-        struct value v_key;
-        struct map_node *root;
-        int slot, idx;
-        ensure_num(&v_h);
-        skip_spaces(p);
-        if (**p != ',') {
-            runtime_error_hint("MAPLEN requires 2 arguments",
-                                 "Use MAPLEN(handle, \"\") for root, MAPLEN(handle, \"key\") for a sub-container.");
-            return make_num(0.0);
-        }
-        (*p)++; skip_spaces(p);
-        v_key = eval_expr(p); ensure_str(&v_key);
+        v_path = eval_expr(p); ensure_str(&v_path);
         skip_spaces(p);
         if (**p == ')') (*p)++;
         skip_spaces(p);
@@ -13208,28 +13201,115 @@ static struct value eval_function(const char *name, char **p)
         slot = (int)v_h.num;
         root = map_slot_root_for_read(slot);
         if (!root) return make_num(0.0);
-        if (V_LEN(v_key) == 0) {
-            /* Root */
-            if (root->kind == MAP_OBJECT) return make_num((double)root->u.obj.count);
-            if (root->kind == MAP_ARRAY)  return make_num((double)root->u.arr.count);
+        node = map_walk_for_read(root, V_DATA(v_path));
+        return make_num(map_node_to_basic_num(node));
+    }
+    case FN_MAPGETBOOL: {
+        struct value v_h = arg;
+        struct value v_path;
+        struct map_node *root, *node;
+        int slot;
+        ensure_num(&v_h);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("MAPGETBOOL requires 2 arguments",
+                                 "Use MAPGETBOOL(handle, path$) — 1 if JSON true, else 0.");
             return make_num(0.0);
         }
-        if (root->kind != MAP_OBJECT) return make_num(0.0);
-        idx = map_obj_find(root, V_DATA(v_key), V_LEN(v_key));
-        if (idx < 0) return make_num(0.0);
-        {
-            struct map_node *n = root->u.obj.entries[idx].value;
-            if (!n) return make_num(0.0);
-            if (n->kind == MAP_OBJECT) return make_num((double)n->u.obj.count);
-            if (n->kind == MAP_ARRAY)  return make_num((double)n->u.arr.count);
+        (*p)++; skip_spaces(p);
+        v_path = eval_expr(p); ensure_str(&v_path);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        json_last_status = 0;
+        slot = (int)v_h.num;
+        root = map_slot_root_for_read(slot);
+        if (!root) return make_num(0.0);
+        node = map_walk_for_read(root, V_DATA(v_path));
+        if (node && node->kind == MAP_BOOL) return make_num(node->u.b ? 1.0 : 0.0);
+        return make_num(0.0);
+    }
+    case FN_MAPHAS: {
+        struct value v_h = arg;
+        struct value v_path;
+        struct map_node *root, *node;
+        int slot;
+        ensure_num(&v_h);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("MAPHAS requires 2 arguments",
+                                 "Use MAPHAS(handle, path$) — 1 if a value exists at path (even null).");
+            return make_num(0.0);
         }
+        (*p)++; skip_spaces(p);
+        v_path = eval_expr(p); ensure_str(&v_path);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        json_last_status = 0;
+        slot = (int)v_h.num;
+        root = map_slot_root_for_read(slot);
+        if (!root) return make_num(0.0);
+        node = map_walk_for_read(root, V_DATA(v_path));
+        return make_num(node ? 1.0 : 0.0);
+    }
+    case FN_MAPTYPE: {
+        struct value v_h = arg;
+        struct value v_path;
+        struct map_node *root, *node;
+        int slot;
+        ensure_num(&v_h);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("MAPTYPE$ requires 2 arguments",
+                                 "Use MAPTYPE$(handle, path$) — type name or \"\" if missing.");
+            return make_str("");
+        }
+        (*p)++; skip_spaces(p);
+        v_path = eval_expr(p); ensure_str(&v_path);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        json_last_status = 0;
+        slot = (int)v_h.num;
+        root = map_slot_root_for_read(slot);
+        if (!root) return make_str("");
+        node = map_walk_for_read(root, V_DATA(v_path));
+        if (!node) return make_str("");
+        return make_str(map_kind_name(node->kind));
+    }
+    case FN_MAPLEN: {
+        struct value v_h = arg;
+        struct value v_path;
+        struct map_node *root, *node;
+        int slot;
+        ensure_num(&v_h);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("MAPLEN requires 2 arguments",
+                                 "Use MAPLEN(handle, \"\") for root, or MAPLEN(handle, path$).");
+            return make_num(0.0);
+        }
+        (*p)++; skip_spaces(p);
+        v_path = eval_expr(p); ensure_str(&v_path);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        json_last_status = 0;
+        slot = (int)v_h.num;
+        root = map_slot_root_for_read(slot);
+        if (!root) return make_num(0.0);
+        node = map_walk_for_read(root, V_DATA(v_path));
+        if (!node) return make_num(0.0);
+        if (node->kind == MAP_OBJECT) return make_num((double)node->u.obj.count);
+        if (node->kind == MAP_ARRAY)  return make_num((double)node->u.arr.count);
         return make_num(0.0);
     }
     case FN_MAPKEY: {
         struct value v_h = arg;
-        struct value v_key, v_n;
-        struct map_node *root;
-        int slot, idx, want_n;
+        struct value v_path, v_n;
+        struct map_node *root, *node;
+        int slot, want_n;
         ensure_num(&v_h);
         skip_spaces(p);
         if (**p != ',') {
@@ -13238,7 +13318,7 @@ static struct value eval_function(const char *name, char **p)
             return make_str("");
         }
         (*p)++; skip_spaces(p);
-        v_key = eval_expr(p); ensure_str(&v_key);
+        v_path = eval_expr(p); ensure_str(&v_path);
         skip_spaces(p);
         if (**p != ',') {
             runtime_error_hint("MAPKEY$ requires 3 arguments",
@@ -13255,25 +13335,12 @@ static struct value eval_function(const char *name, char **p)
         want_n = (int)v_n.num;
         root = map_slot_root_for_read(slot);
         if (!root) return make_str("");
-        if (V_LEN(v_key) == 0) {
-            if (root->kind != MAP_OBJECT) return make_str("");
-            if (want_n < 0 || want_n >= root->u.obj.count) return make_str("");
-            {
-                rgc_str_t *k = root->u.obj.entries[want_n].key;
-                return k ? make_str_bytes(k->data, k->len) : make_str("");
-            }
-        }
-        if (root->kind != MAP_OBJECT) return make_str("");
-        idx = map_obj_find(root, V_DATA(v_key), V_LEN(v_key));
-        if (idx < 0) return make_str("");
+        node = map_walk_for_read(root, V_DATA(v_path));
+        if (!node || node->kind != MAP_OBJECT) return make_str("");
+        if (want_n < 0 || want_n >= node->u.obj.count) return make_str("");
         {
-            struct map_node *n = root->u.obj.entries[idx].value;
-            if (!n || n->kind != MAP_OBJECT) return make_str("");
-            if (want_n < 0 || want_n >= n->u.obj.count) return make_str("");
-            {
-                rgc_str_t *k = n->u.obj.entries[want_n].key;
-                return k ? make_str_bytes(k->data, k->len) : make_str("");
-            }
+            rgc_str_t *k = node->u.obj.entries[want_n].key;
+            return k ? make_str_bytes(k->data, k->len) : make_str("");
         }
     }
     case FN_MAPLOAD: {
@@ -15852,13 +15919,37 @@ static void statement_mapfree(char **p)
     rgc_map_unlink_slot(slot);
 }
 
-/* MAPSET h, key$, value — Phase 1: top-level keys only.
- * Phase 2 extends to full path mini-language. */
+/* Internal: walk path for write, replace leaf with `value`.
+ * Takes ownership of `value`. */
+static void map_set_via_walker(int slot, const char *path, struct map_node *value)
+{
+    struct map_node **root_ptr = map_slot_root_ptr_for_write(slot);
+    struct map_node **leaf;
+    if (!root_ptr) {
+        map_node_free(value);
+        if (json_strict_mode) {
+            runtime_error_hint("MAPSET: invalid handle",
+                                 "Pass a handle from MAPNEW(); free handles raise JSONSTATUS=4.");
+        }
+        return;
+    }
+    leaf = root_ptr;
+    if (!map_walk_for_write(&leaf, path, 1)) {
+        map_node_free(value);
+        if (json_strict_mode) {
+            runtime_error_hint("MAPSET: path descends through wrong type",
+                                 "Intermediate node is not the kind the next path step expects.");
+        }
+        return;
+    }
+    if (*leaf) map_node_free(*leaf);
+    *leaf = value;
+}
+
+/* MAPSET h, path$, value */
 static void statement_mapset(char **p)
 {
-    struct value v_h, v_key, v_val;
-    struct map_node *root;
-    struct map_node *node;
+    struct value v_h, v_path, v_val;
     int slot;
     skip_spaces(p);
     v_h = eval_expr(p);
@@ -15866,12 +15957,12 @@ static void statement_mapset(char **p)
     skip_spaces(p);
     if (**p != ',') {
         runtime_error_hint("MAPSET: expected ,",
-                             "Syntax: MAPSET handle, key$, value.");
+                             "Syntax: MAPSET handle, path$, value.");
         return;
     }
     (*p)++; skip_spaces(p);
-    v_key = eval_expr(p);
-    ensure_str(&v_key);
+    v_path = eval_expr(p);
+    ensure_str(&v_path);
     skip_spaces(p);
     if (**p != ',') {
         runtime_error_hint("MAPSET: expected ,",
@@ -15883,34 +15974,17 @@ static void statement_mapset(char **p)
     skip_spaces(p);
     json_last_status = 0;
     slot = (int)v_h.num;
-    root = map_slot_root_for_write(slot);
-    if (!root) {
-        if (json_strict_mode) {
-            runtime_error_hint("MAPSET: invalid handle",
-                                 "Pass a handle from MAPNEW(); free handles raise JSONSTATUS=4.");
-        }
-        return;
-    }
-    if (root->kind != MAP_OBJECT) {
-        json_last_status = 2;
-        if (json_strict_mode) {
-            runtime_error_hint("MAPSET: root is not an object",
-                                 "MAPSET writes object keys; Phase 2 will add full paths and array indices.");
-        }
-        return;
-    }
-    node = map_node_from_value(&v_val);
-    if (!node) return;
-    if (map_obj_set(root, V_DATA(v_key), V_LEN(v_key), node) != 0) {
-        json_last_status = 3;
+    {
+        struct map_node *node = map_node_from_value(&v_val);
+        if (!node) return;
+        map_set_via_walker(slot, V_DATA(v_path), node);
     }
 }
 
-/* MAPSETNULL h, key$ — Phase 1: top-level keys only. */
+/* MAPSETNULL h, path$ */
 static void statement_mapsetnull(char **p)
 {
-    struct value v_h, v_key;
-    struct map_node *root;
+    struct value v_h, v_path;
     int slot;
     skip_spaces(p);
     v_h = eval_expr(p);
@@ -15918,29 +15992,22 @@ static void statement_mapsetnull(char **p)
     skip_spaces(p);
     if (**p != ',') {
         runtime_error_hint("MAPSETNULL: expected ,",
-                             "Syntax: MAPSETNULL handle, key$.");
+                             "Syntax: MAPSETNULL handle, path$.");
         return;
     }
     (*p)++; skip_spaces(p);
-    v_key = eval_expr(p);
-    ensure_str(&v_key);
+    v_path = eval_expr(p);
+    ensure_str(&v_path);
     skip_spaces(p);
     json_last_status = 0;
     slot = (int)v_h.num;
-    root = map_slot_root_for_write(slot);
-    if (!root || root->kind != MAP_OBJECT) {
-        if (root && root->kind != MAP_OBJECT) json_last_status = 2;
-        return;
-    }
-    map_obj_set(root, V_DATA(v_key), V_LEN(v_key), map_node_new(MAP_NULL));
+    map_set_via_walker(slot, V_DATA(v_path), map_node_new(MAP_NULL));
 }
 
-/* MAPSETBOOL h, key$, n — Phase 1: top-level keys only. */
+/* MAPSETBOOL h, path$, n */
 static void statement_mapsetbool(char **p)
 {
-    struct value v_h, v_key, v_n;
-    struct map_node *root;
-    struct map_node *node;
+    struct value v_h, v_path, v_n;
     int slot;
     skip_spaces(p);
     v_h = eval_expr(p);
@@ -15948,12 +16015,12 @@ static void statement_mapsetbool(char **p)
     skip_spaces(p);
     if (**p != ',') {
         runtime_error_hint("MAPSETBOOL: expected ,",
-                             "Syntax: MAPSETBOOL handle, key$, n.");
+                             "Syntax: MAPSETBOOL handle, path$, n.");
         return;
     }
     (*p)++; skip_spaces(p);
-    v_key = eval_expr(p);
-    ensure_str(&v_key);
+    v_path = eval_expr(p);
+    ensure_str(&v_path);
     skip_spaces(p);
     if (**p != ',') {
         runtime_error_hint("MAPSETBOOL: expected ,",
@@ -15966,15 +16033,90 @@ static void statement_mapsetbool(char **p)
     skip_spaces(p);
     json_last_status = 0;
     slot = (int)v_h.num;
-    root = map_slot_root_for_write(slot);
-    if (!root || root->kind != MAP_OBJECT) {
-        if (root && root->kind != MAP_OBJECT) json_last_status = 2;
+    {
+        struct map_node *node = map_node_new(MAP_BOOL);
+        if (!node) return;
+        node->u.b = (v_n.num != 0.0) ? 1 : 0;
+        map_set_via_walker(slot, V_DATA(v_path), node);
+    }
+}
+
+/* MAPDEL h, path$ — remove the leaf at path. Idempotent (no-op if missing).
+ *
+ * For an object parent: remove the key/value pair.
+ * For an array parent: splice out the element (later elements shift down). */
+static void statement_mapdel(char **p)
+{
+    struct value v_h, v_path;
+    struct map_node *root, *parent;
+    const char *path;
+    const char *seg;
+    struct json_path_step step;
+    struct json_path_step last;
+    int slot;
+    int have_last = 0;
+    int parent_path_len;
+    char parent_path[256];
+    skip_spaces(p);
+    v_h = eval_expr(p);
+    ensure_num(&v_h);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("MAPDEL: expected ,",
+                             "Syntax: MAPDEL handle, path$.");
         return;
     }
-    node = map_node_new(MAP_BOOL);
-    if (!node) return;
-    node->u.b = (v_n.num != 0.0) ? 1 : 0;
-    map_obj_set(root, V_DATA(v_key), V_LEN(v_key), node);
+    (*p)++; skip_spaces(p);
+    v_path = eval_expr(p);
+    ensure_str(&v_path);
+    skip_spaces(p);
+    json_last_status = 0;
+    slot = (int)v_h.num;
+    path = V_DATA(v_path);
+    if (!path || !*path) return; /* empty path → no-op (can't delete root) */
+    root = map_slot_root_for_read(slot);
+    if (!root) return;
+    /* Split path into parent-path + last-step. Capture seg BEFORE each
+     * json_next_step so parent_path_len is the cutoff to the start of
+     * the *current* step, not the end. */
+    seg = path;
+    parent_path_len = 0;
+    for (;;) {
+        const char *seg_before = seg;
+        if (!json_next_step(&seg, &step)) break;
+        if (have_last) {
+            parent_path_len = (int)(seg_before - path);
+        }
+        last = step;
+        have_last = 1;
+    }
+    if (!have_last) return; /* path was unparsable */
+    /* parent_path = path[0..parent_path_len). If parent_path_len == 0,
+     * the parent is the root. */
+    if (parent_path_len == 0) {
+        parent = root;
+    } else {
+        if (parent_path_len >= (int)sizeof(parent_path)) return;
+        memcpy(parent_path, path, (size_t)parent_path_len);
+        parent_path[parent_path_len] = '\0';
+        /* Strip a trailing `.` if the last step was a key separator. */
+        while (parent_path_len > 0 &&
+               (parent_path[parent_path_len - 1] == '.' ||
+                parent_path[parent_path_len - 1] == ' ')) {
+            parent_path[--parent_path_len] = '\0';
+        }
+        parent = map_walk_for_read(root, parent_path);
+    }
+    if (!parent) return;
+    if (last.is_key) {
+        if (parent->kind == MAP_OBJECT) {
+            map_obj_del(parent, last.key, strlen(last.key));
+        }
+    } else {
+        if (parent->kind == MAP_ARRAY) {
+            map_arr_del(parent, last.idx);
+        }
+    }
 }
 
 /* JOIN arr$, delim$ INTO result$ [, count]: join array elements. Optional count limits elements. */
@@ -18600,6 +18742,11 @@ static void execute_statement(char **p)
     if (c == 'M' && starts_with_kw(*p, "MAPFREE")) {
         *p += 7;
         statement_mapfree(p);
+        return;
+    }
+    if (c == 'M' && starts_with_kw(*p, "MAPDEL")) {
+        *p += 6;
+        statement_mapdel(p);
         return;
     }
     if (c == 'U' && starts_with_kw(*p, "UNLOADSPRITE")) {
