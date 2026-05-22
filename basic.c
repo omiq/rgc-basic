@@ -2187,42 +2187,42 @@ static unsigned g_buffer_next_id = 0;
 /* MAP slot table (Phase 1 of map-type proposal).
  *
  * Maps are exposed to BASIC programs as plain integer handles in the
- * range 0..MAX_MAPS-1 — same convention as BUFFER*. The handle the
+ * range 0..MAX_DICTS-1 — same convention as BUFFER*. The handle the
  * BASIC variable holds is a slot index; the actual node tree lives
- * in g_maps[slot].root.
+ * in g_dicts[slot].root.
  *
  * Use-after-free is a no-op for writes and returns defaults for reads
  * (matches BUFFER*'s fail-soft posture). Set json_last_status = 4
  * when a dangling handle is touched so callers can detect it. */
-#define MAX_MAPS 16
+#define MAX_DICTS 16
 enum map_node_kind {
-    MAP_NULL   = 0,
-    MAP_BOOL   = 1,
-    MAP_NUMBER = 2,
-    MAP_STRING = 3,
-    MAP_ARRAY  = 4,
-    MAP_OBJECT = 5
+    DICT_NULL   = 0,
+    DICT_BOOL   = 1,
+    DICT_NUMBER = 2,
+    DICT_STRING = 3,
+    DICT_ARRAY  = 4,
+    DICT_OBJECT = 5
 };
-struct map_node;
-struct map_kv {
+struct dict_node;
+struct dict_kv {
     rgc_str_t       *key;     /* refcounted; reuses big-strings infra */
-    struct map_node *value;
+    struct dict_node *value;
 };
-struct map_node {
+struct dict_node {
     int kind;
     union {
         int b;
         double n;
         rgc_str_t *s;
-        struct { struct map_node **items; int count, cap; } arr;
-        struct { struct map_kv     *entries; int count, cap; } obj;
+        struct { struct dict_node **items; int count, cap; } arr;
+        struct { struct dict_kv     *entries; int count, cap; } obj;
     } u;
 };
 typedef struct {
     int               in_use;
-    struct map_node  *root;
-} rgc_map_slot;
-static rgc_map_slot g_maps[MAX_MAPS];
+    struct dict_node  *root;
+} rgc_dict_slot;
+static rgc_dict_slot g_dicts[MAX_DICTS];
 
 static int current_line = 0;
 static char *statement_pos = NULL;
@@ -3555,13 +3555,13 @@ static void statement_sort(char **p);
 static void statement_split(char **p);
 static void statement_join(char **p);
 static void statement_jsonunpack(char **p);
-static void statement_mapfree(char **p);
-static void statement_mapset(char **p);
-static void statement_mapsetnull(char **p);
-static void statement_mapsetbool(char **p);
-static void statement_mapdel(char **p);
-static void statement_mappush(char **p);
-static void statement_mapunpack(char **p);
+static void statement_dictfree(char **p);
+static void statement_dictset(char **p);
+static void statement_dictsetnull(char **p);
+static void statement_dictsetbool(char **p);
+static void statement_dictdel(char **p);
+static void statement_dictpush(char **p);
+static void statement_dictunpack(char **p);
 static void statement_open(char **p);
 static void statement_close(char **p);
 static void close_channel(int lfn);
@@ -3829,16 +3829,16 @@ enum func_code {
     FN_JSONPUTBOOL = 91,
     FN_JSONSTATUS = 92,
     /* MAP type (Phase 1 of map-type proposal). Numeric handles
-     * 0..MAX_MAPS-1; same pattern as BUFFER*. */
-    FN_MAPNEW = 93,
-    FN_MAPGET = 95,
-    FN_MAPGETN = 96,
-    FN_MAPGETBOOL = 97,
-    FN_MAPHAS = 98,
-    FN_MAPTYPE = 99,
-    FN_MAPLEN = 100,
-    FN_MAPKEY = 101,
-    FN_MAPLOAD = 94
+     * 0..MAX_DICTS-1; same pattern as BUFFER*. */
+    FN_DICTNEW = 93,
+    FN_DICTGET = 95,
+    FN_DICTGETN = 96,
+    FN_DICTGETBOOL = 97,
+    FN_DICTHAS = 98,
+    FN_DICTTYPE = 99,
+    FN_DICTLEN = 100,
+    FN_DICTKEY = 101,
+    FN_DICTLOAD = 94
 };
 
 /* Report an error and halt further execution.
@@ -4090,6 +4090,8 @@ static const char *const reserved_words[] = {
     "DOUBLEBUFFER", "DRAWSPRITE", "DRAWSPRITETILE", "DRAWTEXT", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "MAPLOAD", "MAPSAVE", "OBJLOAD", "OBJSAVE", "OVERLAY", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
     "DO", "LOOP", "UNTIL", "EXIT",
     "GETBYTE",
+    "DICTNEW", "DICTLOAD", "DICTGET", "DICTGETN", "DICTGETBOOL", "DICTHAS", "DICTTYPE", "DICTLEN", "DICTKEY",
+    "DICTSET", "DICTSETNULL", "DICTSETBOOL", "DICTFREE", "DICTDEL", "DICTPUSH", "DICTUNPACK",
     /* Named colour constants (C64 palette 0-15) and boolean/math constants */
     "BLACK", "WHITE", "RED", "CYAN", "PURPLE", "GREEN", "BLUE", "YELLOW",
     "ORANGE", "BROWN", "PINK", "DARKGRAY", "DARKGREY", "MEDGRAY", "MEDGREY",
@@ -5106,18 +5108,6 @@ static int function_lookup(const char *name, int len)
         if ((len == 3 && name[0] == 'M' && name[1] == 'I' && name[2] == 'D') ||
             (len == 4 && name[0] == 'M' && name[1] == 'I' && name[2] == 'D' && name[3] == '$'))
             return FN_MID;
-        if (len == 6 && memcmp(name, "MAPNEW", 6) == 0) return FN_MAPNEW;
-        if (len == 7 && memcmp(name, "MAPLOAD", 7) == 0) return FN_MAPLOAD;
-        if ((len == 6 && memcmp(name, "MAPGET", 6) == 0) ||
-            (len == 7 && memcmp(name, "MAPGET$", 7) == 0)) return FN_MAPGET;
-        if (len == 7 && memcmp(name, "MAPGETN", 7) == 0) return FN_MAPGETN;
-        if (len == 10 && memcmp(name, "MAPGETBOOL", 10) == 0) return FN_MAPGETBOOL;
-        if (len == 6 && memcmp(name, "MAPHAS", 6) == 0) return FN_MAPHAS;
-        if ((len == 7 && memcmp(name, "MAPTYPE", 7) == 0) ||
-            (len == 8 && memcmp(name, "MAPTYPE$", 8) == 0)) return FN_MAPTYPE;
-        if (len == 6 && memcmp(name, "MAPLEN", 6) == 0) return FN_MAPLEN;
-        if ((len == 6 && memcmp(name, "MAPKEY", 6) == 0) ||
-            (len == 7 && memcmp(name, "MAPKEY$", 7) == 0)) return FN_MAPKEY;
         if (len == 12 && memcmp(name, "MUSICPLAYING", 12) == 0) return FN_MUSICPLAYING;
         if (len == 11 && memcmp(name, "MUSICLENGTH", 11) == 0) return FN_MUSICLENGTH;
         if (len == 9  && memcmp(name, "MUSICTIME", 9) == 0) return FN_MUSICTIME;
@@ -5150,6 +5140,18 @@ static int function_lookup(const char *name, int len)
         if (len == 3 && name[0] == 'D' && name[1] == 'E' && name[2] == 'C') return FN_DEC;
         if ((len == 3 && memcmp(name, "DIR", 3) == 0) ||
             (len == 4 && memcmp(name, "DIR$", 4) == 0)) return FN_DIR;
+        if (len == 7 && memcmp(name, "DICTNEW", 7) == 0) return FN_DICTNEW;
+        if (len == 8 && memcmp(name, "DICTLOAD", 8) == 0) return FN_DICTLOAD;
+        if ((len == 7 && memcmp(name, "DICTGET", 7) == 0) ||
+            (len == 8 && memcmp(name, "DICTGET$", 8) == 0)) return FN_DICTGET;
+        if (len == 8 && memcmp(name, "DICTGETN", 8) == 0) return FN_DICTGETN;
+        if (len == 11 && memcmp(name, "DICTGETBOOL", 11) == 0) return FN_DICTGETBOOL;
+        if (len == 7 && memcmp(name, "DICTHAS", 7) == 0) return FN_DICTHAS;
+        if ((len == 8 && memcmp(name, "DICTTYPE", 8) == 0) ||
+            (len == 9 && memcmp(name, "DICTTYPE$", 9) == 0)) return FN_DICTTYPE;
+        if (len == 7 && memcmp(name, "DICTLEN", 7) == 0) return FN_DICTLEN;
+        if ((len == 7 && memcmp(name, "DICTKEY", 7) == 0) ||
+            (len == 8 && memcmp(name, "DICTKEY$", 8) == 0)) return FN_DICTKEY;
         return FN_NONE;
     case 'H':
         if ((len == 4 && name[0] == 'H' && name[1] == 'T' && name[2] == 'T' && name[3] == 'P') ||
@@ -8790,7 +8792,7 @@ static void statement_mapload(char **p)
 
     fp = fopen(V_DATA(vpath), "rb");
     if (!fp) {
-        runtime_error_hint("MAPLOAD: cannot open file",
+        runtime_error_hint("DICTLOAD: cannot open file",
             "Check the path; on browser builds the file must be bundled in the preset.");
         return;
     }
@@ -8799,13 +8801,13 @@ static void statement_mapload(char **p)
     fseek(fp, 0, SEEK_SET);
     if (len <= 0 || len > 4 * 1024 * 1024) {
         fclose(fp);
-        runtime_error_hint("MAPLOAD: file empty or > 4 MiB", NULL);
+        runtime_error_hint("DICTLOAD: file empty or > 4 MiB", NULL);
         return;
     }
     buf = (char *)malloc((size_t)len + 1);
     if (!buf) {
         fclose(fp);
-        runtime_error_hint("MAPLOAD: out of memory", NULL);
+        runtime_error_hint("DICTLOAD: out of memory", NULL);
         return;
     }
     fread(buf, 1, (size_t)len, fp);
@@ -8815,7 +8817,7 @@ static void statement_mapload(char **p)
     format_ver = (int)map_json_num(buf, "format", 0);
     if (format_ver != 1) {
         free(buf);
-        runtime_error_hint("MAPLOAD: unsupported format version",
+        runtime_error_hint("DICTLOAD: unsupported format version",
             "Loader expects \"format\": 1 (see docs/map-format.md).");
         return;
     }
@@ -8826,7 +8828,7 @@ static void statement_mapload(char **p)
     TH = (int)map_json_num(buf, "tileSize.h", 16);
     if (W <= 0 || H <= 0) {
         free(buf);
-        runtime_error_hint("MAPLOAD: invalid size — cols/rows missing", NULL);
+        runtime_error_hint("DICTLOAD: invalid size — cols/rows missing", NULL);
         return;
     }
     map_set_num("MAP_W", (double)W);
@@ -10727,39 +10729,39 @@ static int json_put_core(const char *json, const char *path,
 
 /* ----- MAP helpers (Phase 1) ----- */
 
-static int map_slot_in_use(int slot)
+static int dict_slot_in_use(int slot)
 {
-    return (slot >= 0 && slot < MAX_MAPS && g_maps[slot].in_use);
+    return (slot >= 0 && slot < MAX_DICTS && g_dicts[slot].in_use);
 }
 
-static struct map_node *map_node_new(int kind)
+static struct dict_node *dict_node_new(int kind)
 {
-    struct map_node *n = (struct map_node *)calloc(1, sizeof(struct map_node));
+    struct dict_node *n = (struct dict_node *)calloc(1, sizeof(struct dict_node));
     if (!n) return NULL;
     n->kind = kind;
     return n;
 }
 
-static void map_node_free(struct map_node *node);
+static void dict_node_free(struct dict_node *node);
 
-static void map_node_free(struct map_node *node)
+static void dict_node_free(struct dict_node *node)
 {
     if (!node) return;
     switch (node->kind) {
-    case MAP_STRING:
+    case DICT_STRING:
         if (node->u.s) rgc_str_unref(node->u.s);
         break;
-    case MAP_ARRAY: {
+    case DICT_ARRAY: {
         int i;
-        for (i = 0; i < node->u.arr.count; i++) map_node_free(node->u.arr.items[i]);
+        for (i = 0; i < node->u.arr.count; i++) dict_node_free(node->u.arr.items[i]);
         free(node->u.arr.items);
         break;
     }
-    case MAP_OBJECT: {
+    case DICT_OBJECT: {
         int i;
         for (i = 0; i < node->u.obj.count; i++) {
             rgc_str_unref(node->u.obj.entries[i].key);
-            map_node_free(node->u.obj.entries[i].value);
+            dict_node_free(node->u.obj.entries[i].value);
         }
         free(node->u.obj.entries);
         break;
@@ -10769,25 +10771,25 @@ static void map_node_free(struct map_node *node)
     free(node);
 }
 
-static struct map_node *map_node_from_value(const struct value *v)
+static struct dict_node *dict_node_from_value(const struct value *v)
 {
-    struct map_node *node;
+    struct dict_node *node;
     if (v->type == VAL_STR) {
-        node = map_node_new(MAP_STRING);
+        node = dict_node_new(DICT_STRING);
         if (!node) return NULL;
         node->u.s = rgc_str_ref(v->str_h);
     } else {
-        node = map_node_new(MAP_NUMBER);
+        node = dict_node_new(DICT_NUMBER);
         if (!node) return NULL;
         node->u.n = v->num;
     }
     return node;
 }
 
-static int map_obj_find(struct map_node *obj, const char *key, size_t key_len)
+static int dict_obj_find(struct dict_node *obj, const char *key, size_t key_len)
 {
     int i;
-    if (!obj || obj->kind != MAP_OBJECT) return -1;
+    if (!obj || obj->kind != DICT_OBJECT) return -1;
     for (i = 0; i < obj->u.obj.count; i++) {
         rgc_str_t *k = obj->u.obj.entries[i].key;
         if (k && k->len == key_len && memcmp(k->data, key, key_len) == 0) return i;
@@ -10797,47 +10799,47 @@ static int map_obj_find(struct map_node *obj, const char *key, size_t key_len)
 
 /* Append-or-replace. Frees existing value at key if present.
  * Takes ownership of `value`. Returns 0 on success, -1 on OOM. */
-static int map_obj_set(struct map_node *obj, const char *key, size_t key_len,
-                       struct map_node *value)
+static int dict_obj_set(struct dict_node *obj, const char *key, size_t key_len,
+                       struct dict_node *value)
 {
     int idx;
-    if (!obj || obj->kind != MAP_OBJECT) {
-        map_node_free(value);
+    if (!obj || obj->kind != DICT_OBJECT) {
+        dict_node_free(value);
         return -1;
     }
-    idx = map_obj_find(obj, key, key_len);
+    idx = dict_obj_find(obj, key, key_len);
     if (idx >= 0) {
-        map_node_free(obj->u.obj.entries[idx].value);
+        dict_node_free(obj->u.obj.entries[idx].value);
         obj->u.obj.entries[idx].value = value;
         return 0;
     }
     if (obj->u.obj.count + 1 > obj->u.obj.cap) {
         int new_cap = obj->u.obj.cap ? obj->u.obj.cap * 2 : 4;
-        struct map_kv *n = (struct map_kv *)realloc(obj->u.obj.entries,
-            sizeof(struct map_kv) * (size_t)new_cap);
-        if (!n) { map_node_free(value); return -1; }
+        struct dict_kv *n = (struct dict_kv *)realloc(obj->u.obj.entries,
+            sizeof(struct dict_kv) * (size_t)new_cap);
+        if (!n) { dict_node_free(value); return -1; }
         obj->u.obj.entries = n;
         obj->u.obj.cap = new_cap;
     }
     {
-        struct map_kv *kv = &obj->u.obj.entries[obj->u.obj.count++];
+        struct dict_kv *kv = &obj->u.obj.entries[obj->u.obj.count++];
         /* rgc_str_from_bytes returns rc=1 and pushes to the temp ring;
          * bump rc so the ring drain at end-of-statement leaves rc=1 in the
-         * map. MAPFREE / map_node_free unrefs to drop it. */
+         * map.  DICTFREE / dict_node_free unrefs to drop it. */
         kv->key = rgc_str_ref(rgc_str_from_bytes(key, key_len));
         kv->value = value;
     }
     return 0;
 }
 
-static int map_obj_del(struct map_node *obj, const char *key, size_t key_len)
+static int dict_obj_del(struct dict_node *obj, const char *key, size_t key_len)
 {
     int idx, i;
-    if (!obj || obj->kind != MAP_OBJECT) return -1;
-    idx = map_obj_find(obj, key, key_len);
+    if (!obj || obj->kind != DICT_OBJECT) return -1;
+    idx = dict_obj_find(obj, key, key_len);
     if (idx < 0) return -1;
     rgc_str_unref(obj->u.obj.entries[idx].key);
-    map_node_free(obj->u.obj.entries[idx].value);
+    dict_node_free(obj->u.obj.entries[idx].value);
     for (i = idx; i + 1 < obj->u.obj.count; i++) {
         obj->u.obj.entries[i] = obj->u.obj.entries[i + 1];
     }
@@ -10846,14 +10848,14 @@ static int map_obj_del(struct map_node *obj, const char *key, size_t key_len)
 }
 
 /* Append `value` to an array node. Takes ownership. Returns 0 on success. */
-static int map_arr_push(struct map_node *arr, struct map_node *value)
+static int dict_arr_push(struct dict_node *arr, struct dict_node *value)
 {
-    if (!arr || arr->kind != MAP_ARRAY) { map_node_free(value); return -1; }
+    if (!arr || arr->kind != DICT_ARRAY) { dict_node_free(value); return -1; }
     if (arr->u.arr.count + 1 > arr->u.arr.cap) {
         int new_cap = arr->u.arr.cap ? arr->u.arr.cap * 2 : 4;
-        struct map_node **n = (struct map_node **)realloc(arr->u.arr.items,
-            sizeof(struct map_node *) * (size_t)new_cap);
-        if (!n) { map_node_free(value); return -1; }
+        struct dict_node **n = (struct dict_node **)realloc(arr->u.arr.items,
+            sizeof(struct dict_node *) * (size_t)new_cap);
+        if (!n) { dict_node_free(value); return -1; }
         arr->u.arr.items = n;
         arr->u.arr.cap = new_cap;
     }
@@ -10862,12 +10864,12 @@ static int map_arr_push(struct map_node *arr, struct map_node *value)
 }
 
 /* Splice element at idx out of an array, shifting later items down. */
-static int map_arr_del(struct map_node *arr, int idx)
+static int dict_arr_del(struct dict_node *arr, int idx)
 {
     int i;
-    if (!arr || arr->kind != MAP_ARRAY) return -1;
+    if (!arr || arr->kind != DICT_ARRAY) return -1;
     if (idx < 0 || idx >= arr->u.arr.count) return -1;
-    map_node_free(arr->u.arr.items[idx]);
+    dict_node_free(arr->u.arr.items[idx]);
     for (i = idx; i + 1 < arr->u.arr.count; i++) {
         arr->u.arr.items[i] = arr->u.arr.items[i + 1];
     }
@@ -10877,7 +10879,7 @@ static int map_arr_del(struct map_node *arr, int idx)
 
 /* Walk `path` from `*slot`, advancing through nested object/array nodes.
  * `create=1` auto-vivifies missing intermediates and sparse-fills arrays
- * with MAP_NULL. `create=0` is read-only; returns 0 on first miss.
+ * with DICT_NULL. `create=0` is read-only; returns 0 on first miss.
  *
  * On success returns 1 and `*slot` (the original argument) is updated
  * to point at the leaf slot — the caller can replace `**slot` to write,
@@ -10885,20 +10887,20 @@ static int map_arr_del(struct map_node *arr, int idx)
  *
  * Sets json_last_status = 2 on type-mismatch (e.g. path tries to descend
  * through a scalar). */
-static int map_walk_for_write(struct map_node ***slot_io, const char *path, int create)
+static int dict_walk_for_write(struct dict_node ***slot_io, const char *path, int create)
 {
-    struct map_node **slot = *slot_io;
+    struct dict_node **slot = *slot_io;
     const char *seg = path;
     struct json_path_step step;
     while (json_next_step(&seg, &step)) {
-        int need_kind = step.is_key ? MAP_OBJECT : MAP_ARRAY;
+        int need_kind = step.is_key ? DICT_OBJECT : DICT_ARRAY;
         if (*slot == NULL) {
             if (!create) return 0;
-            *slot = map_node_new(need_kind);
+            *slot = dict_node_new(need_kind);
             if (!*slot) return 0;
-        } else if ((*slot)->kind == MAP_NULL && create) {
-            map_node_free(*slot);
-            *slot = map_node_new(need_kind);
+        } else if ((*slot)->kind == DICT_NULL && create) {
+            dict_node_free(*slot);
+            *slot = dict_node_new(need_kind);
             if (!*slot) return 0;
         } else if ((*slot)->kind != need_kind) {
             if (create) json_last_status = 2;
@@ -10906,10 +10908,10 @@ static int map_walk_for_write(struct map_node ***slot_io, const char *path, int 
         }
         if (step.is_key) {
             size_t key_len = strlen(step.key);
-            int idx = map_obj_find(*slot, step.key, key_len);
+            int idx = dict_obj_find(*slot, step.key, key_len);
             if (idx < 0) {
                 if (!create) return 0;
-                if (map_obj_set(*slot, step.key, key_len, map_node_new(MAP_NULL)) != 0) {
+                if (dict_obj_set(*slot, step.key, key_len, dict_node_new(DICT_NULL)) != 0) {
                     json_last_status = 3;
                     return 0;
                 }
@@ -10922,7 +10924,7 @@ static int map_walk_for_write(struct map_node ***slot_io, const char *path, int 
             if (idx >= (*slot)->u.arr.count) {
                 if (!create) return 0;
                 while ((*slot)->u.arr.count <= idx) {
-                    if (map_arr_push(*slot, map_node_new(MAP_NULL)) != 0) {
+                    if (dict_arr_push(*slot, dict_node_new(DICT_NULL)) != 0) {
                         json_last_status = 3;
                         return 0;
                     }
@@ -10937,18 +10939,18 @@ static int map_walk_for_write(struct map_node ***slot_io, const char *path, int 
 
 /* Resolve a path for reading. Returns the node pointer or NULL on miss.
  * Does NOT mutate the tree. */
-static struct map_node *map_walk_for_read(struct map_node *root, const char *path)
+static struct dict_node *dict_walk_for_read(struct dict_node *root, const char *path)
 {
-    struct map_node **slot = &root;
+    struct dict_node **slot = &root;
     if (!root) return NULL;
     if (!path || !*path) return root;
-    if (!map_walk_for_write(&slot, path, 0)) return NULL;
+    if (!dict_walk_for_write(&slot, path, 0)) return NULL;
     return *slot;
 }
 
 /* Append a JSON-quoted string into sb. Same escapes as json_emit_quoted
  * (the JSON Phase 2 helper) but writing into a growable buffer. */
-static void map_sb_emit_quoted(StrBuf *sb, const char *s, size_t in_len)
+static void dict_sb_emit_quoted(StrBuf *sb, const char *s, size_t in_len)
 {
     size_t i;
     sb_append_char(sb, '"');
@@ -10975,20 +10977,20 @@ static void map_sb_emit_quoted(StrBuf *sb, const char *s, size_t in_len)
     sb_append_char(sb, '"');
 }
 
-static void map_node_to_json_sb(StrBuf *sb, const struct map_node *node);
+static void dict_node_to_json_sb(StrBuf *sb, const struct dict_node *node);
 
-static void map_node_to_json_sb(StrBuf *sb, const struct map_node *node)
+static void dict_node_to_json_sb(StrBuf *sb, const struct dict_node *node)
 {
     if (!node) { sb_append_mem(sb, "null", 4); return; }
     switch (node->kind) {
-    case MAP_NULL:
+    case DICT_NULL:
         sb_append_mem(sb, "null", 4);
         return;
-    case MAP_BOOL:
+    case DICT_BOOL:
         if (node->u.b) sb_append_mem(sb, "true", 4);
         else           sb_append_mem(sb, "false", 5);
         return;
-    case MAP_NUMBER: {
+    case DICT_NUMBER: {
         char buf[64];
         double d = node->u.n;
         if (d == floor(d) && d >= -9007199254740992.0 && d <= 9007199254740992.0) {
@@ -10999,32 +11001,32 @@ static void map_node_to_json_sb(StrBuf *sb, const struct map_node *node)
         sb_append_str(sb, buf);
         return;
     }
-    case MAP_STRING:
-        if (node->u.s) map_sb_emit_quoted(sb, node->u.s->data, node->u.s->len);
+    case DICT_STRING:
+        if (node->u.s) dict_sb_emit_quoted(sb, node->u.s->data, node->u.s->len);
         else           sb_append_mem(sb, "\"\"", 2);
         return;
-    case MAP_ARRAY: {
+    case DICT_ARRAY: {
         int i;
         sb_append_char(sb, '[');
         for (i = 0; i < node->u.arr.count; i++) {
             if (i > 0) sb_append_char(sb, ',');
-            map_node_to_json_sb(sb, node->u.arr.items[i]);
+            dict_node_to_json_sb(sb, node->u.arr.items[i]);
         }
         sb_append_char(sb, ']');
         return;
     }
-    case MAP_OBJECT: {
+    case DICT_OBJECT: {
         int i;
         sb_append_char(sb, '{');
         for (i = 0; i < node->u.obj.count; i++) {
             if (i > 0) sb_append_char(sb, ',');
             {
                 rgc_str_t *k = node->u.obj.entries[i].key;
-                if (k) map_sb_emit_quoted(sb, k->data, k->len);
+                if (k) dict_sb_emit_quoted(sb, k->data, k->len);
                 else   sb_append_mem(sb, "\"\"", 2);
             }
             sb_append_char(sb, ':');
-            map_node_to_json_sb(sb, node->u.obj.entries[i].value);
+            dict_node_to_json_sb(sb, node->u.obj.entries[i].value);
         }
         sb_append_char(sb, '}');
         return;
@@ -11034,20 +11036,20 @@ static void map_node_to_json_sb(StrBuf *sb, const struct map_node *node)
 
 /* Serialise the map at slot to a BASIC string value. Empty string if
  * slot is invalid or has no root. Use-after-free sets json_last_status. */
-static struct value map_slot_to_json_value(int slot)
+static struct value dict_slot_to_json_value(int slot)
 {
-    struct map_node *root;
-    if (!map_slot_in_use(slot)) {
+    struct dict_node *root;
+    if (!dict_slot_in_use(slot)) {
         json_last_status = 4;
         return make_str("");
     }
-    root = g_maps[slot].root;
+    root = g_dicts[slot].root;
     if (!root) return make_str("{}");
     {
         StrBuf sb;
         struct value out;
         sb_init(&sb);
-        map_node_to_json_sb(&sb, root);
+        dict_node_to_json_sb(&sb, root);
         out = make_str_bytes(sb.buf, sb.len);
         free(sb.buf);
         return out;
@@ -11056,13 +11058,13 @@ static struct value map_slot_to_json_value(int slot)
 
 /* MAPLOAD recursive parser. *pp is advanced past the parsed value.
  * Returns NULL on parse error and sets json_last_status = 1. */
-static struct map_node *map_parse_value(const char **pp);
+static struct dict_node *dict_parse_value(const char **pp);
 
-static struct map_node *map_parse_string_node(const char **pp)
+static struct dict_node *dict_parse_string_node(const char **pp)
 {
     const char *p = *pp;
     StrBuf sb;
-    struct map_node *node;
+    struct dict_node *node;
     if (*p != '"') return NULL;
     p++;
     sb_init(&sb);
@@ -11093,7 +11095,7 @@ static struct map_node *map_parse_string_node(const char **pp)
         }
     }
     if (*p == '"') p++;
-    node = map_node_new(MAP_STRING);
+    node = dict_node_new(DICT_STRING);
     if (node) {
         if (sb.len == 0) {
             node->u.s = rgc_str_empty;
@@ -11106,91 +11108,91 @@ static struct map_node *map_parse_string_node(const char **pp)
     return node;
 }
 
-static struct map_node *map_parse_value(const char **pp)
+static struct dict_node *dict_parse_value(const char **pp)
 {
     const char *p = *pp;
     while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
     if (!*p) { json_last_status = 1; return NULL; }
     if (*p == '{') {
-        struct map_node *obj = map_node_new(MAP_OBJECT);
+        struct dict_node *obj = dict_node_new(DICT_OBJECT);
         if (!obj) return NULL;
         p++;
         for (;;) {
             while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
             if (*p == '}') { p++; break; }
-            if (*p != '"') { json_last_status = 1; map_node_free(obj); return NULL; }
+            if (*p != '"') { json_last_status = 1; dict_node_free(obj); return NULL; }
             {
                 /* Parse key */
                 const char *kp = p;
-                struct map_node *kn = map_parse_string_node(&kp);
-                if (!kn) { json_last_status = 1; map_node_free(obj); return NULL; }
+                struct dict_node *kn = dict_parse_string_node(&kp);
+                if (!kn) { json_last_status = 1; dict_node_free(obj); return NULL; }
                 p = kp;
                 while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
                 if (*p != ':') {
-                    map_node_free(kn); map_node_free(obj);
+                    dict_node_free(kn); dict_node_free(obj);
                     json_last_status = 1; return NULL;
                 }
                 p++;
                 {
-                    struct map_node *vn = map_parse_value(&p);
+                    struct dict_node *vn = dict_parse_value(&p);
                     if (!vn) {
-                        map_node_free(kn); map_node_free(obj);
+                        dict_node_free(kn); dict_node_free(obj);
                         return NULL;
                     }
-                    map_obj_set(obj,
+                    dict_obj_set(obj,
                                 kn->u.s ? kn->u.s->data : "",
                                 kn->u.s ? kn->u.s->len : 0,
                                 vn);
                 }
-                map_node_free(kn);
+                dict_node_free(kn);
             }
             while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
             if (*p == ',') { p++; continue; }
             if (*p == '}') { p++; break; }
-            json_last_status = 1; map_node_free(obj); return NULL;
+            json_last_status = 1; dict_node_free(obj); return NULL;
         }
         *pp = p;
         return obj;
     }
     if (*p == '[') {
-        struct map_node *arr = map_node_new(MAP_ARRAY);
+        struct dict_node *arr = dict_node_new(DICT_ARRAY);
         if (!arr) return NULL;
         p++;
         while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
         if (*p == ']') { p++; *pp = p; return arr; }
         for (;;) {
-            struct map_node *vn = map_parse_value(&p);
-            if (!vn) { map_node_free(arr); return NULL; }
-            map_arr_push(arr, vn);
+            struct dict_node *vn = dict_parse_value(&p);
+            if (!vn) { dict_node_free(arr); return NULL; }
+            dict_arr_push(arr, vn);
             while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
             if (*p == ',') { p++; continue; }
             if (*p == ']') { p++; break; }
-            json_last_status = 1; map_node_free(arr); return NULL;
+            json_last_status = 1; dict_node_free(arr); return NULL;
         }
         *pp = p;
         return arr;
     }
     if (*p == '"') {
-        struct map_node *n = map_parse_string_node(&p);
+        struct dict_node *n = dict_parse_string_node(&p);
         if (!n) { json_last_status = 1; return NULL; }
         *pp = p;
         return n;
     }
     if (p[0] == 't' && p[1] == 'r' && p[2] == 'u' && p[3] == 'e') {
-        struct map_node *n = map_node_new(MAP_BOOL);
+        struct dict_node *n = dict_node_new(DICT_BOOL);
         if (n) n->u.b = 1;
         *pp = p + 4;
         return n;
     }
     if (p[0] == 'f' && p[1] == 'a' && p[2] == 'l' && p[3] == 's' && p[4] == 'e') {
-        struct map_node *n = map_node_new(MAP_BOOL);
+        struct dict_node *n = dict_node_new(DICT_BOOL);
         if (n) n->u.b = 0;
         *pp = p + 5;
         return n;
     }
     if (p[0] == 'n' && p[1] == 'u' && p[2] == 'l' && p[3] == 'l') {
         *pp = p + 4;
-        return map_node_new(MAP_NULL);
+        return dict_node_new(DICT_NULL);
     }
     if (*p == '-' || (*p >= '0' && *p <= '9')) {
         char buf[64];
@@ -11202,7 +11204,7 @@ static struct map_node *map_parse_value(const char **pp)
         }
         buf[i] = '\0';
         {
-            struct map_node *n = map_node_new(MAP_NUMBER);
+            struct dict_node *n = dict_node_new(DICT_NUMBER);
             if (n) n->u.n = atof(buf);
             *pp = p;
             return n;
@@ -11212,29 +11214,29 @@ static struct map_node *map_parse_value(const char **pp)
     return NULL;
 }
 
-static const char *map_kind_name(int kind)
+static const char *dict_kind_name(int kind)
 {
     switch (kind) {
-    case MAP_STRING: return "string";
-    case MAP_NUMBER: return "number";
-    case MAP_OBJECT: return "object";
-    case MAP_ARRAY:  return "array";
-    case MAP_NULL:   return "null";
-    case MAP_BOOL:   return "bool";
+    case DICT_STRING: return "string";
+    case DICT_NUMBER: return "number";
+    case DICT_OBJECT: return "object";
+    case DICT_ARRAY:  return "array";
+    case DICT_NULL:   return "null";
+    case DICT_BOOL:   return "bool";
     default:         return "";
     }
 }
 
 /* Coerce a node to a BASIC string. Containers and null → "". */
-static struct value map_node_to_basic_str(struct map_node *node)
+static struct value dict_node_to_basic_str(struct dict_node *node)
 {
     char buf[64];
     if (!node) return make_str("");
     switch (node->kind) {
-    case MAP_STRING:
+    case DICT_STRING:
         if (!node->u.s) return make_str("");
         return make_str_bytes(node->u.s->data, node->u.s->len);
-    case MAP_NUMBER: {
+    case DICT_NUMBER: {
         double d = node->u.n;
         if (d == floor(d) && d >= -9007199254740992.0 && d <= 9007199254740992.0) {
             snprintf(buf, sizeof(buf), "%lld", (long long)d);
@@ -11243,21 +11245,21 @@ static struct value map_node_to_basic_str(struct map_node *node)
         }
         return make_str(buf);
     }
-    case MAP_BOOL:   return make_str(node->u.b ? "true" : "false");
-    case MAP_NULL:
-    case MAP_OBJECT:
-    case MAP_ARRAY:
+    case DICT_BOOL:   return make_str(node->u.b ? "true" : "false");
+    case DICT_NULL:
+    case DICT_OBJECT:
+    case DICT_ARRAY:
     default:         return make_str("");
     }
 }
 
-static double map_node_to_basic_num(struct map_node *node)
+static double dict_node_to_basic_num(struct dict_node *node)
 {
     if (!node) return 0.0;
     switch (node->kind) {
-    case MAP_NUMBER: return node->u.n;
-    case MAP_BOOL:   return node->u.b ? 1.0 : 0.0;
-    case MAP_STRING: return node->u.s ? atof(node->u.s->data) : 0.0;
+    case DICT_NUMBER: return node->u.n;
+    case DICT_BOOL:   return node->u.b ? 1.0 : 0.0;
+    case DICT_STRING: return node->u.s ? atof(node->u.s->data) : 0.0;
     default:         return 0.0;
     }
 }
@@ -11265,42 +11267,42 @@ static double map_node_to_basic_num(struct map_node *node)
 /* Pointer to the slot's root pointer for writes (callers pass to the
  * walker so the first path step can decide whether root is an OBJECT
  * or an ARRAY). Returns NULL if the handle is invalid / freed. */
-static struct map_node **map_slot_root_ptr_for_write(int slot)
+static struct dict_node **dict_slot_root_ptr_for_write(int slot)
 {
-    if (!map_slot_in_use(slot)) { json_last_status = 4; return NULL; }
-    return &g_maps[slot].root;
+    if (!dict_slot_in_use(slot)) { json_last_status = 4; return NULL; }
+    return &g_dicts[slot].root;
 }
 
-static struct map_node *map_slot_root_for_read(int slot)
+static struct dict_node *dict_slot_root_for_read(int slot)
 {
-    if (!map_slot_in_use(slot)) { json_last_status = 4; return NULL; }
-    return g_maps[slot].root;
+    if (!dict_slot_in_use(slot)) { json_last_status = 4; return NULL; }
+    return g_dicts[slot].root;
 }
 
-static void rgc_map_unlink_slot(int slot)
+static void rgc_dict_unlink_slot(int slot)
 {
-    if (slot < 0 || slot >= MAX_MAPS) return;
-    if (!g_maps[slot].in_use) return;
-    map_node_free(g_maps[slot].root);
-    g_maps[slot].root = NULL;
-    g_maps[slot].in_use = 0;
+    if (slot < 0 || slot >= MAX_DICTS) return;
+    if (!g_dicts[slot].in_use) return;
+    dict_node_free(g_dicts[slot].root);
+    g_dicts[slot].root = NULL;
+    g_dicts[slot].in_use = 0;
 }
 
-static void rgc_map_free_all(void)
+static void rgc_dict_free_all(void)
 {
     int i;
-    for (i = 0; i < MAX_MAPS; i++) rgc_map_unlink_slot(i);
+    for (i = 0; i < MAX_DICTS; i++) rgc_dict_unlink_slot(i);
 }
 
-/* Allocate a fresh slot. Returns slot index 0..MAX_MAPS-1 on success,
+/* Allocate a fresh slot. Returns slot index 0..MAX_DICTS-1 on success,
  * or -1 if all slots are in use. */
-static int map_slot_allocate(void)
+static int dict_slot_allocate(void)
 {
     int i;
-    for (i = 0; i < MAX_MAPS; i++) {
-        if (!g_maps[i].in_use) {
-            g_maps[i].in_use = 1;
-            g_maps[i].root = NULL;
+    for (i = 0; i < MAX_DICTS; i++) {
+        if (!g_dicts[i].in_use) {
+            g_dicts[i].in_use = 1;
+            g_dicts[i].root = NULL;
             return i;
         }
     }
@@ -11612,20 +11614,20 @@ static struct value eval_function(const char *name, char **p)
         skip_spaces(p);
         return make_num((double)json_last_status);
     }
-    if (code == FN_MAPNEW) {
+    if (code == FN_DICTNEW) {
         int slot;
         if (**p != ')') {
-            runtime_error_hint("MAPNEW() takes no arguments",
-                                 "MAPNEW() returns a new map handle; pass it to MAPSET / MAPGET$ / MAPFREE.");
+            runtime_error_hint("DICTNEW() takes no arguments",
+                                 "DICTNEW() returns a new dict handle; pass it to DICTSET / DICTGET$ / DICTFREE.");
             return make_num(-1.0);
         }
         (*p)++; skip_spaces(p);
-        slot = map_slot_allocate();
+        slot = dict_slot_allocate();
         if (slot < 0) {
             json_last_status = 2;
             if (json_strict_mode) {
-                runtime_error_hint("MAPNEW: no free slot",
-                                     "MAX_MAPS = 16. MAPFREE one before allocating more.");
+                runtime_error_hint("DICTNEW: no free slot",
+                                     "MAX_DICTS = 16.  DICTFREE one before allocating more.");
             }
             return make_num(-1.0);
         }
@@ -12402,9 +12404,9 @@ static struct value eval_function(const char *name, char **p)
         code != FN_DIR && code != FN_JSONLEN && code != FN_JSONKEY &&
         code != FN_JSONNUM && code != FN_JSONBOOL && code != FN_JSONTYPE &&
         code != FN_JSONPUT && code != FN_JSONPUTNULL && code != FN_JSONPUTBOOL &&
-        code != FN_MAPGET && code != FN_MAPGETN && code != FN_MAPGETBOOL &&
-        code != FN_MAPHAS && code != FN_MAPTYPE && code != FN_MAPLEN &&
-        code != FN_MAPKEY &&
+        code != FN_DICTGET && code != FN_DICTGETN && code != FN_DICTGETBOOL &&
+        code != FN_DICTHAS && code != FN_DICTTYPE && code != FN_DICTLEN &&
+        code != FN_DICTKEY &&
         code != FN_PALETTE) {
         if (**p == ')') {
             (*p)++;
@@ -13423,16 +13425,16 @@ static struct value eval_function(const char *name, char **p)
         }
         return make_str(result);
     }
-    case FN_MAPGET: {
+    case FN_DICTGET: {
         struct value v_h = arg;
         struct value v_path;
-        struct map_node *root, *node;
+        struct dict_node *root, *node;
         int slot;
         ensure_num(&v_h);
         skip_spaces(p);
         if (**p != ',') {
-            runtime_error_hint("MAPGET$ requires 2 arguments",
-                                 "Use MAPGET$(handle, path$) — string coercion of the value at path.");
+            runtime_error_hint("DICTGET$ requires 2 arguments",
+                                 "Use DICTGET$(handle, path$) — string coercion of the value at path.");
             return make_str("");
         }
         (*p)++; skip_spaces(p);
@@ -13442,22 +13444,22 @@ static struct value eval_function(const char *name, char **p)
         skip_spaces(p);
         json_last_status = 0;
         slot = (int)v_h.num;
-        root = map_slot_root_for_read(slot);
+        root = dict_slot_root_for_read(slot);
         if (!root) return make_str("");
-        node = map_walk_for_read(root, V_DATA(v_path));
+        node = dict_walk_for_read(root, V_DATA(v_path));
         if (!node) return make_str("");
-        return map_node_to_basic_str(node);
+        return dict_node_to_basic_str(node);
     }
-    case FN_MAPGETN: {
+    case FN_DICTGETN: {
         struct value v_h = arg;
         struct value v_path;
-        struct map_node *root, *node;
+        struct dict_node *root, *node;
         int slot;
         ensure_num(&v_h);
         skip_spaces(p);
         if (**p != ',') {
-            runtime_error_hint("MAPGETN requires 2 arguments",
-                                 "Use MAPGETN(handle, path$) — numeric value or 0 if missing.");
+            runtime_error_hint("DICTGETN requires 2 arguments",
+                                 "Use DICTGETN(handle, path$) — numeric value or 0 if missing.");
             return make_num(0.0);
         }
         (*p)++; skip_spaces(p);
@@ -13467,21 +13469,21 @@ static struct value eval_function(const char *name, char **p)
         skip_spaces(p);
         json_last_status = 0;
         slot = (int)v_h.num;
-        root = map_slot_root_for_read(slot);
+        root = dict_slot_root_for_read(slot);
         if (!root) return make_num(0.0);
-        node = map_walk_for_read(root, V_DATA(v_path));
-        return make_num(map_node_to_basic_num(node));
+        node = dict_walk_for_read(root, V_DATA(v_path));
+        return make_num(dict_node_to_basic_num(node));
     }
-    case FN_MAPGETBOOL: {
+    case FN_DICTGETBOOL: {
         struct value v_h = arg;
         struct value v_path;
-        struct map_node *root, *node;
+        struct dict_node *root, *node;
         int slot;
         ensure_num(&v_h);
         skip_spaces(p);
         if (**p != ',') {
-            runtime_error_hint("MAPGETBOOL requires 2 arguments",
-                                 "Use MAPGETBOOL(handle, path$) — 1 if JSON true, else 0.");
+            runtime_error_hint("DICTGETBOOL requires 2 arguments",
+                                 "Use DICTGETBOOL(handle, path$) — 1 if JSON true, else 0.");
             return make_num(0.0);
         }
         (*p)++; skip_spaces(p);
@@ -13491,22 +13493,22 @@ static struct value eval_function(const char *name, char **p)
         skip_spaces(p);
         json_last_status = 0;
         slot = (int)v_h.num;
-        root = map_slot_root_for_read(slot);
+        root = dict_slot_root_for_read(slot);
         if (!root) return make_num(0.0);
-        node = map_walk_for_read(root, V_DATA(v_path));
-        if (node && node->kind == MAP_BOOL) return make_num(node->u.b ? 1.0 : 0.0);
+        node = dict_walk_for_read(root, V_DATA(v_path));
+        if (node && node->kind == DICT_BOOL) return make_num(node->u.b ? 1.0 : 0.0);
         return make_num(0.0);
     }
-    case FN_MAPHAS: {
+    case FN_DICTHAS: {
         struct value v_h = arg;
         struct value v_path;
-        struct map_node *root, *node;
+        struct dict_node *root, *node;
         int slot;
         ensure_num(&v_h);
         skip_spaces(p);
         if (**p != ',') {
-            runtime_error_hint("MAPHAS requires 2 arguments",
-                                 "Use MAPHAS(handle, path$) — 1 if a value exists at path (even null).");
+            runtime_error_hint("DICTHAS requires 2 arguments",
+                                 "Use DICTHAS(handle, path$) — 1 if a value exists at path (even null).");
             return make_num(0.0);
         }
         (*p)++; skip_spaces(p);
@@ -13516,21 +13518,21 @@ static struct value eval_function(const char *name, char **p)
         skip_spaces(p);
         json_last_status = 0;
         slot = (int)v_h.num;
-        root = map_slot_root_for_read(slot);
+        root = dict_slot_root_for_read(slot);
         if (!root) return make_num(0.0);
-        node = map_walk_for_read(root, V_DATA(v_path));
+        node = dict_walk_for_read(root, V_DATA(v_path));
         return make_num(node ? 1.0 : 0.0);
     }
-    case FN_MAPTYPE: {
+    case FN_DICTTYPE: {
         struct value v_h = arg;
         struct value v_path;
-        struct map_node *root, *node;
+        struct dict_node *root, *node;
         int slot;
         ensure_num(&v_h);
         skip_spaces(p);
         if (**p != ',') {
-            runtime_error_hint("MAPTYPE$ requires 2 arguments",
-                                 "Use MAPTYPE$(handle, path$) — type name or \"\" if missing.");
+            runtime_error_hint("DICTTYPE$ requires 2 arguments",
+                                 "Use DICTTYPE$(handle, path$) — type name or \"\" if missing.");
             return make_str("");
         }
         (*p)++; skip_spaces(p);
@@ -13540,22 +13542,22 @@ static struct value eval_function(const char *name, char **p)
         skip_spaces(p);
         json_last_status = 0;
         slot = (int)v_h.num;
-        root = map_slot_root_for_read(slot);
+        root = dict_slot_root_for_read(slot);
         if (!root) return make_str("");
-        node = map_walk_for_read(root, V_DATA(v_path));
+        node = dict_walk_for_read(root, V_DATA(v_path));
         if (!node) return make_str("");
-        return make_str(map_kind_name(node->kind));
+        return make_str(dict_kind_name(node->kind));
     }
-    case FN_MAPLEN: {
+    case FN_DICTLEN: {
         struct value v_h = arg;
         struct value v_path;
-        struct map_node *root, *node;
+        struct dict_node *root, *node;
         int slot;
         ensure_num(&v_h);
         skip_spaces(p);
         if (**p != ',') {
-            runtime_error_hint("MAPLEN requires 2 arguments",
-                                 "Use MAPLEN(handle, \"\") for root, or MAPLEN(handle, path$).");
+            runtime_error_hint("DICTLEN requires 2 arguments",
+                                 "Use DICTLEN(handle, \"\") for root, or DICTLEN(handle, path$).");
             return make_num(0.0);
         }
         (*p)++; skip_spaces(p);
@@ -13565,31 +13567,31 @@ static struct value eval_function(const char *name, char **p)
         skip_spaces(p);
         json_last_status = 0;
         slot = (int)v_h.num;
-        root = map_slot_root_for_read(slot);
+        root = dict_slot_root_for_read(slot);
         if (!root) return make_num(0.0);
-        node = map_walk_for_read(root, V_DATA(v_path));
+        node = dict_walk_for_read(root, V_DATA(v_path));
         if (!node) return make_num(0.0);
-        if (node->kind == MAP_OBJECT) return make_num((double)node->u.obj.count);
-        if (node->kind == MAP_ARRAY)  return make_num((double)node->u.arr.count);
+        if (node->kind == DICT_OBJECT) return make_num((double)node->u.obj.count);
+        if (node->kind == DICT_ARRAY)  return make_num((double)node->u.arr.count);
         return make_num(0.0);
     }
-    case FN_MAPKEY: {
+    case FN_DICTKEY: {
         struct value v_h = arg;
         struct value v_path, v_n;
-        struct map_node *root, *node;
+        struct dict_node *root, *node;
         int slot, want_n;
         ensure_num(&v_h);
         skip_spaces(p);
         if (**p != ',') {
-            runtime_error_hint("MAPKEY$ requires 3 arguments",
-                                 "Use MAPKEY$(handle, path$, n) — nth key (insertion order).");
+            runtime_error_hint("DICTKEY$ requires 3 arguments",
+                                 "Use DICTKEY$(handle, path$, n) — nth key (insertion order).");
             return make_str("");
         }
         (*p)++; skip_spaces(p);
         v_path = eval_expr(p); ensure_str(&v_path);
         skip_spaces(p);
         if (**p != ',') {
-            runtime_error_hint("MAPKEY$ requires 3 arguments",
+            runtime_error_hint("DICTKEY$ requires 3 arguments",
                                  "Third argument is the 0-based key index.");
             return make_str("");
         }
@@ -13601,42 +13603,42 @@ static struct value eval_function(const char *name, char **p)
         json_last_status = 0;
         slot = (int)v_h.num;
         want_n = (int)v_n.num;
-        root = map_slot_root_for_read(slot);
+        root = dict_slot_root_for_read(slot);
         if (!root) return make_str("");
-        node = map_walk_for_read(root, V_DATA(v_path));
-        if (!node || node->kind != MAP_OBJECT) return make_str("");
+        node = dict_walk_for_read(root, V_DATA(v_path));
+        if (!node || node->kind != DICT_OBJECT) return make_str("");
         if (want_n < 0 || want_n >= node->u.obj.count) return make_str("");
         {
             rgc_str_t *k = node->u.obj.entries[want_n].key;
             return k ? make_str_bytes(k->data, k->len) : make_str("");
         }
     }
-    case FN_MAPLOAD: {
+    case FN_DICTLOAD: {
         const char *s;
-        struct map_node *root;
+        struct dict_node *root;
         int slot;
         ensure_str(&arg);
         json_last_status = 0;
         s = V_DATA(arg);
-        root = map_parse_value(&s);
+        root = dict_parse_value(&s);
         if (!root) {
             if (json_strict_mode) {
-                runtime_error_hint("MAPLOAD: parse error",
+                runtime_error_hint("DICTLOAD: parse error",
                                      "Source JSON is malformed; see JSONSTATUS().");
             }
             return make_num(-1.0);
         }
-        slot = map_slot_allocate();
+        slot = dict_slot_allocate();
         if (slot < 0) {
-            map_node_free(root);
+            dict_node_free(root);
             json_last_status = 2;
             if (json_strict_mode) {
-                runtime_error_hint("MAPLOAD: no free slot",
-                                     "MAX_MAPS = 16. MAPFREE one before MAPLOAD.");
+                runtime_error_hint("DICTLOAD: no free slot",
+                                     "MAX_DICTS = 16.  DICTFREE one before MAPLOAD.");
             }
             return make_num(-1.0);
         }
-        g_maps[slot].root = root;
+        g_dicts[slot].root = root;
         return make_num((double)slot);
     }
     case FN_STRINGFN: {
@@ -13817,7 +13819,7 @@ static struct value eval_function(const char *name, char **p)
         if (v_json.type == VAL_NUM && **p == ')') {
             (*p)++;
             skip_spaces(p);
-            return map_slot_to_json_value((int)v_json.num);
+            return dict_slot_to_json_value((int)v_json.num);
         }
         ensure_str(&v_json);
         if (**p != ',') {
@@ -14432,11 +14434,11 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "JSONNEW") || starts_with_kw(*p, "JSONPUT") ||
             starts_with_kw(*p, "JSONPUTNULL") || starts_with_kw(*p, "JSONPUTBOOL") ||
             starts_with_kw(*p, "JSONSTATUS") ||
-            starts_with_kw(*p, "MAPNEW") || starts_with_kw(*p, "MAPLOAD") ||
-            starts_with_kw(*p, "MAPGET") || starts_with_kw(*p, "MAPGETN") ||
-            starts_with_kw(*p, "MAPGETBOOL") || starts_with_kw(*p, "MAPHAS") ||
-            starts_with_kw(*p, "MAPTYPE") || starts_with_kw(*p, "MAPLEN") ||
-            starts_with_kw(*p, "MAPKEY") ||
+            starts_with_kw(*p, "DICTNEW") || starts_with_kw(*p, "DICTLOAD") ||
+            starts_with_kw(*p, "DICTGET") || starts_with_kw(*p, "DICTGETN") ||
+            starts_with_kw(*p, "DICTGETBOOL") || starts_with_kw(*p, "DICTHAS") ||
+            starts_with_kw(*p, "DICTTYPE") || starts_with_kw(*p, "DICTLEN") ||
+            starts_with_kw(*p, "DICTKEY") ||
             starts_with_kw(*p, "SOUNDPLAYING") ||
             starts_with_kw(*p, "MUSICPLAYING") ||
             starts_with_kw(*p, "MUSICLENGTH") ||
@@ -16186,8 +16188,8 @@ static void statement_jsonunpack(char **p)
     }
 }
 
-/* MAPFREE h — release slot. Idempotent (no error on freed/out-of-range). */
-static void statement_mapfree(char **p)
+/*  DICTFREE h — release slot. Idempotent (no error on freed/out-of-range). */
+static void statement_dictfree(char **p)
 {
     struct value v_h;
     int slot;
@@ -16195,38 +16197,38 @@ static void statement_mapfree(char **p)
     v_h = eval_expr(p);
     ensure_num(&v_h);
     slot = (int)v_h.num;
-    rgc_map_unlink_slot(slot);
+    rgc_dict_unlink_slot(slot);
 }
 
 /* Internal: walk path for write, replace leaf with `value`.
  * Takes ownership of `value`. */
-static void map_set_via_walker(int slot, const char *path, struct map_node *value)
+static void dict_set_via_walker(int slot, const char *path, struct dict_node *value)
 {
-    struct map_node **root_ptr = map_slot_root_ptr_for_write(slot);
-    struct map_node **leaf;
+    struct dict_node **root_ptr = dict_slot_root_ptr_for_write(slot);
+    struct dict_node **leaf;
     if (!root_ptr) {
-        map_node_free(value);
+        dict_node_free(value);
         if (json_strict_mode) {
-            runtime_error_hint("MAPSET: invalid handle",
-                                 "Pass a handle from MAPNEW(); free handles raise JSONSTATUS=4.");
+            runtime_error_hint("DICTSET: invalid handle",
+                                 "Pass a handle from DICTNEW(); free handles raise JSONSTATUS=4.");
         }
         return;
     }
     leaf = root_ptr;
-    if (!map_walk_for_write(&leaf, path, 1)) {
-        map_node_free(value);
+    if (!dict_walk_for_write(&leaf, path, 1)) {
+        dict_node_free(value);
         if (json_strict_mode) {
-            runtime_error_hint("MAPSET: path descends through wrong type",
+            runtime_error_hint("DICTSET: path descends through wrong type",
                                  "Intermediate node is not the kind the next path step expects.");
         }
         return;
     }
-    if (*leaf) map_node_free(*leaf);
+    if (*leaf) dict_node_free(*leaf);
     *leaf = value;
 }
 
-/* MAPSET h, path$, value */
-static void statement_mapset(char **p)
+/* DICTSET h, path$, value */
+static void statement_dictset(char **p)
 {
     struct value v_h, v_path, v_val;
     int slot;
@@ -16235,8 +16237,8 @@ static void statement_mapset(char **p)
     ensure_num(&v_h);
     skip_spaces(p);
     if (**p != ',') {
-        runtime_error_hint("MAPSET: expected ,",
-                             "Syntax: MAPSET handle, path$, value.");
+        runtime_error_hint("DICTSET: expected ,",
+                             "Syntax: DICTSET handle, path$, value.");
         return;
     }
     (*p)++; skip_spaces(p);
@@ -16244,7 +16246,7 @@ static void statement_mapset(char **p)
     ensure_str(&v_path);
     skip_spaces(p);
     if (**p != ',') {
-        runtime_error_hint("MAPSET: expected ,",
+        runtime_error_hint("DICTSET: expected ,",
                              "Third argument is the value to set.");
         return;
     }
@@ -16254,14 +16256,14 @@ static void statement_mapset(char **p)
     json_last_status = 0;
     slot = (int)v_h.num;
     {
-        struct map_node *node = map_node_from_value(&v_val);
+        struct dict_node *node = dict_node_from_value(&v_val);
         if (!node) return;
-        map_set_via_walker(slot, V_DATA(v_path), node);
+        dict_set_via_walker(slot, V_DATA(v_path), node);
     }
 }
 
-/* MAPSETNULL h, path$ */
-static void statement_mapsetnull(char **p)
+/* DICTSETNULL h, path$ */
+static void statement_dictsetnull(char **p)
 {
     struct value v_h, v_path;
     int slot;
@@ -16270,8 +16272,8 @@ static void statement_mapsetnull(char **p)
     ensure_num(&v_h);
     skip_spaces(p);
     if (**p != ',') {
-        runtime_error_hint("MAPSETNULL: expected ,",
-                             "Syntax: MAPSETNULL handle, path$.");
+        runtime_error_hint("DICTSETNULL: expected ,",
+                             "Syntax: DICTSETNULL handle, path$.");
         return;
     }
     (*p)++; skip_spaces(p);
@@ -16280,11 +16282,11 @@ static void statement_mapsetnull(char **p)
     skip_spaces(p);
     json_last_status = 0;
     slot = (int)v_h.num;
-    map_set_via_walker(slot, V_DATA(v_path), map_node_new(MAP_NULL));
+    dict_set_via_walker(slot, V_DATA(v_path), dict_node_new(DICT_NULL));
 }
 
-/* MAPSETBOOL h, path$, n */
-static void statement_mapsetbool(char **p)
+/* DICTSETBOOL h, path$, n */
+static void statement_dictsetbool(char **p)
 {
     struct value v_h, v_path, v_n;
     int slot;
@@ -16293,8 +16295,8 @@ static void statement_mapsetbool(char **p)
     ensure_num(&v_h);
     skip_spaces(p);
     if (**p != ',') {
-        runtime_error_hint("MAPSETBOOL: expected ,",
-                             "Syntax: MAPSETBOOL handle, path$, n.");
+        runtime_error_hint("DICTSETBOOL: expected ,",
+                             "Syntax: DICTSETBOOL handle, path$, n.");
         return;
     }
     (*p)++; skip_spaces(p);
@@ -16302,7 +16304,7 @@ static void statement_mapsetbool(char **p)
     ensure_str(&v_path);
     skip_spaces(p);
     if (**p != ',') {
-        runtime_error_hint("MAPSETBOOL: expected ,",
+        runtime_error_hint("DICTSETBOOL: expected ,",
                              "Third argument is numeric: nonzero → true, zero → false.");
         return;
     }
@@ -16313,21 +16315,21 @@ static void statement_mapsetbool(char **p)
     json_last_status = 0;
     slot = (int)v_h.num;
     {
-        struct map_node *node = map_node_new(MAP_BOOL);
+        struct dict_node *node = dict_node_new(DICT_BOOL);
         if (!node) return;
         node->u.b = (v_n.num != 0.0) ? 1 : 0;
-        map_set_via_walker(slot, V_DATA(v_path), node);
+        dict_set_via_walker(slot, V_DATA(v_path), node);
     }
 }
 
-/* MAPDEL h, path$ — remove the leaf at path. Idempotent (no-op if missing).
+/* DICTDEL h, path$ — remove the leaf at path. Idempotent (no-op if missing).
  *
  * For an object parent: remove the key/value pair.
  * For an array parent: splice out the element (later elements shift down). */
-static void statement_mapdel(char **p)
+static void statement_dictdel(char **p)
 {
     struct value v_h, v_path;
-    struct map_node *root, *parent;
+    struct dict_node *root, *parent;
     const char *path;
     const char *seg;
     struct json_path_step step;
@@ -16341,8 +16343,8 @@ static void statement_mapdel(char **p)
     ensure_num(&v_h);
     skip_spaces(p);
     if (**p != ',') {
-        runtime_error_hint("MAPDEL: expected ,",
-                             "Syntax: MAPDEL handle, path$.");
+        runtime_error_hint("DICTDEL: expected ,",
+                             "Syntax: DICTDEL handle, path$.");
         return;
     }
     (*p)++; skip_spaces(p);
@@ -16353,7 +16355,7 @@ static void statement_mapdel(char **p)
     slot = (int)v_h.num;
     path = V_DATA(v_path);
     if (!path || !*path) return; /* empty path → no-op (can't delete root) */
-    root = map_slot_root_for_read(slot);
+    root = dict_slot_root_for_read(slot);
     if (!root) return;
     /* Split path into parent-path + last-step. Capture seg BEFORE each
      * json_next_step so parent_path_len is the cutoff to the start of
@@ -16384,42 +16386,42 @@ static void statement_mapdel(char **p)
                 parent_path[parent_path_len - 1] == ' ')) {
             parent_path[--parent_path_len] = '\0';
         }
-        parent = map_walk_for_read(root, parent_path);
+        parent = dict_walk_for_read(root, parent_path);
     }
     if (!parent) return;
     if (last.is_key) {
-        if (parent->kind == MAP_OBJECT) {
-            map_obj_del(parent, last.key, strlen(last.key));
+        if (parent->kind == DICT_OBJECT) {
+            dict_obj_del(parent, last.key, strlen(last.key));
         }
     } else {
-        if (parent->kind == MAP_ARRAY) {
-            map_arr_del(parent, last.idx);
+        if (parent->kind == DICT_ARRAY) {
+            dict_arr_del(parent, last.idx);
         }
     }
 }
 
-/* MAPPUSH h, path$, value — auto-vivify (or upgrade null to) an array
+/* DICTPUSH h, path$, value — auto-vivify (or upgrade null to) an array
  * at path, then append value. Errors with JSONSTATUS=2 if the existing
  * node at path is a non-array, non-null type. */
-static void statement_mappush(char **p)
+static void statement_dictpush(char **p)
 {
     struct value v_h, v_path, v_val;
-    struct map_node **root_ptr, **leaf;
+    struct dict_node **root_ptr, **leaf;
     int slot;
     skip_spaces(p);
     v_h = eval_expr(p);
     ensure_num(&v_h);
     skip_spaces(p);
     if (**p != ',') {
-        runtime_error_hint("MAPPUSH: expected ,",
-                             "Syntax: MAPPUSH handle, path$, value.");
+        runtime_error_hint("DICTPUSH: expected ,",
+                             "Syntax: DICTPUSH handle, path$, value.");
         return;
     }
     (*p)++; skip_spaces(p);
     v_path = eval_expr(p); ensure_str(&v_path);
     skip_spaces(p);
     if (**p != ',') {
-        runtime_error_hint("MAPPUSH: expected ,",
+        runtime_error_hint("DICTPUSH: expected ,",
                              "Third argument is the value to append.");
         return;
     }
@@ -16428,39 +16430,39 @@ static void statement_mappush(char **p)
     skip_spaces(p);
     json_last_status = 0;
     slot = (int)v_h.num;
-    root_ptr = map_slot_root_ptr_for_write(slot);
+    root_ptr = dict_slot_root_ptr_for_write(slot);
     if (!root_ptr) return;
     leaf = root_ptr;
-    if (!map_walk_for_write(&leaf, V_DATA(v_path), 1)) return;
+    if (!dict_walk_for_write(&leaf, V_DATA(v_path), 1)) return;
     if (!*leaf) {
-        *leaf = map_node_new(MAP_ARRAY);
-    } else if ((*leaf)->kind == MAP_NULL) {
-        map_node_free(*leaf);
-        *leaf = map_node_new(MAP_ARRAY);
-    } else if ((*leaf)->kind != MAP_ARRAY) {
+        *leaf = dict_node_new(DICT_ARRAY);
+    } else if ((*leaf)->kind == DICT_NULL) {
+        dict_node_free(*leaf);
+        *leaf = dict_node_new(DICT_ARRAY);
+    } else if ((*leaf)->kind != DICT_ARRAY) {
         json_last_status = 2;
         if (json_strict_mode) {
-            runtime_error_hint("MAPPUSH: path is not an array",
-                                 "MAPPUSH only appends to arrays. Use MAPSET to replace.");
+            runtime_error_hint("DICTPUSH: path is not an array",
+                                 "DICTPUSH only appends to arrays. Use DICTSET to replace.");
         }
         return;
     }
     {
-        struct map_node *node = map_node_from_value(&v_val);
+        struct dict_node *node = dict_node_from_value(&v_val);
         if (!node) return;
-        if (map_arr_push(*leaf, node) != 0) json_last_status = 3;
+        if (dict_arr_push(*leaf, node) != 0) json_last_status = 3;
     }
 }
 
-/* MAPUNPACK h, path$ INTO arr$ — walk to a map array at path, REDIM
+/* DICTUNPACK h, path$ INTO arr$ — walk to a map array at path, REDIM
  * the destination string array to its length, fill each element with
  * the JSON-serialised substring. Composes with FOREACH (parallel to
  * JSONUNPACK). */
-static void statement_mapunpack(char **p)
+static void statement_dictunpack(char **p)
 {
     struct value v_h, v_path;
     struct var *arr_var = NULL;
-    struct map_node *root, *node;
+    struct dict_node *root, *node;
     int slot;
     int count = 0;
     int i;
@@ -16468,22 +16470,22 @@ static void statement_mapunpack(char **p)
     v_h = eval_expr(p); ensure_num(&v_h);
     skip_spaces(p);
     if (**p != ',') {
-        runtime_error_hint("MAPUNPACK: expected ,",
-                             "Syntax: MAPUNPACK handle, path$ INTO arr$.");
+        runtime_error_hint("DICTUNPACK: expected ,",
+                             "Syntax: DICTUNPACK handle, path$ INTO arr$.");
         return;
     }
     (*p)++; skip_spaces(p);
     v_path = eval_expr(p); ensure_str(&v_path);
     skip_spaces(p);
     if (!starts_with_kw(*p, "INTO")) {
-        runtime_error_hint("MAPUNPACK: expected INTO",
-                             "Syntax: MAPUNPACK handle, path$ INTO arr$.");
+        runtime_error_hint("DICTUNPACK: expected INTO",
+                             "Syntax: DICTUNPACK handle, path$ INTO arr$.");
         return;
     }
     *p += 4;
     skip_spaces(p);
     if (!isalpha((unsigned char)**p)) {
-        runtime_error_hint("MAPUNPACK: expected array variable",
+        runtime_error_hint("DICTUNPACK: expected array variable",
                              "After INTO, give the string array name (e.g. ITEMS$).");
         return;
     }
@@ -16493,8 +16495,8 @@ static void statement_mapunpack(char **p)
         read_identifier(p, namebuf, sizeof(namebuf));
         uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
         if (!is_string) {
-            runtime_error_hint("MAPUNPACK: expected string array",
-                                 "MAPUNPACK fills a string array (name ends with $).");
+            runtime_error_hint("DICTUNPACK: expected string array",
+                                 "DICTUNPACK fills a string array (name ends with $).");
             return;
         }
         for (i = 0; i < var_count; i++) {
@@ -16505,24 +16507,24 @@ static void statement_mapunpack(char **p)
         }
     }
     if (!arr_var || !arr_var->is_array || arr_var->dims != 1) {
-        runtime_error_hint("MAPUNPACK: requires 1-D string array (DIM first)",
-                             "DIM ITEMS$(0) — MAPUNPACK resizes to match the map array.");
+        runtime_error_hint("DICTUNPACK: requires 1-D string array (DIM first)",
+                             "DIM ITEMS$(0) — DICTUNPACK resizes to match the dict array.");
         return;
     }
     skip_spaces(p);
     if (**p == '(') { (*p)++; skip_spaces(p); if (**p == ')') (*p)++; }
     json_last_status = 0;
     slot = (int)v_h.num;
-    root = map_slot_root_for_read(slot);
-    if (root) node = map_walk_for_read(root, V_DATA(v_path));
+    root = dict_slot_root_for_read(slot);
+    if (root) node = dict_walk_for_read(root, V_DATA(v_path));
     else      node = NULL;
-    if (node && node->kind == MAP_ARRAY) {
+    if (node && node->kind == DICT_ARRAY) {
         count = node->u.arr.count;
     } else if (node) {
         json_last_status = 2;
         if (json_strict_mode) {
-            runtime_error_hint("MAPUNPACK: path does not resolve to an array",
-                                 "Check the path; MAPUNPACK iterates map arrays only.");
+            runtime_error_hint("DICTUNPACK: path does not resolve to an array",
+                                 "Check the path; DICTUNPACK iterates map arrays only.");
         }
     }
     if (arr_var->array) {
@@ -16545,7 +16547,7 @@ static void statement_mapunpack(char **p)
         StrBuf sb;
         for (i = 0; i < count; i++) {
             sb_init(&sb);
-            map_node_to_json_sb(&sb, node->u.arr.items[i]);
+            dict_node_to_json_sb(&sb, node->u.arr.items[i]);
             arr_var->array[i].type = VAL_STR;
             arr_var->array[i].num = 0.0;
             v_set_bytes(&arr_var->array[i], sb.buf, sb.len);
@@ -19164,39 +19166,39 @@ static void execute_statement(char **p)
         statement_jsonunpack(p);
         return;
     }
-    if (c == 'M' && starts_with_kw(*p, "MAPSETNULL")) {
-        *p += 10;
-        statement_mapsetnull(p);
+    if (c == 'D' && starts_with_kw(*p, "DICTSETNULL")) {
+        *p += 11;
+        statement_dictsetnull(p);
         return;
     }
-    if (c == 'M' && starts_with_kw(*p, "MAPSETBOOL")) {
-        *p += 10;
-        statement_mapsetbool(p);
+    if (c == 'D' && starts_with_kw(*p, "DICTSETBOOL")) {
+        *p += 11;
+        statement_dictsetbool(p);
         return;
     }
-    if (c == 'M' && starts_with_kw(*p, "MAPSET")) {
-        *p += 6;
-        statement_mapset(p);
-        return;
-    }
-    if (c == 'M' && starts_with_kw(*p, "MAPFREE")) {
+    if (c == 'D' && starts_with_kw(*p, "DICTSET")) {
         *p += 7;
-        statement_mapfree(p);
+        statement_dictset(p);
         return;
     }
-    if (c == 'M' && starts_with_kw(*p, "MAPDEL")) {
-        *p += 6;
-        statement_mapdel(p);
+    if (c == 'D' && starts_with_kw(*p, "DICTFREE")) {
+        *p += 8;
+        statement_dictfree(p);
         return;
     }
-    if (c == 'M' && starts_with_kw(*p, "MAPPUSH")) {
+    if (c == 'D' && starts_with_kw(*p, "DICTDEL")) {
         *p += 7;
-        statement_mappush(p);
+        statement_dictdel(p);
         return;
     }
-    if (c == 'M' && starts_with_kw(*p, "MAPUNPACK")) {
-        *p += 9;
-        statement_mapunpack(p);
+    if (c == 'D' && starts_with_kw(*p, "DICTPUSH")) {
+        *p += 8;
+        statement_dictpush(p);
+        return;
+    }
+    if (c == 'D' && starts_with_kw(*p, "DICTUNPACK")) {
+        *p += 10;
+        statement_dictunpack(p);
         return;
     }
     if (c == 'U' && starts_with_kw(*p, "UNLOADSPRITE")) {
@@ -20250,7 +20252,7 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
     }
     /* Release BUFFER slots: unlink backing files so /tmp doesn't leak. */
     rgc_buffer_free_all();
-    rgc_map_free_all();
+    rgc_dict_free_all();
 }
 
 /* ── Public API for gfx builds ──────────────────────────────────── */

@@ -2,7 +2,7 @@
 20 REM
 30 REM RGC-BASIC gives you a few iteration styles. Pick the one whose
 40 REM cost matches the data — verbose-but-flexible for one-off scans,
-50 REM cleaner sugar for repeated walks, MAP when you need both object
+50 REM cleaner sugar for repeated walks, DICT when you need both object
 60 REM keys and array indices in the same traversal.
 70 REM
 80 Q$ = CHR$(34)
@@ -39,28 +39,28 @@
 390 PRINT "  "; JSON$(USR$, "name"); " ("; JSONNUM(USR$, "age"); ")"
 400 NEXT
 410 PRINT
-420 REM --- Pattern 3: MAP for object-key iteration
+420 REM --- Pattern 3: DICT for object-key iteration
 430 REM
 440 REM JSON$ has no equivalent of "give me the Nth key of this object"
 450 REM beyond JSONKEY$ on a string (which still re-scans on each call).
-460 REM MAPLOAD parses once, then MAPLEN + MAPKEY$ walk the keys in
+460 REM DICTLOAD parses once, then DICTLEN + DICTKEY$ walk the keys in
 470 REM insertion order for free.
-480 PRINT "Pattern 3: MAPLOAD + MAPLEN + MAPKEY$ over an object"
-490 H = MAPLOAD(J$)
+480 PRINT "Pattern 3: DICTLOAD + DICTLEN + DICTKEY$ over an object"
+490 H = DICTLOAD(J$)
 500 REM Walk the first user's keys.
-510 NK = MAPLEN(H, "users[0]")
+510 NK = DICTLEN(H, "users[0]")
 520 FOR I = 0 TO NK - 1
-530 K$ = MAPKEY$(H, "users[0]", I)
-540 PRINT "  users[0]."; K$; " = "; MAPGET$(H, "users[0]." + K$)
+530 K$ = DICTKEY$(H, "users[0]", I)
+540 PRINT "  users[0]."; K$; " = "; DICTGET$(H, "users[0]." + K$)
 550 NEXT
-560 MAPFREE H
+560 DICTFREE H
 570 PRINT
 580 REM --- Notes
-590 REM Pattern 2 has a MAP twin: MAPUNPACK h, path$ INTO arr$ does the
+590 REM Pattern 2 has a DICT twin: DICTUNPACK h, path$ INTO arr$ does the
 600 REM same fan-out from a map array, also composes with FOREACH.
 610 REM
 620 REM Rule of thumb:
 630 REM   - One field, one read    -> JSON$ (no loop)
 640 REM   - Walk an array          -> JSONUNPACK + FOREACH
-650 REM   - Walk object keys       -> MAPLOAD + MAPKEY$
-660 REM   - Mutate many fields     -> MAPLOAD, mutate, JSON$(h) at end
+650 REM   - Walk object keys       -> DICTLOAD + DICTKEY$
+660 REM   - Mutate many fields     -> DICTLOAD, mutate, JSON$(h) at end
