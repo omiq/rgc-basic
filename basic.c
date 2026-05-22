@@ -70,12 +70,23 @@ static int json_strict_mode;
  * Async fetch for HTTP$ (EM_ASYNC_JS → Asyncify.handleAsync; no manual ASYNCIFY_IMPORTS).
  * Writes response body into out; sets *status_out to HTTP status (0 on network error).
  */
-EM_ASYNC_JS(int, wasm_js_http_fetch_async, (const char *url, const char *method, const char *body, int body_len, char *out, int out_cap, int *status_out), {
+EM_ASYNC_JS(int, wasm_js_http_fetch_async, (const char *url, const char *method, const char *body, int body_len, const char *headers, char *out, int out_cap, int *status_out), {
   var urlJs = UTF8ToString(url);
   var methodJs = method ? UTF8ToString(method) : "GET";
   var init = { method: methodJs };
   if (body && body_len > 0) {
     init.body = HEAPU8.subarray(body, body + body_len >>> 0);
+  }
+  if (headers) {
+    var hjs = UTF8ToString(headers);
+    if (hjs && hjs.length > 0) {
+      try {
+        var parsed = JSON.parse(hjs);
+        if (parsed && typeof parsed === 'object') {
+          init.headers = parsed;
+        }
+      } catch (e) { /* ignore malformed; surface via JSONSTATUS path instead */ }
+    }
   }
   try {
     const resp = await fetch(urlJs, init);
@@ -92,12 +103,23 @@ EM_ASYNC_JS(int, wasm_js_http_fetch_async, (const char *url, const char *method,
 /* Dynamic-buffer variant: JS malloc's a buffer sized to the response,
  * copies the bytes, writes ptr+len into the C-side out params. Caller
  * frees the buffer (or it'll leak). Returns 0 on success, -1 on error. */
-EM_ASYNC_JS(int, wasm_js_http_fetch_async_dyn, (const char *url, const char *method, const char *body, int body_len, int *out_ptr, int *out_len, int *status_out), {
+EM_ASYNC_JS(int, wasm_js_http_fetch_async_dyn, (const char *url, const char *method, const char *body, int body_len, const char *headers, int *out_ptr, int *out_len, int *status_out), {
   var urlJs = UTF8ToString(url);
   var methodJs = method ? UTF8ToString(method) : "GET";
   var init = { method: methodJs };
   if (body && body_len > 0) {
     init.body = HEAPU8.subarray(body, body + body_len >>> 0);
+  }
+  if (headers) {
+    var hjs = UTF8ToString(headers);
+    if (hjs && hjs.length > 0) {
+      try {
+        var parsed = JSON.parse(hjs);
+        if (parsed && typeof parsed === 'object') {
+          init.headers = parsed;
+        }
+      } catch (e) { /* ignore */ }
+    }
   }
   HEAP32[out_ptr >> 2] = 0;
   HEAP32[out_len >> 2] = 0;
@@ -121,7 +143,7 @@ EM_ASYNC_JS(int, wasm_js_http_fetch_async_dyn, (const char *url, const char *met
 });
 
 static void wasm_http_fetch_emscripten(const char *url, const char *method, const char *body, int body_len,
-    char *out, size_t out_size, int *status_out)
+    const char *headers, char *out, size_t out_size, int *status_out)
 {
     const char *m = (method && method[0]) ? method : "GET";
     if (out_size == 0) {
@@ -134,20 +156,31 @@ static void wasm_http_fetch_emscripten(const char *url, const char *method, cons
     if (!url || !url[0] || !status_out) {
         return;
     }
-    wasm_js_http_fetch_async(url, m, body, body_len, out, (int)out_size, status_out);
+    wasm_js_http_fetch_async(url, m, body, body_len, headers, out, (int)out_size, status_out);
 }
 
 /*
  * Fetch response body to a MEMFS path (binary-safe). Sets *status_out to HTTP status (0 on failure).
  * Uses arrayBuffer + FS.writeFile; creates parent directories as needed.
  */
-EM_ASYNC_JS(int, wasm_js_http_fetch_to_file_async, (const char *url, const char *method, const char *body, int body_len, const char *path_utf8, int *status_out), {
+EM_ASYNC_JS(int, wasm_js_http_fetch_to_file_async, (const char *url, const char *method, const char *body, int body_len, const char *headers, const char *path_utf8, int *status_out), {
   var urlJs = UTF8ToString(url);
   var pathJs = UTF8ToString(path_utf8);
   var methodJs = method ? UTF8ToString(method) : "GET";
   var init = { method: methodJs };
   if (body && body_len > 0) {
     init.body = HEAPU8.subarray(body, body + body_len >>> 0);
+  }
+  if (headers) {
+    var hjs = UTF8ToString(headers);
+    if (hjs && hjs.length > 0) {
+      try {
+        var parsed = JSON.parse(hjs);
+        if (parsed && typeof parsed === 'object') {
+          init.headers = parsed;
+        }
+      } catch (e) { /* ignore */ }
+    }
   }
   try {
     const resp = await fetch(urlJs, init);
@@ -263,63 +296,216 @@ static void wasm_js_host_file_write(const char *path, const char *data, int len)
 #if (defined(__unix__) || defined(__linux__) || defined(__APPLE__) || defined(__MACH__)) && !defined(__EMSCRIPTEN__)
 #include <unistd.h>
 #include <fcntl.h>
+#include <strings.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-/* Native: curl -o path -w "%{http_code}" writes body to file and status digits to stdout. */
-static int native_http_fetch_to_file(const char *url, const char *path, const char *method, const char *body, int body_len, int *status_out)
+
+/* Walk a JSON object string, invoking cb(key, value) for each pair.
+ * Values are decoded as JSON strings; non-string values are read as
+ * raw text up to the next , or }. Caller's keys/values are NUL-
+ * terminated heap-free; cb must copy if it needs to keep them. */
+typedef void (*native_header_cb)(const char *key, const char *val, void *ctx);
+static void native_iter_headers(const char *json, native_header_cb cb, void *ctx)
+{
+    const char *p;
+    if (!json || !cb) return;
+    p = json;
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+    if (*p != '{') return;
+    p++;
+    for (;;) {
+        char key[256];
+        char val[2048];
+        size_t ki = 0, vi = 0;
+        while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+        if (*p == '}' || !*p) break;
+        if (*p != '"') break;
+        p++;
+        while (*p && *p != '"' && ki < sizeof(key) - 1) {
+            if (*p == '\\' && p[1]) { key[ki++] = p[1]; p += 2; }
+            else { key[ki++] = *p++; }
+        }
+        key[ki] = '\0';
+        if (*p == '"') p++;
+        while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+        if (*p != ':') break;
+        p++;
+        while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+        if (*p == '"') {
+            p++;
+            while (*p && *p != '"' && vi < sizeof(val) - 1) {
+                if (*p == '\\' && p[1]) { val[vi++] = p[1]; p += 2; }
+                else { val[vi++] = *p++; }
+            }
+            val[vi] = '\0';
+            if (*p == '"') p++;
+        } else {
+            while (*p && *p != ',' && *p != '}' && vi < sizeof(val) - 1) {
+                val[vi++] = *p++;
+            }
+            val[vi] = '\0';
+        }
+        cb(key, val, ctx);
+        while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+        if (*p == ',') { p++; continue; }
+        break;
+    }
+}
+
+/* Dynamic argv container shared by both native fetch helpers. argv[] holds
+ * char* (some pointing into heap-owned key/val/header strings; some pointing
+ * to caller-owned const strings). On free, we walk the strings_to_free list
+ * to release only the heap-owned ones. */
+struct curl_argv_builder {
+    char **argv;
+    int    argc;
+    int    cap;
+    char **owned;
+    int    owned_n;
+    int    owned_cap;
+};
+
+static int cab_grow_argv(struct curl_argv_builder *b, int need)
+{
+    if (b->argc + need <= b->cap) return 0;
+    while (b->argc + need > b->cap) b->cap = b->cap ? b->cap * 2 : 16;
+    {
+        char **n = (char **)realloc(b->argv, sizeof(char *) * (size_t)b->cap);
+        if (!n) return -1;
+        b->argv = n;
+    }
+    return 0;
+}
+
+static int cab_push(struct curl_argv_builder *b, const char *s)
+{
+    if (cab_grow_argv(b, 1) != 0) return -1;
+    b->argv[b->argc++] = (char *)s;
+    return 0;
+}
+
+static int cab_push_owned(struct curl_argv_builder *b, char *s)
+{
+    if (!s) return -1;
+    if (cab_grow_argv(b, 1) != 0) { free(s); return -1; }
+    if (b->owned_n + 1 > b->owned_cap) {
+        b->owned_cap = b->owned_cap ? b->owned_cap * 2 : 8;
+        b->owned = (char **)realloc(b->owned, sizeof(char *) * (size_t)b->owned_cap);
+    }
+    b->owned[b->owned_n++] = s;
+    b->argv[b->argc++] = s;
+    return 0;
+}
+
+static void cab_free(struct curl_argv_builder *b)
+{
+    int i;
+    for (i = 0; i < b->owned_n; i++) free(b->owned[i]);
+    free(b->owned);
+    free(b->argv);
+    memset(b, 0, sizeof(*b));
+}
+
+static void cab_add_header(const char *key, const char *val, void *ctx)
+{
+    struct curl_argv_builder *b = (struct curl_argv_builder *)ctx;
+    size_t klen = strlen(key);
+    size_t vlen = strlen(val);
+    char *hdr = (char *)malloc(klen + vlen + 3);
+    if (!hdr) return;
+    memcpy(hdr, key, klen);
+    hdr[klen] = ':';
+    hdr[klen + 1] = ' ';
+    memcpy(hdr + klen + 2, val, vlen);
+    hdr[klen + 2 + vlen] = '\0';
+    cab_push(b, "-H");
+    cab_push_owned(b, hdr);
+}
+
+/* Native: curl writes body to file and prints status code to stdout. */
+static int native_http_fetch_to_file(const char *url, const char *path, const char *method, const char *body, int body_len, const char *headers, int *status_out)
 {
     pid_t pid;
-    int pipefd[2];
+    int code_pipe[2];
+    int body_pipe[2] = { -1, -1 };
     int st;
     ssize_t nread;
     char codebuf[32];
     size_t cpos = 0;
     int http_code = 0;
+    int have_body = (body && body_len > 0);
+    struct curl_argv_builder cab;
+    memset(&cab, 0, sizeof(cab));
 
-    (void)method;
-    (void)body;
-    (void)body_len;
     if (!url || !url[0] || !path || !path[0] || !status_out) {
-        if (status_out) {
-            *status_out = 0;
-        }
+        if (status_out) *status_out = 0;
         return -1;
     }
     *status_out = 0;
-    if (pipe(pipefd) != 0) {
-        return -1;
+
+    cab_push(&cab, "curl");
+    cab_push(&cab, "-sS");
+    cab_push(&cab, "-L");
+    if (method && method[0] && strcasecmp(method, "GET") != 0) {
+        cab_push(&cab, "-X"); cab_push(&cab, method);
+    }
+    if (headers && headers[0]) {
+        native_iter_headers(headers, cab_add_header, &cab);
+    }
+    if (have_body) {
+        cab_push(&cab, "--data-binary"); cab_push(&cab, "@-");
+    }
+    cab_push(&cab, "-o"); cab_push(&cab, path);
+    cab_push(&cab, "-w"); cab_push(&cab, "%{http_code}");
+    cab_push(&cab, url);
+    cab_push(&cab, NULL);
+
+    if (pipe(code_pipe) != 0) { cab_free(&cab); return -1; }
+    if (have_body) {
+        if (pipe(body_pipe) != 0) { close(code_pipe[0]); close(code_pipe[1]); cab_free(&cab); return -1; }
     }
     pid = fork();
     if (pid < 0) {
-        close(pipefd[0]);
-        close(pipefd[1]);
+        close(code_pipe[0]); close(code_pipe[1]);
+        if (have_body) { close(body_pipe[0]); close(body_pipe[1]); }
+        cab_free(&cab);
         return -1;
     }
     if (pid == 0) {
-        /* Child: stdout = HTTP status code only; file = body */
-        dup2(pipefd[1], STDOUT_FILENO);
-        close(pipefd[0]);
-        close(pipefd[1]);
-        /* POST body not supported without temp file; GET-only for native MVP */
-        execlp("curl", "curl", "-sS", "-L", "-o", path, "-w", "%{http_code}", url, (char *)NULL);
+        dup2(code_pipe[1], STDOUT_FILENO);
+        close(code_pipe[0]); close(code_pipe[1]);
+        if (have_body) {
+            dup2(body_pipe[0], STDIN_FILENO);
+            close(body_pipe[0]); close(body_pipe[1]);
+        }
+        execvp("curl", cab.argv);
         _exit(127);
     }
-    close(pipefd[1]);
-    while (cpos < sizeof(codebuf) - 1) {
-        nread = read(pipefd[0], codebuf + cpos, sizeof(codebuf) - 1 - cpos);
-        if (nread <= 0) {
-            break;
+    close(code_pipe[1]);
+    if (have_body) {
+        close(body_pipe[0]);
+        {
+            ssize_t off = 0;
+            while (off < body_len) {
+                ssize_t w = write(body_pipe[1], body + off, (size_t)(body_len - off));
+                if (w <= 0) break;
+                off += w;
+            }
         }
+        close(body_pipe[1]);
+    }
+    while (cpos < sizeof(codebuf) - 1) {
+        nread = read(code_pipe[0], codebuf + cpos, sizeof(codebuf) - 1 - cpos);
+        if (nread <= 0) break;
         cpos += (size_t)nread;
     }
-    close(pipefd[0]);
+    close(code_pipe[0]);
     codebuf[cpos] = '\0';
     waitpid(pid, &st, 0);
+    cab_free(&cab);
     if (WIFEXITED(st) && WEXITSTATUS(st) == 0 && cpos > 0) {
         http_code = (int)atoi(codebuf);
-        if (http_code < 0 || http_code > 999) {
-            http_code = 0;
-        }
+        if (http_code < 0 || http_code > 999) http_code = 0;
     } else {
         http_code = 0;
     }
@@ -338,16 +524,20 @@ static int native_http_fetch_to_file(const char *url, const char *path, const ch
 /* Fetch URL via curl into a heap buffer. Caller owns *out_buf (free with
  * free()). Sets *out_len = body length (status trailer stripped) and
  * *status_out = HTTP status code. Returns 0 on success, -1 on error. */
-static int native_http_fetch_to_buf(const char *url, char **out_buf, size_t *out_len, int *status_out)
+static int native_http_fetch_to_buf(const char *url, const char *method, const char *body, int body_len, const char *headers, char **out_buf, size_t *out_len, int *status_out)
 {
     pid_t pid;
-    int body_pipe[2];
+    int body_pipe_in[2] = { -1, -1 };
+    int resp_pipe[2];
     int st;
     char codebuf[8];
     char *buf = NULL;
     size_t cap = 8192, len = 0;
     ssize_t n;
     int http_code = 0;
+    int have_body = (body && body_len > 0);
+    struct curl_argv_builder cab;
+    memset(&cab, 0, sizeof(cab));
 
     if (!url || !url[0] || !out_buf || !out_len || !status_out) {
         if (status_out) *status_out = 0;
@@ -357,45 +547,85 @@ static int native_http_fetch_to_buf(const char *url, char **out_buf, size_t *out
     *out_len = 0;
     *status_out = 0;
 
-    buf = (char *)malloc(cap);
-    if (!buf) return -1;
+    cab_push(&cab, "curl");
+    cab_push(&cab, "-sS");
+    cab_push(&cab, "-L");
+    if (method && method[0] && strcasecmp(method, "GET") != 0) {
+        cab_push(&cab, "-X"); cab_push(&cab, method);
+    }
+    if (headers && headers[0]) {
+        native_iter_headers(headers, cab_add_header, &cab);
+    }
+    if (have_body) {
+        cab_push(&cab, "--data-binary"); cab_push(&cab, "@-");
+    }
+    cab_push(&cab, "--write-out"); cab_push(&cab, "%{http_code}");
+    cab_push(&cab, "--output"); cab_push(&cab, "-");
+    cab_push(&cab, "--stderr"); cab_push(&cab, "/dev/null");
+    cab_push(&cab, url);
+    cab_push(&cab, NULL);
 
-    if (pipe(body_pipe) != 0) { free(buf); return -1; }
+    buf = (char *)malloc(cap);
+    if (!buf) { cab_free(&cab); return -1; }
+
+    if (pipe(resp_pipe) != 0) { free(buf); cab_free(&cab); return -1; }
+    if (have_body) {
+        if (pipe(body_pipe_in) != 0) {
+            close(resp_pipe[0]); close(resp_pipe[1]); free(buf); cab_free(&cab); return -1;
+        }
+    }
 
     pid = fork();
     if (pid < 0) {
-        close(body_pipe[0]); close(body_pipe[1]);
-        free(buf);
+        close(resp_pipe[0]); close(resp_pipe[1]);
+        if (have_body) { close(body_pipe_in[0]); close(body_pipe_in[1]); }
+        free(buf); cab_free(&cab);
         return -1;
     }
     if (pid == 0) {
         int devnull;
-        dup2(body_pipe[1], STDOUT_FILENO);
-        close(body_pipe[0]); close(body_pipe[1]);
+        dup2(resp_pipe[1], STDOUT_FILENO);
+        close(resp_pipe[0]); close(resp_pipe[1]);
         devnull = open("/dev/null", 1 /* O_WRONLY */);
         if (devnull >= 0) dup2(devnull, STDERR_FILENO);
-        execlp("curl", "curl", "-sS", "-L", "--write-out", "%{http_code}", "--output", "-",
-               "--stderr", "/dev/null", url, (char *)NULL);
+        if (have_body) {
+            dup2(body_pipe_in[0], STDIN_FILENO);
+            close(body_pipe_in[0]); close(body_pipe_in[1]);
+        }
+        execvp("curl", cab.argv);
         _exit(127);
     }
 
-    close(body_pipe[1]);
+    close(resp_pipe[1]);
+    if (have_body) {
+        close(body_pipe_in[0]);
+        {
+            ssize_t off = 0;
+            while (off < body_len) {
+                ssize_t w = write(body_pipe_in[1], body + off, (size_t)(body_len - off));
+                if (w <= 0) break;
+                off += w;
+            }
+        }
+        close(body_pipe_in[1]);
+    }
 
     for (;;) {
         if (len + 4096 > cap) {
             size_t nc = cap * 2;
             char *nb = (char *)realloc(buf, nc);
-            if (!nb) { free(buf); close(body_pipe[0]); waitpid(pid, &st, 0); return -1; }
+            if (!nb) { free(buf); close(resp_pipe[0]); waitpid(pid, &st, 0); cab_free(&cab); return -1; }
             buf = nb;
             cap = nc;
         }
-        n = read(body_pipe[0], buf + len, cap - len);
+        n = read(resp_pipe[0], buf + len, cap - len);
         if (n <= 0) break;
         len += (size_t)n;
     }
-    close(body_pipe[0]);
+    close(resp_pipe[0]);
 
     waitpid(pid, &st, 0);
+    cab_free(&cab);
 
     if (WIFEXITED(st) && WEXITSTATUS(st) == 127) {
         printf("HTTP$: curl not found — install curl to use HTTP$ in the terminal build\n");
@@ -424,7 +654,7 @@ static int native_http_fetch_to_str(const char *url, char *out, size_t out_cap, 
 {
     char *buf = NULL;
     size_t blen = 0;
-    int rc = native_http_fetch_to_buf(url, &buf, &blen, status_out);
+    int rc = native_http_fetch_to_buf(url, NULL, NULL, 0, NULL, &buf, &blen, status_out);
     if (rc == 0 && buf) {
         size_t n = blen < out_cap - 1 ? blen : out_cap - 1;
         memcpy(out, buf, n);
@@ -438,7 +668,7 @@ static int native_http_fetch_to_str(const char *url, char *out, size_t out_cap, 
 #endif /* unix native */
 
 /* Fetch URL to local path; sets *status_out to HTTP status (0 on failure). Returns 0 if OK, -1 on error. */
-static int http_fetch_to_file_impl(const char *url, const char *path, const char *method, const char *body, int body_len, int *status_out)
+static int http_fetch_to_file_impl(const char *url, const char *path, const char *method, const char *body, int body_len, const char *headers, int *status_out)
 {
 #if defined(__EMSCRIPTEN__)
     const char *m = (method && method[0]) ? method : "GET";
@@ -449,16 +679,17 @@ static int http_fetch_to_file_impl(const char *url, const char *path, const char
         return -1;
     }
     *status_out = 0;
-    wasm_js_http_fetch_to_file_async(url, m, body, body_len, path, status_out);
+    wasm_js_http_fetch_to_file_async(url, m, body, body_len, headers, path, status_out);
     return 0;
 #elif (defined(__unix__) || defined(__linux__) || defined(__APPLE__) || defined(__MACH__))
-    return native_http_fetch_to_file(url, path, method, body, body_len, status_out);
+    return native_http_fetch_to_file(url, path, method, body, body_len, headers, status_out);
 #else
     (void)url;
     (void)path;
     (void)method;
     (void)body;
     (void)body_len;
+    (void)headers;
     if (status_out) {
         *status_out = 0;
     }
@@ -7194,7 +7425,7 @@ static void statement_bufferfetch(char **p)
 #endif
     emscripten_sleep(0);
 #endif
-    rc = http_fetch_to_file_impl(V_DATA(vurl), g_buffers[slot].path, meth, bod, blen, &st);
+    rc = http_fetch_to_file_impl(V_DATA(vurl), g_buffers[slot].path, meth, bod, blen, NULL, &st);
     http_last_status = st;
     (void)rc;
 }
@@ -10729,9 +10960,10 @@ static struct value eval_function(const char *name, char **p)
         return make_num((double)json_last_status);
     }
     if (code == FN_HTTP) {
-        struct value v_url, v_method, v_body;
+        struct value v_url, v_method, v_body, v_headers;
         const char *meth = NULL;
         const char *bod = NULL;
+        const char *hdrs = NULL;
         int blen = 0;
         int st = 0;
 
@@ -10752,12 +10984,21 @@ static struct value eval_function(const char *name, char **p)
                 ensure_str(&v_body);
                 bod = V_DATA(v_body);
                 blen = (int)strlen(bod);
+                skip_spaces(p);
+                if (**p == ',') {
+                    (*p)++;
+                    skip_spaces(p);
+                    v_headers = eval_expr(p);
+                    ensure_str(&v_headers);
+                    hdrs = V_DATA(v_headers);
+                    if (!hdrs || !hdrs[0]) hdrs = NULL;
+                }
             }
         }
         skip_spaces(p);
         if (**p != ')') {
-            runtime_error_hint("HTTP$ expects url$ [, method$ [, body$]]",
-                "Example: R$ = HTTP$(\"https://example.com/api\") or HTTP$(U$, \"POST\", J$).");
+            runtime_error_hint("HTTP$ expects url$ [, method$ [, body$ [, headers$]]]",
+                "Example: R$ = HTTP$(U$, \"POST\", BODY$, H$) where H$ is a JSON object.");
             return make_str("");
         }
         (*p)++;
@@ -10774,7 +11015,7 @@ static struct value eval_function(const char *name, char **p)
             const char *m = (meth && meth[0]) ? meth : "GET";
             int ptr = 0, len = 0;
             struct value out;
-            wasm_js_http_fetch_async_dyn(V_DATA(v_url), m, bod, blen, &ptr, &len, &st);
+            wasm_js_http_fetch_async_dyn(V_DATA(v_url), m, bod, blen, hdrs, &ptr, &len, &st);
             http_last_status = st;
             if (ptr && len > 0) {
                 out = make_str_bytes((char *)(intptr_t)ptr, (size_t)len);
@@ -10785,14 +11026,11 @@ static struct value eval_function(const char *name, char **p)
             return out;
         }
 #elif (defined(__unix__) || defined(__linux__) || defined(__APPLE__) || defined(__MACH__))
-        (void)meth;  /* GET-only for native MVP */
-        (void)bod;
-        (void)blen;
         {
             char *body_buf = NULL;
             size_t body_len = 0;
             struct value out;
-            native_http_fetch_to_buf(V_DATA(v_url), &body_buf, &body_len, &st);
+            native_http_fetch_to_buf(V_DATA(v_url), meth, bod, blen, hdrs, &body_buf, &body_len, &st);
             http_last_status = st;
             out = make_str_bytes(body_buf ? body_buf : "", body_buf ? body_len : 0);
             free(body_buf);
@@ -10802,6 +11040,7 @@ static struct value eval_function(const char *name, char **p)
         (void)meth;
         (void)bod;
         (void)blen;
+        (void)hdrs;
         http_last_status = 0;
         printf("HTTP$: not supported on this platform\n");
         fflush(stdout);
@@ -10809,9 +11048,10 @@ static struct value eval_function(const char *name, char **p)
 #endif
     }
     if (code == FN_HTTPFETCH) {
-        struct value v_url, v_path, v_method, v_body;
+        struct value v_url, v_path, v_method, v_body, v_headers;
         const char *meth = NULL;
         const char *bod = NULL;
+        const char *hdrs = NULL;
         int blen = 0;
         int st = 0;
         int rc;
@@ -10820,7 +11060,7 @@ static struct value eval_function(const char *name, char **p)
         ensure_str(&v_url);
         skip_spaces(p);
         if (**p != ',') {
-            runtime_error_hint("HTTPFETCH expects url$, path$ [, method$ [, body$]]",
+            runtime_error_hint("HTTPFETCH expects url$, path$ [, method$ [, body$ [, headers$]]]",
                 "Example: OK = HTTPFETCH(\"https://a/b.png\", \"/tmp/b.png\").");
             http_last_status = 0;
             return make_num(0.0);
@@ -10847,11 +11087,20 @@ static struct value eval_function(const char *name, char **p)
                 ensure_str(&v_body);
                 bod = V_DATA(v_body);
                 blen = (int)strlen(bod);
+                skip_spaces(p);
+                if (**p == ',') {
+                    (*p)++;
+                    skip_spaces(p);
+                    v_headers = eval_expr(p);
+                    ensure_str(&v_headers);
+                    hdrs = V_DATA(v_headers);
+                    if (!hdrs || !hdrs[0]) hdrs = NULL;
+                }
             }
         }
         skip_spaces(p);
         if (**p != ')') {
-            runtime_error_hint("HTTPFETCH expects url$, path$ [, method$ [, body$]]",
+            runtime_error_hint("HTTPFETCH expects url$, path$ [, method$ [, body$ [, headers$]]]",
                 "Check closing ')' and commas between arguments.");
             http_last_status = 0;
             return make_num(0.0);
@@ -10866,7 +11115,7 @@ static struct value eval_function(const char *name, char **p)
 #endif
         emscripten_sleep(0);
 #endif
-        rc = http_fetch_to_file_impl(V_DATA(v_url), V_DATA(v_path), meth, bod, blen, &st);
+        rc = http_fetch_to_file_impl(V_DATA(v_url), V_DATA(v_path), meth, bod, blen, hdrs, &st);
         http_last_status = st;
         if (rc != 0) {
             return make_num(0.0);
