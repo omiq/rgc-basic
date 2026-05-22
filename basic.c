@@ -56,6 +56,15 @@
 /* Last HTTP response status from HTTP$ (set on Emscripten; 0 otherwise). */
 static int http_last_status;
 
+/* Last JSON operation status. 0 = ok; nonzero codes reported via JSONSTATUS():
+ *   1 = parse error (malformed source JSON / no value at path during write)
+ *   2 = type error (e.g. JSONNEW$ kind not "object"/"array", JSONPUT$ path
+ *       descends through a non-container)
+ *   3 = output overflow (serialised result would exceed buffer)
+ * #OPTION JSON STRICT escalates nonzero statuses to runtime errors. */
+static int json_last_status;
+static int json_strict_mode;
+
 #ifdef __EMSCRIPTEN__
 /*
  * Async fetch for HTTP$ (EM_ASYNC_JS → Asyncify.handleAsync; no manual ASYNCIFY_IMPORTS).
@@ -3127,6 +3136,12 @@ static int apply_option_directive(const char *name, const char *value)
         return gfx_mem_try_set_region(GFX_MEM_BITMAP, a);
     }
 #endif
+    if (str_eq_ci(name, "json")) {
+        if (!value || !value[0]) return -1;
+        if (str_eq_ci(value, "strict")) { json_strict_mode = 1; return 0; }
+        if (str_eq_ci(value, "loose") || str_eq_ci(value, "off")) { json_strict_mode = 0; return 0; }
+        return -1;
+    }
     return -1;
 }
 
@@ -3521,7 +3536,19 @@ enum func_code {
     FN_JSONESC = 84,
     FN_JSONNUM = 85,
     FN_JSONBOOL = 86,
-    FN_JSONTYPE = 87
+    FN_JSONTYPE = 87,
+    /* JSON write helpers (Phase 2 of json-write proposal):
+     *   JSONNEW$(kind$)               "{}" or "[]" depending on kind$
+     *   JSONPUT$(j$, path$, value)    set value at path, auto-vivify
+     *   JSONPUTNULL$(j$, path$)       set explicit JSON null
+     *   JSONPUTBOOL$(j$, path$, n)    emit true if n != 0 else false
+     *   JSONSTATUS()                  0 if last JSON op ok, else error code
+     */
+    FN_JSONNEW = 88,
+    FN_JSONPUT = 89,
+    FN_JSONPUTNULL = 90,
+    FN_JSONPUTBOOL = 91,
+    FN_JSONSTATUS = 92
 };
 
 /* Report an error and halt further execution.
@@ -4722,6 +4749,15 @@ static int function_lookup(const char *name, int len)
         if (len == 8 && memcmp(name, "JSONBOOL", 8) == 0) return FN_JSONBOOL;
         if ((len == 8 && memcmp(name, "JSONTYPE", 8) == 0) ||
             (len == 9 && memcmp(name, "JSONTYPE$", 9) == 0)) return FN_JSONTYPE;
+        if ((len == 7 && memcmp(name, "JSONNEW", 7) == 0) ||
+            (len == 8 && memcmp(name, "JSONNEW$", 8) == 0)) return FN_JSONNEW;
+        if ((len == 7 && memcmp(name, "JSONPUT", 7) == 0) ||
+            (len == 8 && memcmp(name, "JSONPUT$", 8) == 0)) return FN_JSONPUT;
+        if ((len == 11 && memcmp(name, "JSONPUTNULL", 11) == 0) ||
+            (len == 12 && memcmp(name, "JSONPUTNULL$", 12) == 0)) return FN_JSONPUTNULL;
+        if ((len == 11 && memcmp(name, "JSONPUTBOOL", 11) == 0) ||
+            (len == 12 && memcmp(name, "JSONPUTBOOL$", 12) == 0)) return FN_JSONPUTBOOL;
+        if (len == 10 && memcmp(name, "JSONSTATUS", 10) == 0) return FN_JSONSTATUS;
         return FN_NONE;
     case 'I':
         if (len == 20 && name[0] == 'I' && name[1] == 'S' && name[2] == 'M' && name[3] == 'O' && name[4] == 'U' &&
@@ -10021,8 +10057,373 @@ static int json_extract_path(const char *json, const char *path, char *out, size
     }
 }
 
-/* Case-insensitive string match helper for function names. */
-/* Evaluate BASIC intrinsic functions (math/string/tab). */
+/* ----- JSON write helpers (Phase 2) ----- */
+
+/* Atomic path step parsed from a path string like "a.b[0].c". */
+struct json_path_step {
+    int  is_key;        /* 1 = object key, 0 = array index */
+    char key[128];
+    int  idx;
+};
+
+/* Parse next path step. Advances `*seg`. Returns 1 if a step was read, 0 at end. */
+static int json_next_step(const char **seg, struct json_path_step *step)
+{
+    const char *p = *seg;
+    if (!*p) return 0;
+    if (*p == '.') p++;
+    if (!*p) return 0;
+    if (*p == '[') {
+        p++;
+        step->is_key = 0;
+        step->idx = 0;
+        while (*p >= '0' && *p <= '9') step->idx = step->idx * 10 + (*p++ - '0');
+        if (*p == ']') p++;
+        *seg = p;
+        return 1;
+    }
+    {
+        size_t ki = 0;
+        step->is_key = 1;
+        while (*p && *p != '.' && *p != '[' && ki < sizeof(step->key) - 1) {
+            step->key[ki++] = *p++;
+        }
+        step->key[ki] = '\0';
+        *seg = p;
+        return ki > 0 ? 1 : 0;
+    }
+}
+
+/* Emit a JSON-quoted string ("escaped"). Returns chars written (0 on overflow). */
+static size_t json_emit_quoted(const char *s, size_t in_len, char *out, size_t cap)
+{
+    size_t oi = 0;
+    size_t i;
+    if (cap < 3) return 0;
+    out[oi++] = '"';
+    for (i = 0; i < in_len; i++) {
+        unsigned char c = (unsigned char)s[i];
+        if (oi + 7 >= cap) { json_last_status = 3; return 0; }
+        switch (c) {
+        case '"':  out[oi++] = '\\'; out[oi++] = '"';  break;
+        case '\\': out[oi++] = '\\'; out[oi++] = '\\'; break;
+        case '\n': out[oi++] = '\\'; out[oi++] = 'n';  break;
+        case '\t': out[oi++] = '\\'; out[oi++] = 't';  break;
+        case '\r': out[oi++] = '\\'; out[oi++] = 'r';  break;
+        case '\b': out[oi++] = '\\'; out[oi++] = 'b';  break;
+        case '\f': out[oi++] = '\\'; out[oi++] = 'f';  break;
+        default:
+            if (c < 0x20) {
+                snprintf(&out[oi], cap - oi, "\\u%04x", c);
+                oi += 6;
+            } else {
+                out[oi++] = (char)c;
+            }
+        }
+    }
+    out[oi++] = '"';
+    out[oi] = '\0';
+    return oi;
+}
+
+/* Serialise a BASIC value into a JSON literal. Integral doubles emit as %lld;
+ * non-integral as %.17g (round-trip safe). Strings get JSONESC$-style escape. */
+static size_t json_emit_value(const struct value *v, char *out, size_t cap)
+{
+    if (v->type == VAL_STR) {
+        return json_emit_quoted(V_DATA(*v), V_LEN(*v), out, cap);
+    } else {
+        double d = v->num;
+        if (d == floor(d) && d >= -9007199254740992.0 && d <= 9007199254740992.0) {
+            return (size_t)snprintf(out, cap, "%lld", (long long)d);
+        }
+        return (size_t)snprintf(out, cap, "%.17g", d);
+    }
+}
+
+/* Result of attempting to resolve a write path. */
+struct json_walk_result {
+    int found;                          /* 1 = full hit, 0 = miss */
+    const char *value_start;            /* if found: value at path */
+    const char *value_end;              /* if found: char just after value */
+    /* miss case: */
+    const char *parent;                 /* deepest existing container ('{' or '[') */
+    char        parent_kind;
+    int         parent_empty;
+    int         parent_arr_len;         /* for arrays: existing element count */
+    const char *insertion_point;        /* position OF closing } or ] of parent */
+    struct json_path_step miss_step;    /* the step that failed */
+    const char *miss_tail;              /* remainder of path string after miss_step */
+};
+
+/* Walk `path` through `json`. On full hit, sets value_start/_end. On miss,
+ * sets parent + miss_step + miss_tail so callers can splice. Returns found. */
+static int json_walk_for_write(const char *json, const char *path,
+                                struct json_walk_result *r)
+{
+    const char *p = json;
+    const char *seg = path;
+    struct json_path_step step;
+
+    memset(r, 0, sizeof(*r));
+
+    json_skip_ws(&p);
+    if (!*p) return 0;
+
+    if (!*seg) {
+        const char *e = p;
+        json_skip_value(&e);
+        r->found = 1;
+        r->value_start = p;
+        r->value_end = e;
+        return 1;
+    }
+
+    while (json_next_step(&seg, &step)) {
+        json_skip_ws(&p);
+
+        if (step.is_key) {
+            const char *parent = p;
+            const char *q;
+            int empty = 1;
+            int found = 0;
+            if (*p != '{') return 0; /* unrecoverable */
+            q = p + 1;
+            for (;;) {
+                json_skip_ws(&q);
+                if (*q == '}' || !*q) break;
+                empty = 0;
+                if (*q != '"') break;
+                {
+                    char kb[128];
+                    size_t ki = 0;
+                    q++;
+                    while (*q && *q != '"' && ki < sizeof(kb) - 1) {
+                        if (*q == '\\' && q[1]) { kb[ki++] = q[1]; q += 2; }
+                        else { kb[ki++] = *q++; }
+                    }
+                    kb[ki] = '\0';
+                    if (*q == '"') q++;
+                    json_skip_ws(&q);
+                    if (*q != ':') break;
+                    q++;
+                    json_skip_ws(&q);
+                    if (strcmp(kb, step.key) == 0) {
+                        p = q;
+                        found = 1;
+                        break;
+                    }
+                }
+                json_skip_value(&q);
+                json_skip_ws(&q);
+                if (*q == ',') { q++; continue; }
+                break;
+            }
+            if (!found) {
+                const char *q2 = parent;
+                json_skip_value(&q2);
+                r->parent = parent;
+                r->parent_kind = '{';
+                r->parent_empty = empty;
+                r->insertion_point = q2 - 1;
+                r->miss_step = step;
+                r->miss_tail = seg;
+                return 0;
+            }
+        } else {
+            const char *parent = p;
+            const char *q;
+            int arr_len = 0;
+            int reached = 0;
+            if (*p != '[') return 0;
+            q = p + 1;
+            json_skip_ws(&q);
+            if (*q != ']') {
+                for (;;) {
+                    if (arr_len == step.idx) {
+                        p = q;
+                        reached = 1;
+                        break;
+                    }
+                    json_skip_value(&q);
+                    arr_len++;
+                    json_skip_ws(&q);
+                    if (*q == ',') { q++; json_skip_ws(&q); continue; }
+                    break;
+                }
+            }
+            if (!reached) {
+                const char *q2 = parent;
+                json_skip_value(&q2);
+                r->parent = parent;
+                r->parent_kind = '[';
+                r->parent_empty = (arr_len == 0);
+                r->parent_arr_len = arr_len;
+                r->insertion_point = q2 - 1;
+                r->miss_step = step;
+                r->miss_tail = seg;
+                return 0;
+            }
+        }
+    }
+
+    json_skip_ws(&p);
+    {
+        const char *e = p;
+        json_skip_value(&e);
+        r->found = 1;
+        r->value_start = p;
+        r->value_end = e;
+    }
+    return 1;
+}
+
+/* Build the chain wrapping value_str through any remaining path steps in tail.
+ * For "[3].name" with value_str=`"x"` produces `[null,null,null,{"name":"x"}]`.
+ * `out` ends up with the chain only — the caller decides whether the chain
+ * needs a `"key":` prefix or a sparse-fill prefix for an existing array. */
+static size_t json_build_chain(const char *tail, const char *value_str,
+                               char *out, size_t cap)
+{
+    struct json_path_step steps[16];
+    int n = 0;
+    const char *seg = tail;
+    struct json_path_step st;
+    char buf_a[MAX_STR_LEN];
+    char buf_b[MAX_STR_LEN];
+    char *cur = buf_a;
+    char *nxt = buf_b;
+    int i;
+    while (json_next_step(&seg, &st) && n < (int)(sizeof(steps)/sizeof(steps[0]))) {
+        steps[n++] = st;
+    }
+    snprintf(cur, MAX_STR_LEN, "%s", value_str);
+    for (i = n - 1; i >= 0; i--) {
+        if (steps[i].is_key) {
+            char kq[260];
+            size_t kqlen = json_emit_quoted(steps[i].key, strlen(steps[i].key), kq, sizeof(kq));
+            (void)kqlen;
+            snprintf(nxt, MAX_STR_LEN, "{%s:%s}", kq, cur);
+        } else {
+            int idx = steps[i].idx;
+            int k;
+            size_t off = 0;
+            nxt[off++] = '[';
+            for (k = 0; k < idx; k++) {
+                if (off + 5 >= MAX_STR_LEN - 1) { json_last_status = 3; break; }
+                if (k > 0) nxt[off++] = ',';
+                memcpy(&nxt[off], "null", 4);
+                off += 4;
+            }
+            if (idx > 0) {
+                if (off + 1 < MAX_STR_LEN - 1) nxt[off++] = ',';
+            }
+            {
+                size_t cl = strlen(cur);
+                if (off + cl + 2 >= MAX_STR_LEN - 1) { json_last_status = 3; cl = (MAX_STR_LEN - 1) - off - 2; }
+                memcpy(&nxt[off], cur, cl);
+                off += cl;
+            }
+            if (off + 1 < MAX_STR_LEN) nxt[off++] = ']';
+            nxt[off] = '\0';
+        }
+        { char *t = cur; cur = nxt; nxt = t; }
+    }
+    {
+        size_t cl = strlen(cur);
+        if (cl >= cap) { cl = cap - 1; json_last_status = 3; }
+        memcpy(out, cur, cl);
+        out[cl] = '\0';
+        return cl;
+    }
+}
+
+/* Core write op. `value_literal` is the already-serialised JSON literal
+ * (e.g. `"hello"`, `42`, `null`, `true`). Performs splice or auto-vivify. */
+static int json_put_core(const char *json, const char *path,
+                         const char *value_literal,
+                         char *out, size_t cap)
+{
+    struct json_walk_result r;
+    int ok = json_walk_for_write(json, path, &r);
+    if (ok) {
+        size_t prefix = (size_t)(r.value_start - json);
+        size_t suffix_len = strlen(r.value_end);
+        size_t vl = strlen(value_literal);
+        if (prefix + vl + suffix_len >= cap) { json_last_status = 3; return 0; }
+        memcpy(out, json, prefix);
+        memcpy(out + prefix, value_literal, vl);
+        memcpy(out + prefix + vl, r.value_end, suffix_len);
+        out[prefix + vl + suffix_len] = '\0';
+        return 1;
+    }
+    if (!r.parent) {
+        json_last_status = 2;
+        return 0;
+    }
+    {
+        char chain[MAX_STR_LEN];
+        char ins[MAX_STR_LEN];
+        size_t cl;
+        size_t prefix = (size_t)(r.insertion_point - json);
+        size_t suffix_len = strlen(r.insertion_point);
+        size_t il;
+        cl = json_build_chain(r.miss_tail, value_literal, chain, sizeof(chain));
+        (void)cl;
+        if (r.parent_kind == '{') {
+            char kq[260];
+            json_emit_quoted(r.miss_step.key, strlen(r.miss_step.key), kq, sizeof(kq));
+            if (r.parent_empty) {
+                il = snprintf(ins, sizeof(ins), "%s:%s", kq, chain);
+            } else {
+                il = snprintf(ins, sizeof(ins), ",%s:%s", kq, chain);
+            }
+        } else {
+            int idx = r.miss_step.idx;
+            int leading = idx - r.parent_arr_len;
+            int k;
+            size_t off = 0;
+            size_t cll = strlen(chain);
+            if (leading < 0) leading = 0;
+            if (r.parent_empty) {
+                /* Empty parent array: emit `null,null,...,<chain>` with
+                 * no leading comma. */
+                for (k = 0; k < leading; k++) {
+                    if (off + 5 >= sizeof(ins) - 1) { json_last_status = 3; break; }
+                    if (k > 0) ins[off++] = ',';
+                    memcpy(&ins[off], "null", 4);
+                    off += 4;
+                }
+                if (leading > 0 && off < sizeof(ins) - 1) ins[off++] = ',';
+                if (off + cll >= sizeof(ins) - 1) cll = sizeof(ins) - 1 - off;
+                memcpy(&ins[off], chain, cll);
+                off += cll;
+            } else {
+                /* Non-empty parent array: each new slot is `,null` or
+                 * `,<chain>` — every slot leads with a comma. */
+                for (k = 0; k < leading; k++) {
+                    if (off + 5 >= sizeof(ins) - 1) { json_last_status = 3; break; }
+                    memcpy(&ins[off], ",null", 5);
+                    off += 5;
+                }
+                if (off + 1 + cll >= sizeof(ins) - 1) cll = sizeof(ins) - 1 - off - 1;
+                ins[off++] = ',';
+                memcpy(&ins[off], chain, cll);
+                off += cll;
+            }
+            ins[off] = '\0';
+            il = off;
+        }
+        if (prefix + il + suffix_len >= cap) { json_last_status = 3; return 0; }
+        memcpy(out, json, prefix);
+        memcpy(out + prefix, ins, il);
+        memcpy(out + prefix + il, r.insertion_point, suffix_len);
+        out[prefix + il + suffix_len] = '\0';
+        return 1;
+    }
+}
+
+
 static struct value eval_function(const char *name, char **p)
 {
     (void)name;
@@ -10317,6 +10718,15 @@ static struct value eval_function(const char *name, char **p)
         (*p)++;
         skip_spaces(p);
         return make_num((double)http_last_status);
+    }
+    if (code == FN_JSONSTATUS) {
+        if (**p != ')') {
+            runtime_error_hint("JSONSTATUS() takes no arguments", "Use JSONSTATUS() after a JSON op to read the last status code.");
+            return make_num(0.0);
+        }
+        (*p)++;
+        skip_spaces(p);
+        return make_num((double)json_last_status);
     }
     if (code == FN_HTTP) {
         struct value v_url, v_method, v_body;
@@ -11069,6 +11479,7 @@ static struct value eval_function(const char *name, char **p)
         code != FN_FIELD && code != FN_PLATFORM && code != FN_JSON &&
         code != FN_DIR && code != FN_JSONLEN && code != FN_JSONKEY &&
         code != FN_JSONNUM && code != FN_JSONBOOL && code != FN_JSONTYPE &&
+        code != FN_JSONPUT && code != FN_JSONPUTNULL && code != FN_JSONPUTBOOL &&
         code != FN_PALETTE) {
         if (**p == ')') {
             (*p)++;
@@ -11972,6 +12383,121 @@ static struct value eval_function(const char *name, char **p)
         default: return make_str("");
         }
     }
+    case FN_JSONNEW: {
+        const char *k;
+        ensure_str(&arg);
+        k = V_DATA(arg);
+        json_last_status = 0;
+        if (strcmp(k, "object") == 0) return make_str("{}");
+        if (strcmp(k, "array") == 0) return make_str("[]");
+        json_last_status = 2;
+        if (json_strict_mode) {
+            runtime_error_hint("JSONNEW$: kind must be \"object\" or \"array\"",
+                                 "Pass either \"object\" or \"array\" to JSONNEW$().");
+        }
+        return make_str("");
+    }
+    case FN_JSONPUT: {
+        struct value v_json = arg;
+        struct value v_path, v_value;
+        char value_lit[MAX_STR_LEN];
+        char result[MAX_STR_LEN];
+        ensure_str(&v_json);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("JSONPUT$ requires 3 arguments",
+                                 "Use JSONPUT$(json$, \"path\", value) — set value at path.");
+            return make_str("");
+        }
+        (*p)++; skip_spaces(p);
+        v_path = eval_expr(p); ensure_str(&v_path);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("JSONPUT$ requires 3 arguments",
+                                 "Third argument is the value to set.");
+            return make_str("");
+        }
+        (*p)++; skip_spaces(p);
+        v_value = eval_expr(p);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        json_last_status = 0;
+        json_emit_value(&v_value, value_lit, sizeof(value_lit));
+        if (!json_put_core(V_DATA(v_json), V_DATA(v_path), value_lit,
+                           result, sizeof(result))) {
+            if (json_strict_mode) {
+                runtime_error_hint("JSONPUT$ failed",
+                                     "Source JSON malformed, or path descends through a scalar.");
+            }
+            return make_str(V_DATA(v_json));
+        }
+        return make_str(result);
+    }
+    case FN_JSONPUTNULL: {
+        struct value v_json = arg;
+        struct value v_path;
+        char result[MAX_STR_LEN];
+        ensure_str(&v_json);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("JSONPUTNULL$ requires 2 arguments",
+                                 "Use JSONPUTNULL$(json$, \"path\") — set JSON null at path.");
+            return make_str("");
+        }
+        (*p)++; skip_spaces(p);
+        v_path = eval_expr(p); ensure_str(&v_path);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        json_last_status = 0;
+        if (!json_put_core(V_DATA(v_json), V_DATA(v_path), "null",
+                           result, sizeof(result))) {
+            if (json_strict_mode) {
+                runtime_error_hint("JSONPUTNULL$ failed",
+                                     "Source JSON malformed, or path descends through a scalar.");
+            }
+            return make_str(V_DATA(v_json));
+        }
+        return make_str(result);
+    }
+    case FN_JSONPUTBOOL: {
+        struct value v_json = arg;
+        struct value v_path, v_n;
+        char result[MAX_STR_LEN];
+        const char *lit;
+        ensure_str(&v_json);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("JSONPUTBOOL$ requires 3 arguments",
+                                 "Use JSONPUTBOOL$(json$, \"path\", n) — n!=0 → true, n=0 → false.");
+            return make_str("");
+        }
+        (*p)++; skip_spaces(p);
+        v_path = eval_expr(p); ensure_str(&v_path);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("JSONPUTBOOL$ requires 3 arguments",
+                                 "Third argument is numeric: nonzero → true, zero → false.");
+            return make_str("");
+        }
+        (*p)++; skip_spaces(p);
+        v_n = eval_expr(p); ensure_num(&v_n);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        json_last_status = 0;
+        lit = (v_n.num != 0.0) ? "true" : "false";
+        if (!json_put_core(V_DATA(v_json), V_DATA(v_path), lit,
+                           result, sizeof(result))) {
+            if (json_strict_mode) {
+                runtime_error_hint("JSONPUTBOOL$ failed",
+                                     "Source JSON malformed, or path descends through a scalar.");
+            }
+            return make_str(V_DATA(v_json));
+        }
+        return make_str(result);
+    }
     case FN_STRINGFN: {
         /* STRING$(n, char$) or STRING$(n, code) */
         struct value v_count = arg;
@@ -12755,6 +13281,9 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "JSONKEY$") ||
             starts_with_kw(*p, "JSONESC") || starts_with_kw(*p, "JSONNUM") ||
             starts_with_kw(*p, "JSONBOOL") || starts_with_kw(*p, "JSONTYPE") ||
+            starts_with_kw(*p, "JSONNEW") || starts_with_kw(*p, "JSONPUT") ||
+            starts_with_kw(*p, "JSONPUTNULL") || starts_with_kw(*p, "JSONPUTBOOL") ||
+            starts_with_kw(*p, "JSONSTATUS") ||
             starts_with_kw(*p, "SOUNDPLAYING") ||
             starts_with_kw(*p, "MUSICPLAYING") ||
             starts_with_kw(*p, "MUSICLENGTH") ||
