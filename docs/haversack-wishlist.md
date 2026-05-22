@@ -103,6 +103,58 @@ Currently surfaceable only via BASIC code (`PRINT JSONSTATUS()`). A JS host (Hav
 
 Used by Haversack's `web/test/wasm-bare.html` test rig and the planned host-side error-tagged log.
 
-## 5. Marked-resolved (historical)
+## 5. Bugs found
+
+Tracked here rather than in the `examples/` directory because they're cross-project: surfaced by Haversack-side work but live in `rgc-basic`. Each entry: concrete repro + observed-vs-expected + commit refs at time of finding.
+
+### 5a. WASM build doesn't apply PRINT column-wrap (2026-05-22)
+
+**Severity:** low (visual / formatting, not data-corrupting). **Status:** open, awaiting investigation.
+
+**Repro** (`/tmp/wraptest.bas`):
+
+```basic
+#OPTION columns 40
+PRINT "line: "; "abcdefghijklmnopqrstuvwxyz0123456789abcdef"
+PRINT "after"
+END
+```
+
+**Native CLI** (`./basic /tmp/wraptest.bas`):
+
+```
+line: abcdefghijklmnopqrstuvwxyz01234567
+89abcdef
+after
+```
+
+✓ Wraps at column 40 as expected (`print_col >= print_width` check at `basic.c:4899`).
+
+**WASM build** (`web/basic.{js,wasm}`, loaded in browser via Haversack's `web/test/host-permissive.html` rig with default flags suppressed):
+
+```
+line: abcdefghijklmnopqrstuvwxyz0123456789abcdef
+after
+```
+
+✗ Does not wrap. Single 47-char line emitted via `Module.print`.
+
+**Same divergence without the `#OPTION columns 40`** — native wraps at default 40, WASM does not.
+
+**`#OPTION nowrap` works correctly in WASM** — verified by setting `terminal_no_wrap=1` via the directive and observing identical no-wrap output. So the directive parsing reaches `apply_option_directive("nowrap")` (`basic.c:3315`); presumably `#OPTION columns N` also reaches `apply_option_directive("columns")` (`basic.c:3301`) but the resulting `print_width` either isn't read by the WASM stdout path or the wrap check is bypassed.
+
+**Hypotheses to check** (in priority order):
+
+1. Stale `web/basic.{js,wasm}` artifact in the repo. Rebuilding `make basic-wasm` may resolve. Vendored copy in Haversack came from `~/github/rgc-basic/web/basic.wasm` directly; if it predates a wrap-related basic.c change, that explains everything. (I don't have emsdk locally, so couldn't rebuild to verify.)
+2. `wasm_stdout_putc` path in `basic.c:2328` is the OUTC backend in WASM. It buffers per-`\n` for Module.print delivery. The wrap inserts `\n` upstream in `print_value()` → should still flow through `wasm_stdout_putc`. But maybe there's a separate `#ifdef __EMSCRIPTEN__` path in `print_value` that bypasses the wrap check.
+3. `print_col` isn't being incremented somewhere in the WASM build's string-output path (compile-time exclusion?).
+
+**Test commit refs** (rgc-basic): HEAD at `c0e6cf6` (DICT rename), web/basic.wasm last committed as `2c77745` (chore: untrack committed build artifacts — so the .wasm in the working tree may be from a build BEFORE that point and never refreshed).
+
+**Workaround in Haversack today**: `web/host/rgc-host.js` defaults `interpreterFlags` to `["-nowrap"]` regardless. Bug means we don't strictly need that for column-wrap suppression (it's already broken-in-our-favour), but keeping it as defence-in-depth so when the bug is fixed, our intended behaviour (no auto-wrap in the browser pane) is preserved.
+
+**To dismiss / verify**: rebuild WASM via `make basic-wasm` (needs emsdk), re-run the repro. If wraps correctly post-rebuild → close as "stale build artifact", no code change needed. If still doesn't wrap → real divergence, investigation needed.
+
+## 6. Marked-resolved (historical)
 
 Items move here when shipped or declined, with a one-line "what it was" so the section stays meaningful as a record. No entries yet — this section will fill in over time.
