@@ -3560,6 +3560,8 @@ static void statement_mapset(char **p);
 static void statement_mapsetnull(char **p);
 static void statement_mapsetbool(char **p);
 static void statement_mapdel(char **p);
+static void statement_mappush(char **p);
+static void statement_mapunpack(char **p);
 static void statement_open(char **p);
 static void statement_close(char **p);
 static void close_channel(int lfn);
@@ -10944,6 +10946,272 @@ static struct map_node *map_walk_for_read(struct map_node *root, const char *pat
     return *slot;
 }
 
+/* Append a JSON-quoted string into sb. Same escapes as json_emit_quoted
+ * (the JSON Phase 2 helper) but writing into a growable buffer. */
+static void map_sb_emit_quoted(StrBuf *sb, const char *s, size_t in_len)
+{
+    size_t i;
+    sb_append_char(sb, '"');
+    for (i = 0; i < in_len; i++) {
+        unsigned char c = (unsigned char)s[i];
+        switch (c) {
+        case '"':  sb_append_mem(sb, "\\\"", 2); break;
+        case '\\': sb_append_mem(sb, "\\\\", 2); break;
+        case '\n': sb_append_mem(sb, "\\n",  2); break;
+        case '\t': sb_append_mem(sb, "\\t",  2); break;
+        case '\r': sb_append_mem(sb, "\\r",  2); break;
+        case '\b': sb_append_mem(sb, "\\b",  2); break;
+        case '\f': sb_append_mem(sb, "\\f",  2); break;
+        default:
+            if (c < 0x20) {
+                char esc[8];
+                snprintf(esc, sizeof(esc), "\\u%04x", c);
+                sb_append_str(sb, esc);
+            } else {
+                sb_append_char(sb, (char)c);
+            }
+        }
+    }
+    sb_append_char(sb, '"');
+}
+
+static void map_node_to_json_sb(StrBuf *sb, const struct map_node *node);
+
+static void map_node_to_json_sb(StrBuf *sb, const struct map_node *node)
+{
+    if (!node) { sb_append_mem(sb, "null", 4); return; }
+    switch (node->kind) {
+    case MAP_NULL:
+        sb_append_mem(sb, "null", 4);
+        return;
+    case MAP_BOOL:
+        if (node->u.b) sb_append_mem(sb, "true", 4);
+        else           sb_append_mem(sb, "false", 5);
+        return;
+    case MAP_NUMBER: {
+        char buf[64];
+        double d = node->u.n;
+        if (d == floor(d) && d >= -9007199254740992.0 && d <= 9007199254740992.0) {
+            snprintf(buf, sizeof(buf), "%lld", (long long)d);
+        } else {
+            snprintf(buf, sizeof(buf), "%.17g", d);
+        }
+        sb_append_str(sb, buf);
+        return;
+    }
+    case MAP_STRING:
+        if (node->u.s) map_sb_emit_quoted(sb, node->u.s->data, node->u.s->len);
+        else           sb_append_mem(sb, "\"\"", 2);
+        return;
+    case MAP_ARRAY: {
+        int i;
+        sb_append_char(sb, '[');
+        for (i = 0; i < node->u.arr.count; i++) {
+            if (i > 0) sb_append_char(sb, ',');
+            map_node_to_json_sb(sb, node->u.arr.items[i]);
+        }
+        sb_append_char(sb, ']');
+        return;
+    }
+    case MAP_OBJECT: {
+        int i;
+        sb_append_char(sb, '{');
+        for (i = 0; i < node->u.obj.count; i++) {
+            if (i > 0) sb_append_char(sb, ',');
+            {
+                rgc_str_t *k = node->u.obj.entries[i].key;
+                if (k) map_sb_emit_quoted(sb, k->data, k->len);
+                else   sb_append_mem(sb, "\"\"", 2);
+            }
+            sb_append_char(sb, ':');
+            map_node_to_json_sb(sb, node->u.obj.entries[i].value);
+        }
+        sb_append_char(sb, '}');
+        return;
+    }
+    }
+}
+
+/* Serialise the map at slot to a BASIC string value. Empty string if
+ * slot is invalid or has no root. Use-after-free sets json_last_status. */
+static struct value map_slot_to_json_value(int slot)
+{
+    struct map_node *root;
+    if (!map_slot_in_use(slot)) {
+        json_last_status = 4;
+        return make_str("");
+    }
+    root = g_maps[slot].root;
+    if (!root) return make_str("{}");
+    {
+        StrBuf sb;
+        struct value out;
+        sb_init(&sb);
+        map_node_to_json_sb(&sb, root);
+        out = make_str_bytes(sb.buf, sb.len);
+        free(sb.buf);
+        return out;
+    }
+}
+
+/* MAPLOAD recursive parser. *pp is advanced past the parsed value.
+ * Returns NULL on parse error and sets json_last_status = 1. */
+static struct map_node *map_parse_value(const char **pp);
+
+static struct map_node *map_parse_string_node(const char **pp)
+{
+    const char *p = *pp;
+    StrBuf sb;
+    struct map_node *node;
+    if (*p != '"') return NULL;
+    p++;
+    sb_init(&sb);
+    while (*p && *p != '"') {
+        if (*p == '\\' && p[1]) {
+            switch (p[1]) {
+            case '"':  sb_append_char(&sb, '"'); break;
+            case '\\': sb_append_char(&sb, '\\'); break;
+            case '/':  sb_append_char(&sb, '/'); break;
+            case 'n':  sb_append_char(&sb, '\n'); break;
+            case 't':  sb_append_char(&sb, '\t'); break;
+            case 'r':  sb_append_char(&sb, '\r'); break;
+            case 'b':  sb_append_char(&sb, '\b'); break;
+            case 'f':  sb_append_char(&sb, '\f'); break;
+            case 'u':
+                /* \uXXXX placeholder — emit '?' to stay consistent with
+                 * the existing JSON read code which does the same. */
+                if (p[2] && p[3] && p[4] && p[5]) {
+                    sb_append_char(&sb, '?');
+                    p += 4;
+                }
+                break;
+            default: sb_append_char(&sb, p[1]); break;
+            }
+            p += 2;
+        } else {
+            sb_append_char(&sb, *p++);
+        }
+    }
+    if (*p == '"') p++;
+    node = map_node_new(MAP_STRING);
+    if (node) {
+        if (sb.len == 0) {
+            node->u.s = rgc_str_empty;
+        } else {
+            node->u.s = rgc_str_ref(rgc_str_from_bytes(sb.buf, sb.len));
+        }
+    }
+    free(sb.buf);
+    *pp = p;
+    return node;
+}
+
+static struct map_node *map_parse_value(const char **pp)
+{
+    const char *p = *pp;
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+    if (!*p) { json_last_status = 1; return NULL; }
+    if (*p == '{') {
+        struct map_node *obj = map_node_new(MAP_OBJECT);
+        if (!obj) return NULL;
+        p++;
+        for (;;) {
+            while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+            if (*p == '}') { p++; break; }
+            if (*p != '"') { json_last_status = 1; map_node_free(obj); return NULL; }
+            {
+                /* Parse key */
+                const char *kp = p;
+                struct map_node *kn = map_parse_string_node(&kp);
+                if (!kn) { json_last_status = 1; map_node_free(obj); return NULL; }
+                p = kp;
+                while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+                if (*p != ':') {
+                    map_node_free(kn); map_node_free(obj);
+                    json_last_status = 1; return NULL;
+                }
+                p++;
+                {
+                    struct map_node *vn = map_parse_value(&p);
+                    if (!vn) {
+                        map_node_free(kn); map_node_free(obj);
+                        return NULL;
+                    }
+                    map_obj_set(obj,
+                                kn->u.s ? kn->u.s->data : "",
+                                kn->u.s ? kn->u.s->len : 0,
+                                vn);
+                }
+                map_node_free(kn);
+            }
+            while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+            if (*p == ',') { p++; continue; }
+            if (*p == '}') { p++; break; }
+            json_last_status = 1; map_node_free(obj); return NULL;
+        }
+        *pp = p;
+        return obj;
+    }
+    if (*p == '[') {
+        struct map_node *arr = map_node_new(MAP_ARRAY);
+        if (!arr) return NULL;
+        p++;
+        while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+        if (*p == ']') { p++; *pp = p; return arr; }
+        for (;;) {
+            struct map_node *vn = map_parse_value(&p);
+            if (!vn) { map_node_free(arr); return NULL; }
+            map_arr_push(arr, vn);
+            while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+            if (*p == ',') { p++; continue; }
+            if (*p == ']') { p++; break; }
+            json_last_status = 1; map_node_free(arr); return NULL;
+        }
+        *pp = p;
+        return arr;
+    }
+    if (*p == '"') {
+        struct map_node *n = map_parse_string_node(&p);
+        if (!n) { json_last_status = 1; return NULL; }
+        *pp = p;
+        return n;
+    }
+    if (p[0] == 't' && p[1] == 'r' && p[2] == 'u' && p[3] == 'e') {
+        struct map_node *n = map_node_new(MAP_BOOL);
+        if (n) n->u.b = 1;
+        *pp = p + 4;
+        return n;
+    }
+    if (p[0] == 'f' && p[1] == 'a' && p[2] == 'l' && p[3] == 's' && p[4] == 'e') {
+        struct map_node *n = map_node_new(MAP_BOOL);
+        if (n) n->u.b = 0;
+        *pp = p + 5;
+        return n;
+    }
+    if (p[0] == 'n' && p[1] == 'u' && p[2] == 'l' && p[3] == 'l') {
+        *pp = p + 4;
+        return map_node_new(MAP_NULL);
+    }
+    if (*p == '-' || (*p >= '0' && *p <= '9')) {
+        char buf[64];
+        size_t i = 0;
+        while (*p && i < sizeof(buf) - 1 &&
+               (*p == '-' || *p == '+' || *p == 'e' || *p == 'E' || *p == '.' ||
+                (*p >= '0' && *p <= '9'))) {
+            buf[i++] = *p++;
+        }
+        buf[i] = '\0';
+        {
+            struct map_node *n = map_node_new(MAP_NUMBER);
+            if (n) n->u.n = atof(buf);
+            *pp = p;
+            return n;
+        }
+    }
+    json_last_status = 1;
+    return NULL;
+}
+
 static const char *map_kind_name(int kind)
 {
     switch (kind) {
@@ -13344,28 +13612,32 @@ static struct value eval_function(const char *name, char **p)
         }
     }
     case FN_MAPLOAD: {
-        /* Phase 3 will wire this fully (full recursive parse). For Phase 1,
-         * accept only the trivial empty-object literal so users can write
-         * `H = MAPLOAD("{}")` symmetrically; everything else sets JSONSTATUS=1
-         * and returns -1. */
         const char *s;
+        struct map_node *root;
         int slot;
         ensure_str(&arg);
+        json_last_status = 0;
         s = V_DATA(arg);
-        while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') s++;
-        if (s[0] == '{' && (s[1] == '\0' || s[1] == '}' || s[1] == ' ' || s[1] == '\n' || s[1] == '\t' || s[1] == '\r')) {
-            /* Empty object case; full parse lands in Phase 3. */
-            slot = map_slot_allocate();
-            if (slot < 0) { json_last_status = 2; return make_num(-1.0); }
-            json_last_status = 0;
-            return make_num((double)slot);
+        root = map_parse_value(&s);
+        if (!root) {
+            if (json_strict_mode) {
+                runtime_error_hint("MAPLOAD: parse error",
+                                     "Source JSON is malformed; see JSONSTATUS().");
+            }
+            return make_num(-1.0);
         }
-        json_last_status = 1;
-        if (json_strict_mode) {
-            runtime_error_hint("MAPLOAD: parse not yet implemented",
-                                 "Phase 1 ships scalar set/get only; MAPLOAD lands in Phase 3.");
+        slot = map_slot_allocate();
+        if (slot < 0) {
+            map_node_free(root);
+            json_last_status = 2;
+            if (json_strict_mode) {
+                runtime_error_hint("MAPLOAD: no free slot",
+                                     "MAX_MAPS = 16. MAPFREE one before MAPLOAD.");
+            }
+            return make_num(-1.0);
         }
-        return make_num(-1.0);
+        g_maps[slot].root = root;
+        return make_num((double)slot);
     }
     case FN_STRINGFN: {
         /* STRING$(n, char$) or STRING$(n, code) */
@@ -13539,11 +13811,18 @@ static struct value eval_function(const char *name, char **p)
     case FN_JSON: {
         struct value v_json = arg;
         struct value v_path;
-        ensure_str(&v_json);
+        /* Overload: JSON$(handle) — single numeric arg serialises the
+         * map at that slot. JSON$(j$, path$) — existing 2-arg form. */
         skip_spaces(p);
+        if (v_json.type == VAL_NUM && **p == ')') {
+            (*p)++;
+            skip_spaces(p);
+            return map_slot_to_json_value((int)v_json.num);
+        }
+        ensure_str(&v_json);
         if (**p != ',') {
-            runtime_error_hint("JSON$ requires 2 arguments",
-                                 "Use JSON$(json$, \"/path/to/key\") — JSON text and a path string.");
+            runtime_error_hint("JSON$ requires 2 arguments (or a map handle)",
+                                 "Use JSON$(json$, \"path\") for strings, or JSON$(handle) for a map.");
             return make_str("");
         }
         (*p)++;
@@ -16115,6 +16394,162 @@ static void statement_mapdel(char **p)
     } else {
         if (parent->kind == MAP_ARRAY) {
             map_arr_del(parent, last.idx);
+        }
+    }
+}
+
+/* MAPPUSH h, path$, value — auto-vivify (or upgrade null to) an array
+ * at path, then append value. Errors with JSONSTATUS=2 if the existing
+ * node at path is a non-array, non-null type. */
+static void statement_mappush(char **p)
+{
+    struct value v_h, v_path, v_val;
+    struct map_node **root_ptr, **leaf;
+    int slot;
+    skip_spaces(p);
+    v_h = eval_expr(p);
+    ensure_num(&v_h);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("MAPPUSH: expected ,",
+                             "Syntax: MAPPUSH handle, path$, value.");
+        return;
+    }
+    (*p)++; skip_spaces(p);
+    v_path = eval_expr(p); ensure_str(&v_path);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("MAPPUSH: expected ,",
+                             "Third argument is the value to append.");
+        return;
+    }
+    (*p)++; skip_spaces(p);
+    v_val = eval_expr(p);
+    skip_spaces(p);
+    json_last_status = 0;
+    slot = (int)v_h.num;
+    root_ptr = map_slot_root_ptr_for_write(slot);
+    if (!root_ptr) return;
+    leaf = root_ptr;
+    if (!map_walk_for_write(&leaf, V_DATA(v_path), 1)) return;
+    if (!*leaf) {
+        *leaf = map_node_new(MAP_ARRAY);
+    } else if ((*leaf)->kind == MAP_NULL) {
+        map_node_free(*leaf);
+        *leaf = map_node_new(MAP_ARRAY);
+    } else if ((*leaf)->kind != MAP_ARRAY) {
+        json_last_status = 2;
+        if (json_strict_mode) {
+            runtime_error_hint("MAPPUSH: path is not an array",
+                                 "MAPPUSH only appends to arrays. Use MAPSET to replace.");
+        }
+        return;
+    }
+    {
+        struct map_node *node = map_node_from_value(&v_val);
+        if (!node) return;
+        if (map_arr_push(*leaf, node) != 0) json_last_status = 3;
+    }
+}
+
+/* MAPUNPACK h, path$ INTO arr$ — walk to a map array at path, REDIM
+ * the destination string array to its length, fill each element with
+ * the JSON-serialised substring. Composes with FOREACH (parallel to
+ * JSONUNPACK). */
+static void statement_mapunpack(char **p)
+{
+    struct value v_h, v_path;
+    struct var *arr_var = NULL;
+    struct map_node *root, *node;
+    int slot;
+    int count = 0;
+    int i;
+    skip_spaces(p);
+    v_h = eval_expr(p); ensure_num(&v_h);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("MAPUNPACK: expected ,",
+                             "Syntax: MAPUNPACK handle, path$ INTO arr$.");
+        return;
+    }
+    (*p)++; skip_spaces(p);
+    v_path = eval_expr(p); ensure_str(&v_path);
+    skip_spaces(p);
+    if (!starts_with_kw(*p, "INTO")) {
+        runtime_error_hint("MAPUNPACK: expected INTO",
+                             "Syntax: MAPUNPACK handle, path$ INTO arr$.");
+        return;
+    }
+    *p += 4;
+    skip_spaces(p);
+    if (!isalpha((unsigned char)**p)) {
+        runtime_error_hint("MAPUNPACK: expected array variable",
+                             "After INTO, give the string array name (e.g. ITEMS$).");
+        return;
+    }
+    {
+        char namebuf[VAR_NAME_MAX];
+        int is_string = 0;
+        read_identifier(p, namebuf, sizeof(namebuf));
+        uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
+        if (!is_string) {
+            runtime_error_hint("MAPUNPACK: expected string array",
+                                 "MAPUNPACK fills a string array (name ends with $).");
+            return;
+        }
+        for (i = 0; i < var_count; i++) {
+            if (strcmp(vars[i].name, namebuf) == 0 && vars[i].is_string) {
+                arr_var = &vars[i];
+                break;
+            }
+        }
+    }
+    if (!arr_var || !arr_var->is_array || arr_var->dims != 1) {
+        runtime_error_hint("MAPUNPACK: requires 1-D string array (DIM first)",
+                             "DIM ITEMS$(0) — MAPUNPACK resizes to match the map array.");
+        return;
+    }
+    skip_spaces(p);
+    if (**p == '(') { (*p)++; skip_spaces(p); if (**p == ')') (*p)++; }
+    json_last_status = 0;
+    slot = (int)v_h.num;
+    root = map_slot_root_for_read(slot);
+    if (root) node = map_walk_for_read(root, V_DATA(v_path));
+    else      node = NULL;
+    if (node && node->kind == MAP_ARRAY) {
+        count = node->u.arr.count;
+    } else if (node) {
+        json_last_status = 2;
+        if (json_strict_mode) {
+            runtime_error_hint("MAPUNPACK: path does not resolve to an array",
+                                 "Check the path; MAPUNPACK iterates map arrays only.");
+        }
+    }
+    if (arr_var->array) {
+        for (i = 0; i < arr_var->size; i++) v_clear_str(&arr_var->array[i]);
+        free(arr_var->array);
+        arr_var->array = NULL;
+    }
+    arr_var->size = (count > 0) ? count : 0;
+    arr_var->dim_sizes[0] = arr_var->size;
+    if (arr_var->size > 0) {
+        arr_var->array = (struct value *)calloc((size_t)arr_var->size, sizeof(struct value));
+        if (!arr_var->array) {
+            arr_var->size = 0;
+            arr_var->dim_sizes[0] = 0;
+            return;
+        }
+        for (i = 0; i < arr_var->size; i++) arr_var->array[i].str_h = rgc_str_empty;
+    }
+    if (count > 0 && node) {
+        StrBuf sb;
+        for (i = 0; i < count; i++) {
+            sb_init(&sb);
+            map_node_to_json_sb(&sb, node->u.arr.items[i]);
+            arr_var->array[i].type = VAL_STR;
+            arr_var->array[i].num = 0.0;
+            v_set_bytes(&arr_var->array[i], sb.buf, sb.len);
+            free(sb.buf);
         }
     }
 }
@@ -18747,6 +19182,16 @@ static void execute_statement(char **p)
     if (c == 'M' && starts_with_kw(*p, "MAPDEL")) {
         *p += 6;
         statement_mapdel(p);
+        return;
+    }
+    if (c == 'M' && starts_with_kw(*p, "MAPPUSH")) {
+        *p += 7;
+        statement_mappush(p);
+        return;
+    }
+    if (c == 'M' && starts_with_kw(*p, "MAPUNPACK")) {
+        *p += 9;
+        statement_mapunpack(p);
         return;
     }
     if (c == 'U' && starts_with_kw(*p, "UNLOADSPRITE")) {
