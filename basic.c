@@ -20962,7 +20962,14 @@ int main(int argc, char **argv)
 #ifdef __EMSCRIPTEN__
 
 /* Apply space-separated interpreter flags from JS (e.g. "-petscii -palette c64").
- * Returns 0 on success, -1 on error (details on stderr / Module.printErr). */
+ * Returns 0 on success, -1 on error (details on stderr / Module.printErr).
+ *
+ * Reset semantics: each call replaces the previous flag state. The browser
+ * Module instance is reused across multiple Run clicks, but flag parsing only
+ * ever SETS sticky globals (terminal_no_wrap, petscii_mode, print_width…),
+ * never clears them — so one earlier run with "-nowrap" would otherwise
+ * poison every later run that passed an empty flag string. We reset the
+ * parseable globals back to their compile-time defaults before re-applying. */
 EMSCRIPTEN_KEEPALIVE int basic_apply_arg_string(const char *argline)
 {
     char buf[512];
@@ -20970,6 +20977,20 @@ EMSCRIPTEN_KEEPALIVE int basic_apply_arg_string(const char *argline)
     int argc;
     char *p;
     size_t n;
+
+    /* Reset flag state to defaults so this call is authoritative (matches
+     * native CLI semantics where each process starts fresh). */
+    petscii_mode = 0;
+    petscii_plain = 0;
+    petscii_no_wrap = 0;
+    terminal_no_wrap = 0;
+    print_width = DEFAULT_PRINT_WIDTH;
+    palette_mode = PALETTE_ANSI;
+    charset_explicit_opt = 0;
+    petscii_lowercase_opt = 0;
+    petscii_set_lowercase(0);
+    charrom_family_opt = 0;
+    max_str_limit = MAX_STR_LEN;
 
     if (!argline) {
         argline = "";

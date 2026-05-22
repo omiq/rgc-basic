@@ -107,7 +107,13 @@ Used by Haversack's `web/test/wasm-bare.html` test rig and the planned host-side
 
 Tracked here rather than in the `examples/` directory because they're cross-project: surfaced by Haversack-side work but live in `rgc-basic`. Each entry: concrete repro + observed-vs-expected + commit refs at time of finding.
 
-### 5a. WASM build doesn't apply PRINT column-wrap (2026-05-22)
+### 5a. WASM build doesn't apply PRINT column-wrap (2026-05-22) — **[shipped: see §6]**
+
+**Resolution (2026-05-22):** real bug, not in the wrap logic but in `basic_apply_arg_string`'s reset semantics. The wrap code at `basic.c:4225/4868/4899` was always correct; `terminal_no_wrap` (and other parsed-flag globals) were sticky across Module re-runs because each `basic_apply_arg_string` call only SET flags from its argline, never reset previous state. A prior run with `-nowrap` poisoned every later run that passed an empty string. Fixed by resetting all flag globals to compile-time defaults at the top of `basic_apply_arg_string`. See §6 for diagnosis trail + verification.
+
+---
+
+(Original report retained below for the audit trail; superseded by §6 entry.)
 
 **Severity:** low (visual / formatting, not data-corrupting). **Status:** open, fresh build retested same. Not a stale artifact.
 
@@ -165,4 +171,103 @@ after
 
 ## 6. Marked-resolved (historical)
 
-Items move here when shipped or declined, with a one-line "what it was" so the section stays meaningful as a record. No entries yet — this section will fill in over time.
+Items move here when shipped or declined, with a one-line "what it was" so the section stays meaningful as a record.
+
+### 5a → fixed 2026-05-22 — `basic_apply_arg_string` flag-reset semantics (browser Module reuse)
+
+**One-line:** The WASM wrap logic was always correct. The bug was that `basic_apply_arg_string` only ever *set* flags from its argline — `terminal_no_wrap`, `petscii_mode`, `print_width`, `palette_mode`, etc. were module-level statics that stayed sticky across Module re-runs. One earlier call with `-nowrap` poisoned every later call that passed an empty flag string. Fixed by resetting all flag globals to their compile-time defaults at the top of `basic_apply_arg_string`, so each call is authoritative (matches the native-CLI semantic where each process starts fresh).
+
+**Diagnosis loop (kept for the audit trail because the false trail is interesting):**
+
+1. First pass: built a node harness that loads `web/basic.js`, calls `basic_apply_arg_string('')`, then runs the repro. Output wrapped correctly (3 separate `Module.print` calls). Concluded "not an RGC bug, Haversack host config issue".
+2. Chris asked: "is it possible the browser is remembering/caching state between tests?" Right question.
+3. Extended the node harness to call `basic_apply_arg_string('-nowrap')` first, then `basic_apply_arg_string('')` second, both against the same loaded Module. Second call produced the **exact** bad output from the original bug report. State stickiness confirmed.
+4. Source check: `basic_parse_arg_flags` walks argv and sets module-static globals via `apply_option_directive`. Nothing in either function clears existing state, so the second call is purely additive over whatever the first call left behind. In a native one-shot process this is fine — there is no "second call". In WASM where the Module is reused across Run clicks, sticky flags accumulate across runs.
+
+**The fix:**
+
+```c
+EMSCRIPTEN_KEEPALIVE int basic_apply_arg_string(const char *argline)
+{
+    /* Reset flag state to defaults so this call is authoritative. */
+    petscii_mode = 0;
+    petscii_plain = 0;
+    petscii_no_wrap = 0;
+    terminal_no_wrap = 0;
+    print_width = DEFAULT_PRINT_WIDTH;
+    palette_mode = PALETTE_ANSI;
+    charset_explicit_opt = 0;
+    petscii_lowercase_opt = 0;
+    petscii_set_lowercase(0);
+    charrom_family_opt = 0;
+    max_str_limit = MAX_STR_LEN;
+    /* …then parse argline as before via basic_parse_arg_flags. */
+```
+
+**Verification harness** (node, reproducible from this repo, runs same Module across multiple `basic_apply_arg_string` invocations):
+
+```js
+const Module = require('./web/basic.js');
+const runs = [];
+let currentOut = null;
+Module.print = function(t) { if (currentOut) currentOut.push(JSON.stringify(t)); };
+async function runOnce(label, flags) {
+  const out = [];
+  currentOut = out;
+  Module.ccall('basic_apply_arg_string', 'number', ['string'], [flags]);
+  await Module.ccall('basic_load_and_run', null, ['string'], ['/p.bas'], {async:true});
+  runs.push({label, out});
+}
+Module.onRuntimeInitialized = async function() {
+  Module.FS.writeFile('/p.bas',
+    '#OPTION columns 40\nPRINT "line: "; "abcdefghijklmnopqrstuvwxyz0123456789abcdef"\nPRINT "after"\nEND\n');
+  await runOnce('-nowrap', '-nowrap');
+  await runOnce('empty 1', '');
+  await runOnce('empty 2', '');
+  for (const r of runs) { console.log('---', r.label, '---'); r.out.forEach((s,i) => console.log(i+':', s)); }
+};
+```
+
+Before fix: all three runs emit `line: …abcdef\n` (no wrap) because `-nowrap` from run 1 stuck.
+After fix: run 1 emits no-wrap; runs 2 and 3 emit `…01234567\n` + `89abcdef\n` + `after\n` (wraps correctly).
+
+**Heads-up for Haversack:** re-vendor `web/basic.{js,wasm}` once a new RGC release lands with this fix. Until then, the workaround in `rgc-host.js` (defaulting to `["-nowrap"]`) is fine — and the bug only bit if the same Module instance ever saw both `-nowrap` and a later non-`-nowrap` call. If `rgc-host.js` is consistently `-nowrap` for every run, no symptom would surface; if any code path passed empty flags after the initial `-nowrap`, those would also be no-wrap, which is the "broken-in-our-favour" you noted.
+
+**Verification harness** (node, no browser needed; reproducible from this repo):
+
+```js
+// /tmp/wasmtest.js
+const Module = require('./web/basic.js');
+const out = [];
+Module.print = function(t) { out.push(JSON.stringify(t)); };
+Module.onRuntimeInitialized = function() {
+  const prog = '#OPTION columns 40\nPRINT "line: "; "abcdefghijklmnopqrstuvwxyz0123456789abcdef"\nPRINT "after"\nEND\n';
+  Module.FS.writeFile('/program.bas', prog);
+  Module.ccall('basic_apply_arg_string', 'number', ['string'], ['']);   // <-- empty flags
+  Module.ccall('basic_load_and_run', null, ['string'], ['/program.bas'], {async:true})
+    .then(() => out.forEach((s, i) => console.log(i+':', s)));
+};
+```
+
+With `''` (no flags):
+
+```
+0: "line: abcdefghijklmnopqrstuvwxyz01234567\n"
+1: "89abcdef\n"
+2: "after\n"
+```
+
+With `'-nowrap'`:
+
+```
+0: "line: abcdefghijklmnopqrstuvwxyz0123456789abcdef\n"
+1: "after\n"
+```
+
+The second matches the bug report exactly. So the wrap logic in `basic.c` at lines 4225 / 4868 / 4899 fires correctly under WASM; `terminal_no_wrap` is the sole gate that suppresses it, and that flag was being set by an arg flag the test rig believed it had cleared.
+
+**Why the original "directive parsing works" check was null-evidence:** `#OPTION nowrap` was tested against a baseline that was already no-wrap (because `terminal_no_wrap=1` was sticky from the arg parse). Both outputs looked the same → the directive looked like it worked, but the comparison didn't actually exercise wrap-on-vs-wrap-off behaviour.
+
+**Action on Haversack side:** audit `web/host/rgc-host.js` and `web/test/host-permissive.html` — when the "no default flags" test path runs, confirm the empty-string is what actually lands in `basic_apply_arg_string` (log it; the bug is somewhere in the suppression path). Once that's clean, re-run the repro to confirm wrap works.
+
+**No code change on RGC side.** The diagnostic does suggest a small ergonomic improvement that would have shortened this loop: expose current `terminal_no_wrap` / `print_width` to JS (or to BASIC via a builtin). Logged separately under §3 if/when there's appetite — not opening a new line item just for this.
