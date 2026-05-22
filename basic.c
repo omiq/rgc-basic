@@ -18136,6 +18136,11 @@ static void statement_for(char **p)
     for_stack[for_top].var = vp;
     for_stack[for_top].is_string = is_string;
     for_stack[for_top].gosub_depth_at_entry = gosub_top;
+    /* Reset the each-iterator state in case a popped FOREACH frame
+     * left is_each=1 in this slot — NEXT branches on it. */
+    for_stack[for_top].is_each = 0;
+    for_stack[for_top].each_array = NULL;
+    for_stack[for_top].each_idx = 0;
     for_top++;
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
     if (wasm_canvas_debug_trace_for) {
