@@ -3511,7 +3511,17 @@ enum func_code {
      * array / object entries at path; JSONKEY$(j$, path$, n) returns
      * 0-based nth key for objects (or "" for arrays / scalars). */
     FN_JSONLEN = 79,
-    FN_JSONKEY = 80
+    FN_JSONKEY = 80,
+    /* JSON read helpers (Phase 1 of json-write proposal):
+     *   JSONESC$(s$)            escape s$ for safe embedding in a JSON string literal
+     *   JSONNUM(j$, path$)      number at path, 0 if missing/non-numeric
+     *   JSONBOOL(j$, path$)     1 for JSON true, 0 for false/missing/non-bool
+     *   JSONTYPE$(j$, path$)    "string"/"number"/"object"/"array"/"null"/"bool"/""
+     */
+    FN_JSONESC = 84,
+    FN_JSONNUM = 85,
+    FN_JSONBOOL = 86,
+    FN_JSONTYPE = 87
 };
 
 /* Report an error and halt further execution.
@@ -4706,6 +4716,12 @@ static int function_lookup(const char *name, int len)
         if (len == 7 && memcmp(name, "JSONLEN", 7) == 0) return FN_JSONLEN;
         if ((len == 7 && memcmp(name, "JSONKEY", 7) == 0) ||
             (len == 8 && memcmp(name, "JSONKEY$", 8) == 0)) return FN_JSONKEY;
+        if ((len == 7 && memcmp(name, "JSONESC", 7) == 0) ||
+            (len == 8 && memcmp(name, "JSONESC$", 8) == 0)) return FN_JSONESC;
+        if (len == 7 && memcmp(name, "JSONNUM", 7) == 0) return FN_JSONNUM;
+        if (len == 8 && memcmp(name, "JSONBOOL", 8) == 0) return FN_JSONBOOL;
+        if ((len == 8 && memcmp(name, "JSONTYPE", 8) == 0) ||
+            (len == 9 && memcmp(name, "JSONTYPE$", 9) == 0)) return FN_JSONTYPE;
         return FN_NONE;
     case 'I':
         if (len == 20 && name[0] == 'I' && name[1] == 'S' && name[2] == 'M' && name[3] == 'O' && name[4] == 'U' &&
@@ -11052,6 +11068,7 @@ static struct value eval_function(const char *name, char **p)
         code != FN_REPLACE && code != FN_TRIM && code != FN_LTRIM && code != FN_RTRIM &&
         code != FN_FIELD && code != FN_PLATFORM && code != FN_JSON &&
         code != FN_DIR && code != FN_JSONLEN && code != FN_JSONKEY &&
+        code != FN_JSONNUM && code != FN_JSONBOOL && code != FN_JSONTYPE &&
         code != FN_PALETTE) {
         if (**p == ')') {
             (*p)++;
@@ -11844,6 +11861,117 @@ static struct value eval_function(const char *name, char **p)
         if (!json_nth_key(node, (int)v_n.num, kbuf, sizeof(kbuf))) return make_str("");
         return make_str(kbuf);
     }
+    case FN_JSONESC: {
+        const char *s;
+        size_t in_len, i, oi = 0;
+        char esc[MAX_STR_LEN];
+        ensure_str(&arg);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        s = V_DATA(arg);
+        in_len = V_LEN(arg);
+        for (i = 0; i < in_len; i++) {
+            unsigned char c = (unsigned char)s[i];
+            if (oi + 6 >= sizeof(esc)) break;
+            switch (c) {
+            case '"':  esc[oi++] = '\\'; esc[oi++] = '"';  break;
+            case '\\': esc[oi++] = '\\'; esc[oi++] = '\\'; break;
+            case '\n': esc[oi++] = '\\'; esc[oi++] = 'n';  break;
+            case '\t': esc[oi++] = '\\'; esc[oi++] = 't';  break;
+            case '\r': esc[oi++] = '\\'; esc[oi++] = 'r';  break;
+            case '\b': esc[oi++] = '\\'; esc[oi++] = 'b';  break;
+            case '\f': esc[oi++] = '\\'; esc[oi++] = 'f';  break;
+            default:
+                if (c < 0x20) {
+                    snprintf(&esc[oi], sizeof(esc) - oi, "\\u%04x", c);
+                    oi += 6;
+                } else {
+                    esc[oi++] = (char)c;
+                }
+            }
+        }
+        esc[oi] = '\0';
+        return make_str(esc);
+    }
+    case FN_JSONNUM: {
+        struct value v_json = arg;
+        struct value v_path;
+        const char *node;
+        ensure_str(&v_json);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("JSONNUM requires 2 arguments",
+                                 "Use JSONNUM(json$, \"path\") — JSON text and a path string.");
+            return make_num(0.0);
+        }
+        (*p)++; skip_spaces(p);
+        v_path = eval_expr(p);
+        ensure_str(&v_path);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        node = json_navigate(V_DATA(v_json), V_DATA(v_path));
+        if (!node) return make_num(0.0);
+        if (*node != '-' && *node != '+' && !(*node >= '0' && *node <= '9'))
+            return make_num(0.0);
+        return make_num(atof(node));
+    }
+    case FN_JSONBOOL: {
+        struct value v_json = arg;
+        struct value v_path;
+        const char *node;
+        ensure_str(&v_json);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("JSONBOOL requires 2 arguments",
+                                 "Use JSONBOOL(json$, \"path\") — returns 1 for JSON true, 0 otherwise.");
+            return make_num(0.0);
+        }
+        (*p)++; skip_spaces(p);
+        v_path = eval_expr(p);
+        ensure_str(&v_path);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        node = json_navigate(V_DATA(v_json), V_DATA(v_path));
+        if (!node) return make_num(0.0);
+        if (node[0] == 't' && node[1] == 'r' && node[2] == 'u' && node[3] == 'e')
+            return make_num(1.0);
+        return make_num(0.0);
+    }
+    case FN_JSONTYPE: {
+        struct value v_json = arg;
+        struct value v_path;
+        const char *node;
+        ensure_str(&v_json);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("JSONTYPE$ requires 2 arguments",
+                                 "Use JSONTYPE$(json$, \"path\") — returns the JSON type name.");
+            return make_str("");
+        }
+        (*p)++; skip_spaces(p);
+        v_path = eval_expr(p);
+        ensure_str(&v_path);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        node = json_navigate(V_DATA(v_json), V_DATA(v_path));
+        if (!node) return make_str("");
+        switch (*node) {
+        case '"': return make_str("string");
+        case '{': return make_str("object");
+        case '[': return make_str("array");
+        case 'n': return make_str("null");
+        case 't': case 'f': return make_str("bool");
+        case '-': case '+':
+        case '0': case '1': case '2': case '3': case '4':
+        case '5': case '6': case '7': case '8': case '9':
+            return make_str("number");
+        default: return make_str("");
+        }
+    }
     case FN_STRINGFN: {
         /* STRING$(n, char$) or STRING$(n, code) */
         struct value v_count = arg;
@@ -12625,6 +12753,8 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "DIR") || starts_with_kw(*p, "DIR$") ||
             starts_with_kw(*p, "JSONLEN") || starts_with_kw(*p, "JSONKEY") ||
             starts_with_kw(*p, "JSONKEY$") ||
+            starts_with_kw(*p, "JSONESC") || starts_with_kw(*p, "JSONNUM") ||
+            starts_with_kw(*p, "JSONBOOL") || starts_with_kw(*p, "JSONTYPE") ||
             starts_with_kw(*p, "SOUNDPLAYING") ||
             starts_with_kw(*p, "MUSICPLAYING") ||
             starts_with_kw(*p, "MUSICLENGTH") ||
