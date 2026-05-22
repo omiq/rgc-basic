@@ -2184,6 +2184,46 @@ typedef struct {
 static rgc_buffer_slot g_buffers[MAX_BUFFERS];
 static unsigned g_buffer_next_id = 0;
 
+/* MAP slot table (Phase 1 of map-type proposal).
+ *
+ * Maps are exposed to BASIC programs as plain integer handles in the
+ * range 0..MAX_MAPS-1 — same convention as BUFFER*. The handle the
+ * BASIC variable holds is a slot index; the actual node tree lives
+ * in g_maps[slot].root.
+ *
+ * Use-after-free is a no-op for writes and returns defaults for reads
+ * (matches BUFFER*'s fail-soft posture). Set json_last_status = 4
+ * when a dangling handle is touched so callers can detect it. */
+#define MAX_MAPS 16
+enum map_node_kind {
+    MAP_NULL   = 0,
+    MAP_BOOL   = 1,
+    MAP_NUMBER = 2,
+    MAP_STRING = 3,
+    MAP_ARRAY  = 4,
+    MAP_OBJECT = 5
+};
+struct map_node;
+struct map_kv {
+    rgc_str_t       *key;     /* refcounted; reuses big-strings infra */
+    struct map_node *value;
+};
+struct map_node {
+    int kind;
+    union {
+        int b;
+        double n;
+        rgc_str_t *s;
+        struct { struct map_node **items; int count, cap; } arr;
+        struct { struct map_kv     *entries; int count, cap; } obj;
+    } u;
+};
+typedef struct {
+    int               in_use;
+    struct map_node  *root;
+} rgc_map_slot;
+static rgc_map_slot g_maps[MAX_MAPS];
+
 static int current_line = 0;
 static char *statement_pos = NULL;
 /* Declared here so run_until_udf_return() can reset it on line transitions.
@@ -3515,6 +3555,10 @@ static void statement_sort(char **p);
 static void statement_split(char **p);
 static void statement_join(char **p);
 static void statement_jsonunpack(char **p);
+static void statement_mapfree(char **p);
+static void statement_mapset(char **p);
+static void statement_mapsetnull(char **p);
+static void statement_mapsetbool(char **p);
 static void statement_open(char **p);
 static void statement_close(char **p);
 static void close_channel(int lfn);
@@ -3780,7 +3824,18 @@ enum func_code {
     FN_JSONPUT = 89,
     FN_JSONPUTNULL = 90,
     FN_JSONPUTBOOL = 91,
-    FN_JSONSTATUS = 92
+    FN_JSONSTATUS = 92,
+    /* MAP type (Phase 1 of map-type proposal). Numeric handles
+     * 0..MAX_MAPS-1; same pattern as BUFFER*. */
+    FN_MAPNEW = 93,
+    FN_MAPGET = 95,
+    FN_MAPGETN = 96,
+    FN_MAPGETBOOL = 97,
+    FN_MAPHAS = 98,
+    FN_MAPTYPE = 99,
+    FN_MAPLEN = 100,
+    FN_MAPKEY = 101,
+    FN_MAPLOAD = 94
 };
 
 /* Report an error and halt further execution.
@@ -5048,6 +5103,18 @@ static int function_lookup(const char *name, int len)
         if ((len == 3 && name[0] == 'M' && name[1] == 'I' && name[2] == 'D') ||
             (len == 4 && name[0] == 'M' && name[1] == 'I' && name[2] == 'D' && name[3] == '$'))
             return FN_MID;
+        if (len == 6 && memcmp(name, "MAPNEW", 6) == 0) return FN_MAPNEW;
+        if (len == 7 && memcmp(name, "MAPLOAD", 7) == 0) return FN_MAPLOAD;
+        if ((len == 6 && memcmp(name, "MAPGET", 6) == 0) ||
+            (len == 7 && memcmp(name, "MAPGET$", 7) == 0)) return FN_MAPGET;
+        if (len == 7 && memcmp(name, "MAPGETN", 7) == 0) return FN_MAPGETN;
+        if (len == 10 && memcmp(name, "MAPGETBOOL", 10) == 0) return FN_MAPGETBOOL;
+        if (len == 6 && memcmp(name, "MAPHAS", 6) == 0) return FN_MAPHAS;
+        if ((len == 7 && memcmp(name, "MAPTYPE", 7) == 0) ||
+            (len == 8 && memcmp(name, "MAPTYPE$", 8) == 0)) return FN_MAPTYPE;
+        if (len == 6 && memcmp(name, "MAPLEN", 6) == 0) return FN_MAPLEN;
+        if ((len == 6 && memcmp(name, "MAPKEY", 6) == 0) ||
+            (len == 7 && memcmp(name, "MAPKEY$", 7) == 0)) return FN_MAPKEY;
         if (len == 12 && memcmp(name, "MUSICPLAYING", 12) == 0) return FN_MUSICPLAYING;
         if (len == 11 && memcmp(name, "MUSICLENGTH", 11) == 0) return FN_MUSICLENGTH;
         if (len == 9  && memcmp(name, "MUSICTIME", 9) == 0) return FN_MUSICTIME;
@@ -10655,6 +10722,224 @@ static int json_put_core(const char *json, const char *path,
     }
 }
 
+/* ----- MAP helpers (Phase 1) ----- */
+
+static int map_slot_in_use(int slot)
+{
+    return (slot >= 0 && slot < MAX_MAPS && g_maps[slot].in_use);
+}
+
+static struct map_node *map_node_new(int kind)
+{
+    struct map_node *n = (struct map_node *)calloc(1, sizeof(struct map_node));
+    if (!n) return NULL;
+    n->kind = kind;
+    return n;
+}
+
+static void map_node_free(struct map_node *node);
+
+static void map_node_free(struct map_node *node)
+{
+    if (!node) return;
+    switch (node->kind) {
+    case MAP_STRING:
+        if (node->u.s) rgc_str_unref(node->u.s);
+        break;
+    case MAP_ARRAY: {
+        int i;
+        for (i = 0; i < node->u.arr.count; i++) map_node_free(node->u.arr.items[i]);
+        free(node->u.arr.items);
+        break;
+    }
+    case MAP_OBJECT: {
+        int i;
+        for (i = 0; i < node->u.obj.count; i++) {
+            rgc_str_unref(node->u.obj.entries[i].key);
+            map_node_free(node->u.obj.entries[i].value);
+        }
+        free(node->u.obj.entries);
+        break;
+    }
+    default: break;
+    }
+    free(node);
+}
+
+static struct map_node *map_node_from_value(const struct value *v)
+{
+    struct map_node *node;
+    if (v->type == VAL_STR) {
+        node = map_node_new(MAP_STRING);
+        if (!node) return NULL;
+        node->u.s = rgc_str_ref(v->str_h);
+    } else {
+        node = map_node_new(MAP_NUMBER);
+        if (!node) return NULL;
+        node->u.n = v->num;
+    }
+    return node;
+}
+
+static int map_obj_find(struct map_node *obj, const char *key, size_t key_len)
+{
+    int i;
+    if (!obj || obj->kind != MAP_OBJECT) return -1;
+    for (i = 0; i < obj->u.obj.count; i++) {
+        rgc_str_t *k = obj->u.obj.entries[i].key;
+        if (k && k->len == key_len && memcmp(k->data, key, key_len) == 0) return i;
+    }
+    return -1;
+}
+
+/* Append-or-replace. Frees existing value at key if present.
+ * Takes ownership of `value`. Returns 0 on success, -1 on OOM. */
+static int map_obj_set(struct map_node *obj, const char *key, size_t key_len,
+                       struct map_node *value)
+{
+    int idx;
+    if (!obj || obj->kind != MAP_OBJECT) {
+        map_node_free(value);
+        return -1;
+    }
+    idx = map_obj_find(obj, key, key_len);
+    if (idx >= 0) {
+        map_node_free(obj->u.obj.entries[idx].value);
+        obj->u.obj.entries[idx].value = value;
+        return 0;
+    }
+    if (obj->u.obj.count + 1 > obj->u.obj.cap) {
+        int new_cap = obj->u.obj.cap ? obj->u.obj.cap * 2 : 4;
+        struct map_kv *n = (struct map_kv *)realloc(obj->u.obj.entries,
+            sizeof(struct map_kv) * (size_t)new_cap);
+        if (!n) { map_node_free(value); return -1; }
+        obj->u.obj.entries = n;
+        obj->u.obj.cap = new_cap;
+    }
+    {
+        struct map_kv *kv = &obj->u.obj.entries[obj->u.obj.count++];
+        /* rgc_str_from_bytes returns rc=1 and pushes to the temp ring;
+         * bump rc so the ring drain at end-of-statement leaves rc=1 in the
+         * map. MAPFREE / map_node_free unrefs to drop it. */
+        kv->key = rgc_str_ref(rgc_str_from_bytes(key, key_len));
+        kv->value = value;
+    }
+    return 0;
+}
+
+static int map_obj_del(struct map_node *obj, const char *key, size_t key_len)
+{
+    int idx, i;
+    if (!obj || obj->kind != MAP_OBJECT) return -1;
+    idx = map_obj_find(obj, key, key_len);
+    if (idx < 0) return -1;
+    rgc_str_unref(obj->u.obj.entries[idx].key);
+    map_node_free(obj->u.obj.entries[idx].value);
+    for (i = idx; i + 1 < obj->u.obj.count; i++) {
+        obj->u.obj.entries[i] = obj->u.obj.entries[i + 1];
+    }
+    obj->u.obj.count--;
+    return 0;
+}
+
+static const char *map_kind_name(int kind)
+{
+    switch (kind) {
+    case MAP_STRING: return "string";
+    case MAP_NUMBER: return "number";
+    case MAP_OBJECT: return "object";
+    case MAP_ARRAY:  return "array";
+    case MAP_NULL:   return "null";
+    case MAP_BOOL:   return "bool";
+    default:         return "";
+    }
+}
+
+/* Coerce a node to a BASIC string. Containers and null → "". */
+static struct value map_node_to_basic_str(struct map_node *node)
+{
+    char buf[64];
+    if (!node) return make_str("");
+    switch (node->kind) {
+    case MAP_STRING:
+        if (!node->u.s) return make_str("");
+        return make_str_bytes(node->u.s->data, node->u.s->len);
+    case MAP_NUMBER: {
+        double d = node->u.n;
+        if (d == floor(d) && d >= -9007199254740992.0 && d <= 9007199254740992.0) {
+            snprintf(buf, sizeof(buf), "%lld", (long long)d);
+        } else {
+            snprintf(buf, sizeof(buf), "%.17g", d);
+        }
+        return make_str(buf);
+    }
+    case MAP_BOOL:   return make_str(node->u.b ? "true" : "false");
+    case MAP_NULL:
+    case MAP_OBJECT:
+    case MAP_ARRAY:
+    default:         return make_str("");
+    }
+}
+
+static double map_node_to_basic_num(struct map_node *node)
+{
+    if (!node) return 0.0;
+    switch (node->kind) {
+    case MAP_NUMBER: return node->u.n;
+    case MAP_BOOL:   return node->u.b ? 1.0 : 0.0;
+    case MAP_STRING: return node->u.s ? atof(node->u.s->data) : 0.0;
+    default:         return 0.0;
+    }
+}
+
+/* Find or create the root object node for slot. Returns NULL if slot
+ * isn't a valid in-use map. Touching a use-after-free handle sets
+ * json_last_status = 4. */
+static struct map_node *map_slot_root_for_write(int slot)
+{
+    if (!map_slot_in_use(slot)) { json_last_status = 4; return NULL; }
+    if (!g_maps[slot].root) {
+        g_maps[slot].root = map_node_new(MAP_OBJECT);
+    }
+    return g_maps[slot].root;
+}
+
+static struct map_node *map_slot_root_for_read(int slot)
+{
+    if (!map_slot_in_use(slot)) { json_last_status = 4; return NULL; }
+    return g_maps[slot].root;
+}
+
+static void rgc_map_unlink_slot(int slot)
+{
+    if (slot < 0 || slot >= MAX_MAPS) return;
+    if (!g_maps[slot].in_use) return;
+    map_node_free(g_maps[slot].root);
+    g_maps[slot].root = NULL;
+    g_maps[slot].in_use = 0;
+}
+
+static void rgc_map_free_all(void)
+{
+    int i;
+    for (i = 0; i < MAX_MAPS; i++) rgc_map_unlink_slot(i);
+}
+
+/* Allocate a fresh slot. Returns slot index 0..MAX_MAPS-1 on success,
+ * or -1 if all slots are in use. */
+static int map_slot_allocate(void)
+{
+    int i;
+    for (i = 0; i < MAX_MAPS; i++) {
+        if (!g_maps[i].in_use) {
+            g_maps[i].in_use = 1;
+            g_maps[i].root = NULL;
+            return i;
+        }
+    }
+    return -1;
+}
+
 
 static struct value eval_function(const char *name, char **p)
 {
@@ -10959,6 +11244,26 @@ static struct value eval_function(const char *name, char **p)
         (*p)++;
         skip_spaces(p);
         return make_num((double)json_last_status);
+    }
+    if (code == FN_MAPNEW) {
+        int slot;
+        if (**p != ')') {
+            runtime_error_hint("MAPNEW() takes no arguments",
+                                 "MAPNEW() returns a new map handle; pass it to MAPSET / MAPGET$ / MAPFREE.");
+            return make_num(-1.0);
+        }
+        (*p)++; skip_spaces(p);
+        slot = map_slot_allocate();
+        if (slot < 0) {
+            json_last_status = 2;
+            if (json_strict_mode) {
+                runtime_error_hint("MAPNEW: no free slot",
+                                     "MAX_MAPS = 16. MAPFREE one before allocating more.");
+            }
+            return make_num(-1.0);
+        }
+        json_last_status = 0;
+        return make_num((double)slot);
     }
     if (code == FN_HTTP) {
         struct value v_url, v_method, v_body, v_headers;
@@ -11730,6 +12035,9 @@ static struct value eval_function(const char *name, char **p)
         code != FN_DIR && code != FN_JSONLEN && code != FN_JSONKEY &&
         code != FN_JSONNUM && code != FN_JSONBOOL && code != FN_JSONTYPE &&
         code != FN_JSONPUT && code != FN_JSONPUTNULL && code != FN_JSONPUTBOOL &&
+        code != FN_MAPGET && code != FN_MAPGETN && code != FN_MAPGETBOOL &&
+        code != FN_MAPHAS && code != FN_MAPTYPE && code != FN_MAPLEN &&
+        code != FN_MAPKEY &&
         code != FN_PALETTE) {
         if (**p == ')') {
             (*p)++;
@@ -12748,6 +13056,250 @@ static struct value eval_function(const char *name, char **p)
         }
         return make_str(result);
     }
+    case FN_MAPGET: {
+        struct value v_h = arg;
+        struct value v_key;
+        struct map_node *root;
+        int slot;
+        int idx;
+        ensure_num(&v_h);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("MAPGET$ requires 2 arguments",
+                                 "Use MAPGET$(handle, \"key\") — string coercion of the value at the key.");
+            return make_str("");
+        }
+        (*p)++; skip_spaces(p);
+        v_key = eval_expr(p); ensure_str(&v_key);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        json_last_status = 0;
+        slot = (int)v_h.num;
+        root = map_slot_root_for_read(slot);
+        if (!root || root->kind != MAP_OBJECT) return make_str("");
+        idx = map_obj_find(root, V_DATA(v_key), V_LEN(v_key));
+        if (idx < 0) return make_str("");
+        return map_node_to_basic_str(root->u.obj.entries[idx].value);
+    }
+    case FN_MAPGETN: {
+        struct value v_h = arg;
+        struct value v_key;
+        struct map_node *root;
+        int slot, idx;
+        ensure_num(&v_h);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("MAPGETN requires 2 arguments",
+                                 "Use MAPGETN(handle, \"key\") — numeric value or 0 if missing.");
+            return make_num(0.0);
+        }
+        (*p)++; skip_spaces(p);
+        v_key = eval_expr(p); ensure_str(&v_key);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        json_last_status = 0;
+        slot = (int)v_h.num;
+        root = map_slot_root_for_read(slot);
+        if (!root || root->kind != MAP_OBJECT) return make_num(0.0);
+        idx = map_obj_find(root, V_DATA(v_key), V_LEN(v_key));
+        if (idx < 0) return make_num(0.0);
+        return make_num(map_node_to_basic_num(root->u.obj.entries[idx].value));
+    }
+    case FN_MAPGETBOOL: {
+        struct value v_h = arg;
+        struct value v_key;
+        struct map_node *root;
+        int slot, idx;
+        ensure_num(&v_h);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("MAPGETBOOL requires 2 arguments",
+                                 "Use MAPGETBOOL(handle, \"key\") — 1 if JSON true, else 0.");
+            return make_num(0.0);
+        }
+        (*p)++; skip_spaces(p);
+        v_key = eval_expr(p); ensure_str(&v_key);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        json_last_status = 0;
+        slot = (int)v_h.num;
+        root = map_slot_root_for_read(slot);
+        if (!root || root->kind != MAP_OBJECT) return make_num(0.0);
+        idx = map_obj_find(root, V_DATA(v_key), V_LEN(v_key));
+        if (idx < 0) return make_num(0.0);
+        {
+            struct map_node *n = root->u.obj.entries[idx].value;
+            if (n && n->kind == MAP_BOOL) return make_num(n->u.b ? 1.0 : 0.0);
+        }
+        return make_num(0.0);
+    }
+    case FN_MAPHAS: {
+        struct value v_h = arg;
+        struct value v_key;
+        struct map_node *root;
+        int slot, idx;
+        ensure_num(&v_h);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("MAPHAS requires 2 arguments",
+                                 "Use MAPHAS(handle, \"key\") — 1 if the key exists (even if null).");
+            return make_num(0.0);
+        }
+        (*p)++; skip_spaces(p);
+        v_key = eval_expr(p); ensure_str(&v_key);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        json_last_status = 0;
+        slot = (int)v_h.num;
+        root = map_slot_root_for_read(slot);
+        if (!root || root->kind != MAP_OBJECT) return make_num(0.0);
+        idx = map_obj_find(root, V_DATA(v_key), V_LEN(v_key));
+        return make_num(idx >= 0 ? 1.0 : 0.0);
+    }
+    case FN_MAPTYPE: {
+        struct value v_h = arg;
+        struct value v_key;
+        struct map_node *root;
+        int slot, idx;
+        ensure_num(&v_h);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("MAPTYPE$ requires 2 arguments",
+                                 "Use MAPTYPE$(handle, \"key\") — type name or \"\" if missing.");
+            return make_str("");
+        }
+        (*p)++; skip_spaces(p);
+        v_key = eval_expr(p); ensure_str(&v_key);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        json_last_status = 0;
+        slot = (int)v_h.num;
+        root = map_slot_root_for_read(slot);
+        if (!root || root->kind != MAP_OBJECT) return make_str("");
+        idx = map_obj_find(root, V_DATA(v_key), V_LEN(v_key));
+        if (idx < 0) return make_str("");
+        return make_str(map_kind_name(root->u.obj.entries[idx].value
+                                        ? root->u.obj.entries[idx].value->kind
+                                        : MAP_NULL));
+    }
+    case FN_MAPLEN: {
+        struct value v_h = arg;
+        struct value v_key;
+        struct map_node *root;
+        int slot, idx;
+        ensure_num(&v_h);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("MAPLEN requires 2 arguments",
+                                 "Use MAPLEN(handle, \"\") for root, MAPLEN(handle, \"key\") for a sub-container.");
+            return make_num(0.0);
+        }
+        (*p)++; skip_spaces(p);
+        v_key = eval_expr(p); ensure_str(&v_key);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        json_last_status = 0;
+        slot = (int)v_h.num;
+        root = map_slot_root_for_read(slot);
+        if (!root) return make_num(0.0);
+        if (V_LEN(v_key) == 0) {
+            /* Root */
+            if (root->kind == MAP_OBJECT) return make_num((double)root->u.obj.count);
+            if (root->kind == MAP_ARRAY)  return make_num((double)root->u.arr.count);
+            return make_num(0.0);
+        }
+        if (root->kind != MAP_OBJECT) return make_num(0.0);
+        idx = map_obj_find(root, V_DATA(v_key), V_LEN(v_key));
+        if (idx < 0) return make_num(0.0);
+        {
+            struct map_node *n = root->u.obj.entries[idx].value;
+            if (!n) return make_num(0.0);
+            if (n->kind == MAP_OBJECT) return make_num((double)n->u.obj.count);
+            if (n->kind == MAP_ARRAY)  return make_num((double)n->u.arr.count);
+        }
+        return make_num(0.0);
+    }
+    case FN_MAPKEY: {
+        struct value v_h = arg;
+        struct value v_key, v_n;
+        struct map_node *root;
+        int slot, idx, want_n;
+        ensure_num(&v_h);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("MAPKEY$ requires 3 arguments",
+                                 "Use MAPKEY$(handle, path$, n) — nth key (insertion order).");
+            return make_str("");
+        }
+        (*p)++; skip_spaces(p);
+        v_key = eval_expr(p); ensure_str(&v_key);
+        skip_spaces(p);
+        if (**p != ',') {
+            runtime_error_hint("MAPKEY$ requires 3 arguments",
+                                 "Third argument is the 0-based key index.");
+            return make_str("");
+        }
+        (*p)++; skip_spaces(p);
+        v_n = eval_expr(p); ensure_num(&v_n);
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+        skip_spaces(p);
+        json_last_status = 0;
+        slot = (int)v_h.num;
+        want_n = (int)v_n.num;
+        root = map_slot_root_for_read(slot);
+        if (!root) return make_str("");
+        if (V_LEN(v_key) == 0) {
+            if (root->kind != MAP_OBJECT) return make_str("");
+            if (want_n < 0 || want_n >= root->u.obj.count) return make_str("");
+            {
+                rgc_str_t *k = root->u.obj.entries[want_n].key;
+                return k ? make_str_bytes(k->data, k->len) : make_str("");
+            }
+        }
+        if (root->kind != MAP_OBJECT) return make_str("");
+        idx = map_obj_find(root, V_DATA(v_key), V_LEN(v_key));
+        if (idx < 0) return make_str("");
+        {
+            struct map_node *n = root->u.obj.entries[idx].value;
+            if (!n || n->kind != MAP_OBJECT) return make_str("");
+            if (want_n < 0 || want_n >= n->u.obj.count) return make_str("");
+            {
+                rgc_str_t *k = n->u.obj.entries[want_n].key;
+                return k ? make_str_bytes(k->data, k->len) : make_str("");
+            }
+        }
+    }
+    case FN_MAPLOAD: {
+        /* Phase 3 will wire this fully (full recursive parse). For Phase 1,
+         * accept only the trivial empty-object literal so users can write
+         * `H = MAPLOAD("{}")` symmetrically; everything else sets JSONSTATUS=1
+         * and returns -1. */
+        const char *s;
+        int slot;
+        ensure_str(&arg);
+        s = V_DATA(arg);
+        while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') s++;
+        if (s[0] == '{' && (s[1] == '\0' || s[1] == '}' || s[1] == ' ' || s[1] == '\n' || s[1] == '\t' || s[1] == '\r')) {
+            /* Empty object case; full parse lands in Phase 3. */
+            slot = map_slot_allocate();
+            if (slot < 0) { json_last_status = 2; return make_num(-1.0); }
+            json_last_status = 0;
+            return make_num((double)slot);
+        }
+        json_last_status = 1;
+        if (json_strict_mode) {
+            runtime_error_hint("MAPLOAD: parse not yet implemented",
+                                 "Phase 1 ships scalar set/get only; MAPLOAD lands in Phase 3.");
+        }
+        return make_num(-1.0);
+    }
     case FN_STRINGFN: {
         /* STRING$(n, char$) or STRING$(n, code) */
         struct value v_count = arg;
@@ -13534,6 +14086,11 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "JSONNEW") || starts_with_kw(*p, "JSONPUT") ||
             starts_with_kw(*p, "JSONPUTNULL") || starts_with_kw(*p, "JSONPUTBOOL") ||
             starts_with_kw(*p, "JSONSTATUS") ||
+            starts_with_kw(*p, "MAPNEW") || starts_with_kw(*p, "MAPLOAD") ||
+            starts_with_kw(*p, "MAPGET") || starts_with_kw(*p, "MAPGETN") ||
+            starts_with_kw(*p, "MAPGETBOOL") || starts_with_kw(*p, "MAPHAS") ||
+            starts_with_kw(*p, "MAPTYPE") || starts_with_kw(*p, "MAPLEN") ||
+            starts_with_kw(*p, "MAPKEY") ||
             starts_with_kw(*p, "SOUNDPLAYING") ||
             starts_with_kw(*p, "MUSICPLAYING") ||
             starts_with_kw(*p, "MUSICLENGTH") ||
@@ -15281,6 +15838,143 @@ static void statement_jsonunpack(char **p)
             if (*q == ',') q++;
         }
     }
+}
+
+/* MAPFREE h — release slot. Idempotent (no error on freed/out-of-range). */
+static void statement_mapfree(char **p)
+{
+    struct value v_h;
+    int slot;
+    skip_spaces(p);
+    v_h = eval_expr(p);
+    ensure_num(&v_h);
+    slot = (int)v_h.num;
+    rgc_map_unlink_slot(slot);
+}
+
+/* MAPSET h, key$, value — Phase 1: top-level keys only.
+ * Phase 2 extends to full path mini-language. */
+static void statement_mapset(char **p)
+{
+    struct value v_h, v_key, v_val;
+    struct map_node *root;
+    struct map_node *node;
+    int slot;
+    skip_spaces(p);
+    v_h = eval_expr(p);
+    ensure_num(&v_h);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("MAPSET: expected ,",
+                             "Syntax: MAPSET handle, key$, value.");
+        return;
+    }
+    (*p)++; skip_spaces(p);
+    v_key = eval_expr(p);
+    ensure_str(&v_key);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("MAPSET: expected ,",
+                             "Third argument is the value to set.");
+        return;
+    }
+    (*p)++; skip_spaces(p);
+    v_val = eval_expr(p);
+    skip_spaces(p);
+    json_last_status = 0;
+    slot = (int)v_h.num;
+    root = map_slot_root_for_write(slot);
+    if (!root) {
+        if (json_strict_mode) {
+            runtime_error_hint("MAPSET: invalid handle",
+                                 "Pass a handle from MAPNEW(); free handles raise JSONSTATUS=4.");
+        }
+        return;
+    }
+    if (root->kind != MAP_OBJECT) {
+        json_last_status = 2;
+        if (json_strict_mode) {
+            runtime_error_hint("MAPSET: root is not an object",
+                                 "MAPSET writes object keys; Phase 2 will add full paths and array indices.");
+        }
+        return;
+    }
+    node = map_node_from_value(&v_val);
+    if (!node) return;
+    if (map_obj_set(root, V_DATA(v_key), V_LEN(v_key), node) != 0) {
+        json_last_status = 3;
+    }
+}
+
+/* MAPSETNULL h, key$ — Phase 1: top-level keys only. */
+static void statement_mapsetnull(char **p)
+{
+    struct value v_h, v_key;
+    struct map_node *root;
+    int slot;
+    skip_spaces(p);
+    v_h = eval_expr(p);
+    ensure_num(&v_h);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("MAPSETNULL: expected ,",
+                             "Syntax: MAPSETNULL handle, key$.");
+        return;
+    }
+    (*p)++; skip_spaces(p);
+    v_key = eval_expr(p);
+    ensure_str(&v_key);
+    skip_spaces(p);
+    json_last_status = 0;
+    slot = (int)v_h.num;
+    root = map_slot_root_for_write(slot);
+    if (!root || root->kind != MAP_OBJECT) {
+        if (root && root->kind != MAP_OBJECT) json_last_status = 2;
+        return;
+    }
+    map_obj_set(root, V_DATA(v_key), V_LEN(v_key), map_node_new(MAP_NULL));
+}
+
+/* MAPSETBOOL h, key$, n — Phase 1: top-level keys only. */
+static void statement_mapsetbool(char **p)
+{
+    struct value v_h, v_key, v_n;
+    struct map_node *root;
+    struct map_node *node;
+    int slot;
+    skip_spaces(p);
+    v_h = eval_expr(p);
+    ensure_num(&v_h);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("MAPSETBOOL: expected ,",
+                             "Syntax: MAPSETBOOL handle, key$, n.");
+        return;
+    }
+    (*p)++; skip_spaces(p);
+    v_key = eval_expr(p);
+    ensure_str(&v_key);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("MAPSETBOOL: expected ,",
+                             "Third argument is numeric: nonzero → true, zero → false.");
+        return;
+    }
+    (*p)++; skip_spaces(p);
+    v_n = eval_expr(p);
+    ensure_num(&v_n);
+    skip_spaces(p);
+    json_last_status = 0;
+    slot = (int)v_h.num;
+    root = map_slot_root_for_write(slot);
+    if (!root || root->kind != MAP_OBJECT) {
+        if (root && root->kind != MAP_OBJECT) json_last_status = 2;
+        return;
+    }
+    node = map_node_new(MAP_BOOL);
+    if (!node) return;
+    node->u.b = (v_n.num != 0.0) ? 1 : 0;
+    map_obj_set(root, V_DATA(v_key), V_LEN(v_key), node);
 }
 
 /* JOIN arr$, delim$ INTO result$ [, count]: join array elements. Optional count limits elements. */
@@ -17888,6 +18582,26 @@ static void execute_statement(char **p)
         statement_jsonunpack(p);
         return;
     }
+    if (c == 'M' && starts_with_kw(*p, "MAPSETNULL")) {
+        *p += 10;
+        statement_mapsetnull(p);
+        return;
+    }
+    if (c == 'M' && starts_with_kw(*p, "MAPSETBOOL")) {
+        *p += 10;
+        statement_mapsetbool(p);
+        return;
+    }
+    if (c == 'M' && starts_with_kw(*p, "MAPSET")) {
+        *p += 6;
+        statement_mapset(p);
+        return;
+    }
+    if (c == 'M' && starts_with_kw(*p, "MAPFREE")) {
+        *p += 7;
+        statement_mapfree(p);
+        return;
+    }
     if (c == 'U' && starts_with_kw(*p, "UNLOADSPRITE")) {
         *p += 13;
         statement_unloadsprite(p);
@@ -18939,6 +19653,7 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
     }
     /* Release BUFFER slots: unlink backing files so /tmp doesn't leak. */
     rgc_buffer_free_all();
+    rgc_map_free_all();
 }
 
 /* ── Public API for gfx builds ──────────────────────────────────── */
