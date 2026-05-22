@@ -3514,6 +3514,7 @@ static void statement_clr(char **p);
 static void statement_sort(char **p);
 static void statement_split(char **p);
 static void statement_join(char **p);
+static void statement_jsonunpack(char **p);
 static void statement_open(char **p);
 static void statement_close(char **p);
 static void close_channel(int lfn);
@@ -15152,6 +15153,136 @@ static void statement_split(char **p)
     split_count = count;
 }
 
+/* JSONUNPACK src$, path$ INTO arr$
+ *
+ * Walk the JSON array at src$:path$, free the destination's existing
+ * storage, allocate fresh slots sized to match the JSON element count,
+ * and fill each slot with the JSON-serialised substring of that element.
+ *
+ * The destination must already be DIMmed as a 1-D string array (any
+ * size; we resize it). After JSONUNPACK, FOREACH iterates exactly the
+ * elements that came from JSON — no DIM-size noise to skip past. */
+static void statement_jsonunpack(char **p)
+{
+    struct value v_src, v_path;
+    struct var *arr_var = NULL;
+    const char *node;
+    int count;
+    int i;
+
+    v_src = eval_expr(p);
+    ensure_str(&v_src);
+    skip_spaces(p);
+    if (**p != ',') {
+        runtime_error_hint("JSONUNPACK: expected ,",
+                             "Syntax: JSONUNPACK src$, path$ INTO arr$.");
+        return;
+    }
+    (*p)++;
+    skip_spaces(p);
+    v_path = eval_expr(p);
+    ensure_str(&v_path);
+    skip_spaces(p);
+    if (!starts_with_kw(*p, "INTO")) {
+        runtime_error_hint("JSONUNPACK: expected INTO",
+                             "Syntax: JSONUNPACK src$, path$ INTO arr$.");
+        return;
+    }
+    *p += 4;
+    skip_spaces(p);
+    if (!isalpha((unsigned char)**p)) {
+        runtime_error_hint("JSONUNPACK: expected array variable",
+                             "After INTO, give the string array name (e.g. ITEMS$).");
+        return;
+    }
+    {
+        char namebuf[VAR_NAME_MAX];
+        int is_string = 0;
+        read_identifier(p, namebuf, sizeof(namebuf));
+        uppercase_name(namebuf, namebuf, sizeof(namebuf), &is_string);
+        if (!is_string) {
+            runtime_error_hint("JSONUNPACK: expected string array",
+                                 "JSONUNPACK fills a string array (name ends with $).");
+            return;
+        }
+        for (i = 0; i < var_count; i++) {
+            if (strcmp(vars[i].name, namebuf) == 0 && vars[i].is_string) {
+                arr_var = &vars[i];
+                break;
+            }
+        }
+    }
+    if (!arr_var || !arr_var->is_array || arr_var->dims != 1) {
+        runtime_error_hint("JSONUNPACK: requires 1-D string array (DIM first)",
+                             "DIM ITEMS$(0) — JSONUNPACK resizes to match the JSON array.");
+        return;
+    }
+    /* Optional trailing parens, e.g. INTO ITEMS$() */
+    skip_spaces(p);
+    if (**p == '(') {
+        (*p)++;
+        skip_spaces(p);
+        if (**p == ')') (*p)++;
+    }
+    json_last_status = 0;
+    node = json_navigate(V_DATA(v_src), V_DATA(v_path));
+    if (!node) {
+        count = 0;
+    } else {
+        while (*node == ' ' || *node == '\t' || *node == '\n' || *node == '\r') node++;
+        if (*node != '[') {
+            json_last_status = 2;
+            if (json_strict_mode) {
+                runtime_error_hint("JSONUNPACK: path does not resolve to an array",
+                                     "Check the path; JSONUNPACK iterates JSON arrays only.");
+            }
+            count = 0;
+        } else {
+            count = json_count_entries(node);
+        }
+    }
+    /* Free old slots and resize. */
+    if (arr_var->array) {
+        for (i = 0; i < arr_var->size; i++) {
+            v_clear_str(&arr_var->array[i]);
+        }
+        free(arr_var->array);
+        arr_var->array = NULL;
+    }
+    arr_var->size = (count > 0) ? count : 0;
+    arr_var->dim_sizes[0] = arr_var->size;
+    if (arr_var->size > 0) {
+        arr_var->array = (struct value *)calloc((size_t)arr_var->size, sizeof(struct value));
+        if (!arr_var->array) {
+            arr_var->size = 0;
+            arr_var->dim_sizes[0] = 0;
+            runtime_error_hint("JSONUNPACK: out of memory",
+                                 "Could not allocate array storage; reduce input size or free variables.");
+            return;
+        }
+        for (i = 0; i < arr_var->size; i++) {
+            arr_var->array[i].str_h = rgc_str_empty;
+        }
+    }
+    if (count > 0 && node && *node == '[') {
+        const char *q = node + 1;
+        for (i = 0; i < count; i++) {
+            const char *elem_start;
+            const char *elem_end;
+            while (*q == ' ' || *q == '\t' || *q == '\n' || *q == '\r') q++;
+            elem_start = q;
+            elem_end = q;
+            json_skip_value(&elem_end);
+            arr_var->array[i].type = VAL_STR;
+            arr_var->array[i].num = 0.0;
+            v_set_bytes(&arr_var->array[i], elem_start, (size_t)(elem_end - elem_start));
+            q = elem_end;
+            while (*q == ' ' || *q == '\t' || *q == '\n' || *q == '\r') q++;
+            if (*q == ',') q++;
+        }
+    }
+}
+
 /* JOIN arr$, delim$ INTO result$ [, count]: join array elements. Optional count limits elements. */
 static void statement_join(char **p)
 {
@@ -16856,9 +16987,15 @@ static void statement_foreach(char **p)
             }
         }
     }
-    if (!arr_var || !arr_var->is_array || !arr_var->array) {
+    if (!arr_var || !arr_var->is_array) {
         runtime_error_hint("FOREACH: array not DIMmed",
                              "DIM the array first: DIM A(10) or DIM NAMES$(N).");
+        return;
+    }
+    /* size == 0 (e.g. after JSONUNPACK on []) is a valid empty array. */
+    if (!arr_var->array && arr_var->size != 0) {
+        runtime_error_hint("FOREACH: array storage missing",
+                             "Array was DIMmed but storage is unallocated.");
         return;
     }
     if (arr_var->dims != 1) {
@@ -17744,6 +17881,11 @@ static void execute_statement(char **p)
     if (c == 'J' && starts_with_kw(*p, "JOIN")) {
         *p += 4;
         statement_join(p);
+        return;
+    }
+    if (c == 'J' && starts_with_kw(*p, "JSONUNPACK")) {
+        *p += 10;
+        statement_jsonunpack(p);
         return;
     }
     if (c == 'U' && starts_with_kw(*p, "UNLOADSPRITE")) {
