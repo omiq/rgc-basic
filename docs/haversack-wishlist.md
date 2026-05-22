@@ -109,7 +109,9 @@ Tracked here rather than in the `examples/` directory because they're cross-proj
 
 ### 5a. WASM build doesn't apply PRINT column-wrap (2026-05-22)
 
-**Severity:** low (visual / formatting, not data-corrupting). **Status:** open, awaiting investigation.
+**Severity:** low (visual / formatting, not data-corrupting). **Status:** open, fresh build retested same. Not a stale artifact.
+
+**Scope:** `basic.wasm` (the headless scripting build), which is the right target for Haversack tools. NOT raylib (`basic-wasm-raylib`) — that one's for games/pixel/bitmap, same split as native `basic` vs `basic-gfx`. Haversack stays on `basic.wasm` for headless tools per the existing spec; raylib is opt-in via manifest `surface: "raylib"` for visualisers.
 
 **Repro** (`/tmp/wraptest.bas`):
 
@@ -143,11 +145,17 @@ after
 
 **`#OPTION nowrap` works correctly in WASM** — verified by setting `terminal_no_wrap=1` via the directive and observing identical no-wrap output. So the directive parsing reaches `apply_option_directive("nowrap")` (`basic.c:3315`); presumably `#OPTION columns N` also reaches `apply_option_directive("columns")` (`basic.c:3301`) but the resulting `print_width` either isn't read by the WASM stdout path or the wrap check is bypassed.
 
+**Retest with fresh build (2026-05-22 ~17:30):** the rgc-basic Claude rebuilt all three WASM targets at 17:02. Re-vendored the fresh `web/basic.{js,wasm}` into Haversack (351,982 bytes — 1-byte diff from previous, likely a timestamp embed) and re-ran the repro. **Bug still present**. So not a stale artifact — bug is in the current built WASM from today's basic.c source.
+
 **Hypotheses to check** (in priority order):
 
-1. Stale `web/basic.{js,wasm}` artifact in the repo. Rebuilding `make basic-wasm` may resolve. Vendored copy in Haversack came from `~/github/rgc-basic/web/basic.wasm` directly; if it predates a wrap-related basic.c change, that explains everything. (I don't have emsdk locally, so couldn't rebuild to verify.)
+1. ~~Stale `web/basic.{js,wasm}` artifact.~~ Ruled out — fresh build same result.
 2. `wasm_stdout_putc` path in `basic.c:2328` is the OUTC backend in WASM. It buffers per-`\n` for Module.print delivery. The wrap inserts `\n` upstream in `print_value()` → should still flow through `wasm_stdout_putc`. But maybe there's a separate `#ifdef __EMSCRIPTEN__` path in `print_value` that bypasses the wrap check.
 3. `print_col` isn't being incremented somewhere in the WASM build's string-output path (compile-time exclusion?).
+4. Asyncify or some emcc flag is reordering / batching output in a way that loses the wrap-inserted `\n`. Unlikely but worth eliminating — try building basic.wasm without `-s ASYNCIFY=1` and see if wrap returns. If yes, asyncify is the culprit.
+5. `#OPTION nowrap` works correctly in WASM (verified via the test rig — sets `terminal_no_wrap=1` and suppresses), so directive parsing + the no-wrap check itself work. That isolates the problem to either `print_width` not being read or `print_col` not being incremented in the WASM build of `print_value()`.
+
+**Quick diagnostic that would narrow this fast:** add a temporary `EM_ASM` debug line inside `print_value()`'s wrap check to log `print_col` and `print_width` to the JS console. If both report sane values but wrap doesn't fire, the check itself is broken in WASM. If either reports stale / wrong values, that's the bug surface.
 
 **Test commit refs** (rgc-basic): HEAD at `c0e6cf6` (DICT rename), web/basic.wasm last committed as `2c77745` (chore: untrack committed build artifacts — so the .wasm in the working tree may be from a build BEFORE that point and never refreshed).
 
