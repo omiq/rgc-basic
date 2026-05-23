@@ -1,5 +1,32 @@
 ## Changelog
 
+### Runtime error source-line reporting — Phase 1 (2026-05-23)
+
+Wishlist §3d, Phase 1 (proposal: `docs/runtime-error-source-line-proposal.md`).
+
+`runtime_error_hint` already emitted a rich block with line number, source
+text, and a caret — but several fail-soft sites bypassed it with a bare
+`fprintf(stderr, ...)`, so their failures had no call site. Refactored the
+formatting body into a shared `runtime_diagnostic(severity, msg, hint,
+halt_after)` helper and added a non-halting **`runtime_warning_hint`**
+sibling. Two severities now:
+
+- **`Error on line N`** — halts (unchanged behaviour, all existing
+  `runtime_error_hint` callers).
+- **`Warning on line N`** — reports a soft failure and **continues**.
+  Migrated `OPEN` (sets `ST = 1`) and the native `DOWNLOAD` no-op to this
+  path, so they now carry line + source-text + caret context instead of a
+  context-free one-liner.
+
+New test corpus `tests/runtime_errors/` + driver `tests/runtime_error_test.sh`
+(wired into `make check`): each case prints MARKER-BEFORE / MARKER-AFTER and
+asserts both the expected stderr substring and the halt-vs-continue
+behaviour. Verified native + `basic-wasm` node harness.
+
+Phase 2 (file-path provenance for `#INCLUDE`d lines, `LASTERROR$()` builtin,
+`#OPTION DIAGNOSTICS` breadcrumbs at status-code sites) is scoped in the
+proposal doc but not yet implemented.
+
 ### `RGCVERSION$()` + host status ccall exports (2026-05-23)
 
 Three Sprint-1 items from the Haversack wishlist (4a + 3b + 1a + 1b).

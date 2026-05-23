@@ -151,11 +151,26 @@ What ASSERT actually enables is **a new `conformance/` corpus written specifical
 
 So the right way to read 3a + 3c + 3g is "ship the three legs together as a single CI-conformance effort", not "retrofit examples".
 
-### 3d. Source line in runtime error messages (2026-05-22) — **PROMOTED 2026-05-23 (next-up)**
+### 3d. Source line in runtime error messages (2026-05-22) — **PROMOTED 2026-05-23; Phase 1 [shipped 2026-05-23], Phase 2 open**
 
 JSON / HTTP / DICT failures should include the originating script line (`DICTLOAD at script.bas:17`). Right now most errors lack the call site, forcing print-debugging to localise. The existing parser-side errors already do this for syntax — extend to runtime failures.
 
 **Priority note (2026-05-23):** Haversack triage walked the wishlist and picked this as the highest-value next-up item — biggest debugging win for tool authors. When rgc-basic picks this up, a focused proposal doc (e.g. `docs/runtime-error-source-line-proposal.md`) is the next graduation step per this file's convention.
+
+**Scoped + Phase 1 shipped 2026-05-23.** Proposal doc lives at `docs/runtime-error-source-line-proposal.md`. Investigation found `runtime_error_hint` already prints line + source-text + caret for hard errors; the gap was fail-soft sites bypassing it with bare `fprintf(stderr, ...)`. Phase 1:
+
+- Refactored to a shared `runtime_diagnostic(severity, msg, hint, halt_after)` helper + new non-halting `runtime_warning_hint`.
+- Two severities: `Error on line N` (halts) and `Warning on line N` (continues).
+- Migrated `OPEN` (ST=1) and native `DOWNLOAD` no-op — now carry line context.
+- New `tests/runtime_errors/` corpus + `runtime_error_test.sh` driver, wired into `make check`. Verified native + wasm.
+
+**Phase 2 still open** (independent sub-parts, pick any later):
+
+- **2a** — track per-line source file (extend `struct line` with `src_file`); switch reporting to `at <file>:<line>` so `#INCLUDE`d programs localise correctly. This is the literal "`DICTLOAD at script.bas:17`" ask — Phase 1 gives the line, 2a gives the file.
+- **2b** — `LASTERROR$()` builtin + `basic_get_lasterror()` ccall export (pull-mode access to the last diagnostic; companion to §3b/§4a work already shipped).
+- **2c** — `#OPTION DIAGNOSTICS` to emit opt-in breadcrumbs at status-code soft-fail sites (HTTP network fail, JSON parse fail in non-strict mode, etc.) that currently set a status silently.
+
+**Note for Haversack:** the literal `at script.bas:17` form needs Phase 2a. If you need it for multi-file tool bundles, flag it and it'll graduate. Single-file scripts already get the line number from Phase 1.
 
 ### 3e. `#OPTION HTTP STRICT` (2026-05-22)
 

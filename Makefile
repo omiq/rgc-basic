@@ -210,6 +210,7 @@ check: $(TARGET)$(EXE) gfx_video_test lint transpile
 	sh tests/get_test.sh
 	sh tests/trek_test.sh >/dev/null
 	sh tests/then_compound_test.sh
+	sh tests/runtime_error_test.sh ./$(TARGET)$(EXE)
 	@echo "==> headless .bas suite"
 	sh tests/run_bas_suite.sh ./$(TARGET)$(EXE)
 	@echo "==> all checks passed"

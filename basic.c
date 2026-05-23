@@ -3514,6 +3514,7 @@ static void do_exec(const char *cmd, char *out, size_t out_size)
 
 static void runtime_error(const char *msg);
 static void runtime_error_hint(const char *msg, const char *hint);
+static void runtime_warning_hint(const char *msg, const char *hint);
 static void load_program(const char *path);
 static void run_program(const char *script_path_arg, int nargs, char **args);
 static int find_line_index(int number);
@@ -3863,12 +3864,21 @@ enum func_code {
     FN_RGCVERSION = 102
 };
 
-/* Report an error and halt further execution.
- * If possible, include the BASIC line number (if present) and the
- * original source text with a caret pointing near the error location.
- * Optional hint gives a short fix suggestion (shown on its own line).
+/* Shared body for runtime_error_hint + runtime_warning_hint.
+ *
+ * Emits the standard four-line block:
+ *   <severity> on line N: <msg>
+ *     Hint: <hint>
+ *     <line text>
+ *          ^
+ *
+ * `severity` is the leading word ("Error" or "Warning"). `halt_after`
+ * decides whether to set `halted = 1` (true) or leave execution going (false).
+ *
+ * Pulls line context from `program_lines[current_line]` and the global
+ * `statement_pos` — same heuristics as the original runtime_error_hint.
  */
-static void runtime_error_hint(const char *msg, const char *hint)
+static void runtime_diagnostic(const char *severity, const char *msg, const char *hint, int halt_after)
 {
     int line_no = 0;
     const char *line_text = NULL;
@@ -3889,15 +3899,15 @@ static void runtime_error_hint(const char *msg, const char *hint)
 
         if (line_no > 0) {
             if (hint && hint[0]) {
-                n = snprintf(buf, sizeof(buf), "Error on line %d: %s\n  Hint: %s\n", line_no, msg, hint);
+                n = snprintf(buf, sizeof(buf), "%s on line %d: %s\n  Hint: %s\n", severity, line_no, msg, hint);
             } else {
-                n = snprintf(buf, sizeof(buf), "Error on line %d: %s\n", line_no, msg);
+                n = snprintf(buf, sizeof(buf), "%s on line %d: %s\n", severity, line_no, msg);
             }
         } else {
             if (hint && hint[0]) {
-                n = snprintf(buf, sizeof(buf), "Error: %s\n  Hint: %s\n", msg, hint);
+                n = snprintf(buf, sizeof(buf), "%s: %s\n  Hint: %s\n", severity, msg, hint);
             } else {
-                n = snprintf(buf, sizeof(buf), "Error: %s\n", msg);
+                n = snprintf(buf, sizeof(buf), "%s: %s\n", severity, msg);
             }
         }
         if (n < 0) {
@@ -3954,16 +3964,16 @@ static void runtime_error_hint(const char *msg, const char *hint)
         }
         fprintf(stderr, "%s", buf);
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
-        if (wasm_canvas_debug_flag) {
+        if (wasm_canvas_debug_flag && halt_after) {
             wasm_canvas_debug_dump_stacks(msg);
         }
 #endif
     }
 #else
     if (line_no > 0) {
-        fprintf(stderr, "Error on line %d: %s\n", line_no, msg);
+        fprintf(stderr, "%s on line %d: %s\n", severity, line_no, msg);
     } else {
-        fprintf(stderr, "Error: %s\n", msg);
+        fprintf(stderr, "%s: %s\n", severity, msg);
     }
     if (hint && hint[0]) {
         fprintf(stderr, "  Hint: %s\n", hint);
@@ -3999,12 +4009,30 @@ static void runtime_error_hint(const char *msg, const char *hint)
     }
 #endif
 
-    halted = 1;
+    if (halt_after) {
+        halted = 1;
+    }
+}
+
+/* Report an error and halt further execution. Standard four-line block
+ * with "Error" severity. Use for any condition that can't safely continue. */
+static void runtime_error_hint(const char *msg, const char *hint)
+{
+    runtime_diagnostic("Error", msg, hint, 1);
 }
 
 static void runtime_error(const char *msg)
 {
-    runtime_error_hint(msg, NULL);
+    runtime_diagnostic("Error", msg, NULL, 1);
+}
+
+/* Report a soft failure WITHOUT halting. Same output shape as
+ * runtime_error_hint but severity is "Warning" and execution continues.
+ * For fail-soft sites that set a status code (OPEN ST=1, DOWNLOAD on
+ * native no-op, etc.) — caller is responsible for the status side effect. */
+static void runtime_warning_hint(const char *msg, const char *hint)
+{
+    runtime_diagnostic("Warning", msg, hint, 0);
 }
 
 /* Strip trailing newline from a buffer if present. */
@@ -9782,10 +9810,11 @@ static void statement_download(char **p)
     {
         static int warned_once = 0;
         if (!warned_once) {
-            fprintf(stderr,
-                    "DOWNLOAD is a no-op on native builds (path '%s' already "
-                    "lives on the host filesystem).\n",
-                    V_DATA(vpath));
+            char wmsg[MAX_LINE_LEN];
+            snprintf(wmsg, sizeof(wmsg),
+                     "DOWNLOAD is a no-op on native builds (path '%s' already lives on the host filesystem)",
+                     V_DATA(vpath));
+            runtime_warning_hint(wmsg, NULL);
             warned_once = 1;
         }
     }
@@ -16845,11 +16874,16 @@ static void statement_open(char **p)
              * button silently fail on the first session (no file yet)
              * instead of halting execution.
              *
-             * Keep a stderr line for terminal debugging; basic-gfx routes
-             * stderr to the console on canvas WASM too. */
+             * Emit a non-halting Warning with line context so the failure
+             * is locatable in logs; basic-gfx routes stderr to the console
+             * on canvas WASM too. */
             set_io_status(1);
-            fprintf(stderr, "OPEN: cannot open \"%s\" (mode=%s) — ST=1\n",
-                    fname, mode ? mode : "?");
+            {
+                char wmsg[MAX_LINE_LEN];
+                snprintf(wmsg, sizeof(wmsg), "OPEN: cannot open \"%s\" (mode=%s) — ST=1",
+                         fname, mode ? mode : "?");
+                runtime_warning_hint(wmsg, "Check the path; read ST after OPEN to handle a missing file.");
+            }
             return;
         }
         open_files[lfn] = fp;

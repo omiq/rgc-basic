@@ -1,0 +1,3 @@
+10 PRINT "MARKER-BEFORE"
+20 A = "not a number" + 5
+30 PRINT "MARKER-AFTER"
