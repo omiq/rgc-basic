@@ -241,7 +241,12 @@ Exposed from all four WASM targets: `basic-wasm`, `basic-wasm-modular`, `basic-w
 
 Tracked here rather than in the `examples/` directory because they're cross-project: surfaced by Haversack-side work but live in `rgc-basic`. Each entry: concrete repro + observed-vs-expected + commit refs at time of finding.
 
-### 5b. Forward `GOTO` onto a line ending in `NEXT` → "NEXT without FOR" (2026-05-23) — **open**
+### 5b. Forward `GOTO` onto a line ending in `NEXT` → "NEXT without FOR" (2026-05-23) — **[fixed 2026-05-23]**
+
+**Fixed 2026-05-23.** Root cause: `goto_unwind_structured_stacks()` cleared `for_top` on every GOTO. Fix: stop unwinding FOR frames on GOTO (IF/WHILE/DO still unwound — they're the real overflow sources). FOR growth stays bounded via `statement_for`'s same-variable frame collapse on re-entry; verified a 2500-iteration GOTO-out-of-loop stress test doesn't overflow `MAX_FOR`. Regression test: `conformance/control/for_goto_next.bas` (single + nested). Original report retained below.
+
+---
+
 
 **Severity:** medium (breaks a common FOR + GOTO control-flow idiom; data-safe).
 

@@ -17517,30 +17517,34 @@ static void statement_let(char **p)
     v_assign(vp, rhs);
 }
 
-/* GOTO out of a structured block leaves orphaned IF / FOR / WHILE /
- * DO frames behind. Without unwinding, repeated jumps (a 60 fps game
- * loop with GOTO Done patterns) overflow MAX_IF_DEPTH within a few
- * seconds and halt with "IF nesting too deep". Clear the structured
- * stacks down to the floor of the current UDF (or 0 at top level)
- * each time GOTO fires. Matches the practical behaviour of classic
- * line-numbered BASICs: GOTO is unstructured and resets the parser's
- * structured state. Programs that GOTO *into* the body of an IF/FOR
- * and expect to land mid-iteration were already unsupported. */
+/* GOTO out of a structured block leaves orphaned IF / WHILE / DO frames
+ * behind. Without unwinding, repeated jumps (a 60 fps game loop with
+ * GOTO Done patterns) overflow MAX_IF_DEPTH within a few seconds and halt
+ * with "IF nesting too deep". Clear those stacks down to the floor of the
+ * current UDF (or 0 at top level) each time GOTO fires. Matches the
+ * practical behaviour of classic line-numbered BASICs: GOTO is unstructured
+ * and resets the parser's structured state.
+ *
+ * FOR frames are deliberately NOT unwound here. A common, legitimate idiom
+ * jumps forward *within* a loop body to a line that ends in NEXT (e.g.
+ * `FOR I … : IF cond THEN GOTO skip … skip: … : NEXT I`, as in trek.bas's
+ * galaxy generation). Clearing for_top on GOTO turned that into "NEXT
+ * without FOR". FOR-frame growth is already bounded the classic-BASIC way:
+ * statement_for collapses any existing frame for the same loop variable on
+ * re-entry, so re-running a FOR (the only realistic way to revisit one)
+ * reuses its slot instead of leaking. See wishlist 5b. */
 static void goto_unwind_structured_stacks(void)
 {
     int floor_while = 0;
-    int floor_for   = 0;
     int floor_if    = 0;
     if (udf_call_depth > 0) {
         floor_while = udf_call_stack[udf_call_depth - 1].saved_while_top;
-        floor_for   = udf_call_stack[udf_call_depth - 1].saved_for_top;
         floor_if    = udf_call_stack[udf_call_depth - 1].saved_if_depth;
     }
     if (while_top > floor_while) while_top = floor_while;
-    if (for_top   > floor_for)   for_top   = floor_for;
     if (if_depth  > floor_if)    if_depth  = floor_if;
     /* DO frames are not saved per-UDF (yet) — clear to 0. Re-entering
-     * the DO body via GOTO is the same misuse as IF/FOR: caller has
+     * the DO body via GOTO is the same misuse as IF/WHILE: caller has
      * to RUN the program from a clean state if they want it back. */
     do_top = 0;
 }

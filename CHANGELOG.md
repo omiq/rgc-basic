@@ -1,5 +1,24 @@
 ## Changelog
 
+### Fix: forward GOTO within a FOR body no longer drops the loop (2026-05-23)
+
+Wishlist §5b. `goto_unwind_structured_stacks()` cleared the FOR stack on every
+`GOTO`, which broke the common idiom of jumping forward inside a loop body to a
+line that ends in `NEXT` (e.g. `FOR I … : IF cond THEN GOTO skip … skip: … :
+NEXT I`). The jump left `for_top = 0`, so the subsequent `NEXT` reported "NEXT
+without FOR". `examples/trek.bas` hit this during galaxy generation.
+
+Fix: stop unwinding FOR frames on GOTO (IF / WHILE / DO are still unwound —
+those are the actual overflow sources the unwind was added for). FOR-frame
+growth is already bounded the classic-BASIC way: `statement_for` collapses any
+existing frame for the same loop variable on re-entry, so re-running a FOR
+reuses its slot rather than leaking. Verified a 2500-iteration GOTO-out-of-loop
+stress test does not overflow `MAX_FOR`.
+
+New regression test `conformance/control/for_goto_next.bas` (single + nested).
+This bug predated the conformance work; it was only *visible* once
+`--json-status` started returning a real process exit code.
+
 ### Headless conformance: ASSERT + --json-status + conformance/ corpus (2026-05-23)
 
 Wishlist §3c + §3a + §3g, shipped together as one CI-conformance effort.
