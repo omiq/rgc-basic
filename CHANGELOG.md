@@ -1,5 +1,47 @@
 ## Changelog
 
+### Wrap defaults + `#OPTION` precedence (2026-05-23)
+
+Two coupled changes establishing `built-in default < CLI flag < #OPTION` as
+the precedence rule for any setting that can be expressed both ways. Closes
+Haversack wishlist 2d + 2e.
+
+**Default wrap behaviour now depends on build variant.** Non-gfx builds
+(`basic` native, `basic-wasm` headless browser bundle) default to **nowrap**
+— the host terminal / browser pane already handles its own line wrapping,
+and injecting `\n` at column 40 corrupted output in any window wider than 40
+chars and forced Haversack to pass `-nowrap` on every invocation. Gfx
+variants (`basic-gfx`, `basic-wasm-canvas`, `basic-wasm-raylib`) keep
+**wrap-on at `print_width`** — the fixed 40 / 80 column canvas grid expects
+it. Implemented as a `#ifdef GFX_VIDEO` conditional on the `terminal_no_wrap`
+static initialiser (`basic.c:3125`) and the matching reset block in
+`basic_apply_arg_string` (`basic.c:21010`) so Module reuse stays authoritative.
+
+**`#OPTION` directives now override CLI flag defaults** for the same
+conceptual setting:
+
+- `#OPTION COLUMNS N` also clears `terminal_no_wrap=0` (opting into a column
+  count is opting into wrap-at-that-width). The directive does what its name
+  suggests even when the host passed `-nowrap`.
+- New `#OPTION WRAP` directive — explicit inverse of `#OPTION NOWRAP`. The
+  only way for a script to opt back into wrap after a host-applied `-nowrap`
+  if the script also wants the default column width.
+- CLI `-columns N` likewise clears `terminal_no_wrap` (so the flag parallels
+  the directive).
+- New `-wrap` CLI flag — explicit inverse of `-nowrap`, useful on non-gfx
+  builds where the default is nowrap.
+
+Per-script intent wins because `#OPTION` directives run during `load_program`
+after argv parsing, so they always have the last word on shared globals.
+
+Verified across nine combinations on native CLI + wasm node harness:
+empty / `-nowrap` / `-columns 40` / `-nowrap -columns 40` / `-wrap`, plus
+`#OPTION COLUMNS 40` / `#OPTION WRAP` / `#OPTION NOWRAP` overriding CLI
+`-nowrap` or `-columns 40`. All match the spec.
+
+Commit: `1877c25` "Default nowrap for non-gfx; #OPTION beats CLI for wrap/columns".
+Public docs (terminal-petscii.md, language.md) updated in `retrodocs`.
+
 ### 2.1.1 – 2026-05-19
 
 **Big strings + level data milestone.** `struct value` becomes a

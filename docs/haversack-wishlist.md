@@ -107,6 +107,10 @@ Same fix in the corresponding native and wasm `main` arg-parse blocks, plus the 
 
 Doc side: this is a behaviour change visible to anyone who relied on auto-wrap from native CLI piping into a narrow terminal — note it in `retrodocs/` per §1b. Low expected blast radius (gfx variants — the canvas-grid case — are unchanged).
 
+**Shipped 2026-05-23 in commit `1877c25`** ("Default nowrap for non-gfx; #OPTION beats CLI for wrap/columns"). Verified across native CLI + wasm node harness, nine permutations covering bare default / `-nowrap` / `-columns 40` / `-nowrap -columns 40` / `-wrap` / `#OPTION COLUMNS 40` / `#OPTION WRAP` / `#OPTION NOWRAP`. `CHANGELOG.md`, `retrodocs/docs/basic/rgc-basic/language.md`, and `retrodocs/docs/basic/rgc-basic/terminal-petscii.md` updated.
+
+**Haversack-side action when re-vendoring `web/basic.{js,wasm}` past `1877c25`:** drop the `["-nowrap"]` default from `web/host/rgc-host.js`'s `interpreterFlags` — it's now the non-gfx default at the interpreter level, so the flag is redundant. Keeping it is harmless (sets a flag that's already set), but removing it makes the host-side config match the interpreter spec, and lets scripts that need wrap use `#OPTION WRAP` or `#OPTION COLUMNS N` without the host needing a per-script override path.
+
 ### 2c. `DICTDUMP$(handle)` / `BUFFERDUMP$(slot)` — diagnostic snapshots (2026-05-22) — parked
 
 When chasing handle-leak / lifetime bugs in tools, having a way to dump the current slot table state (allocated slots, root types, child counts) as JSON would help. Could share output format with `JSON$(handle)` for the value contents, plus a metadata wrapper. Park until first real handle bug surfaces.
