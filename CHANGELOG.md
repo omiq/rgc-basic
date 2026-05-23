@@ -1,5 +1,37 @@
 ## Changelog
 
+### Runtime error source-line reporting — Phase 2 (2026-05-23)
+
+Wishlist §3d Phase 2 (proposal: `docs/runtime-error-source-line-proposal.md`).
+Builds on Phase 1's `runtime_diagnostic` infrastructure.
+
+**2a — per-line source-file provenance.** `struct line` gains a `src_file`
+field (interned path, `NULL` = top-level program). `#INCLUDE`d lines are
+stamped with their origin file during load. Runtime diagnostics now report
+`Error at lib/helpers.bas:110` for included lines while top-level lines keep
+`Error on line 110` (no change for single-file programs). This is the literal
+"`DICTLOAD at script.bas:17`" form from the original wishlist ask. Paths are
+interned in a bounded table (`MAX_SRC_FILES = 128`); overflow degrades to the
+line-only form.
+
+**2b — `LASTERROR$()` builtin + `basic_get_lasterror()` ccall export.** Returns
+the formatted text of the last runtime diagnostic (same as the printed header
+line), or `""` if none. Pull-mode companion to `JSONSTATUS()` / `HTTPSTATUS()`:
+tool scripts read it directly, JS hosts read it without modifying the script.
+Exposed from all four WASM targets.
+
+**2c — `#OPTION DIAGNOSTICS` / `-diagnostics` flag.** Default off. When set,
+fail-soft HTTP sites (`HTTP$`, `HTTPFETCH`, `BUFFERFETCH`) that previously set
+a status code silently now emit a non-halting `Warning` breadcrumb with line
+context on transport failure (status 0) or HTTP error (status >= 400). The
+breadcrumb also populates `LASTERROR$()`. Treats `.invalid` / DNS failures and
+4xx/5xx as failures. (JSON parse-fail breadcrumbs can join the same umbrella
+later; HTTP was the highest-value silent-failure case for tool authors.)
+
+New test cases in `tests/runtime_errors/` (`include_error`, `diagnostics_http`,
+`lasterror_capture`) + a stdout-substring check mode in the driver. Verified
+native + `basic-wasm` node harness.
+
 ### Runtime error source-line reporting — Phase 1 (2026-05-23)
 
 Wishlist §3d, Phase 1 (proposal: `docs/runtime-error-source-line-proposal.md`).

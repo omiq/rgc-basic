@@ -2,7 +2,7 @@
 
 **Wishlist item:** §3d from `docs/haversack-wishlist.md` — "Source line in runtime error messages". Promoted by Haversack triage 2026-05-23 as highest-value next-up item.
 
-**Status:** proposal, not yet implementing. Lands in two phases; Phase 1 is the minimum-viable ship and matches the wishlist ask, Phase 2 is the opt-in follow-up for breadcrumb-style diagnostics.
+**Status:** **both phases shipped 2026-05-23.** Phase 1 = the minimum-viable ask (Error-halts vs Warning-continues, both carry line context). Phase 2 = file-path provenance + `LASTERROR$()` + `#OPTION DIAGNOSTICS`. See CHANGELOG entries "Runtime error source-line reporting — Phase 1 / Phase 2". The design notes below are retained as the record of what was built and why.
 
 ## What we have today
 

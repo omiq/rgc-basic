@@ -119,7 +119,7 @@ EMCC ?= emcc
 basic-wasm:
 	@mkdir -p web
 	$(EMCC) -w -O2 $(VERSION_DEFINES) -s WASM=1 \
-		-s EXPORTED_FUNCTIONS='["_basic_load","_basic_run","_basic_halted","_basic_load_and_run","_basic_apply_arg_string","_basic_get_jsonstatus","_basic_get_httpstatus","_basic_get_version","_wasm_push_key","_malloc","_free"]' \
+		-s EXPORTED_FUNCTIONS='["_basic_load","_basic_run","_basic_halted","_basic_load_and_run","_basic_apply_arg_string","_basic_get_jsonstatus","_basic_get_httpstatus","_basic_get_version","_basic_get_lasterror","_wasm_push_key","_malloc","_free"]' \
 		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","HEAPU8","HEAP16","wasmMemory","getValue"]' \
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
 		-s INITIAL_MEMORY=33554432 \
@@ -133,7 +133,7 @@ basic-wasm:
 basic-wasm-modular:
 	@mkdir -p web
 	$(EMCC) -w -O2 $(VERSION_DEFINES) -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME=createBasicModular \
-		-s EXPORTED_FUNCTIONS='["_basic_load","_basic_run","_basic_halted","_basic_load_and_run","_basic_apply_arg_string","_basic_get_jsonstatus","_basic_get_httpstatus","_basic_get_version","_wasm_push_key","_malloc","_free"]' \
+		-s EXPORTED_FUNCTIONS='["_basic_load","_basic_run","_basic_halted","_basic_load_and_run","_basic_apply_arg_string","_basic_get_jsonstatus","_basic_get_httpstatus","_basic_get_version","_basic_get_lasterror","_wasm_push_key","_malloc","_free"]' \
 		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","HEAPU8","HEAP16","wasmMemory","getValue"]' \
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
 		-s INITIAL_MEMORY=33554432 \
@@ -146,7 +146,7 @@ basic-wasm-modular:
 basic-wasm-canvas:
 	@mkdir -p web
 	$(EMCC) -w -O2 $(VERSION_DEFINES) -s WASM=1 -DGFX_VIDEO -Igfx \
-		-s EXPORTED_FUNCTIONS='["_basic_apply_arg_string","_basic_get_jsonstatus","_basic_get_httpstatus","_basic_get_version","_basic_load_and_run_gfx","_basic_load_and_run_gfx_argline","_wasm_push_key","_wasm_gfx_rgba_ptr","_wasm_gfx_rgba_version_read","_wasm_gfx_bitmap_pixel_at","_wasm_gfx_screen_screencode_at","_wasm_gfx_key_state_set","_wasm_gfx_key_state_clear","_wasm_gfx_key_state_ptr","_wasm_gamepad_buttons_ptr","_wasm_gamepad_axes_ptr","_wasm_mouse_js_frame","_wasm_canvas_build_stamp","_wasm_canvas_set_debug","_wasm_canvas_set_debug_trace_for","_wasm_debug_log_stacks","_wasm_gfx_set_js_sprite_backend","_wasm_gfx_get_js_sprite_backend","_wasm_gfx_sprite_rgba_ptr","_wasm_gfx_sprite_w","_wasm_gfx_sprite_h","_wasm_gfx_sprite_version","_wasm_gfx_sprite_draw_params","_malloc","_free"]' \
+		-s EXPORTED_FUNCTIONS='["_basic_apply_arg_string","_basic_get_jsonstatus","_basic_get_httpstatus","_basic_get_version","_basic_get_lasterror","_basic_load_and_run_gfx","_basic_load_and_run_gfx_argline","_wasm_push_key","_wasm_gfx_rgba_ptr","_wasm_gfx_rgba_version_read","_wasm_gfx_bitmap_pixel_at","_wasm_gfx_screen_screencode_at","_wasm_gfx_key_state_set","_wasm_gfx_key_state_clear","_wasm_gfx_key_state_ptr","_wasm_gamepad_buttons_ptr","_wasm_gamepad_axes_ptr","_wasm_mouse_js_frame","_wasm_canvas_build_stamp","_wasm_canvas_set_debug","_wasm_canvas_set_debug_trace_for","_wasm_debug_log_stacks","_wasm_gfx_set_js_sprite_backend","_wasm_gfx_get_js_sprite_backend","_wasm_gfx_sprite_rgba_ptr","_wasm_gfx_sprite_w","_wasm_gfx_sprite_h","_wasm_gfx_sprite_version","_wasm_gfx_sprite_draw_params","_malloc","_free"]' \
 		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","HEAPU8","HEAP16","wasmMemory","getValue"]' \
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
 		-s INITIAL_MEMORY=67108864 \
@@ -171,7 +171,7 @@ basic-wasm-raylib: $(RAYLIB_WEB_LIB)
 	@mkdir -p web
 	$(EMCC) -w -O2 $(VERSION_DEFINES) -s WASM=1 -DGFX_VIDEO -DGFX_USE_RAYLIB -Igfx -I$(RAYLIB_WEB_SRC) \
 		-s USE_GLFW=3 -s FULL_ES2=1 -s ALLOW_MEMORY_GROWTH=1 \
-		-s EXPORTED_FUNCTIONS='["_basic_apply_arg_string","_basic_get_jsonstatus","_basic_get_httpstatus","_basic_get_version","_basic_load_and_run_gfx","_basic_load_and_run_gfx_argline","_wasm_push_key","_wasm_gfx_key_state_set","_wasm_gfx_key_state_clear","_wasm_gfx_key_state_ptr","_wasm_gamepad_buttons_ptr","_wasm_gamepad_axes_ptr","_malloc"]' \
+		-s EXPORTED_FUNCTIONS='["_basic_apply_arg_string","_basic_get_jsonstatus","_basic_get_httpstatus","_basic_get_version","_basic_get_lasterror","_basic_load_and_run_gfx","_basic_load_and_run_gfx_argline","_wasm_push_key","_wasm_gfx_key_state_set","_wasm_gfx_key_state_clear","_wasm_gfx_key_state_ptr","_wasm_gamepad_buttons_ptr","_wasm_gamepad_axes_ptr","_malloc"]' \
 		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","HEAPU8","HEAP16","HEAPF32","wasmMemory","getValue"]' \
 		-s FORCE_FILESYSTEM=1 -s NO_EXIT_RUNTIME=1 \
 		-s INITIAL_MEMORY=67108864 \

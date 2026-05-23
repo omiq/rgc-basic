@@ -28,6 +28,17 @@ fi
 DIR=tests/runtime_errors
 fails=0
 
+# run_stdout_case <file> <expected-stdout-substring>
+# For builtins whose result lands on stdout (e.g. LASTERROR$()).
+run_stdout_case() {
+    file="$1"; want="$2"
+    out=$("$BASIC" "$DIR/$file" 2>/dev/null) || true
+    case "$out" in
+        *"$want"*) echo "ok   $file (stdout): '$want'" ;;
+        *) echo "FAIL $file: stdout missing '$want'"; echo "  got stdout: $out"; fails=$((fails + 1)) ;;
+    esac
+}
+
 # run_case <file> <severity: halt|continue> <expected-stderr-substring>
 run_case() {
     file="$1"; mode="$2"; want="$3"
@@ -69,6 +80,16 @@ run_case type_error.bas    halt    "Error on line 20"
 
 # Soft warning — must report line and continue.
 run_case open_warning.bas  continue "Warning on line 20"
+
+# #INCLUDEd line — must report "at <file>:N" instead of "on line N" (Phase 2a).
+run_case include_error.bas halt    "inc_lib.bas:110"
+
+# #OPTION DIAGNOSTICS — HTTP soft-fail emits a non-halting Warning breadcrumb
+# (Phase 2c). .invalid is RFC-6761 guaranteed to fail DNS, so status is 0.
+run_case diagnostics_http.bas continue "HTTP\$ failed"
+
+# LASTERROR$() — captures the last diagnostic text on stdout (Phase 2b).
+run_stdout_case lasterror_capture.bas "CAPTURED:Warning on line 10"
 
 if [ "$fails" -gt 0 ]; then
     echo "runtime_error_test: $fails case(s) failed" >&2

@@ -1,0 +1,3 @@
+100 PRINT "MARKER-LIB"
+110 MAPLOAD "/nonexistent.json"
+120 RETURN

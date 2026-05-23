@@ -151,7 +151,7 @@ What ASSERT actually enables is **a new `conformance/` corpus written specifical
 
 So the right way to read 3a + 3c + 3g is "ship the three legs together as a single CI-conformance effort", not "retrofit examples".
 
-### 3d. Source line in runtime error messages (2026-05-22) — **PROMOTED 2026-05-23; Phase 1 [shipped 2026-05-23], Phase 2 open**
+### 3d. Source line in runtime error messages (2026-05-22) — **[shipped 2026-05-23: Phase 1 + Phase 2 complete]**
 
 JSON / HTTP / DICT failures should include the originating script line (`DICTLOAD at script.bas:17`). Right now most errors lack the call site, forcing print-debugging to localise. The existing parser-side errors already do this for syntax — extend to runtime failures.
 
@@ -164,13 +164,16 @@ JSON / HTTP / DICT failures should include the originating script line (`DICTLOA
 - Migrated `OPEN` (ST=1) and native `DOWNLOAD` no-op — now carry line context.
 - New `tests/runtime_errors/` corpus + `runtime_error_test.sh` driver, wired into `make check`. Verified native + wasm.
 
-**Phase 2 still open** (independent sub-parts, pick any later):
+**Phase 2 shipped 2026-05-23** (all three sub-parts):
 
-- **2a** — track per-line source file (extend `struct line` with `src_file`); switch reporting to `at <file>:<line>` so `#INCLUDE`d programs localise correctly. This is the literal "`DICTLOAD at script.bas:17`" ask — Phase 1 gives the line, 2a gives the file.
-- **2b** — `LASTERROR$()` builtin + `basic_get_lasterror()` ccall export (pull-mode access to the last diagnostic; companion to §3b/§4a work already shipped).
-- **2c** — `#OPTION DIAGNOSTICS` to emit opt-in breadcrumbs at status-code soft-fail sites (HTTP network fail, JSON parse fail in non-strict mode, etc.) that currently set a status silently.
+- **2a [shipped]** — `struct line` now carries `src_file`; `#INCLUDE`d lines report `Error at lib/helpers.bas:110`, top-level lines keep `Error on line 110`. The literal "`DICTLOAD at script.bas:17`" ask.
+- **2b [shipped]** — `LASTERROR$()` builtin + `basic_get_lasterror()` ccall export. Returns the last diagnostic's formatted text (or `""`). Pull-mode companion to JSONSTATUS()/HTTPSTATUS().
+- **2c [shipped]** — `#OPTION DIAGNOSTICS` (and `-diagnostics` CLI flag), default off. When on, `HTTP$` / `HTTPFETCH` / `BUFFERFETCH` failures (status 0 or >= 400) emit a non-halting `Warning` breadcrumb that also populates `LASTERROR$()`.
 
-**Note for Haversack:** the literal `at script.bas:17` form needs Phase 2a. If you need it for multi-file tool bundles, flag it and it'll graduate. Single-file scripts already get the line number from Phase 1.
+**Haversack-side notes:**
+- `LASTERROR$()` / `basic_get_lasterror()` always reflect the last *reported* diagnostic (hard errors + the migrated OPEN/DOWNLOAD warnings). Silent HTTP/JSON status failures are captured by `LASTERROR$()` only when `#OPTION DIAGNOSTICS` is on — otherwise keep using `HTTPSTATUS()` / `JSONSTATUS()`.
+- JSON parse-fail breadcrumbs under `#OPTION DIAGNOSTICS` are not wired yet (HTTP was the highest-value silent case). Flag it if a tool needs JSON breadcrumbs and it's a small follow-up under the same directive.
+- Re-vendor `web/basic.{js,wasm}` past the Phase 2 commit to get `basic_get_lasterror` + the `at file:line` form for multi-file tool bundles.
 
 ### 3e. `#OPTION HTTP STRICT` (2026-05-22)
 

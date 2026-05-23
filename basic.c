@@ -65,6 +65,19 @@ static int http_last_status;
 static int json_last_status;
 static int json_strict_mode;
 
+/* Last diagnostic message reported via runtime_diagnostic, as the formatted
+ * first line minus newline (e.g. "Error at lib.bas:110: DICTLOAD: cannot
+ * open file"). Empty until the first diagnostic. Surfaced to BASIC via
+ * LASTERROR$() and to JS hosts via basic_get_lasterror(). Sized for
+ * MAX_INCLUDE_PATH (512, defined later) + severity + message slack. */
+static char g_last_error[832] = "";
+
+/* When set (#OPTION diagnostics / -diagnostics), fail-soft status-code sites
+ * (HTTP network fail, JSON parse fail in non-strict mode, …) emit a
+ * non-halting Warning breadcrumb so failures are locatable without the
+ * script polling JSONSTATUS()/HTTPSTATUS() after every call. Default off. */
+static int diagnostics_mode = 0;
+
 #ifdef __EMSCRIPTEN__
 /*
  * Async fetch for HTTP$ (EM_ASYNC_JS → Asyncify.handleAsync; no manual ASYNCIFY_IMPORTS).
@@ -1928,6 +1941,11 @@ static int v_strcmp(const struct value *a, const struct value *b)
 struct line {
     int number;
     char *text;
+    /* Source file the line came from, for runtime error reporting. NULL
+     * means the top-level program (reported as "on line N"); an interned
+     * path means an #INCLUDEd file (reported as "at <file>:N"). Points into
+     * the intern table (src_path_intern), never freed per-line. */
+    const char *src_file;
 };
 
 #define MAX_DIMS 3
@@ -1968,6 +1986,36 @@ struct for_frame {
 
 static struct line *program_lines[MAX_LINES];
 static int line_count = 0;
+
+/* Interned source-file paths for per-line provenance (struct line.src_file).
+ * Bounded; if full, new files degrade to NULL ("on line N" reporting). Never
+ * freed — lives for the program's lifetime. */
+#define MAX_SRC_FILES 128
+static char *src_path_intern[MAX_SRC_FILES];
+static int src_path_intern_count = 0;
+/* Source file currently being loaded; set by load_file_into_program, read by
+ * add_or_replace_line when stamping new lines. NULL = top-level program. */
+static const char *g_load_src_file = NULL;
+
+/* Return a stable interned copy of `path`, or NULL if the table is full
+ * (caller treats NULL as "top-level program"). Dedups by string value. */
+static const char *intern_src_path(const char *path)
+{
+    int i;
+    if (!path) return NULL;
+    for (i = 0; i < src_path_intern_count; i++) {
+        if (strcmp(src_path_intern[i], path) == 0) return src_path_intern[i];
+    }
+    if (src_path_intern_count >= MAX_SRC_FILES) return NULL;
+    {
+        size_t n = strlen(path) + 1;
+        char *copy = (char *)malloc(n);
+        if (!copy) return NULL;
+        memcpy(copy, path, n);
+        src_path_intern[src_path_intern_count++] = copy;
+        return copy;
+    }
+}
 
 static struct var vars[MAX_VARS];
 static int var_count = 0;
@@ -3335,6 +3383,10 @@ static int apply_option_directive(const char *name, const char *value)
         terminal_no_wrap = 0;
         return 0;
     }
+    if (str_eq_ci(name, "diagnostics")) {
+        diagnostics_mode = 1;
+        return 0;
+    }
 #ifdef GFX_VIDEO
     if (str_eq_ci(name, "gfx_title") || str_eq_ci(name, "gfx-title")) {
         if (!value) return -1;
@@ -3861,7 +3913,10 @@ enum func_code {
     FN_DICTLOAD = 94,
     /* RGCVERSION$() — build's version+date+variant string. Tools can branch
      * on minimum version. See `basic_print_version` for the format. */
-    FN_RGCVERSION = 102
+    FN_RGCVERSION = 102,
+    /* LASTERROR$() — formatted text of the last runtime diagnostic, or ""
+     * if none. Pull-mode companion to JSONSTATUS()/HTTPSTATUS(). */
+    FN_LASTERROR = 103
 };
 
 /* Shared body for runtime_error_hint + runtime_warning_hint.
@@ -3882,12 +3937,31 @@ static void runtime_diagnostic(const char *severity, const char *msg, const char
 {
     int line_no = 0;
     const char *line_text = NULL;
+    const char *src_file = NULL;
+    /* Location phrase: "on line N" for top-level lines, "at <file>:N" for
+     * lines that came from an #INCLUDEd file (src_file set). Built once and
+     * shared by both the native and wasm header paths below. */
+    char loc[MAX_INCLUDE_PATH + 32];
+    loc[0] = '\0';
 
     if (current_line >= 0 && current_line < line_count &&
         program_lines[current_line] != NULL) {
         line_no = program_lines[current_line]->number;
         line_text = program_lines[current_line]->text;
+        src_file = program_lines[current_line]->src_file;
     }
+
+    if (line_no > 0) {
+        if (src_file) {
+            snprintf(loc, sizeof(loc), " at %s:%d", src_file, line_no);
+        } else {
+            snprintf(loc, sizeof(loc), " on line %d", line_no);
+        }
+    }
+
+    /* Record for LASTERROR$() / basic_get_lasterror() — same text as the
+     * printed header line. */
+    snprintf(g_last_error, sizeof(g_last_error), "%s%s: %s", severity, loc, msg);
 
 #if defined(__EMSCRIPTEN__)
     /* Browser: each fprintf(stderr) becomes a separate Module.printErr call.
@@ -3899,9 +3973,9 @@ static void runtime_diagnostic(const char *severity, const char *msg, const char
 
         if (line_no > 0) {
             if (hint && hint[0]) {
-                n = snprintf(buf, sizeof(buf), "%s on line %d: %s\n  Hint: %s\n", severity, line_no, msg, hint);
+                n = snprintf(buf, sizeof(buf), "%s%s: %s\n  Hint: %s\n", severity, loc, msg, hint);
             } else {
-                n = snprintf(buf, sizeof(buf), "%s on line %d: %s\n", severity, line_no, msg);
+                n = snprintf(buf, sizeof(buf), "%s%s: %s\n", severity, loc, msg);
             }
         } else {
             if (hint && hint[0]) {
@@ -3971,7 +4045,7 @@ static void runtime_diagnostic(const char *severity, const char *msg, const char
     }
 #else
     if (line_no > 0) {
-        fprintf(stderr, "%s on line %d: %s\n", severity, line_no, msg);
+        fprintf(stderr, "%s%s: %s\n", severity, loc, msg);
     } else {
         fprintf(stderr, "%s: %s\n", severity, msg);
     }
@@ -4033,6 +4107,19 @@ static void runtime_error(const char *msg)
 static void runtime_warning_hint(const char *msg, const char *hint)
 {
     runtime_diagnostic("Warning", msg, hint, 0);
+}
+
+/* #OPTION DIAGNOSTICS breadcrumb for HTTP fail-soft sites. No-op unless
+ * diagnostics_mode is on. Treats st == 0 (transport failure) and st >= 400
+ * (HTTP error) as failures; emits a non-halting Warning carrying the line
+ * context (and so also populating g_last_error for LASTERROR$). */
+static void diag_http(const char *what, const char *url, int st)
+{
+    char m[MAX_INCLUDE_PATH + 96];
+    if (!diagnostics_mode) return;
+    if (st != 0 && st < 400) return; /* success */
+    snprintf(m, sizeof(m), "%s failed (status %d): %s", what, st, url ? url : "?");
+    runtime_warning_hint(m, "Read HTTPSTATUS() after the call to handle failures.");
 }
 
 /* Strip trailing newline from a buffer if present. */
@@ -4122,7 +4209,7 @@ static const char *const reserved_words[] = {
     "COLOUR", "COS", "CURSOR", "DATA", "DEC", "DEF", "DIM", "DOWN", "END", "FUNCTION",
     "ELSE", "ELSEIF", "ENV", "EVAL", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
     "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LINE", "LOAD", "LOADSPRITE", "LOCATE", "LOG",
-    "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET",     "PRINT", "PUTBYTE",
+    "LASTERROR", "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET",     "PRINT", "PUTBYTE",
     "XOR",
     "READ", "RECT", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITEAT", "SPRITECOLLIDE", "SPRITECOPY", "SPRITEFRAME", "SPRITEMODIFY", "SPRITEMODULATE", "SPRITETILES", "SPRITEVISIBLE",
     "CHDIR", "CWD", "DIR", "JSONLEN", "JSONKEY", "TICKUS", "TICKMS",
@@ -5142,6 +5229,8 @@ static int function_lookup(const char *name, int len)
         return FN_NONE;
     case 'L':
         if (len == 11 && name[0] == 'L' && name[1] == 'A' && name[2] == 'S' && name[3] == 'T' && name[4] == 'I' && name[5] == 'N' && name[6] == 'D' && name[7] == 'E' && name[8] == 'X' && name[9] == 'O' && name[10] == 'F') return FN_LASTINDEXOF;
+        if ((len == 9 && memcmp(name, "LASTERROR", 9) == 0) ||
+            (len == 10 && memcmp(name, "LASTERROR$", 10) == 0)) return FN_LASTERROR;
         if (len == 3 && name[0] == 'L' && name[1] == 'O' && name[2] == 'G') return FN_LOG;
         if (len == 3 && name[0] == 'L' && name[1] == 'E' && name[2] == 'N') return FN_LEN;
         if ((len == 4 && name[0] == 'L' && name[1] == 'E' && name[2] == 'F' && name[3] == 'T') ||
@@ -7553,6 +7642,7 @@ static void statement_bufferfetch(char **p)
 #endif
     rc = http_fetch_to_file_impl(V_DATA(vurl), g_buffers[slot].path, meth, bod, blen, NULL, &st);
     http_last_status = st;
+    diag_http("BUFFERFETCH", V_DATA(vurl), rc != 0 ? 0 : st);
     (void)rc;
 }
 
@@ -11746,6 +11836,7 @@ static struct value eval_function(const char *name, char **p)
             struct value out;
             wasm_js_http_fetch_async_dyn(V_DATA(v_url), m, bod, blen, hdrs, &ptr, &len, &st);
             http_last_status = st;
+            diag_http("HTTP$", V_DATA(v_url), st);
             if (ptr && len > 0) {
                 out = make_str_bytes((char *)(intptr_t)ptr, (size_t)len);
                 free((void *)(intptr_t)ptr);
@@ -11761,6 +11852,7 @@ static struct value eval_function(const char *name, char **p)
             struct value out;
             native_http_fetch_to_buf(V_DATA(v_url), meth, bod, blen, hdrs, &body_buf, &body_len, &st);
             http_last_status = st;
+            diag_http("HTTP$", V_DATA(v_url), st);
             out = make_str_bytes(body_buf ? body_buf : "", body_buf ? body_len : 0);
             free(body_buf);
             return out;
@@ -11846,6 +11938,7 @@ static struct value eval_function(const char *name, char **p)
 #endif
         rc = http_fetch_to_file_impl(V_DATA(v_url), V_DATA(v_path), meth, bod, blen, hdrs, &st);
         http_last_status = st;
+        diag_http("HTTPFETCH", V_DATA(v_url), rc != 0 ? 0 : st);
         if (rc != 0) {
             return make_num(0.0);
         }
@@ -12295,6 +12388,15 @@ static struct value eval_function(const char *name, char **p)
             return make_str("");
         }
         return make_str(g_buffers[slot].path);
+    }
+    if (code == FN_LASTERROR) {
+        if (**p != ')') {
+            runtime_error_hint("LASTERROR$ takes no arguments", "Use LASTERROR$() with empty parentheses.");
+            return make_str("");
+        }
+        (*p)++;
+        skip_spaces(p);
+        return make_str(g_last_error);
     }
     if (code == FN_RGCVERSION) {
         if (**p != ')') {
@@ -14484,7 +14586,7 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "INSTR") || starts_with_kw(*p, "DEC") || starts_with_kw(*p, "HEX") ||
             starts_with_kw(*p, "REPLACE") || starts_with_kw(*p, "TRIM") || starts_with_kw(*p, "LTRIM") || starts_with_kw(*p, "RTRIM") ||
             starts_with_kw(*p, "FIELD") || starts_with_kw(*p, "FILEEXISTS") || starts_with_kw(*p, "INDEXOF") || starts_with_kw(*p, "LASTINDEXOF") ||
-            starts_with_kw(*p, "ENV") || starts_with_kw(*p, "EVAL") || starts_with_kw(*p, "PLATFORM") || starts_with_kw(*p, "RGCVERSION") || starts_with_kw(*p, "JSON") ||
+            starts_with_kw(*p, "ENV") || starts_with_kw(*p, "EVAL") || starts_with_kw(*p, "PLATFORM") || starts_with_kw(*p, "RGCVERSION") || starts_with_kw(*p, "LASTERROR") || starts_with_kw(*p, "JSON") ||
             starts_with_kw(*p, "HTTPSTATUS") || starts_with_kw(*p, "HTTPFETCH") || starts_with_kw(*p, "HTTP$") ||
             starts_with_kw(*p, "ARGC") || starts_with_kw(*p, "ARG") ||
             starts_with_kw(*p, "SYSTEM") || starts_with_kw(*p, "EXEC") ||
@@ -19664,6 +19766,7 @@ static void add_or_replace_line(int number, const char *text)
                 free(program_lines[i]->text);
             }
             program_lines[i]->text = dupstr_local(text);
+            program_lines[i]->src_file = g_load_src_file;
             return;
         }
     }
@@ -19680,6 +19783,7 @@ static void add_or_replace_line(int number, const char *text)
     }
     program_lines[line_count]->number = number;
     program_lines[line_count]->text = dupstr_local(text);
+    program_lines[line_count]->src_file = g_load_src_file;
     line_count++;
 }
 
@@ -19796,6 +19900,11 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
      * #INCLUDE call would overwrite — corrupting the parent's view of
      * its own directory and breaking the second include in a row. */
     char base_dir_local[MAX_INCLUDE_PATH];
+    /* Source-file stamp for lines added during THIS invocation. Top-level
+     * (depth 0) stays NULL so existing single-file programs still report
+     * "on line N"; #INCLUDEd files get an interned path → "at <file>:N". */
+    const char *my_src_file = (include_depth > 0) ? intern_src_path(path) : NULL;
+    g_load_src_file = my_src_file;
     if (base_dir) {
         strncpy(base_dir_local, base_dir, sizeof(base_dir_local) - 1);
         base_dir_local[sizeof(base_dir_local) - 1] = '\0';
@@ -19994,6 +20103,9 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
                 include_path_store[MAX_INCLUDE_DEPTH - 1][MAX_INCLUDE_PATH - 1] = '\0';
                 load_file_into_program(include_path_store[MAX_INCLUDE_DEPTH - 1], get_base_dir(include_path_store[MAX_INCLUDE_DEPTH - 1]), include_depth + 1,
                     use_explicit_numbers, auto_line_no, first_line_seen);
+                /* Recursion clobbered the global stamp; restore ours so the
+                 * rest of this file's lines are attributed correctly. */
+                g_load_src_file = my_src_file;
                 free(linebuf);
                 continue;
             }
@@ -20451,6 +20563,8 @@ int basic_parse_arg_flags(int argc, char **argv, int start, int expect_program_p
             terminal_no_wrap = 1;
         } else if (strcmp(argv[i], "-wrap") == 0 || strcmp(argv[i], "--wrap") == 0) {
             terminal_no_wrap = 0;
+        } else if (strcmp(argv[i], "-diagnostics") == 0 || strcmp(argv[i], "--diagnostics") == 0) {
+            diagnostics_mode = 1;
 #ifdef GFX_VIDEO
         } else if (strcmp(argv[i], "-gfx-title") == 0 || strcmp(argv[i], "--gfx-title") == 0) {
             if (i + 1 >= argc) {
@@ -20921,7 +21035,7 @@ int main(int argc, char **argv)
     }
 
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s [-v|--version] [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] [-wrap] <program.bas>\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-v|--version] [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] [-wrap] [-diagnostics] <program.bas>\n", argv[0]);
         return 1;
     }
 
@@ -21024,9 +21138,11 @@ int main(int argc, char **argv)
             terminal_no_wrap = 1;
         } else if (strcmp(argv[i], "-wrap") == 0 || strcmp(argv[i], "--wrap") == 0) {
             terminal_no_wrap = 0;
+        } else if (strcmp(argv[i], "-diagnostics") == 0 || strcmp(argv[i], "--diagnostics") == 0) {
+            diagnostics_mode = 1;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] [-wrap] <program.bas>\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] [-wrap] [-diagnostics] <program.bas>\n", argv[0]);
             return 1;
         } else {
             prog_path = argv[i];
@@ -21035,7 +21151,7 @@ int main(int argc, char **argv)
     }
 
     if (!prog_path) {
-        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] [-wrap] <program.bas>\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] [-wrap] [-diagnostics] <program.bas>\n", argv[0]);
         return 1;
     }
 
@@ -21083,6 +21199,7 @@ EMSCRIPTEN_KEEPALIVE int basic_apply_arg_string(const char *argline)
     petscii_set_lowercase(0);
     charrom_family_opt = 0;
     max_str_limit = MAX_STR_LEN;
+    diagnostics_mode = 0;
 
     if (!argline) {
         argline = "";
@@ -21128,6 +21245,9 @@ EMSCRIPTEN_KEEPALIVE void basic_load_and_run(const char *path)
  * builtins, but reachable from JS without modifying the script under test. */
 EMSCRIPTEN_KEEPALIVE int basic_get_jsonstatus(void) { return json_last_status; }
 EMSCRIPTEN_KEEPALIVE int basic_get_httpstatus(void) { return http_last_status; }
+
+/* Text of the last runtime diagnostic, or "" if none. Same as LASTERROR$(). */
+EMSCRIPTEN_KEEPALIVE const char *basic_get_lasterror(void) { return g_last_error; }
 
 /* Build's version+date+variant string, e.g. "v2.1.1-22-g440562b (2026-05-23) basic-wasm".
  * Same format as RGCVERSION$() inside BASIC and basic_print_version's first line. */
