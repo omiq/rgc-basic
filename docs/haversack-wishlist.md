@@ -119,17 +119,25 @@ When chasing handle-leak / lifetime bugs in tools, having a way to dump the curr
 
 Listed in `notehub/docs/TOOLS.md` under "Debugging + triage > RGC-side asks that would make this easier". Replicated here so this wishlist is self-contained:
 
-### 3a. `--json-status` flag on native CLI (2026-05-22)
+### 3a. `--json-status` flag on native CLI (2026-05-22, reframed 2026-05-23)
 
-Final stdout line as structured JSON: `{"exit": N, "reason": "...", "line": N}`. Trivialises CI assertions in any host (bash, node, PHP) and fills in the Haversack auto-report template cleanly.
+Final stdout (or stderr) line as structured JSON: `{"exit": N, "reason": "...", "line": N, "assert_msg": "..."}`. Trivialises CI assertions in any host (bash, node, PHP) and fills in the Haversack auto-report template cleanly.
+
+**Reframed 2026-05-23:** this is one leg of a three-part "headless conformance" effort. Pairs with §3c (ASSERT primitive) and §3g (conformance corpus). When all three ship, CI runs `basic --json-status conformance/foo.bas`, the script uses `ASSERT` to gate behaviour, and the final JSON line gives CI a structured pass/fail without `grep`-on-stdout. Each piece is useful alone (e.g. 3a is useful for any existing script today), but the real payoff is the trio.
 
 ### 3b. `RGCVERSION$()` builtin (2026-05-22)
 
 Returns the build's version string. Tools and tests can branch on minimum version (`IF RGCVERSION$() < "2.1.3" THEN PRINT "needs 2.1.3+"`). Bug reports compare against runtime version automatically.
 
-### 3c. `ASSERT cond, msg$` primitive (2026-05-22)
+### 3c. `ASSERT cond, msg$` primitive (2026-05-22, reframed 2026-05-23)
 
-Halts with structured exit if `cond` is false. Turns the existing `examples/*.bas` corpus into a regression suite without rewriting them as a separate test framework.
+Halts with structured exit if `cond` is false. Records `msg$` so a CI driver (or §3a's `--json-status`) can report which assertion fired.
+
+**Reframed 2026-05-23 (Chris flagged):** the original entry claimed this "turns the existing `examples/*.bas` corpus into a regression suite". That overpromises — most examples are gfx demos, interactive RPG loops, music demos, or visual tutorials that need a window / user gesture / event loop. Realistically maybe 30-40% of `examples/*.bas` is headless-friendly today. ASSERT alone doesn't make the rest runnable in CI.
+
+What ASSERT actually enables is **a new `conformance/` corpus written specifically to be headless** (see §3g) — short scripts that exercise one feature each, assert expected values, exit with structured status via §3a. The `examples/` directory stays as "demos / tutorials for humans". Two audiences, two directories.
+
+So the right way to read 3a + 3c + 3g is "ship the three legs together as a single CI-conformance effort", not "retrofit examples".
 
 ### 3d. Source line in runtime error messages (2026-05-22) — **PROMOTED 2026-05-23 (next-up)**
 
@@ -145,9 +153,33 @@ Mirrors `#OPTION JSON STRICT`. Tools forget to check `HTTPSTATUS()` constantly; 
 
 Drives the WASM bundle via emscripten's Node bindings, captures `Module.print`, returns exit code. Same harness shape as the native CLI, so both build targets share one CI matrix.
 
-### 3g. Shared conformance suite (2026-05-22)
+### 3g. Shared conformance suite (2026-05-22, reframed 2026-05-23)
 
-Set of `.bas` scripts in `rgc-basic/conformance/` tagged by feature (JSON-read, JSON-write, DICT, HTTP$, HTTPFETCH, FOREACH, etc.). Haversack pulls + runs against its bundled WASM as a regression gate. One regression corpus, both projects benefit, no drift between what RGC tests and what Haversack relies on.
+Set of headless `.bas` scripts in `rgc-basic/conformance/` tagged by feature (JSON-read, JSON-write, DICT, HTTP$, HTTPFETCH, FOREACH, string-escapes, etc.). Each script ends with structured pass/fail via §3a's `--json-status` and uses §3c's `ASSERT`. Haversack pulls + runs against its bundled WASM as a regression gate. One regression corpus, both projects benefit, no drift between what RGC tests and what Haversack relies on.
+
+**Reframed 2026-05-23:** explicitly *separate from* `examples/` — examples are demos for humans (gfx, music, RPG, interactive tutorials, many of which can't be CI-driven). Conformance is short, headless, asserts-on-known-output, runs in both native CLI and `basic-wasm` node harness (§3f). Tag scripts by feature so Haversack can run a subset matching the features it actually uses, and rgc-basic can run the full set in its own CI.
+
+Suggested layout:
+
+```
+conformance/
+  README.md            # how to run, tagging convention, exit-code contract
+  string/
+    escapes.bas        # ASSERT "a\"b" produces a"b ; \n produces newline ; etc.
+    midstr_edge.bas
+  json/
+    read_basic.bas
+    write_strict.bas   # uses #OPTION JSON STRICT
+  dict/
+    push_path.bas
+    foreach_pairs.bas
+  http/
+    status_mocked.bas  # against a tiny local server or recorded fixture
+  fileio/
+    bytes_roundtrip.bas
+```
+
+Practical first deliverable: ship `conformance/string/escapes.bas` alongside the §1a docs update — that gives Haversack a concrete CI gate for the escape behaviour it already depends on, and proves the §3a/§3c/§3g loop end-to-end with one small script.
 
 ## 4. Runtime / host integration
 
