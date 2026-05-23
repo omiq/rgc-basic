@@ -91,6 +91,9 @@ run_case diagnostics_http.bas continue "HTTP\$ failed"
 # LASTERROR$() — captures the last diagnostic text on stdout (Phase 2b).
 run_stdout_case lasterror_capture.bas "CAPTURED:Warning on line 10"
 
+# ASSERT failure — halts with "Error on line N: ASSERT failed: <msg>".
+run_case assert_fail.bas halt "ASSERT failed: one is not two"
+
 if [ "$fails" -gt 0 ]; then
     echo "runtime_error_test: $fails case(s) failed" >&2
     exit 1

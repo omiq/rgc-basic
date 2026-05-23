@@ -78,6 +78,19 @@ static char g_last_error[832] = "";
  * script polling JSONSTATUS()/HTTPSTATUS() after every call. Default off. */
 static int diagnostics_mode = 0;
 
+/* Structured program exit state, for --json-status and host introspection.
+ * First writer wins (set_exit_status) so the root-cause failure is reported,
+ * not a downstream cascade. Reset at the top of run_program. Codes:
+ *   0 = normal termination (END / STOP / fell off the end)
+ *   1 = runtime error (any halting runtime_diagnostic)
+ *   2 = ASSERT failure */
+static int  g_exit_code = 0;
+static int  g_exit_line = 0;
+static int  g_exit_status_set = 0;
+static char g_exit_reason[160] = "ok";
+/* -json-status / --json-status: print one final stdout line as JSON. */
+static int  json_status_mode = 0;
+
 #ifdef __EMSCRIPTEN__
 /*
  * Async fetch for HTTP$ (EM_ASYNC_JS → Asyncify.handleAsync; no manual ASYNCIFY_IMPORTS).
@@ -3633,6 +3646,7 @@ static void statement_dictsetnull(char **p);
 static void statement_dictsetbool(char **p);
 static void statement_dictdel(char **p);
 static void statement_dictpush(char **p);
+static void statement_assert(char **p);
 static void statement_dictunpack(char **p);
 static void statement_open(char **p);
 static void statement_close(char **p);
@@ -3933,6 +3947,21 @@ enum func_code {
  * Pulls line context from `program_lines[current_line]` and the global
  * `statement_pos` — same heuristics as the original runtime_error_hint.
  */
+/* Record the program's structured exit state. First writer wins so the
+ * earliest (root-cause) failure is what --json-status / basic_get_exitcode
+ * report. Captures the current BASIC line as the exit line. */
+static void set_exit_status(int code, const char *reason)
+{
+    if (g_exit_status_set) return;
+    g_exit_status_set = 1;
+    g_exit_code = code;
+    snprintf(g_exit_reason, sizeof(g_exit_reason), "%s", reason ? reason : "");
+    if (current_line >= 0 && current_line < line_count &&
+        program_lines[current_line] != NULL) {
+        g_exit_line = program_lines[current_line]->number;
+    }
+}
+
 static void runtime_diagnostic(const char *severity, const char *msg, const char *hint, int halt_after)
 {
     int line_no = 0;
@@ -4084,6 +4113,9 @@ static void runtime_diagnostic(const char *severity, const char *msg, const char
 #endif
 
     if (halt_after) {
+        /* Generic runtime error → exit code 1 (first-wins; ASSERT sets 2
+         * before calling us, so its code survives). */
+        set_exit_status(1, msg);
         halted = 1;
     }
 }
@@ -4205,7 +4237,7 @@ static char *dupstr_local(const char *s)
 
 /* Reserved words: identifiers that cannot be used as variable or label names. */
 static const char *const reserved_words[] = {
-    "AND", "ARG", "ARGC", "ASC", "BACKGROUND", "NOT", "BITMAPCLEAR", "BUFFERFETCH", "BUFFERFREE", "BUFFERLEN", "BUFFERNEW", "BUFFERPATH", "CHR", "CLOSE", "CLR", "CLS", "COLOR", "PAPER",
+    "AND", "ARG", "ARGC", "ASC", "ASSERT", "BACKGROUND", "NOT", "BITMAPCLEAR", "BUFFERFETCH", "BUFFERFREE", "BUFFERLEN", "BUFFERNEW", "BUFFERPATH", "CHR", "CLOSE", "CLR", "CLS", "COLOR", "PAPER",
     "COLOUR", "COS", "CURSOR", "DATA", "DEC", "DEF", "DIM", "DOWN", "END", "FUNCTION",
     "ELSE", "ELSEIF", "ENV", "EVAL", "EXEC", "EXP", "FN", "FOR", "GET", "GOSUB", "GOTO", "HEX", "IF", "INK",
     "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LINE", "LOAD", "LOADSPRITE", "LOCATE", "LOG",
@@ -16578,6 +16610,40 @@ static void statement_dictdel(char **p)
 /* DICTPUSH h, path$, value — auto-vivify (or upgrade null to) an array
  * at path, then append value. Errors with JSONSTATUS=2 if the existing
  * node at path is a non-array, non-null type. */
+/* ASSERT cond [, msg$] — if cond is false (0), set exit code 2 and halt with
+ * a diagnostic. Optional msg$ describes the assertion. Turns example/test
+ * scripts into a regression corpus when paired with --json-status. */
+static void statement_assert(char **p)
+{
+    int cond;
+    char msgbuf[256];
+    skip_spaces(p);
+    /* Use eval_condition (not eval_expr) so relational operators including
+     * bare "=" equality and AND/OR behave the same as in IF. */
+    cond = eval_condition(p);
+    msgbuf[0] = '\0';
+    skip_spaces(p);
+    if (**p == ',') {
+        struct value vmsg;
+        (*p)++;
+        skip_spaces(p);
+        vmsg = eval_expr(p);
+        ensure_str(&vmsg);
+        snprintf(msgbuf, sizeof(msgbuf), "%s", V_DATA(vmsg));
+        skip_spaces(p);
+    }
+    if (!cond) {
+        char full[320];
+        const char *reason = msgbuf[0] ? msgbuf : "ASSERT failed";
+        snprintf(full, sizeof(full), "ASSERT failed%s%s",
+                 msgbuf[0] ? ": " : "", msgbuf);
+        /* Set exit code 2 before runtime_error_hint (which would otherwise
+         * stamp code 1 via first-wins). */
+        set_exit_status(2, reason);
+        runtime_error_hint(full, "Assertion evaluated false; check the test inputs / expected values.");
+    }
+}
+
 static void statement_dictpush(char **p)
 {
     struct value v_h, v_path, v_val;
@@ -19443,6 +19509,7 @@ static void execute_statement(char **p)
                 statement_end_function(p);
                 return;
             }
+            set_exit_status(0, "end");
             halted = 1;
             *p += strlen(*p);
             return;
@@ -19496,6 +19563,11 @@ static void execute_statement(char **p)
         return;
     }
 #endif
+    if (c == 'A' && starts_with_kw(*p, "ASSERT")) {
+        *p += 6;
+        statement_assert(p);
+        return;
+    }
 #ifdef GFX_VIDEO
     if (c == 'S' && starts_with_kw(*p, "STOPSOUND")) {
         *p += 9;
@@ -19524,6 +19596,7 @@ static void execute_statement(char **p)
     }
 #endif
     if (c == 'S' && starts_with_kw(*p, "STOP")) {
+        set_exit_status(0, "stop");
         halted = 1;
         *p += strlen(*p);
         return;
@@ -20335,6 +20408,11 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
     current_line = 0;
     statement_pos = NULL;
     print_col = 0;
+    /* Fresh exit state for this run (browser reuses the Module across runs). */
+    g_exit_code = 0;
+    g_exit_line = 0;
+    g_exit_status_set = 0;
+    snprintf(g_exit_reason, sizeof(g_exit_reason), "%s", "ok");
     timers_reset();
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
     wasm_gfx_put_budget = 0;
@@ -20565,6 +20643,8 @@ int basic_parse_arg_flags(int argc, char **argv, int start, int expect_program_p
             terminal_no_wrap = 0;
         } else if (strcmp(argv[i], "-diagnostics") == 0 || strcmp(argv[i], "--diagnostics") == 0) {
             diagnostics_mode = 1;
+        } else if (strcmp(argv[i], "-json-status") == 0 || strcmp(argv[i], "--json-status") == 0) {
+            json_status_mode = 1;
 #ifdef GFX_VIDEO
         } else if (strcmp(argv[i], "-gfx-title") == 0 || strcmp(argv[i], "--gfx-title") == 0) {
             if (i + 1 >= argc) {
@@ -21021,6 +21101,29 @@ EMSCRIPTEN_KEEPALIVE int basic_load_and_run_gfx_argline(const char *argline)
 /* ── Terminal-mode entry point (not used when GFX_VIDEO or __EMSCRIPTEN__) ── */
 
 #if !defined(GFX_VIDEO) && !defined(__EMSCRIPTEN__)
+/* Minimal JSON string escape into `out` (quotes, backslash, control chars).
+ * Used for the --json-status reason field. */
+static void json_escape_into(char *out, size_t cap, const char *s)
+{
+    size_t o = 0;
+    if (cap == 0) return;
+    for (; s && *s && o + 2 < cap; s++) {
+        unsigned char c = (unsigned char)*s;
+        if (c == '"' || c == '\\') {
+            out[o++] = '\\'; out[o++] = (char)c;
+        } else if (c == '\n') {
+            if (o + 2 >= cap) break; out[o++] = '\\'; out[o++] = 'n';
+        } else if (c == '\t') {
+            if (o + 2 >= cap) break; out[o++] = '\\'; out[o++] = 't';
+        } else if (c < 0x20) {
+            /* drop other control chars */
+        } else {
+            out[o++] = (char)c;
+        }
+    }
+    out[o] = '\0';
+}
+
 int main(int argc, char **argv)
 {
     const char *prog_path = NULL;
@@ -21035,7 +21138,7 @@ int main(int argc, char **argv)
     }
 
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s [-v|--version] [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] [-wrap] [-diagnostics] <program.bas>\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-v|--version] [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] [-wrap] [-diagnostics] [-json-status] <program.bas>\n", argv[0]);
         return 1;
     }
 
@@ -21140,9 +21243,11 @@ int main(int argc, char **argv)
             terminal_no_wrap = 0;
         } else if (strcmp(argv[i], "-diagnostics") == 0 || strcmp(argv[i], "--diagnostics") == 0) {
             diagnostics_mode = 1;
+        } else if (strcmp(argv[i], "-json-status") == 0 || strcmp(argv[i], "--json-status") == 0) {
+            json_status_mode = 1;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] [-wrap] [-diagnostics] <program.bas>\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] [-wrap] [-diagnostics] [-json-status] <program.bas>\n", argv[0]);
             return 1;
         } else {
             prog_path = argv[i];
@@ -21151,12 +21256,25 @@ int main(int argc, char **argv)
     }
 
     if (!prog_path) {
-        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] [-wrap] [-diagnostics] <program.bas>\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] [-wrap] [-diagnostics] [-json-status] <program.bas>\n", argv[0]);
         return 1;
     }
 
     load_program(prog_path);
     run_program(prog_path, argc - (i + 1), (argc > (i + 1)) ? (argv + (i + 1)) : NULL);
+    if (json_status_mode) {
+        char esc[256];
+        json_escape_into(esc, sizeof(esc), g_exit_reason);
+        printf("{\"exit\":%d,\"reason\":\"%s\",\"line\":%d}\n",
+               g_exit_code, esc, g_exit_line);
+        fflush(stdout);
+        /* CI mode: --json-status opts into a meaningful process exit code so
+         * `basic --json-status t.bas; echo $?` works as a test gate. Without
+         * the flag we return 0 (historical behaviour) to stay backwards-
+         * compatible with scripts/harnesses that ran fine despite a runtime
+         * error printed to stderr. */
+        return g_exit_code;
+    }
     return 0;
 }
 #endif /* !GFX_VIDEO */
@@ -21200,6 +21318,7 @@ EMSCRIPTEN_KEEPALIVE int basic_apply_arg_string(const char *argline)
     charrom_family_opt = 0;
     max_str_limit = MAX_STR_LEN;
     diagnostics_mode = 0;
+    json_status_mode = 0;
 
     if (!argline) {
         argline = "";
@@ -21248,6 +21367,11 @@ EMSCRIPTEN_KEEPALIVE int basic_get_httpstatus(void) { return http_last_status; }
 
 /* Text of the last runtime diagnostic, or "" if none. Same as LASTERROR$(). */
 EMSCRIPTEN_KEEPALIVE const char *basic_get_lasterror(void) { return g_last_error; }
+
+/* Structured exit state of the last run (see set_exit_status). */
+EMSCRIPTEN_KEEPALIVE int basic_get_exitcode(void) { return g_exit_code; }
+EMSCRIPTEN_KEEPALIVE int basic_get_exitline(void) { return g_exit_line; }
+EMSCRIPTEN_KEEPALIVE const char *basic_get_exitreason(void) { return g_exit_reason; }
 
 /* Build's version+date+variant string, e.g. "v2.1.1-22-g440562b (2026-05-23) basic-wasm".
  * Same format as RGCVERSION$() inside BASIC and basic_print_version's first line. */

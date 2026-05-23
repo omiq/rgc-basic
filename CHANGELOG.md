@@ -1,5 +1,41 @@
 ## Changelog
 
+### Headless conformance: ASSERT + --json-status + conformance/ corpus (2026-05-23)
+
+Wishlist §3c + §3a + §3g, shipped together as one CI-conformance effort.
+
+**`ASSERT cond [, msg$]`** (§3c). Evaluates `cond` with the same relational /
+AND / OR handling as `IF` (via `eval_condition`, so bare `=` is equality). On
+false: records exit code 2 + `msg$`, then halts with an `Error … ASSERT
+failed: <msg>` diagnostic. On true: continues.
+
+**`--json-status` / `-json-status`** (§3a). After the run, prints one final
+stdout line `{"exit":N,"reason":"...","line":N}`. Exit codes: 0 = normal
+(`END` / `STOP` / fell off the end), 1 = runtime error, 2 = ASSERT failure.
+The flag also makes the **process exit code** equal to that exit code, so
+`basic --json-status t.bas; echo $?` is a usable CI gate. Without the flag the
+process still exits 0 (historical behaviour preserved — see "Known bug" below).
+New structured-exit globals (`set_exit_status`, first-writer-wins) feed both the
+JSON line and new ccall exports `basic_get_exitcode` / `basic_get_exitline` /
+`basic_get_exitreason` for JS hosts.
+
+**`conformance/` corpus** (§3g). New top-level directory of short, headless
+`.bas` scripts that assert on known behaviour, one feature area per file —
+deliberately separate from `examples/` (demos for humans) and `tests/*.bas`.
+`conformance/run.sh` runs them all with `--json-status` and fails on any
+non-zero exit. First deliverable: `conformance/string/escapes.bas` (proves the
+ASSERT + --json-status loop end-to-end against the documented escape API).
+Wired into `make check`; also runnable by external adopters against their
+bundled WASM as a shared regression gate.
+
+**Known bug surfaced (not introduced):** enabling a meaningful process exit
+code under `--json-status` revealed a long-standing interpreter bug — a forward
+`GOTO` that lands on a line whose `NEXT` closes a `FOR` loop reports "NEXT
+without FOR" (repro: `10 FOR I=1 TO 3` / `20 IF I>0 THEN GOTO 40` / `40 PRINT I
+: NEXT I`). Present since before this work; previously masked because the
+process always exited 0. `examples/trek.bas` hits it during galaxy generation.
+Logged in `docs/haversack-wishlist.md` §5b for a focused fix.
+
 ### Runtime error source-line reporting — Phase 2 (2026-05-23)
 
 Wishlist §3d Phase 2 (proposal: `docs/runtime-error-source-line-proposal.md`).

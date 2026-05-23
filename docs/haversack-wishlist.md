@@ -129,11 +129,13 @@ When chasing handle-leak / lifetime bugs in tools, having a way to dump the curr
 
 Listed in `notehub/docs/TOOLS.md` under "Debugging + triage > RGC-side asks that would make this easier". Replicated here so this wishlist is self-contained:
 
-### 3a. `--json-status` flag on native CLI (2026-05-22, reframed 2026-05-23)
+### 3a. `--json-status` flag on native CLI (2026-05-22, reframed 2026-05-23) — **[shipped 2026-05-23]**
 
 Final stdout (or stderr) line as structured JSON: `{"exit": N, "reason": "...", "line": N, "assert_msg": "..."}`. Trivialises CI assertions in any host (bash, node, PHP) and fills in the Haversack auto-report template cleanly.
 
 **Reframed 2026-05-23:** this is one leg of a three-part "headless conformance" effort. Pairs with §3c (ASSERT primitive) and §3g (conformance corpus). When all three ship, CI runs `basic --json-status conformance/foo.bas`, the script uses `ASSERT` to gate behaviour, and the final JSON line gives CI a structured pass/fail without `grep`-on-stdout. Each piece is useful alone (e.g. 3a is useful for any existing script today), but the real payoff is the trio.
+
+**Shipped 2026-05-23.** Final stdout line `{"exit":N,"reason":"...","line":N}`. Exit codes: 0 normal (END/STOP/end), 1 runtime error, 2 ASSERT fail. `--json-status` also makes the **process exit code** = N (CI gate via `echo $?`); without the flag the process still exits 0 (backwards-compatible). Host ccall exports: `basic_get_exitcode` / `basic_get_exitline` / `basic_get_exitreason`.
 
 ### 3b. `RGCVERSION$()` builtin (2026-05-22) — **[shipped 2026-05-23]**
 
@@ -141,7 +143,10 @@ Returns the build's version string. Tools and tests can branch on minimum versio
 
 **Shipped 2026-05-23.** Format: `"<version> (<build-date>) <variant>"`, e.g. `"v2.1.1-23-gabc1234 (2026-05-23) basic-wasm"` — matches first line of `-v` / `--version` output. Documented in retrodocs `language.md` host/diagnostics function table. Also exposed as ccall export `basic_get_version() → string` per §4a.
 
-### 3c. `ASSERT cond, msg$` primitive (2026-05-22, reframed 2026-05-23)
+### 3c. `ASSERT cond, msg$` primitive (2026-05-22, reframed 2026-05-23) — **[shipped 2026-05-23]**
+
+**Shipped 2026-05-23.** `ASSERT cond [, msg$]` — `cond` uses IF-style relational/AND/OR handling (bare `=` is equality). False → exit code 2 + halt with `ASSERT failed: <msg>`. True → continue. Pair with `--json-status` (§3a) for CI.
+
 
 Halts with structured exit if `cond` is false. Records `msg$` so a CI driver (or §3a's `--json-status`) can report which assertion fired.
 
@@ -183,7 +188,10 @@ Mirrors `#OPTION JSON STRICT`. Tools forget to check `HTTPSTATUS()` constantly; 
 
 Drives the WASM bundle via emscripten's Node bindings, captures `Module.print`, returns exit code. Same harness shape as the native CLI, so both build targets share one CI matrix.
 
-### 3g. Shared conformance suite (2026-05-22, reframed 2026-05-23)
+### 3g. Shared conformance suite (2026-05-22, reframed 2026-05-23) — **[shipped 2026-05-23: scaffold + first test]**
+
+**Shipped 2026-05-23.** `conformance/` directory + `conformance/run.sh` (runs every `conformance/*/*.bas` with `--json-status`, fails on non-zero exit), wired into `make check`. First test `conformance/string/escapes.bas`. Add feature areas (`json/`, `dict/`, `http/`, `fileio/`) incrementally — the scaffold + contract are in place; growing the corpus is ongoing. Haversack can run `conformance/run.sh` against its bundled WASM as a shared regression gate.
+
 
 Set of headless `.bas` scripts in `rgc-basic/conformance/` tagged by feature (JSON-read, JSON-write, DICT, HTTP$, HTTPFETCH, FOREACH, string-escapes, etc.). Each script ends with structured pass/fail via §3a's `--json-status` and uses §3c's `ASSERT`. Haversack pulls + runs against its bundled WASM as a regression gate. One regression corpus, both projects benefit, no drift between what RGC tests and what Haversack relies on.
 
@@ -232,6 +240,26 @@ Exposed from all four WASM targets: `basic-wasm`, `basic-wasm-modular`, `basic-w
 ## 5. Bugs found
 
 Tracked here rather than in the `examples/` directory because they're cross-project: surfaced by Haversack-side work but live in `rgc-basic`. Each entry: concrete repro + observed-vs-expected + commit refs at time of finding.
+
+### 5b. Forward `GOTO` onto a line ending in `NEXT` → "NEXT without FOR" (2026-05-23) — **open**
+
+**Severity:** medium (breaks a common FOR + GOTO control-flow idiom; data-safe).
+
+**Repro** (`/tmp/r4.bas`):
+
+```basic
+10 FOR I=1 TO 3
+20 IF I>0 THEN GOTO 40
+30 PRINT "skip"
+40 PRINT I : NEXT I
+50 PRINT "done"
+```
+
+**Observed:** prints `1`, then `Error on line 40: NEXT without FOR`. **Expected:** loops 1/2/3 then `done`. The forward `GOTO 40` lands on the line whose `NEXT I` closes the loop; the `FOR` frame is lost so `NEXT` finds an empty stack.
+
+**Not introduced by recent work** — present at session-start commit `d71e245` and earlier. It was *masked* until 2026-05-23 because the native CLI always exited 0; the §3a `--json-status` exit-code work surfaced it (the program does halt and print the error, but `make check`'s `trek_test.sh` only checked exit status, which was 0). `examples/trek.bas` hits it during galaxy generation (`370 FORI=1TO8 : … : FORJ=1TO8` … `380 IF…THEN…GOTO410` … `420 … : NEXTJ : NEXTI`).
+
+**Likely surface:** the FOR-frame bookkeeping when a `GOTO` re-enters a line mid-statement, or how `NEXT` locates its frame after a jump. Needs a focused look at the FOR stack / GOTO target handling in the run loop. Not fixed here to keep the conformance work isolated; logged for a dedicated pass. A `conformance/control/for_goto_next.bas` test should be added once fixed (it would currently fail, so it's held back).
 
 ### 5a. WASM build doesn't apply PRINT column-wrap (2026-05-22) — **[shipped: see §6]**
 

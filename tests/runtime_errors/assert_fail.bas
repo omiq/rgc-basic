@@ -1,0 +1,3 @@
+10 PRINT "MARKER-BEFORE"
+20 ASSERT 1 = 2, "one is not two"
+30 PRINT "MARKER-AFTER"
