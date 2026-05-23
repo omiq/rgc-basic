@@ -15,7 +15,12 @@ Convention:
 
 ## 1. Documentation
 
-### 1a. Document string-literal escape sequences (2026-05-22)
+### 1a. Document string-literal escape sequences (2026-05-22) — **[shipped 2026-05-23]**
+
+**Shipped 2026-05-23** in retrodocs commit (forthcoming) + rgc-basic CHANGELOG. New dedicated "String escapes" subsection in `retrodocs/docs/basic/rgc-basic/language.md` promoting backslash escapes to stable public API: table of escapes (`\n` `\r` `\t` `\0` `\\` `\"` + unknown passthrough), verified-shape examples (matches the matrix Haversack tested empirically), explicit note that SQL-style `""` doubling is NOT supported. Tools can rely on these going forward.
+
+---
+
 
 RGC-BASIC's string parser already supports C/JS-style backslash escapes — `\"`, `\\`, `\n`, `\t`. Verified empirically via the Haversack bare-WASM smoke rig:
 
@@ -27,7 +32,12 @@ RGC-BASIC's string parser already supports C/JS-style backslash escapes — `\"`
 
 These don't appear to be documented in `docs/overview.md` or anywhere obvious under `docs/`. The Haversack `docs/TOOLS.md` examples now rely on them (cleaner than `CHR$(34)` concat dance and the SQL-style `""` doubling does NOT work in RGC). If they're public API to rely on, they need a one-page doc; if they're undocumented-and-might-go-away, Haversack needs to fall back to `CHR$(34)`. Confirm + document.
 
-### 1b. CLAUDE.md rule: keep retrodocs / docs.retrogamecoders.com in sync (2026-05-22)
+### 1b. CLAUDE.md rule: keep retrodocs / docs.retrogamecoders.com in sync (2026-05-22) — **[shipped 2026-05-23]**
+
+**Shipped 2026-05-23** — `~/github/rgc-basic/CLAUDE.md` gains a "Keep public docs in sync with runtime" section listing the contract (public-facing feature changes touch retrodocs in the same change-set), the four most-touched pages (`language.md`, `terminal-petscii.md`, `graphics-raylib.md`, `web-ide.md`), and the split between internal design docs (`rgc-basic/docs/`) and user-facing reference (`retrodocs/`).
+
+---
+
 
 The public docs site at <https://docs.retrogamecoders.com> is sourced from `~/github/retrodocs/`. When a runtime feature is added, removed, or has its semantics changed in `rgc-basic`, the corresponding entry in `retrodocs/` is the canonical user-facing reference. Right now there's no enforced link between the two repos, so:
 
@@ -125,9 +135,11 @@ Final stdout (or stderr) line as structured JSON: `{"exit": N, "reason": "...", 
 
 **Reframed 2026-05-23:** this is one leg of a three-part "headless conformance" effort. Pairs with §3c (ASSERT primitive) and §3g (conformance corpus). When all three ship, CI runs `basic --json-status conformance/foo.bas`, the script uses `ASSERT` to gate behaviour, and the final JSON line gives CI a structured pass/fail without `grep`-on-stdout. Each piece is useful alone (e.g. 3a is useful for any existing script today), but the real payoff is the trio.
 
-### 3b. `RGCVERSION$()` builtin (2026-05-22)
+### 3b. `RGCVERSION$()` builtin (2026-05-22) — **[shipped 2026-05-23]**
 
 Returns the build's version string. Tools and tests can branch on minimum version (`IF RGCVERSION$() < "2.1.3" THEN PRINT "needs 2.1.3+"`). Bug reports compare against runtime version automatically.
+
+**Shipped 2026-05-23.** Format: `"<version> (<build-date>) <variant>"`, e.g. `"v2.1.1-23-gabc1234 (2026-05-23) basic-wasm"` — matches first line of `-v` / `--version` output. Documented in retrodocs `language.md` host/diagnostics function table. Also exposed as ccall export `basic_get_version() → string` per §4a.
 
 ### 3c. `ASSERT cond, msg$` primitive (2026-05-22, reframed 2026-05-23)
 
@@ -183,11 +195,21 @@ Practical first deliverable: ship `conformance/string/escapes.bas` alongside the
 
 ## 4. Runtime / host integration
 
-### 4a. Expose `JSONSTATUS()` and `HTTPSTATUS()` as ccall exports (2026-05-22)
+### 4a. Expose `JSONSTATUS()` and `HTTPSTATUS()` as ccall exports (2026-05-22) — **[shipped 2026-05-23]**
 
 Currently surfaceable only via BASIC code (`PRINT JSONSTATUS()`). A JS host (Haversack, IDE wrappers, etc.) that wants to read the post-run status without modifying the script needs to call into C directly. Suggested exports: `basic_get_jsonstatus`, `basic_get_httpstatus` (both `() -> int`). Cheap — single-line wrapper per function.
 
 Used by Haversack's `web/test/wasm-bare.html` test rig and the planned host-side error-tagged log.
+
+**Shipped 2026-05-23.** Three exports added (rolled in `basic_get_version` for free since the same JS host that wants status almost always wants the version too):
+
+```js
+const js = Module.ccall('basic_get_jsonstatus', 'number', [], []);
+const ht = Module.ccall('basic_get_httpstatus', 'number', [], []);
+const ver = Module.ccall('basic_get_version', 'string', [], []);
+```
+
+Exposed from all four WASM targets: `basic-wasm`, `basic-wasm-modular`, `basic-wasm-canvas`, `basic-wasm-raylib`. Verified via node harness against fresh build.
 
 ## 5. Bugs found
 

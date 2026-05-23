@@ -3857,7 +3857,10 @@ enum func_code {
     FN_DICTTYPE = 99,
     FN_DICTLEN = 100,
     FN_DICTKEY = 101,
-    FN_DICTLOAD = 94
+    FN_DICTLOAD = 94,
+    /* RGCVERSION$() — build's version+date+variant string. Tools can branch
+     * on minimum version. See `basic_print_version` for the format. */
+    FN_RGCVERSION = 102
 };
 
 /* Report an error and halt further execution.
@@ -4106,7 +4109,7 @@ static const char *const reserved_words[] = {
     "FILLRECT", "CIRCLE", "FILLCIRCLE", "ELLIPSE", "FILLELLIPSE", "TRIANGLE", "FILLTRIANGLE", "FLOODFILL", "POLYGON", "FILLPOLYGON", "VSYNC", "ANTIALIAS",
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
-    "DOUBLEBUFFER", "DRAWSPRITE", "DRAWSPRITETILE", "DRAWTEXT", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "MAPLOAD", "MAPSAVE", "OBJLOAD", "OBJSAVE", "OVERLAY", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
+    "DOUBLEBUFFER", "DRAWSPRITE", "DRAWSPRITETILE", "DRAWTEXT", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "MAPLOAD", "MAPSAVE", "OBJLOAD", "OBJSAVE", "OVERLAY", "RGCVERSION", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
     "DO", "LOOP", "UNTIL", "EXIT",
     "GETBYTE",
     "DICTNEW", "DICTLOAD", "DICTGET", "DICTGETN", "DICTGETBOOL", "DICTHAS", "DICTTYPE", "DICTLEN", "DICTKEY",
@@ -5151,6 +5154,9 @@ static int function_lookup(const char *name, int len)
         if ((len == 5 && name[0] == 'R' && name[1] == 'T' && name[2] == 'R' && name[3] == 'I' && name[4] == 'M') ||
             (len == 6 && name[0] == 'R' && name[1] == 'T' && name[2] == 'R' && name[3] == 'I' && name[4] == 'M' && name[5] == '$'))
             return FN_RTRIM;
+        if ((len == 10 && memcmp(name, "RGCVERSION", 10) == 0) ||
+            (len == 11 && memcmp(name, "RGCVERSION$", 11) == 0))
+            return FN_RGCVERSION;
         return FN_NONE;
     case 'V':
         if (len == 3 && name[0] == 'V' && name[1] == 'A' && name[2] == 'L') return FN_VAL;
@@ -12261,6 +12267,25 @@ static struct value eval_function(const char *name, char **p)
         }
         return make_str(g_buffers[slot].path);
     }
+    if (code == FN_RGCVERSION) {
+        if (**p != ')') {
+            runtime_error_hint("RGCVERSION$ takes no arguments", "Use RGCVERSION$() with empty parentheses.");
+            return make_str("");
+        }
+        (*p)++;
+        skip_spaces(p);
+        {
+            /* Format: "<version> (<build-date>) <variant>"
+             *   e.g. "v2.1.1-22-g440562b (2026-05-23) basic-wasm"
+             * Matches basic_print_version's first line so log greps stay
+             * aligned. Variant lets tools branch on gfx-vs-headless without
+             * a separate PLATFORM$ call. */
+            static char buf[160];
+            snprintf(buf, sizeof(buf), "%s (%s) %s",
+                     RGC_BASIC_VERSION, RGC_BASIC_BUILD_DATE, basic_build_variant());
+            return make_str(buf);
+        }
+    }
     if (code == FN_PLATFORM) {
         if (**p != ')') {
             runtime_error_hint("PLATFORM$ takes no arguments", "Use PLATFORM$() with empty parentheses.");
@@ -14430,7 +14455,7 @@ static struct value eval_factor(char **p)
             starts_with_kw(*p, "INSTR") || starts_with_kw(*p, "DEC") || starts_with_kw(*p, "HEX") ||
             starts_with_kw(*p, "REPLACE") || starts_with_kw(*p, "TRIM") || starts_with_kw(*p, "LTRIM") || starts_with_kw(*p, "RTRIM") ||
             starts_with_kw(*p, "FIELD") || starts_with_kw(*p, "FILEEXISTS") || starts_with_kw(*p, "INDEXOF") || starts_with_kw(*p, "LASTINDEXOF") ||
-            starts_with_kw(*p, "ENV") || starts_with_kw(*p, "EVAL") || starts_with_kw(*p, "PLATFORM") || starts_with_kw(*p, "JSON") ||
+            starts_with_kw(*p, "ENV") || starts_with_kw(*p, "EVAL") || starts_with_kw(*p, "PLATFORM") || starts_with_kw(*p, "RGCVERSION") || starts_with_kw(*p, "JSON") ||
             starts_with_kw(*p, "HTTPSTATUS") || starts_with_kw(*p, "HTTPFETCH") || starts_with_kw(*p, "HTTP$") ||
             starts_with_kw(*p, "ARGC") || starts_with_kw(*p, "ARG") ||
             starts_with_kw(*p, "SYSTEM") || starts_with_kw(*p, "EXEC") ||
@@ -21063,5 +21088,20 @@ EMSCRIPTEN_KEEPALIVE void basic_load_and_run(const char *path)
     load_program(path);
     run_program(path, 0, NULL);
     EM_ASM({ if (typeof Module !== 'undefined') { Module['wasmRunDone'] = 1; } });
+}
+
+/* Host-side status readers — same values as BASIC's JSONSTATUS() / HTTPSTATUS()
+ * builtins, but reachable from JS without modifying the script under test. */
+EMSCRIPTEN_KEEPALIVE int basic_get_jsonstatus(void) { return json_last_status; }
+EMSCRIPTEN_KEEPALIVE int basic_get_httpstatus(void) { return http_last_status; }
+
+/* Build's version+date+variant string, e.g. "v2.1.1-22-g440562b (2026-05-23) basic-wasm".
+ * Same format as RGCVERSION$() inside BASIC and basic_print_version's first line. */
+EMSCRIPTEN_KEEPALIVE const char *basic_get_version(void)
+{
+    static char buf[160];
+    snprintf(buf, sizeof(buf), "%s (%s) %s",
+             RGC_BASIC_VERSION, RGC_BASIC_BUILD_DATE, basic_build_variant());
+    return buf;
 }
 #endif

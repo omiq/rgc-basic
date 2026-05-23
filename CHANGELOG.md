@@ -1,5 +1,38 @@
 ## Changelog
 
+### `RGCVERSION$()` + host status ccall exports (2026-05-23)
+
+Three Sprint-1 items from the Haversack wishlist (4a + 3b + 1a + 1b).
+
+**`RGCVERSION$()` builtin** (wishlist §3b). Returns the build's
+`"<version> (<build-date>) <variant>"` string — same format as the first
+line of `-v` / `--version` output. Tools and tests can branch on minimum
+version (`IF RGCVERSION$() < "2.1.3-" THEN PRINT "needs 2.1.3+"`); bug
+reports compare against runtime version without a separate plumbing
+step. Registered as a no-arg `$` function alongside `PLATFORM$()`.
+
+**Host-side ccall exports** (wishlist §4a). Three new exports usable
+from JS without modifying the script under test:
+
+- `basic_get_jsonstatus() → int` — same value as the `JSONSTATUS()`
+  builtin
+- `basic_get_httpstatus() → int` — same value as the `HTTPSTATUS()`
+  builtin
+- `basic_get_version() → string` — same value as `RGCVERSION$()`
+
+Exposed from all four WASM build targets (`basic-wasm`,
+`basic-wasm-modular`, `basic-wasm-canvas`, `basic-wasm-raylib`). Haversack
+uses these for its host-side error-tagged log; any JS host now has a
+read-only window into the interpreter's status state.
+
+**Docs** (wishlist §1a + §1b). `retrodocs/docs/basic/rgc-basic/language.md`
+gains a dedicated **String escapes** subsection promoting the existing
+backslash-escape behaviour to documented stable API (table of escapes,
+verified-shape examples, explicit note that SQL-style `""` doubling is
+NOT supported). New `RGCVERSION$()` row in the host/diagnostics function
+table. `CLAUDE.md` gains a "Keep public docs in sync with runtime" rule
+making the retrodocs update part of every public-facing feature change.
+
 ### Wrap defaults + `#OPTION` precedence (2026-05-23)
 
 Two coupled changes establishing `built-in default < CLI flag < #OPTION` as
