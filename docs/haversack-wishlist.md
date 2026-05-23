@@ -95,9 +95,11 @@ Returns the build's version string. Tools and tests can branch on minimum versio
 
 Halts with structured exit if `cond` is false. Turns the existing `examples/*.bas` corpus into a regression suite without rewriting them as a separate test framework.
 
-### 3d. Source line in runtime error messages (2026-05-22)
+### 3d. Source line in runtime error messages (2026-05-22) — **PROMOTED 2026-05-23 (next-up)**
 
 JSON / HTTP / DICT failures should include the originating script line (`DICTLOAD at script.bas:17`). Right now most errors lack the call site, forcing print-debugging to localise. The existing parser-side errors already do this for syntax — extend to runtime failures.
+
+**Priority note (2026-05-23):** Haversack triage walked the wishlist and picked this as the highest-value next-up item — biggest debugging win for tool authors. When rgc-basic picks this up, a focused proposal doc (e.g. `docs/runtime-error-source-line-proposal.md`) is the next graduation step per this file's convention.
 
 ### 3e. `#OPTION HTTP STRICT` (2026-05-22)
 
