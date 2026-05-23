@@ -1,5 +1,17 @@
 ## Changelog
 
+### `#OPTION HTTP STRICT` (2026-05-23)
+
+Wishlist §3e. Mirror of `#OPTION JSON STRICT`. When set, an HTTP failure
+(transport failure → status 0, or an HTTP error → status >= 400) from `HTTP$`
+/ `HTTPFETCH` / `BUFFERFETCH` escalates to a halting runtime error instead of
+silently setting `HTTPSTATUS()`. Default loose (`#OPTION HTTP LOOSE` / `OFF`
+restores it). Tools that forget to check `HTTPSTATUS()` after every call get a
+hard failure in tests rather than a silent empty result.
+
+Folded into the same `diag_http` chokepoint as the `#OPTION DIAGNOSTICS`
+breadcrumb (§2c); strict wins over the non-halting breadcrumb when both are on.
+
 ### Fix: forward GOTO within a FOR body no longer drops the loop (2026-05-23)
 
 Wishlist §5b. `goto_unwind_structured_stacks()` cleared the FOR stack on every

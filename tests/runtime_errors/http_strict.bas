@@ -1,0 +1,4 @@
+#OPTION HTTP STRICT
+10 PRINT "MARKER-BEFORE"
+20 R$ = HTTP$("http://nonexistent.invalid/")
+30 PRINT "MARKER-AFTER"

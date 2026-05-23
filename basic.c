@@ -55,6 +55,10 @@
 
 /* Last HTTP response status from HTTP$ (set on Emscripten; 0 otherwise). */
 static int http_last_status;
+/* #OPTION HTTP STRICT escalates HTTP failures (status 0 or >= 400) from
+ * HTTP$ / HTTPFETCH / BUFFERFETCH to halting runtime errors, the same way
+ * #OPTION JSON STRICT escalates JSON status codes. Default loose. */
+static int http_strict_mode;
 
 /* Last JSON operation status. 0 = ok; nonzero codes reported via JSONSTATUS():
  *   1 = parse error (malformed source JSON / no value at path during write)
@@ -3497,6 +3501,12 @@ static int apply_option_directive(const char *name, const char *value)
         if (str_eq_ci(value, "loose") || str_eq_ci(value, "off")) { json_strict_mode = 0; return 0; }
         return -1;
     }
+    if (str_eq_ci(name, "http")) {
+        if (!value || !value[0]) return -1;
+        if (str_eq_ci(value, "strict")) { http_strict_mode = 1; return 0; }
+        if (str_eq_ci(value, "loose") || str_eq_ci(value, "off")) { http_strict_mode = 0; return 0; }
+        return -1;
+    }
     return -1;
 }
 
@@ -4141,17 +4151,25 @@ static void runtime_warning_hint(const char *msg, const char *hint)
     runtime_diagnostic("Warning", msg, hint, 0);
 }
 
-/* #OPTION DIAGNOSTICS breadcrumb for HTTP fail-soft sites. No-op unless
- * diagnostics_mode is on. Treats st == 0 (transport failure) and st >= 400
- * (HTTP error) as failures; emits a non-halting Warning carrying the line
- * context (and so also populating g_last_error for LASTERROR$). */
+/* Post-HTTP report hook for HTTP$ / HTTPFETCH / BUFFERFETCH. Treats st == 0
+ * (transport failure) and st >= 400 (HTTP error) as failures.
+ *   #OPTION HTTP STRICT  → escalate to a halting runtime error.
+ *   #OPTION DIAGNOSTICS  → emit a non-halting Warning breadcrumb (also
+ *                          populates g_last_error for LASTERROR$).
+ * On success, or when neither mode is set, this is a no-op. Strict wins. */
 static void diag_http(const char *what, const char *url, int st)
 {
     char m[MAX_INCLUDE_PATH + 96];
-    if (!diagnostics_mode) return;
     if (st != 0 && st < 400) return; /* success */
-    snprintf(m, sizeof(m), "%s failed (status %d): %s", what, st, url ? url : "?");
-    runtime_warning_hint(m, "Read HTTPSTATUS() after the call to handle failures.");
+    if (http_strict_mode) {
+        snprintf(m, sizeof(m), "%s failed (status %d): %s", what, st, url ? url : "?");
+        runtime_error_hint(m, "Disable #OPTION HTTP STRICT to continue past failures, or check the URL / network.");
+        return;
+    }
+    if (diagnostics_mode) {
+        snprintf(m, sizeof(m), "%s failed (status %d): %s", what, st, url ? url : "?");
+        runtime_warning_hint(m, "Read HTTPSTATUS() after the call to handle failures.");
+    }
 }
 
 /* Strip trailing newline from a buffer if present. */

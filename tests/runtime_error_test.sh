@@ -94,6 +94,10 @@ run_stdout_case lasterror_capture.bas "CAPTURED:Warning on line 10"
 # ASSERT failure — halts with "Error on line N: ASSERT failed: <msg>".
 run_case assert_fail.bas halt "ASSERT failed: one is not two"
 
+# #OPTION HTTP STRICT — HTTP failure escalates to a halting error.
+# .invalid is RFC-6761 guaranteed to fail DNS, so this is deterministic offline.
+run_case http_strict.bas halt "HTTP\$ failed"
+
 if [ "$fails" -gt 0 ]; then
     echo "runtime_error_test: $fails case(s) failed" >&2
     exit 1

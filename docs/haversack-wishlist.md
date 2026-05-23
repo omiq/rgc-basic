@@ -180,9 +180,11 @@ JSON / HTTP / DICT failures should include the originating script line (`DICTLOA
 - JSON parse-fail breadcrumbs under `#OPTION DIAGNOSTICS` are not wired yet (HTTP was the highest-value silent case). Flag it if a tool needs JSON breadcrumbs and it's a small follow-up under the same directive.
 - Re-vendor `web/basic.{js,wasm}` past the Phase 2 commit to get `basic_get_lasterror` + the `at file:line` form for multi-file tool bundles.
 
-### 3e. `#OPTION HTTP STRICT` (2026-05-22)
+### 3e. `#OPTION HTTP STRICT` (2026-05-22) — **[shipped 2026-05-23]**
 
 Mirrors `#OPTION JSON STRICT`. Tools forget to check `HTTPSTATUS()` constantly; strict mode catches silent fail in tests.
+
+**Shipped 2026-05-23.** `#OPTION HTTP STRICT` escalates HTTP failures (status 0 or >= 400) from `HTTP$` / `HTTPFETCH` / `BUFFERFETCH` to halting runtime errors; `#OPTION HTTP LOOSE` / `OFF` restores default. Shares the `diag_http` chokepoint with §2c's `#OPTION DIAGNOSTICS` breadcrumb (strict wins). Test: `tests/runtime_errors/http_strict.bas`.
 
 ### 3f. `node tests/run-wasm.js script.bas` runner (2026-05-22)
 
