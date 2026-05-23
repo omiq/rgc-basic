@@ -3121,8 +3121,18 @@ static int petscii_plain = 0;
 static int petscii_no_wrap = 0;
 /* Configurable print width (columns); default 40. #OPTION columns N / -columns N. */
 static int print_width = DEFAULT_PRINT_WIDTH;
-/* When set, do not wrap at print_width; let terminal handle line length. #OPTION nowrap / -nowrap. */
+/* When set, do not wrap at print_width; let terminal handle line length.
+ * Default depends on build variant: non-gfx builds (native `basic`, headless
+ * `basic-wasm`) run in a host terminal / browser pane that already handles
+ * its own wrapping, so we default to nowrap and let the host do it. The gfx
+ * variants render onto a fixed 40/80-column canvas grid where our wrap is
+ * the correct behaviour. Either way, #OPTION wrap / #OPTION nowrap and CLI
+ * flags can override. #OPTION (per-script intent) beats CLI (env default). */
+#ifdef GFX_VIDEO
 static int terminal_no_wrap = 0;
+#else
+static int terminal_no_wrap = 1;
+#endif
 
 enum {
     PALETTE_ANSI = 0,       /* Standard ANSI SGR colors */
@@ -3305,6 +3315,11 @@ static int apply_option_directive(const char *name, const char *value)
         n = (int)strtol(value, &end, 10);
         if (end == value || *end != '\0' || n < 1 || n > 255) return -1;
         print_width = n;
+        /* Opting into a column count is opting into wrap-at-that-width. Clear
+         * terminal_no_wrap so a host-applied -nowrap (or the non-gfx default)
+         * doesn't suppress the wrap the script just asked for. Per-script
+         * intent beats environment default. */
+        terminal_no_wrap = 0;
 #ifdef GFX_VIDEO
         if (gfx_vs) {
             gfx_vs->cols = (print_width >= 80) ? 80 : 40;
@@ -3314,6 +3329,10 @@ static int apply_option_directive(const char *name, const char *value)
     }
     if (str_eq_ci(name, "nowrap")) {
         terminal_no_wrap = 1;
+        return 0;
+    }
+    if (str_eq_ci(name, "wrap")) {
+        terminal_no_wrap = 0;
         return 0;
     }
 #ifdef GFX_VIDEO
@@ -20366,8 +20385,13 @@ int basic_parse_arg_flags(int argc, char **argv, int start, int expect_program_p
                 return -1;
             }
             print_width = n;
+            /* -columns opts into a column count → opt into wrap too, so the
+             * non-gfx nowrap default (or an earlier -nowrap) doesn't gate it. */
+            terminal_no_wrap = 0;
         } else if (strcmp(argv[i], "-nowrap") == 0 || strcmp(argv[i], "--nowrap") == 0) {
             terminal_no_wrap = 1;
+        } else if (strcmp(argv[i], "-wrap") == 0 || strcmp(argv[i], "--wrap") == 0) {
+            terminal_no_wrap = 0;
 #ifdef GFX_VIDEO
         } else if (strcmp(argv[i], "-gfx-title") == 0 || strcmp(argv[i], "--gfx-title") == 0) {
             if (i + 1 >= argc) {
@@ -20838,7 +20862,7 @@ int main(int argc, char **argv)
     }
 
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s [-v|--version] [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] <program.bas>\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-v|--version] [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] [-wrap] <program.bas>\n", argv[0]);
         return 1;
     }
 
@@ -20936,11 +20960,14 @@ int main(int argc, char **argv)
                 return 1;
             }
             print_width = n;
+            terminal_no_wrap = 0;
         } else if (strcmp(argv[i], "-nowrap") == 0 || strcmp(argv[i], "--nowrap") == 0) {
             terminal_no_wrap = 1;
+        } else if (strcmp(argv[i], "-wrap") == 0 || strcmp(argv[i], "--wrap") == 0) {
+            terminal_no_wrap = 0;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] <program.bas>\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] [-wrap] <program.bas>\n", argv[0]);
             return 1;
         } else {
             prog_path = argv[i];
@@ -20949,7 +20976,7 @@ int main(int argc, char **argv)
     }
 
     if (!prog_path) {
-        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] <program.bas>\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] [-wrap] <program.bas>\n", argv[0]);
         return 1;
     }
 
@@ -20979,11 +21006,17 @@ EMSCRIPTEN_KEEPALIVE int basic_apply_arg_string(const char *argline)
     size_t n;
 
     /* Reset flag state to defaults so this call is authoritative (matches
-     * native CLI semantics where each process starts fresh). */
+     * native CLI semantics where each process starts fresh). The default for
+     * terminal_no_wrap depends on build variant — see the static init at
+     * basic.c:3125 — so use the same conditional here. */
     petscii_mode = 0;
     petscii_plain = 0;
     petscii_no_wrap = 0;
+#ifdef GFX_VIDEO
     terminal_no_wrap = 0;
+#else
+    terminal_no_wrap = 1;
+#endif
     print_width = DEFAULT_PRINT_WIDTH;
     palette_mode = PALETTE_ANSI;
     charset_explicit_opt = 0;

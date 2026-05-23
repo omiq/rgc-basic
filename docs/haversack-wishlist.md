@@ -59,7 +59,7 @@ A `DICTPUSHDICT` variant that deep-clones a source handle into the target array 
 
 Linked from `notehub/docs/TOOLS.md` script-helpers section "Building arrays of records".
 
-### 2d. `#OPTION` directives should override `-flag` defaults set at init (2026-05-22)
+### 2d. `#OPTION` directives should override `-flag` defaults set at init (2026-05-22, updated 2026-05-23) — **[shipped 2026-05-23]**
 
 Surfaced today while verifying §5a's flag-reset fix: with Haversack's host applying `["-nowrap"]` at init (because the browser pane reflows visually and column-wrap splits tokens mid-string), a per-script `#OPTION COLUMNS 40` directive becomes effectively ignored — it sets `print_width=40` correctly, but `terminal_no_wrap=1` from the init flag is still in force, so the wrap check at `basic.c:4225/4868/4899` short-circuits. The script-author's intent ("I want this script to use 40-col wrap") loses to the env default ("the host said nowrap").
 
@@ -71,9 +71,41 @@ Concrete behaviour shifts:
 - `#OPTION nowrap` continues to set `terminal_no_wrap = 1` (no change — it already wins because it's explicit).
 - Other conceptual pairs follow the same rule (e.g. if a `#OPTION wrap` is added in future, it'd flip terminal_no_wrap=0 explicitly).
 
-Alternative API: a dedicated `#OPTION wrap` counterpart to `#OPTION nowrap` instead of the implicit-via-COLUMNS clear. Cleaner conceptually (explicit > implicit) but adds a directive name. Lean the implicit shape because it matches the "obvious" reading of `#OPTION COLUMNS N` — anyone who writes that wants wrap behaviour.
+Alternative API: a dedicated `#OPTION wrap` counterpart to `#OPTION nowrap` instead of the implicit-via-COLUMNS clear. Cleaner conceptually (explicit > implicit) but adds a directive name. Lean the implicit shape because it matches the "obvious" reading of `#OPTION COLUMNS N` — anyone who writes that wants wrap behaviour. **Update 2026-05-23:** ship both — keep the implicit `#OPTION COLUMNS N` clear AND add an explicit `#OPTION wrap`. The latter is the *only* way for a script to opt back into wrap after a host-applied `-nowrap` if the script also wants the default column width. Two-character cost, removes a corner case.
 
 Either route closes the Haversack ergonomic gap where tool authors who want column-bounded output can't override a host-applied `-nowrap` from within the script.
+
+### 2e. Flip default to `nowrap` for non-gfx variants (2026-05-23) — **[shipped 2026-05-23]**
+
+Companion to §2d. Today every build variant (`basic`, `basic-gfx`, `basic-wasm`, `basic-wasm-canvas`, `basic-wasm-raylib`) starts with `terminal_no_wrap = 0` — wrap-on at 40 cols. That matches PETSCII / 8-bit muscle memory for the gfx builds (a 40-col canvas with a fixed grid) but is the wrong default for headless variants:
+
+- `basic` (native, no `GFX_VIDEO`) runs in a host terminal that already handles its own line wrap. Inserting our own `\n` at col 40 corrupts output in any window wider than 40 cols (the typical case) and breaks copy-paste of long lines.
+- `basic-wasm` (the `.js` bundle Haversack ships) renders into a browser pane that reflows visually; our `\n` injection splits tokens mid-string and forces tool authors to opt out via `-nowrap` every time.
+
+Proposed shift: gate the initial value of `terminal_no_wrap` on `GFX_VIDEO`:
+
+```c
+/* In basic.c near line 3125 */
+#ifdef GFX_VIDEO
+static int terminal_no_wrap = 0;   /* wrap at print_width — canvas grid expects it */
+#else
+static int terminal_no_wrap = 1;   /* let host terminal / browser pane handle wrapping */
+#endif
+```
+
+Resulting precedence (full picture, combining §2d + this entry):
+
+```
+built-in default (per build variant)   <   CLI / launch flags   <   #OPTION in source
+```
+
+So `basic foo.bas` runs nowrap by default; `basic -columns 40 foo.bas` wraps at 40; `basic -nowrap foo.bas` runs nowrap; and a script that contains `#OPTION COLUMNS 40` wraps at 40 *regardless* of which flags the host or CLI passed — programmer wins. The `basic-gfx` family is untouched.
+
+Also requires updating the `basic_apply_arg_string` reset block (`basic.c:20985-20986`) to restore the *variant-conditional* default rather than hard-coding `0`, otherwise the §5a stickiness fix re-introduces the bug we're trying to remove.
+
+Same fix in the corresponding native and wasm `main` arg-parse blocks, plus the usage strings (`basic.c:20841`, `:20943`, `:20952`) to mention that `-nowrap` is already the non-gfx default and `-columns N` / `#OPTION COLUMNS N` is how to opt into wrap.
+
+Doc side: this is a behaviour change visible to anyone who relied on auto-wrap from native CLI piping into a narrow terminal — note it in `retrodocs/` per §1b. Low expected blast radius (gfx variants — the canvas-grid case — are unchanged).
 
 ### 2c. `DICTDUMP$(handle)` / `BUFFERDUMP$(slot)` — diagnostic snapshots (2026-05-22) — parked
 
