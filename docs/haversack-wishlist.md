@@ -186,9 +186,11 @@ Mirrors `#OPTION JSON STRICT`. Tools forget to check `HTTPSTATUS()` constantly; 
 
 **Shipped 2026-05-23.** `#OPTION HTTP STRICT` escalates HTTP failures (status 0 or >= 400) from `HTTP$` / `HTTPFETCH` / `BUFFERFETCH` to halting runtime errors; `#OPTION HTTP LOOSE` / `OFF` restores default. Shares the `diag_http` chokepoint with §2c's `#OPTION DIAGNOSTICS` breadcrumb (strict wins). Test: `tests/runtime_errors/http_strict.bas`.
 
-### 3f. `node tests/run-wasm.js script.bas` runner (2026-05-22)
+### 3f. `node tests/run-wasm.js script.bas` runner (2026-05-22) — **[shipped 2026-05-23]**
 
 Drives the WASM bundle via emscripten's Node bindings, captures `Module.print`, returns exit code. Same harness shape as the native CLI, so both build targets share one CI matrix.
+
+**Shipped 2026-05-23.** `node tests/run-wasm.js [--flags "…"] prog.bas` — loads into MEMFS, applies flags, runs, prints the `--json-status`-style JSON line (via `basic_get_exit*` exports), exits with the code. `conformance/run-wasm.sh` + `make wasm-conformance` drive the whole `conformance/` corpus through it (same scripts/contract as native `conformance/run.sh`). Opt-in (needs node + `web/basic.js`).
 
 ### 3g. Shared conformance suite (2026-05-22, reframed 2026-05-23) — **[shipped 2026-05-23: scaffold + first test]**
 

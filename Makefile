@@ -198,6 +198,13 @@ wasm-canvas-charset-test: basic-wasm-canvas
 wasm-tutorial-test: basic-wasm-modular
 	python3 tests/wasm_tutorial_embed_test.py
 
+# Run the headless conformance corpus against the basic-wasm build via the
+# node runner (tests/run-wasm.js). Same corpus + exit-code contract as the
+# native `sh conformance/run.sh`, so both build targets share one CI matrix.
+# Needs node + a built web/basic.js (basic-wasm).
+wasm-conformance: basic-wasm
+	sh conformance/run-wasm.sh
+
 # Run the full native test suite locally — mirrors the .github/workflows/ci.yml
 # Unix steps so devs can verify before pushing. Builds basic + gfx_video_test,
 # runs the C unit test, the shell wrappers, and the headless .bas suite using
@@ -237,6 +244,6 @@ clean:
 	$(RM) web/basic-canvas.js web/basic-canvas.wasm web/basic-canvas.wasm.map 2>/dev/null || true
 	$(RM) web/basic-modular.js web/basic-modular.wasm web/basic-modular.wasm.map 2>/dev/null || true
 
-.PHONY: all clean check lint transpile gfx_video_test gfx-demo basic-gfx basic-wasm basic-wasm-modular basic-wasm-canvas basic-wasm-raylib wasm-test wasm-canvas-test verify-canvas-wasm wasm-canvas-charset-test wasm-tutorial-test
+.PHONY: all clean check lint transpile gfx_video_test gfx-demo basic-gfx basic-wasm basic-wasm-modular basic-wasm-canvas basic-wasm-raylib wasm-test wasm-canvas-test verify-canvas-wasm wasm-canvas-charset-test wasm-tutorial-test wasm-conformance
 
 # End of Makefile

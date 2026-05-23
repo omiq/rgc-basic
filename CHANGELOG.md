@@ -1,5 +1,21 @@
 ## Changelog
 
+### `tests/run-wasm.js` headless WASM runner (2026-05-23)
+
+Wishlist §3f. A permanent node runner that drives the `basic-wasm` build
+(`web/basic.js`) the same way the native CLI runs a `.bas` file, so both build
+targets share one CI matrix. `node tests/run-wasm.js [--flags "…"] prog.bas`:
+loads the program into MEMFS, applies optional interpreter flags, runs it, and
+on completion prints the same `{"exit":N,"reason":…,"line":N}` line as native
+`--json-status` (read from the `basic_get_exit*` ccall exports) and exits with
+that code.
+
+`conformance/run-wasm.sh` (and `make wasm-conformance`) run the whole
+`conformance/` corpus through it — same scripts, same exit-code contract as the
+native `conformance/run.sh`, so there's no drift between what the two builds are
+tested against. Opt-in (needs node + a built `web/basic.js`); the native
+conformance run stays part of `make check`.
+
 ### `#OPTION HTTP STRICT` (2026-05-23)
 
 Wishlist §3e. Mirror of `#OPTION JSON STRICT`. When set, an HTTP failure

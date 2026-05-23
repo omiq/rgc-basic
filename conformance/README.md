@@ -22,21 +22,42 @@ assert on known output — suitable for CI in both the native CLI and the
 
 ## Running
 
+Native (`./basic`):
+
 ```sh
 sh conformance/run.sh            # uses ./basic
 sh conformance/run.sh ./basic    # explicit binary
 ```
 
-Also runs as part of `make check`.
+WASM (`web/basic.js` via the node runner — same corpus, same exit-code
+contract, so both build targets share one CI matrix):
+
+```sh
+make basic-wasm                  # build web/basic.js first
+sh conformance/run-wasm.sh       # or: make wasm-conformance
+```
+
+A single script can also be run directly under WASM:
+
+```sh
+node tests/run-wasm.js [--flags "<flags>"] conformance/string/escapes.bas
+```
+
+The native `conformance/run.sh` runs as part of `make check`. The WASM
+variant is opt-in (`make wasm-conformance`) since it needs node + a built
+`web/basic.js`.
 
 ## Layout
 
 ```
 conformance/
   README.md
-  run.sh
+  run.sh             # native runner (./basic)
+  run-wasm.sh        # WASM runner (node tests/run-wasm.js over web/basic.js)
+  control/
+    for_goto_next.bas  # forward GOTO within a FOR body → NEXT
   string/
-    escapes.bas      # backslash escape sequences
+    escapes.bas        # backslash escape sequences
 ```
 
 Add new feature areas as subdirectories (`json/`, `dict/`, `http/`,
