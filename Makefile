@@ -232,6 +232,8 @@ lint:
 	@sh tools/rgc_lint/test_drift.sh
 	@echo "==> rgc-lint (keyword normalisation unit tests)"
 	@python3 -m tools.rgc_lint.test_normalize
+	@echo "==> rgc-lint (agent spec.json + LLM guide freshness)"
+	@python3 -m tools.rgc_lint.gen_spec --check
 	@echo "==> rgc-lint (portability linter)"
 	@sh tools/rgc_lint/test_lint.sh
 

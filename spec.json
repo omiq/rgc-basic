@@ -1,0 +1,1445 @@
+{
+  "language": "rgc-basic",
+  "source_of_truth": "basic.c (reserved_words[], eval_factor allow-list, kconst[], statement dispatcher) joined with tools/rgc_lint/rules.json",
+  "generator": "tools/rgc_lint/gen_spec.py",
+  "tiers": {
+    "conditional": "runs everywhere but behaviour/availability varies by target",
+    "modern": "rgc-basic only (native + WASM); no retro/ugBASIC equivalent",
+    "param": "tier depends on the argument (see note)",
+    "portable": "runs on rgc-basic and transpiles to ugBASIC retro targets"
+  },
+  "counts": {
+    "total": 277,
+    "by_kind": {
+      "function": 116,
+      "keyword": 139,
+      "constant": 22
+    },
+    "by_tier": {
+      "portable": 120,
+      "modern": 145,
+      "conditional": 11,
+      "param": 1
+    }
+  },
+  "keywords": [
+    {
+      "name": "ABS",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "AND",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "ANIMFRAME",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "ANTIALIAS",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "ARG",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "ARGC",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "ASC",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "ASSERT",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "BACKGROUND",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "BACKGROUNDRGB",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "BITMAPCLEAR",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "BLACK",
+      "kind": "constant",
+      "tier": "portable"
+    },
+    {
+      "name": "BLUE",
+      "kind": "constant",
+      "tier": "portable"
+    },
+    {
+      "name": "BROWN",
+      "kind": "constant",
+      "tier": "portable"
+    },
+    {
+      "name": "BUFFERFETCH",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "BUFFERFREE",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "BUFFERLEN",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "BUFFERNEW",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "BUFFERPATH",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "CHDIR",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "CHR",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "CIRCLE",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "CLOSE",
+      "kind": "keyword",
+      "tier": "conditional"
+    },
+    {
+      "name": "CLR",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "CLS",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "COLOR",
+      "kind": "keyword",
+      "tier": "portable",
+      "note": "indices 0..15; modern accepts 0..255 in SCREEN 3"
+    },
+    {
+      "name": "COLORRGB",
+      "kind": "keyword",
+      "tier": "modern",
+      "suggest": "use COLOR n (0..15) for portable code"
+    },
+    {
+      "name": "COLOUR",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "COLOURRGB",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "COS",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "CURSOR",
+      "kind": "keyword",
+      "tier": "conditional",
+      "note": "PETSCII terminal control; behaviour/availability differs across retro targets"
+    },
+    {
+      "name": "CWD",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "CYAN",
+      "kind": "constant",
+      "tier": "portable"
+    },
+    {
+      "name": "DARKGRAY",
+      "kind": "constant",
+      "tier": "portable"
+    },
+    {
+      "name": "DARKGREY",
+      "kind": "constant",
+      "tier": "portable"
+    },
+    {
+      "name": "DATA",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "DEC",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "DEF",
+      "kind": "keyword",
+      "tier": "portable",
+      "note": "DEF FN \u2014 transpiler maps to ugBASIC DEFINE"
+    },
+    {
+      "name": "DICTDEL",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "DICTFREE",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "DICTGET",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "DICTGETBOOL",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "DICTGETN",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "DICTHAS",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "DICTKEY",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "DICTLEN",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "DICTLOAD",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "DICTNEW",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "DICTPUSH",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "DICTSET",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "DICTSETBOOL",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "DICTSETNULL",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "DICTTYPE",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "DICTUNPACK",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "DIM",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "DIR",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "DO",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "DOUBLEBUFFER",
+      "kind": "keyword",
+      "tier": "modern",
+      "suggest": "ugBASIC uses WAIT VBL implicitly; retro builds usually accept tearing or use sprite-only updates"
+    },
+    {
+      "name": "DOWN",
+      "kind": "keyword",
+      "tier": "conditional",
+      "note": "PETSCII terminal control; behaviour/availability differs across retro targets"
+    },
+    {
+      "name": "DRAWSPRITE",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "DRAWSPRITETILE",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "DRAWTEXT",
+      "kind": "keyword",
+      "tier": "portable",
+      "note": "ugBASIC has equivalent on bitmap modes"
+    },
+    {
+      "name": "ELLIPSE",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "ELSE",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "ELSEIF",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "END",
+      "kind": "keyword",
+      "tier": "portable",
+      "note": "END / END IF / END FUNCTION all portable"
+    },
+    {
+      "name": "ENV",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "EVAL",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "EXEC",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "EXIT",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "EXP",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "FALSE",
+      "kind": "constant",
+      "tier": "portable"
+    },
+    {
+      "name": "FIELD",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "FILEEXISTS",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "FILLCIRCLE",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "FILLELLIPSE",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "FILLPOLYGON",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "FILLRECT",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "FILLTRIANGLE",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "FLOODFILL",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "FN",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "FOR",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "FOREACH",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "FUNCTION",
+      "kind": "keyword",
+      "tier": "portable",
+      "note": "transpiler maps to ugBASIC PROCEDURE"
+    },
+    {
+      "name": "GET",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "GETBYTE",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "GETMOUSEX",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "GETMOUSEY",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "GOSUB",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "GOTO",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "GREEN",
+      "kind": "constant",
+      "tier": "portable"
+    },
+    {
+      "name": "HEX",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "HTTP",
+      "kind": "function",
+      "tier": "modern",
+      "suggest": "no network on retro hardware"
+    },
+    {
+      "name": "HTTPFETCH",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "HTTPSTATUS",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "IF",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "IMAGE",
+      "kind": "keyword",
+      "tier": "modern",
+      "note": "all IMAGE NEW/CREATE/COPY/GRAB/LOAD/SAVE/BLEND/DRAW/FREE forms"
+    },
+    {
+      "name": "IN",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "INDEXOF",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "INK",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "INKEY",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "INPUT",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "INSTR",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "INT",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "ISMOUSEBUTTONDOWN",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "ISMOUSEBUTTONPRESSED",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "ISMOUSEBUTTONRELEASED",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "ISMOUSEBUTTONUP",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "ISMOUSEOVERSPRITE",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "JOIN",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "JOY",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "JOYAXIS",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "JOYSTICK",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "JSON",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "JSONBOOL",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "JSONESC",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "JSONKEY",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "JSONLEN",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "JSONNEW",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "JSONNUM",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "JSONPUT",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "JSONPUTBOOL",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "JSONPUTNULL",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "JSONSTATUS",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "JSONTYPE",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "JSONUNPACK",
+      "kind": "keyword",
+      "tier": "modern",
+      "note": "rgc-only: JSONUNPACK src$, path$ INTO arr$"
+    },
+    {
+      "name": "KEYDOWN",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "KEYPRESS",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "KEYUP",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "LASTERROR",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "LASTINDEXOF",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "LCASE",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "LEFT",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "LEN",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "LET",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "LIGHTBLUE",
+      "kind": "constant",
+      "tier": "portable"
+    },
+    {
+      "name": "LIGHTGRAY",
+      "kind": "constant",
+      "tier": "portable"
+    },
+    {
+      "name": "LIGHTGREEN",
+      "kind": "constant",
+      "tier": "portable"
+    },
+    {
+      "name": "LIGHTGREY",
+      "kind": "constant",
+      "tier": "portable"
+    },
+    {
+      "name": "LINE",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "LOAD",
+      "kind": "keyword",
+      "tier": "conditional",
+      "note": "raw bytes into virtual memory \u2014 retro semantics target-specific"
+    },
+    {
+      "name": "LOADMUSIC",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "LOADSCREEN",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "LOADSOUND",
+      "kind": "keyword",
+      "tier": "modern",
+      "suggest": "WAV decode unavailable on retro \u2014 use ugBASIC SAY / SOUND / MUSIC primitives instead"
+    },
+    {
+      "name": "LOADSPRITE",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "LOCATE",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "LOG",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "LOOP",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "LTRIM",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "MAPLOAD",
+      "kind": "keyword",
+      "tier": "modern",
+      "suggest": "JSON parser too large for retro 64K \u2014 embed level data as DATA statements"
+    },
+    {
+      "name": "MAPSAVE",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "MEDGRAY",
+      "kind": "constant",
+      "tier": "portable"
+    },
+    {
+      "name": "MEDGREY",
+      "kind": "constant",
+      "tier": "portable"
+    },
+    {
+      "name": "MEMCPY",
+      "kind": "keyword",
+      "tier": "conditional"
+    },
+    {
+      "name": "MEMSET",
+      "kind": "keyword",
+      "tier": "conditional"
+    },
+    {
+      "name": "MID",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "MOD",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "MUSICCHANNELS",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "MUSICLENGTH",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "MUSICLOOP",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "MUSICORDERS",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "MUSICPATTERNS",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "MUSICPEAK",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "MUSICPLAYING",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "MUSICSAMPLECOUNT",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "MUSICSAMPLENAME",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "MUSICTIME",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "MUSICTITLE",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "MUSICVOLUME",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "NEXT",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "NOT",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "OBJLOAD",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "OBJSAVE",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "OFF",
+      "kind": "keyword",
+      "tier": "conditional",
+      "note": "PETSCII terminal control; behaviour/availability differs across retro targets"
+    },
+    {
+      "name": "ON",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "OPEN",
+      "kind": "keyword",
+      "tier": "conditional",
+      "note": "filesystem story varies per retro target \u2014 disk vs cassette"
+    },
+    {
+      "name": "OR",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "ORANGE",
+      "kind": "constant",
+      "tier": "portable"
+    },
+    {
+      "name": "OVERLAY",
+      "kind": "keyword",
+      "tier": "modern",
+      "suggest": "no portable equivalent \u2014 for HUDs in portable, paint last directly to active plane"
+    },
+    {
+      "name": "PALETTE",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "PALETTEHEX",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "PALETTELOAD",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "PALETTERESET",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "PALETTEROTATE",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "PALETTESAVE",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "PALETTESET",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "PALETTESETHEX",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "PAPER",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "PAUSEMUSIC",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "PEEK",
+      "kind": "function",
+      "tier": "conditional"
+    },
+    {
+      "name": "PI",
+      "kind": "constant",
+      "tier": "portable"
+    },
+    {
+      "name": "PINK",
+      "kind": "constant",
+      "tier": "portable"
+    },
+    {
+      "name": "PLATFORM",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "PLAYMUSIC",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "PLAYSOUND",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "POKE",
+      "kind": "keyword",
+      "tier": "conditional",
+      "note": "addresses are target-specific; transpiler may refuse"
+    },
+    {
+      "name": "POLYGON",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "PRESET",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "PRINT",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "PSET",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "PURPLE",
+      "kind": "constant",
+      "tier": "portable"
+    },
+    {
+      "name": "PUTBYTE",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "READ",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "RECT",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "RED",
+      "kind": "constant",
+      "tier": "portable"
+    },
+    {
+      "name": "REM",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "REPLACE",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "RESTORE",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "RESUMEMUSIC",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "RETURN",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "RGCVERSION",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "RIGHT",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "RND",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "RTRIM",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "RVS",
+      "kind": "keyword",
+      "tier": "conditional",
+      "note": "PETSCII terminal control; behaviour/availability differs across retro targets"
+    },
+    {
+      "name": "SCREEN",
+      "kind": "keyword",
+      "tier": "param",
+      "note": "SCREEN 0/1 portable; 2/3/4 RGBA-only",
+      "params": {
+        "0": "portable",
+        "1": "portable",
+        "2": "modern",
+        "3": "modern",
+        "4": "modern"
+      }
+    },
+    {
+      "name": "SCREENCODES",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "SCROLL",
+      "kind": "keyword",
+      "tier": "modern",
+      "note": "free-pan / zone / line scrolling \u2014 too target-specific for v1"
+    },
+    {
+      "name": "SCROLLX",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "SCROLLY",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "SGN",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "SHEETCOLS",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "SHEETHEIGHT",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "SHEETROWS",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "SHEETWIDTH",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "SIN",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "SLEEP",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "SORT",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "SOUNDPLAYING",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "SPC",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "SPLIT",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "SPRITEAT",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "SPRITECOLLIDE",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "SPRITECOPY",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "SPRITEFRAME",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "SPRITEFRAMES",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "SPRITEH",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "SPRITEMODIFY",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "SPRITEMODULATE",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "SPRITETILES",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "SPRITEVISIBLE",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "SPRITEW",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "SQR",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "STEP",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "STOP",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "STOPMUSIC",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "STOPSOUND",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "STR",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "STRING",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "SYSTEM",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "TAB",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "TAN",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "TEXTAT",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "THEN",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "TI",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "TICKMS",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "TICKUS",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "TILE",
+      "kind": "keyword",
+      "tier": "modern",
+      "note": "two-word TILE DRAW/COUNT family; modern gfx"
+    },
+    {
+      "name": "TILECOUNT",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "TILEMAP",
+      "kind": "keyword",
+      "tier": "modern",
+      "note": "ugBASIC has its own tilemap primitives \u2014 defer to v2"
+    },
+    {
+      "name": "TIMER",
+      "kind": "keyword",
+      "tier": "portable",
+      "note": "transpiler maps to ugBASIC PARALLEL PROCEDURE + SPAWN; native rgc-basic uses real timer"
+    },
+    {
+      "name": "TO",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "TRIANGLE",
+      "kind": "keyword",
+      "tier": "portable",
+      "note": "v1.18: graphics primitive"
+    },
+    {
+      "name": "TRIM",
+      "kind": "function",
+      "tier": "modern"
+    },
+    {
+      "name": "TRUE",
+      "kind": "constant",
+      "tier": "portable"
+    },
+    {
+      "name": "UCASE",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "UNLOADMUSIC",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "UNLOADSOUND",
+      "kind": "keyword",
+      "tier": "modern"
+    },
+    {
+      "name": "UNLOADSPRITE",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "UNTIL",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "VAL",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "VSYNC",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "WEND",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "WHILE",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "WHITE",
+      "kind": "constant",
+      "tier": "portable"
+    },
+    {
+      "name": "XOR",
+      "kind": "keyword",
+      "tier": "portable"
+    },
+    {
+      "name": "YELLOW",
+      "kind": "constant",
+      "tier": "portable"
+    }
+  ]
+}
