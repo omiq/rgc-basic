@@ -20,6 +20,8 @@ import re
 from dataclasses import dataclass
 from typing import Iterator
 
+from .normalize import normalize_keywords_line
+
 
 @dataclass
 class Statement:
@@ -199,6 +201,13 @@ def tokenize(source: str) -> Iterator[Statement]:
         if m:
             line_num = int(m.group(1))
             raw_line = raw_line[m.end():]
+
+        # Restore CBM-style whitespace around glued control-flow keywords
+        # (IFA<1 -> IF A<1, NEXTI -> NEXT I), mirroring the interpreter's
+        # normalize_keywords_line so crunched legacy listings tokenize the
+        # same way the runtime parses them. Done after the line-number
+        # strip to match basic.c's order (it normalises post-number).
+        raw_line = normalize_keywords_line(raw_line)
 
         # Whole-line comments — preserve so transpilers can echo them.
         rem_m = _LEADING_REM_RE.match(raw_line)

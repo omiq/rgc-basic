@@ -228,6 +228,10 @@ check: $(TARGET)$(EXE) gfx_video_test lint transpile
 # ugBASIC and on to retro targets), and that tests/non-portable/ each
 # fail with at least one error. See docs/portability-spec.md.
 lint:
+	@echo "==> rgc-lint (keyword drift guard)"
+	@sh tools/rgc_lint/test_drift.sh
+	@echo "==> rgc-lint (keyword normalisation unit tests)"
+	@python3 -m tools.rgc_lint.test_normalize
 	@echo "==> rgc-lint (portability linter)"
 	@sh tools/rgc_lint/test_lint.sh
 

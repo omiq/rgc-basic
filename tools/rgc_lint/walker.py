@@ -73,6 +73,35 @@ def _resolve_param_tier(rule: dict[str, Any], rest: str) -> tuple[str, str]:
 
 _TOKEN_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\$?")
 
+# A statement whose first word isn't a known keyword is legitimate when
+# it's an assignment: `X = 5`, `A$ = "hi"`, `GRID(I, J) = 0`. Match an
+# optional array subscript then a single `=` (BASIC has no `==`, but
+# guard against it anyway so `==` never reads as assignment).
+_ASSIGNMENT_RE = re.compile(r"^\s*(\([^=]*\))?\s*=([^=]|$)")
+
+# DEF FN name forms: `DEF FN foo(...)`, `DEF FNfoo(...)`, `DEF foo(...)`.
+_DEF_NAME_RE = re.compile(r"^\s*(?:FN\s*)?([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE)
+# FUNCTION declaration: `FUNCTION foo(...)` / `FUNCTION foo$(...)`.
+_FUNC_NAME_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*\$?)", re.IGNORECASE)
+
+
+def _collect_user_names(statements: list[Statement]) -> set[str]:
+    """Names the program defines itself — FUNCTION / DEF FN — so a call
+    or (re)definition isn't mistaken for an unknown built-in. Upper-cased,
+    `$` stripped, to match the keyword-lookup convention.
+    """
+    names: set[str] = set()
+    for s in statements:
+        if s.first_word == "FUNCTION":
+            m = _FUNC_NAME_RE.match(s.rest)
+            if m:
+                names.add(m.group(1).rstrip("$").upper())
+        elif s.first_word == "DEF":
+            m = _DEF_NAME_RE.match(s.rest)
+            if m:
+                names.add(m.group(1).rstrip("$").upper())
+    return names
+
 # Two-word dispatch namespaces — when the first word of a statement is
 # one of these, the IMMEDIATE next word is the verb (e.g. SPRITE LOAD,
 # IMAGE BLEND, TILE DRAW) and shouldn't be flagged as a standalone
@@ -146,6 +175,10 @@ def lint(
     # numbered/unnumbered lines, then the per-statement keyword walk.
     statements = list(statements)
 
+    # Names the program defines (FUNCTION / DEF FN) — exempt from the
+    # unknown-keyword check below so a UDF isn't flagged as invented.
+    user_names = _collect_user_names(statements)
+
     # Mixed line-numbering check: classic-BASIC source either uses
     # numeric labels on every code line or none. Mixing the two is
     # almost always an authoring mistake (half-converted source). The
@@ -191,13 +224,37 @@ def lint(
         seen_in_stmt: set[str] = set()
 
         # First word — the statement's dispatch keyword, if any.
-        if stmt.first_word:
+        if stmt.first_word and stmt.first_word != "REM":
             kw = stmt.first_word
             kw_lookup = kw.rstrip("$")
             rule = rules.get(kw_lookup)
             if rule is not None:
                 seen_in_stmt.add(kw_lookup)
                 _check_keyword(kw, rule, stmt.rest, stmt, file, tier, diags)
+            elif (not stmt.is_label
+                  and kw_lookup not in user_names
+                  and not _ASSIGNMENT_RE.match(stmt.rest or "")):
+                # First word is neither a known keyword, a label, a
+                # user-defined FUNCTION/DEF, nor an assignment LHS.
+                # That's an invented/misspelled built-in — the #1
+                # failure mode when an agent writes rgc-basic. Since
+                # rules.json is kept complete against basic.c by the
+                # drift test, "not in rules" reliably means "not a real
+                # keyword" rather than "linter hasn't heard of it yet".
+                diags.append(Diagnostic(
+                    file=file, line=stmt.line, col=stmt.col,
+                    severity="error", code="E003", keyword=kw,
+                    message=(
+                        f"{kw} is not a known rgc-basic keyword, built-in, "
+                        f"or defined FUNCTION — check spelling or it may not "
+                        f"exist in this dialect"
+                    ),
+                    suggestion=(
+                        "if you meant a variable assignment, add `= value`; "
+                        "if a label, add a trailing `:`; otherwise this "
+                        "keyword does not exist"
+                    ),
+                ))
 
         # Comment lines surface as Statement(first_word="REM"). Don't
         # scan rest for keyword matches — the comment text might
