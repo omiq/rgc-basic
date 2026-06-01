@@ -24,18 +24,18 @@ DEF FNR(R)=INT(RND(R)*7.98+1.01)
 REM ** ===== MAIN STATE LOOP ===== **
 REM ** EACH STATE FUNCTION DOES ITS WORK AND RETURNS THE NEXT STATE. WE
 REM ** DISPATCH WITH A SIMPLE IF-CHAIN AND REPEAT UNTIL A FUNCTION HANDS
-REM ** BACK ST_QUIT. THE ONLY JUMP HERE IS THE LOOP-BACK AT THE BOTTOM. **
+REM ** BACK ST_QUIT. NO GOTOS HERE AT ALL -- JUST A DO/LOOP. **
 GameState = ST_NEWGAME
-StateLoop:
-IF GameState = ST_NEWGAME    THEN GameState = SetupGame()
-IF GameState = ST_NEWQUAD    THEN GameState = EnterQuadrant()
-IF GameState = ST_COMMAND    THEN GameState = DoCommand()
-IF GameState = ST_DEAD       THEN GameState = ShipDestroyed()
-IF GameState = ST_GAMEOVER   THEN GameState = ShowGameOver()
-IF GameState = ST_VICTORY    THEN GameState = ShowVictory()
-IF GameState = ST_MISSIONEND THEN GameState = ShowMissionEnd()
-IF GameState = ST_PLAYAGAIN  THEN GameState = AskPlayAgain()
-IF GameState <> ST_QUIT THEN GOTO StateLoop
+DO
+  IF GameState = ST_NEWGAME    THEN GameState = SetupGame()
+  IF GameState = ST_NEWQUAD    THEN GameState = EnterQuadrant()
+  IF GameState = ST_COMMAND    THEN GameState = DoCommand()
+  IF GameState = ST_DEAD       THEN GameState = ShipDestroyed()
+  IF GameState = ST_GAMEOVER   THEN GameState = ShowGameOver()
+  IF GameState = ST_VICTORY    THEN GameState = ShowVictory()
+  IF GameState = ST_MISSIONEND THEN GameState = ShowMissionEnd()
+  IF GameState = ST_PLAYAGAIN  THEN GameState = AskPlayAgain()
+LOOP UNTIL GameState = ST_QUIT
 END
 REM ** ===== ONE-TIME GAME SETUP (NEW GAME / RESTART) ===== **
 FUNCTION SetupGame()
