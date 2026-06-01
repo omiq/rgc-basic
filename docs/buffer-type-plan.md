@@ -1,5 +1,19 @@
 # BUFFER type — large-data companion to strings
 
+> **Status (2026-05-12 audit):** Step 1 of this plan **SHIPPED** —
+> `BUFFERNEW`, `BUFFERFETCH`, `BUFFERFREE`, `BUFFERLEN`, `BUFFERPATH$`
+> are live in `basic.c:6747+` and documented in CHANGELOG:933.
+> Steps 2 (`JSONFILE$`) and 3 (`RESTORE BUFFER` / `RESTORE FILE`) are
+> still deferred.
+>
+> The companion big-strings plan (`docs/big-string-plan.md`) addresses
+> the same root pain (4 KB inline `struct value.str` → `HTTP$` truncation)
+> with a different approach: refactor `struct value` instead of routing
+> around it. Once big strings ship, the *motivation* for BUFFER weakens
+> (truncation no longer forces users into a separate type), but the
+> shipped BUFFER intrinsics stay — they remain the right tool for
+> streaming chunked file I/O on bounded RAM.
+
 ## Problem
 
 BASIC strings are capped at `MAX_STR_LEN` (4096 bytes, compile-time constant in
