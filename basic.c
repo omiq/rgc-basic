@@ -2103,6 +2103,7 @@ struct udf_call_frame {
     int saved_while_top;   /* WHILE/WEND nesting at call site */
     int saved_for_top;     /* FOR/NEXT nesting at call site */
     int saved_if_depth;    /* block IF/END IF nesting at call site */
+    int saved_do_top;      /* DO/LOOP nesting at call site */
     struct value saved_params[MAX_UDF_PARAMS];
 };
 
@@ -14435,6 +14436,7 @@ static struct value invoke_udf(int func_index, struct value *args, int nargs)
     udf_call_stack[udf_call_depth].saved_while_top = while_top;
     udf_call_stack[udf_call_depth].saved_for_top   = for_top;
     udf_call_stack[udf_call_depth].saved_if_depth  = if_depth;
+    udf_call_stack[udf_call_depth].saved_do_top    = do_top;
     for (i = 0; i < uf->param_count; i++) {
         param_var = find_or_create_var(uf->param_names[i], uf->param_is_string[i], 0, 0, NULL, 0);
         if (param_var && i < nargs) {
@@ -17555,16 +17557,20 @@ static void goto_unwind_structured_stacks(void)
 {
     int floor_while = 0;
     int floor_if    = 0;
+    int floor_do    = 0;
     if (udf_call_depth > 0) {
         floor_while = udf_call_stack[udf_call_depth - 1].saved_while_top;
         floor_if    = udf_call_stack[udf_call_depth - 1].saved_if_depth;
+        floor_do    = udf_call_stack[udf_call_depth - 1].saved_do_top;
     }
     if (while_top > floor_while) while_top = floor_while;
     if (if_depth  > floor_if)    if_depth  = floor_if;
-    /* DO frames are not saved per-UDF (yet) — clear to 0. Re-entering
-     * the DO body via GOTO is the same misuse as IF/WHILE: caller has
-     * to RUN the program from a clean state if they want it back. */
-    do_top = 0;
+    /* DO frames clear down to the current UDF's floor — a GOTO inside a
+     * function discards only the DO blocks that function opened, leaving
+     * the caller's DO/LOOP frame (and any outer ones) intact. At top
+     * level the floor is 0, matching classic line-numbered BASIC where
+     * GOTO abandons structured state. */
+    if (do_top > floor_do) do_top = floor_do;
 }
 
 static void statement_goto(char **p)
@@ -17686,11 +17692,12 @@ static void statement_return(char **p)
         udf_call_depth--;
         current_line = udf_call_stack[udf_call_depth].saved_line;
         statement_pos = udf_call_stack[udf_call_depth].saved_pos;
-        /* Unwind any WHILE / FOR / IF blocks the UDF entered but did
+        /* Unwind any WHILE / FOR / IF / DO blocks the UDF entered but did
          * not close — the caller resumes with its own stacks intact. */
         while_top = udf_call_stack[udf_call_depth].saved_while_top;
         for_top   = udf_call_stack[udf_call_depth].saved_for_top;
         if_depth  = udf_call_stack[udf_call_depth].saved_if_depth;
+        do_top    = udf_call_stack[udf_call_depth].saved_do_top;
         return;
     }
     if (gosub_top <= 0) {
@@ -18134,10 +18141,11 @@ static void statement_end_function(char **p)
     udf_call_depth--;
     current_line = udf_call_stack[udf_call_depth].saved_line;
     statement_pos = udf_call_stack[udf_call_depth].saved_pos;
-    /* Unwind WHILE / FOR / IF stacks the UDF body left dangling. */
+    /* Unwind WHILE / FOR / IF / DO stacks the UDF body left dangling. */
     while_top = udf_call_stack[udf_call_depth].saved_while_top;
     for_top   = udf_call_stack[udf_call_depth].saved_for_top;
     if_depth  = udf_call_stack[udf_call_depth].saved_if_depth;
+    do_top    = udf_call_stack[udf_call_depth].saved_do_top;
 }
 
 static void statement_while(char **p, char *while_pos)

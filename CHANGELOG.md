@@ -1,5 +1,26 @@
 ## Changelog
 
+### Fix: GOTO inside a FUNCTION no longer corrupts the caller's DO/LOOP (2026-06-01)
+
+A `GOTO` executed inside a `FUNCTION` while the caller was sitting inside a
+`DO ... LOOP` used to clear the `DO` bookkeeping globally (`do_top = 0` in
+`goto_unwind_structured_stacks()`), so the caller's matching `LOOP` later halted
+with `LOOP without DO`. `WHILE`/`FOR`/`IF` were already snapshotted per function
+call (`udf_call_frame`), but `DO` was not, and the unwind cleared it to zero
+instead of to the current function's floor.
+
+Fix mirrors the earlier FOR-body fix (2026-05-23): the `udf_call_frame` now also
+saves `do_top` on entry, `statement_return` / `statement_end_function` restore
+it, and `goto_unwind_structured_stacks()` clears `do_top` down to the running
+UDF's floor (0 at top level) rather than unconditionally to zero. A `GOTO` now
+only unwinds the `DO` blocks the running function itself opened; the caller's
+loop frame survives the call.
+
+This is what lets a state-machine main loop (`DO ... LOOP UNTIL done`) dispatch
+to handler functions that use their own internal `GOTO`s. Surfaced while
+rewriting `examples/trek-new.bas` into a `GOSUB`-free state machine. Regression
+test: `tests/do_loop_func_goto_test.bas`.
+
 ### `tests/run-wasm.js` headless WASM runner (2026-05-23)
 
 Wishlist §3f. A permanent node runner that drives the `basic-wasm` build

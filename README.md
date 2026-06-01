@@ -600,6 +600,10 @@ The `examples` folder (included in release archives) contains:
   - You may `THEN` jump to a line number (`IF A>10 THEN 100`) or execute inline statements after `THEN`.
 - **Random numbers**:
   - `RND(X)` behaves like classic BASIC; a negative argument reseeds the generator.
+- **Structured loops and `GOTO`**:
+  - `DO ... LOOP [UNTIL]`, `WHILE ... WEND`, `FOR ... NEXT` and block `IF ... ELSE IF ... END IF` can be mixed freely with `GOTO`.
+  - A `GOTO` abandons any block frames opened since the current routine started (the classic unstructured behaviour), but it no longer disturbs blocks owned by a *caller*.
+  - **Fixed bug (2026-06-01):** a `GOTO` inside a `FUNCTION` that ran while the caller was sitting inside a `DO ... LOOP` used to clear the loop bookkeeping globally, so the caller's matching `LOOP` later failed with `LOOP without DO`. The block stack (`DO`/`WHILE`/`FOR`/`IF`) is now snapshotted per function call and restored on return, so `GOTO` only unwinds the blocks that the running function itself opened. This is what lets a state-machine main loop (`DO ... LOOP UNTIL done`) dispatch to handler functions that use their own internal `GOTO`s, as in `examples/trek-new.bas`. Regression test: `tests/do_loop_func_goto_test.bas`.
 
 This README describes the current feature set of the interpreter as implemented in `basic.c` and is subject to change without notice.
 

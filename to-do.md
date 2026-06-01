@@ -1501,6 +1501,19 @@ Surfaced while rewriting old-style `examples/*.bas` into modern form (labels, `F
 - **`CLS` clears screen but not colour state.** Modernised files that set `COLOR`/`BACKGROUND` once at the top then `CLS` mid-program keep the previous palette, which is usually what's wanted; flag if that ever surprises.
 - **`ON expr GOTO/GOSUB` only accepts numeric line numbers, not labels** (`statement_on`, `basic.c:15743`). A fully label-based program (no line numbers) therefore can't use computed dispatch and has to expand each `ON` into a stack of `IF expr = n THEN GOTO label` lines (see `examples/trek-new.bas`, converted 2026-06-01). Enhancement: teach `statement_on` to resolve a comma list of labels as well as line numbers, so label-only sources keep the compact dispatch form.
 - **Keyword normaliser splits `NEXT` and `THEN` even inside an identifier.** Unlike the `IF` / `FOR` branches (which have a `prev_ident` guard), the `NEXT` (`basic.c:1457`) and `THEN` (`basic.c:1474`) cases insert a space whenever the substring appears, so a label like `RepairNext:` or `CalcNext:` gets mangled into `Repair NEXT` and fails to load. Workaround today: avoid those substrings in label names (the trek conversion uses `RepairDone` etc.). Fix: add the same `prev_ident` guard to the `NEXT` and `THEN` branches so embedded occurrences are left alone.
+- **[FIXED 2026-06-01] A `GOTO` inside a `FUNCTION` corrupted the caller's `DO`/`WHILE` block stack** (found while building the state-machine `examples/trek-new.bas`; fixed same day). The `udf_call_frame` now snapshots `do_top` on entry, `statement_return`/`statement_end_function` restore it, and `goto_unwind_structured_stacks()` clears `do_top` only to the running UDF's floor instead of zero. See CHANGELOG 2026-06-01 and `tests/do_loop_func_goto_test.bas`. Original report below. When a function is called from inside an open `DO ... LOOP` (or presumably `WHILE ... WEND`) block and the function body executes a (forward) `GOTO`, the block-stack unwind pops the *caller's* `DO` frame, so the matching `LOOP` later dies with `LOOP without DO`. `FOR`/`NEXT` frames are not affected (GOTO-out-of-FOR is handled), which is why the pre-existing label-jumping helpers worked. Minimal repro:
+  ```
+  S=1
+  DO
+    IF S=1 THEN S=Step()
+  LOOP UNTIL S=0
+  END
+  FUNCTION Step()
+    IF 1=1 THEN GOTO L
+    L: RETURN 0
+  END FUNCTION
+  ```
+  errors with `LOOP without DO`. Root cause: function call save/restore of the block-stack depth isn't isolated from `GOTO`'s unwind logic. Workaround used in `trek-new.bas`: drive the main loop with a label + tail `GOTO StateLoop` (single-line `IF` dispatch) instead of `DO/LOOP`, so the block stack is empty when state functions run. Fix: have the function-call machinery snapshot/restore the block-stack depth around the call (or make `GOTO`'s unwind stop at the current call frame), then the loop can use `DO/LOOP` cleanly.
 
 ## Bitmap plane double-buffer — SHIPPED 1.9.5 (2026-04-19)
 
