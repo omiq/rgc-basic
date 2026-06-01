@@ -9,15 +9,15 @@
     "portable": "runs on rgc-basic and transpiles to ugBASIC retro targets"
   },
   "counts": {
-    "total": 277,
+    "total": 279,
     "by_kind": {
       "function": 116,
-      "keyword": 139,
+      "keyword": 141,
       "constant": 22
     },
     "by_tier": {
       "portable": 120,
-      "modern": 145,
+      "modern": 147,
       "conditional": 11,
       "param": 1
     }
@@ -117,6 +117,12 @@
       "name": "BUFFERPATH",
       "kind": "function",
       "tier": "modern"
+    },
+    {
+      "name": "CASE",
+      "kind": "keyword",
+      "tier": "modern",
+      "note": "CASE clause inside SELECT CASE; supports comma lists, CASE IS <relop> expr, CASE lo TO hi, CASE ELSE"
     },
     {
       "name": "CHDIR",
@@ -359,7 +365,7 @@
       "name": "END",
       "kind": "keyword",
       "tier": "portable",
-      "note": "END / END IF / END FUNCTION all portable"
+      "note": "END / END IF / END FUNCTION / END SELECT all portable"
     },
     {
       "name": "ENV",
@@ -1151,6 +1157,12 @@
       "name": "SCROLLY",
       "kind": "function",
       "tier": "modern"
+    },
+    {
+      "name": "SELECT",
+      "kind": "keyword",
+      "tier": "modern",
+      "note": "SELECT CASE \u2026 CASE \u2026 CASE ELSE \u2026 END SELECT; rgc-basic block dispatch (numeric/string, comma lists, IS relop, lo TO hi)"
     },
     {
       "name": "SGN",

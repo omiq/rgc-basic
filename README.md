@@ -134,6 +134,7 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
     - Enter/Return is returned as `CHR$(13)` so `ASC(K$)=13` works for “press Enter” checks.
   - `LET` (optional): assignment; you can also assign with `A=1` without `LET`. **Compound shortcuts** (rgc-basic extension): `A++` / `A--` increment/decrement by 1; `A += expr` / `A -= expr` / `A *= expr` / `A /= expr` are sugar for `A = A op expr`. String vars accept `S$ += "x"` for concatenation; other compound forms raise on strings. Statement-only (not expression).
   - `IF ... THEN` / `IF ... ELSE ... END IF`: conditional execution. Inline `IF X THEN 100` or `IF X THEN PRINT "Y"`; multi-line blocks with `IF X THEN` … `ELSE` … `END IF`. Supports nested blocks.
+  - `SELECT CASE` … `CASE` … `CASE ELSE` … `END SELECT`: block multi-way dispatch (the modern replacement for `ON x GOTO` and long `IF/ELSEIF` ladders). Selector may be numeric or string. Each `CASE` accepts a comma list (`CASE 2, 3`), a relational test (`CASE IS >= 10`), or a range (`CASE 1 TO 5`); `CASE ELSE` is the default. Exactly one matching body runs (no fall-through). Nestable; safe to `GOTO` out of a `CASE` body inside a `FUNCTION`.
   - `WHILE` … `WEND`: pre-test loops. `WHILE X < 5` … `WEND`; supports nested WHILE/WEND.
   - `DO` … `LOOP [UNTIL cond]`: post-test / infinite loops. `DO` … `LOOP` repeats until `EXIT`; `DO` … `LOOP UNTIL X>5` exits when the condition is true. `EXIT` leaves the innermost DO loop. Nested DO/LOOP supported.
   - `GOTO`: jump to a given line number **or label** (e.g. `GOTO 100` or `GOTO GAMELOOP`).
@@ -601,7 +602,7 @@ The `examples` folder (included in release archives) contains:
 - **Random numbers**:
   - `RND(X)` behaves like classic BASIC; a negative argument reseeds the generator.
 - **Structured loops and `GOTO`**:
-  - `DO ... LOOP [UNTIL]`, `WHILE ... WEND`, `FOR ... NEXT` and block `IF ... ELSE IF ... END IF` can be mixed freely with `GOTO`.
+  - `DO ... LOOP [UNTIL]`, `WHILE ... WEND`, `FOR ... NEXT`, block `IF ... ELSE IF ... END IF` and `SELECT CASE ... END SELECT` can be mixed freely with `GOTO`.
   - A `GOTO` abandons any block frames opened since the current routine started (the classic unstructured behaviour), but it no longer disturbs blocks owned by a *caller*.
   - **Fixed bug (2026-06-01):** a `GOTO` inside a `FUNCTION` that ran while the caller was sitting inside a `DO ... LOOP` used to clear the loop bookkeeping globally, so the caller's matching `LOOP` later failed with `LOOP without DO`. The block stack (`DO`/`WHILE`/`FOR`/`IF`) is now snapshotted per function call and restored on return, so `GOTO` only unwinds the blocks that the running function itself opened. This is what lets a state-machine main loop (`DO ... LOOP UNTIL done`) dispatch to handler functions that use their own internal `GOTO`s, as in `examples/trek-new.bas`. Regression test: `tests/do_loop_func_goto_test.bas`.
 

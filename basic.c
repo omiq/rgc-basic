@@ -2076,6 +2076,17 @@ struct do_frame {
 static struct do_frame do_stack[MAX_DO_DEPTH];
 static int do_top = 0;
 
+/* SELECT CASE block stack. Each active SELECT holds the selector value it
+ * was opened with (numeric or string, ref-held for strings) so each CASE
+ * clause can be matched against it. Mirrors the IF/DO/WHILE block-stack
+ * discipline: saved across UDF calls and unwound on GOTO. */
+#define MAX_SELECT_DEPTH 16
+struct select_frame {
+    struct value sel;
+};
+static struct select_frame select_stack[MAX_SELECT_DEPTH];
+static int select_top = 0;
+
 #define MAX_UDF_PARAMS 16
 #define MAX_UDF_FUNCS  32
 #define MAX_UDF_DEPTH  16
@@ -2104,6 +2115,7 @@ struct udf_call_frame {
     int saved_for_top;     /* FOR/NEXT nesting at call site */
     int saved_if_depth;    /* block IF/END IF nesting at call site */
     int saved_do_top;      /* DO/LOOP nesting at call site */
+    int saved_select_top;  /* SELECT CASE nesting at call site */
     struct value saved_params[MAX_UDF_PARAMS];
 };
 
@@ -3736,6 +3748,10 @@ static void statement_unloadsprite(char **p);  /* basic-gfx only; terminal error
 static void statement_spritecopy(char **p);    /* basic-gfx only; terminal errors */
 static void statement_else(char **p);
 static void statement_end_if(char **p);
+static void statement_select(char **p);
+static void statement_case(char **p);
+static void statement_end_select(char **p);
+static void select_unwind_to(int floor);
 static void statement_return(char **p);
 static void statement_end_function(char **p);
 static void skip_function_block(char **p);
@@ -4277,6 +4293,7 @@ static const char *const reserved_words[] = {
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
     "DOUBLEBUFFER", "DRAWSPRITE", "DRAWSPRITETILE", "DRAWTEXT", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "MAPLOAD", "MAPSAVE", "OBJLOAD", "OBJSAVE", "OVERLAY", "RGCVERSION", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
     "DO", "LOOP", "UNTIL", "EXIT",
+    "SELECT", "CASE",
     "GETBYTE",
     "DICTNEW", "DICTLOAD", "DICTGET", "DICTGETN", "DICTGETBOOL", "DICTHAS", "DICTTYPE", "DICTLEN", "DICTKEY",
     "DICTSET", "DICTSETNULL", "DICTSETBOOL", "DICTFREE", "DICTDEL", "DICTPUSH", "DICTUNPACK",
@@ -14437,6 +14454,7 @@ static struct value invoke_udf(int func_index, struct value *args, int nargs)
     udf_call_stack[udf_call_depth].saved_for_top   = for_top;
     udf_call_stack[udf_call_depth].saved_if_depth  = if_depth;
     udf_call_stack[udf_call_depth].saved_do_top    = do_top;
+    udf_call_stack[udf_call_depth].saved_select_top = select_top;
     for (i = 0; i < uf->param_count; i++) {
         param_var = find_or_create_var(uf->param_names[i], uf->param_is_string[i], 0, 0, NULL, 0);
         if (param_var && i < nargs) {
@@ -16122,6 +16140,7 @@ static void basic_clr_memory(void)
     while_top = 0;
     do_top = 0;
     if_depth = 0;
+    select_unwind_to(0);
     data_index = 0;
 }
 
@@ -17558,13 +17577,16 @@ static void goto_unwind_structured_stacks(void)
     int floor_while = 0;
     int floor_if    = 0;
     int floor_do    = 0;
+    int floor_select = 0;
     if (udf_call_depth > 0) {
         floor_while = udf_call_stack[udf_call_depth - 1].saved_while_top;
         floor_if    = udf_call_stack[udf_call_depth - 1].saved_if_depth;
         floor_do    = udf_call_stack[udf_call_depth - 1].saved_do_top;
+        floor_select = udf_call_stack[udf_call_depth - 1].saved_select_top;
     }
     if (while_top > floor_while) while_top = floor_while;
     if (if_depth  > floor_if)    if_depth  = floor_if;
+    select_unwind_to(floor_select);
     /* DO frames clear down to the current UDF's floor — a GOTO inside a
      * function discards only the DO blocks that function opened, leaving
      * the caller's DO/LOOP frame (and any outer ones) intact. At top
@@ -17698,6 +17720,7 @@ static void statement_return(char **p)
         for_top   = udf_call_stack[udf_call_depth].saved_for_top;
         if_depth  = udf_call_stack[udf_call_depth].saved_if_depth;
         do_top    = udf_call_stack[udf_call_depth].saved_do_top;
+        select_unwind_to(udf_call_stack[udf_call_depth].saved_select_top);
         return;
     }
     if (gosub_top <= 0) {
@@ -18067,6 +18090,243 @@ static void statement_end_if(char **p)
     if_depth--;
 }
 
+/* ---------------------------------------------------------------------------
+ * SELECT CASE / CASE / CASE ELSE / END SELECT
+ *
+ * Block construct, same line-based execution model as block IF. On
+ * `SELECT CASE expr` we evaluate the selector once, push it on a stack, then
+ * scan forward to the first matching CASE (or CASE ELSE) and land execution
+ * at its body. Only one CASE body ever runs: when the body falls through to
+ * the next CASE keyword (statement_case), we skip to END SELECT. END SELECT
+ * pops the frame. Selector type drives matching (numeric or string). CASE
+ * clauses support comma lists, `IS <relop> expr`, and `lo TO hi` ranges.
+ * ------------------------------------------------------------------------- */
+
+static void select_unwind_to(int floor)
+{
+    while (select_top > floor) {
+        select_top--;
+        v_clear_str(&select_stack[select_top].sel);
+    }
+}
+
+/* Compare the selector against an item value. Returns <0, 0, >0 like strcmp/
+ * numeric ordering. String selector compares as strings; otherwise numeric. */
+static int select_cmp(const struct value *sel, const struct value *item)
+{
+    if (sel->type == VAL_STR) {
+        return v_strcmp(sel, item);
+    }
+    {
+        double a = sel->num;
+        double b = (item->type == VAL_STR) ? 0.0 : item->num;
+        return (a < b) ? -1 : (a > b) ? 1 : 0;
+    }
+}
+
+/* Parse and test one CASE value list against the selector. *r points just
+ * past `CASE` (and not at ELSE). Advances *r past the list (to ':' or EOL).
+ * Returns 1 if any item matches. */
+static int select_case_list_matches(const struct value *sel, char **r)
+{
+    int matched = 0;
+    skip_spaces(r);
+    while (**r && **r != ':') {
+        if (starts_with_kw(*r, "IS")) {
+            /* CASE IS <relop> expr */
+            int op_lt = 0, op_gt = 0, op_eq = 0;
+            struct value rhs;
+            int c;
+            *r += 2;
+            skip_spaces(r);
+            if (**r == '<') { op_lt = 1; (*r)++; if (**r == '=') { op_eq = 1; (*r)++; } else if (**r == '>') { op_gt = 1; (*r)++; } }
+            else if (**r == '>') { op_gt = 1; (*r)++; if (**r == '=') { op_eq = 1; (*r)++; } }
+            else if (**r == '=') { op_eq = 1; (*r)++; }
+            else { op_eq = 1; }
+            rhs = eval_expr(r);
+            c = select_cmp(sel, &rhs);
+            if ((op_lt && c < 0) || (op_gt && c > 0) || (op_eq && c == 0)) matched = 1;
+            /* rhs is owned by the temp ring; do not unref here. */
+        } else {
+            struct value a = eval_expr(r);
+            skip_spaces(r);
+            if (starts_with_kw(*r, "TO")) {
+                struct value b;
+                *r += 2;
+                b = eval_expr(r);
+                if (select_cmp(sel, &a) >= 0 && select_cmp(sel, &b) <= 0) matched = 1;
+            } else {
+                if (select_cmp(sel, &a) == 0) matched = 1;
+            }
+            /* a/b owned by the temp ring; do not unref here. */
+        }
+        skip_spaces(r);
+        if (**r == ',') { (*r)++; skip_spaces(r); continue; }
+        break;
+    }
+    /* Advance to end of the clause (':' or EOL) regardless of where parsing
+     * stopped, so the caller lands the body at the right spot. */
+    while (**r && **r != ':') (*r)++;
+    return matched;
+}
+
+/* From inside an open SELECT (frame already pushed), scan forward for the
+ * first matching CASE / CASE ELSE and land execution at its body. If none
+ * match, land just past END SELECT and pop the frame. */
+static void select_scan_to_match(char **p)
+{
+    int line = current_line;
+    char *pos = *p;
+    int nesting = 1;
+    struct value *sel = &select_stack[select_top - 1].sel;
+
+    while (line >= 0 && line < line_count && program_lines[line]) {
+        if (!pos) pos = program_lines[line]->text;
+        while (pos && *pos) {
+            char *q = pos;
+            skip_spaces(&q);
+            if (!*q) break;
+            if (starts_with_kw(q, "SELECT")) {
+                nesting++;
+                pos = q + 6;
+                continue;
+            }
+            if (starts_with_kw(q, "END")) {
+                char *r = q + 3;
+                skip_spaces(&r);
+                if (starts_with_kw(r, "SELECT")) {
+                    r += 6;
+                    nesting--;
+                    if (nesting == 0) {
+                        current_line = line;
+                        statement_pos = r;
+                        *p = r;
+                        select_unwind_to(select_top - 1);
+                        return;
+                    }
+                    pos = r;
+                    continue;
+                }
+            }
+            if (nesting == 1 && starts_with_kw(q, "CASE")) {
+                char *r = q + 4;
+                skip_spaces(&r);
+                if (starts_with_kw(r, "ELSE")) {
+                    r += 4;
+                    skip_spaces(&r);
+                    current_line = line;
+                    statement_pos = r;
+                    *p = r;
+                    return;
+                }
+                if (select_case_list_matches(sel, &r)) {
+                    current_line = line;
+                    statement_pos = r;
+                    *p = r;
+                    return;
+                }
+                pos = r;
+                continue;
+            }
+            pos = strchr(pos, ':');
+            pos = pos ? pos + 1 : NULL;
+        }
+        line++;
+        pos = NULL;
+    }
+    runtime_error_hint("SELECT without END SELECT",
+        "Every SELECT CASE must close with END SELECT.");
+}
+
+/* Skip from a fallen-through CASE (matched body finished) forward to just
+ * past the matching END SELECT, then pop the frame. */
+static void select_skip_to_end(char **p)
+{
+    int line = current_line;
+    char *pos = *p;
+    int nesting = 1;
+
+    while (line >= 0 && line < line_count && program_lines[line]) {
+        if (!pos) pos = program_lines[line]->text;
+        while (pos && *pos) {
+            char *q = pos;
+            skip_spaces(&q);
+            if (!*q) break;
+            if (starts_with_kw(q, "SELECT")) {
+                nesting++;
+                pos = q + 6;
+                continue;
+            }
+            if (starts_with_kw(q, "END")) {
+                char *r = q + 3;
+                skip_spaces(&r);
+                if (starts_with_kw(r, "SELECT")) {
+                    r += 6;
+                    nesting--;
+                    if (nesting == 0) {
+                        current_line = line;
+                        statement_pos = r;
+                        *p = r;
+                        select_unwind_to(select_top - 1);
+                        return;
+                    }
+                    pos = r;
+                    continue;
+                }
+            }
+            pos = strchr(pos, ':');
+            pos = pos ? pos + 1 : NULL;
+        }
+        line++;
+        pos = NULL;
+    }
+    runtime_error_hint("SELECT without END SELECT",
+        "Every SELECT CASE must close with END SELECT.");
+}
+
+static void statement_select(char **p)
+{
+    struct value sel;
+    /* `SELECT CASE expr` — the dispatcher consumed `SELECT`; require CASE. */
+    skip_spaces(p);
+    if (!starts_with_kw(*p, "CASE")) {
+        runtime_error_hint("Missing CASE", "Write SELECT CASE expr (CASE is required after SELECT).");
+        return;
+    }
+    *p += 4;
+    skip_spaces(p);
+    if (select_top >= MAX_SELECT_DEPTH) {
+        runtime_error_hint("SELECT nesting too deep", "Too many nested SELECT CASE blocks; simplify or split.");
+        return;
+    }
+    sel = eval_expr(p);
+    select_stack[select_top].sel.type  = sel.type;
+    select_stack[select_top].sel.num   = sel.num;
+    select_stack[select_top].sel.str_h = sel.str_h ? rgc_str_ref(sel.str_h) : rgc_str_empty;
+    select_top++;
+    select_scan_to_match(p);
+}
+
+/* Reached when a matched CASE body falls through into the next CASE. */
+static void statement_case(char **p)
+{
+    if (select_top <= 0) {
+        runtime_error_hint("CASE without SELECT", "CASE belongs inside SELECT CASE … END SELECT.");
+        return;
+    }
+    select_skip_to_end(p);
+}
+
+static void statement_end_select(char **p)
+{
+    if (select_top <= 0) {
+        runtime_error_hint("END SELECT without matching SELECT", "Each END SELECT closes a SELECT CASE above it.");
+        return;
+    }
+    skip_spaces(p);
+    select_unwind_to(select_top - 1);
+}
+
 /* Skip from FUNCTION to after matching END FUNCTION (top-level only). */
 static void skip_function_block(char **p)
 {
@@ -18141,11 +18401,12 @@ static void statement_end_function(char **p)
     udf_call_depth--;
     current_line = udf_call_stack[udf_call_depth].saved_line;
     statement_pos = udf_call_stack[udf_call_depth].saved_pos;
-    /* Unwind WHILE / FOR / IF / DO stacks the UDF body left dangling. */
+    /* Unwind WHILE / FOR / IF / DO / SELECT stacks the UDF body left dangling. */
     while_top = udf_call_stack[udf_call_depth].saved_while_top;
     for_top   = udf_call_stack[udf_call_depth].saved_for_top;
     if_depth  = udf_call_stack[udf_call_depth].saved_if_depth;
     do_top    = udf_call_stack[udf_call_depth].saved_do_top;
+    select_unwind_to(udf_call_stack[udf_call_depth].saved_select_top);
 }
 
 static void statement_while(char **p, char *while_pos)
@@ -18918,6 +19179,11 @@ static void execute_statement(char **p)
 #endif
     }
     if (c == 'C') {
+        if (starts_with_kw(*p, "CASE")) {
+            *p += 4;
+            statement_case(p);
+            return;
+        }
         if (starts_with_kw(*p, "CLOSE")) {
             *p += 5;
             statement_close(p);
@@ -19345,6 +19611,11 @@ static void execute_statement(char **p)
         }
     }
     if (c == 'S') {
+        if (starts_with_kw(*p, "SELECT")) {
+            *p += 6;
+            statement_select(p);
+            return;
+        }
 #ifdef GFX_VIDEO
         if (starts_with_kw(*p, "SETMOUSECURSOR")) {
             *p += 14;
@@ -19537,6 +19808,11 @@ static void execute_statement(char **p)
             if (starts_with_kw(q, "FUNCTION")) {
                 *p = q + 8;
                 statement_end_function(p);
+                return;
+            }
+            if (starts_with_kw(q, "SELECT")) {
+                *p = q + 6;
+                statement_end_select(p);
                 return;
             }
             set_exit_status(0, "end");
@@ -20460,6 +20736,7 @@ static void run_program(const char *script_path_arg, int nargs, char **args)
     while_top = 0;
     do_top = 0;
     if_depth = 0;
+    select_unwind_to(0);
     while (!halted && current_line >= 0 && current_line < line_count) {
         char *p;
 #if defined(__EMSCRIPTEN__)

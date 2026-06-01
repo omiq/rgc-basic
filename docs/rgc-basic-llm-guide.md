@@ -158,7 +158,7 @@ is a built-in. `tier` and `note` come from the portability rules.
 
 <!-- BEGIN GENERATED KEYWORDS -->
 
-### Statements / keywords (139)
+### Statements / keywords (141)
 
 | name | tier | note |
 | --- | --- | --- |
@@ -171,6 +171,7 @@ is a built-in. `tier` and `note` come from the portability rules.
 | `BUFFERFETCH` | modern |  |
 | `BUFFERFREE` | modern |  |
 | `BUFFERNEW` | modern |  |
+| `CASE` | modern | CASE clause inside SELECT CASE; supports comma lists, CASE IS <relop> expr, CASE lo TO hi, CASE ELSE |
 | `CHDIR` | modern |  |
 | `CIRCLE` | portable |  |
 | `CLOSE` | conditional |  |
@@ -200,7 +201,7 @@ is a built-in. `tier` and `note` come from the portability rules.
 | `ELLIPSE` | portable |  |
 | `ELSE` | portable |  |
 | `ELSEIF` | portable |  |
-| `END` | portable | END / END IF / END FUNCTION all portable |
+| `END` | portable | END / END IF / END FUNCTION / END SELECT all portable |
 | `EXIT` | portable |  |
 | `FILLCIRCLE` | portable |  |
 | `FILLELLIPSE` | modern |  |
@@ -274,6 +275,7 @@ is a built-in. `tier` and `note` come from the portability rules.
 | `SCREEN` | param | SCREEN 0/1 portable; 2/3/4 RGBA-only |
 | `SCREENCODES` | modern |  |
 | `SCROLL` | modern | free-pan / zone / line scrolling — too target-specific for v1 |
+| `SELECT` | modern | SELECT CASE … CASE … CASE ELSE … END SELECT; rgc-basic block dispatch (numeric/string, comma lists, IS relop, lo TO hi) |
 | `SLEEP` | portable |  |
 | `SORT` | modern |  |
 | `SPLIT` | modern |  |

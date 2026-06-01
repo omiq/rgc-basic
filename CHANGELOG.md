@@ -1,5 +1,38 @@
 ## Changelog
 
+### New: SELECT CASE / CASE / CASE ELSE / END SELECT (2026-06-01)
+
+Block multi-way dispatch, the modern structured replacement for `ON x GOTO`
+chains and long `IF ... ELSEIF ...` ladders:
+
+```basic
+SELECT CASE cmd$
+  CASE "NAV", "N"
+    PRINT "navigate"
+  CASE "SRS"
+    PRINT "short range scan"
+  CASE ELSE
+    PRINT "unknown command"
+END SELECT
+```
+
+The selector is evaluated once. The matching `CASE` body runs; exactly one body
+ever executes (no C-style fall-through). Supports:
+
+- **numeric or string** selectors (type drives comparison),
+- **comma lists**: `CASE 2, 3, 5`,
+- **relational `IS`**: `CASE IS >= 10`, `CASE IS < 0` (`=`,`<>`,`<`,`<=`,`>`,`>=`),
+- **ranges**: `CASE 1 TO 5`, `CASE "a" TO "m"`,
+- **`CASE ELSE`** for the default branch,
+- **nesting** to `MAX_SELECT_DEPTH` (16).
+
+Implemented with the same block-stack discipline as block `IF`/`DO`/`WHILE`:
+the selector is saved per-frame, snapshotted across `FUNCTION` calls
+(`udf_call_frame.saved_select_top`), and unwound to the running UDF's floor on
+`GOTO` (so a `GOTO` inside a `CASE` body inside a function does not corrupt an
+outer `SELECT`). Regression test: `tests/select_case_test.bas`. Lint tier:
+`modern` (`SELECT`, `CASE` in `tools/rgc_lint/rules.json` / `spec.json`).
+
 ### Fix: GOTO inside a FUNCTION no longer corrupts the caller's DO/LOOP (2026-06-01)
 
 A `GOTO` executed inside a `FUNCTION` while the caller was sitting inside a

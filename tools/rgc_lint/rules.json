@@ -15,8 +15,10 @@
   "ELSE":           { "tier": "portable" },
   "ELSEIF":         { "tier": "portable" },
   "ENDIF":          { "tier": "portable" },
-  "END":            { "tier": "portable", "note": "END / END IF / END FUNCTION all portable" },
+  "END":            { "tier": "portable", "note": "END / END IF / END FUNCTION / END SELECT all portable" },
   "THEN":           { "tier": "portable" },
+  "SELECT":         { "tier": "modern", "note": "SELECT CASE … CASE … CASE ELSE … END SELECT; rgc-basic block dispatch (numeric/string, comma lists, IS relop, lo TO hi)" },
+  "CASE":           { "tier": "modern", "note": "CASE clause inside SELECT CASE; supports comma lists, CASE IS <relop> expr, CASE lo TO hi, CASE ELSE" },
 
   "FOR":            { "tier": "portable" },
   "NEXT":           { "tier": "portable" },
