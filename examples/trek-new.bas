@@ -96,10 +96,11 @@ FUNCTION SetupGame()
     ShowKey() : REM ** KEY TO SRS ICONS **
     ShowCommands() : REM ** USE THESE COMMANDS LIST **
     PRINT : Pause() : REM ** PAUSE **
-    IF B9<>0 THEN GOTO ShowOrders
+    IF B9=0 THEN
     IF G(Q1,Q2)<200 THEN G(Q1,Q2)=G(Q1,Q2)+120 : K9=K9+1
     B9=1 : G(Q1,Q2)=G(Q1,Q2)+10 : Q1=FNR(1) : Q2=FNR(1)
-    ShowOrders: K7=K9 : IF B9<>1 THEN X$="S" : X0$=" ARE "
+    END IF
+    K7=K9 : IF B9<>1 THEN X$="S" : X0$=" ARE "
     PRINT : PRINT "{CLR}{REVERSE ON}YOUR ORDERS ARE AS FOLLOWS:{REVERSE OFF}" : PRINT
     PRINT "DESTROY THE ";K9;" KLINGON WARSHIPS BEFORE"
     PRINT "STARDATE ";T0+T9;". THIS GIVES YOU ";T9;" DAYS."
@@ -115,29 +116,35 @@ END FUNCTION
 REM ** ===== ENTER A QUADRANT: SET IT UP, PLACE OBJECTS, SHORT SCAN ===== **
 FUNCTION EnterQuadrant()
     Z4=Q1 : Z5=Q2 : K3=0 : B3=0 : S3=0 : G5=0 : D4=.5*RND(1) : Z(Q1,Q2)=G(Q1,Q2)
-    IF Q1 < 1 OR Q1 >8 OR Q2<1 OR Q2>8 THEN GOTO PlaceObjects
-    QuadrantName() : PRINT : IF T0<>T THEN GOTO QuadKnown
-    PRINT "YOUR MISSION BEGINS WITH YOUR STARSHIP"
-    PRINT "IN THE QUADRANT, ";G2$;"."
-    SRSFLAG=1
-    PRINT : Pause() : REM ** PAUSE **
-    PRINT : GOTO ParseQuadrant
-    QuadKnown: IF ATAKFLAG=1 THEN Pause() : ATAKFLAG=0 : PRINT
-    SRSFLAG=1 : PRINT "ENTERING ";G2$;" QUADRANT..."
-    ParseQuadrant: K3=INT(G(Q1,Q2)*.01) : B3=INT(G(Q1,Q2)*.1)-10*K3
+    IF Q1 >= 1 AND Q1 <=8 AND Q2>=1 AND Q2<=8 THEN
+    QuadrantName() : PRINT
+    IF T0=T THEN
+      PRINT "YOUR MISSION BEGINS WITH YOUR STARSHIP"
+      PRINT "IN THE QUADRANT, ";G2$;"."
+      SRSFLAG=1
+      PRINT : Pause() : REM ** PAUSE **
+      PRINT
+    ELSE
+      IF ATAKFLAG=1 THEN Pause() : ATAKFLAG=0 : PRINT
+      SRSFLAG=1 : PRINT "ENTERING ";G2$;" QUADRANT..."
+    END IF
+    END IF
+    K3=INT(G(Q1,Q2)*.01) : B3=INT(G(Q1,Q2)*.1)-10*K3
     S3=G(Q1,Q2)-100*K3-10*B3
     FORI=1TO3 : K(I,1)=0 : K(I,2)=0 : NEXTI
-    PlaceObjects: FORI=1TO3 : K(I,3)=0 : NEXTI : Q$=Z$+Z$+Z$+Z$+Z$+Z$+Z$+LEFT$(Z$,17)
+    FORI=1TO3 : K(I,3)=0 : NEXTI : Q$=Z$+Z$+Z$+Z$+Z$+Z$+Z$+LEFT$(Z$,17)
     REM POSITION ENTERPRISE IN QUADRANT, THEN PLACE "K3" KLINGONS, &
     REM "B3" STARBASES, & "S3" STARS ELSEWHERE.
     A$=ES$ : Z1=S1 : Z2=S2
     PlaceToken()
-    IF K3 < 1 THEN GOTO PlaceBase
-    FOR I=1 TO K3 : FindEmpty() : A$=KS$ : Z1=R1 : Z2=R2
-    PlaceToken() : K(I,1)=R1 : K(I,2)=R2 : K(I,3)=S9*(0.5+RND(1)) : NEXTI
-    PlaceBase: IF B3 < 1 THEN GOTO PlaceStars
-    FindEmpty() : A$=BS$ : Z1=R1 : B4=R1 : Z2=R2 : B5=R2 : PlaceToken()
-    PlaceStars: FOR I=1 TO S3 : FindEmpty() : A$=SS$ : Z1=R1 : Z2=R2 : PlaceToken() : NEXTI
+    IF K3 >= 1 THEN
+      FOR I=1 TO K3 : FindEmpty() : A$=KS$ : Z1=R1 : Z2=R2
+      PlaceToken() : K(I,1)=R1 : K(I,2)=R2 : K(I,3)=S9*(0.5+RND(1)) : NEXTI
+    END IF
+    IF B3 >= 1 THEN
+      FindEmpty() : A$=BS$ : Z1=R1 : B4=R1 : Z2=R2 : B5=R2 : PlaceToken()
+    END IF
+    FOR I=1 TO S3 : FindEmpty() : A$=SS$ : Z1=R1 : Z2=R2 : PlaceToken() : NEXTI
     RETURN ShortRangeScan()
 END FUNCTION
 
@@ -146,48 +153,49 @@ END FUNCTION
 
 REM ** ===== COMMAND PHASE: ENERGY CHECK, PROMPT, DISPATCH ONE COMMAND ===== **
 FUNCTION DoCommand()
-    MainLoop: IF S+E > 10 THEN IF E>10 OR D(7)=0 THEN GOTO CommandPrompt
-    PRINT : PRINT "** FATAL ERROR **"
-    PRINT "YOUVE STRANDED YOUR SHIP IN SPACE."
-    PRINT "YOU HAVE INSUFFICIENT MANOEUVRING"
-    PRINT "ENERGY, & SHIELD CONTROL IS PRESENTLY"
-    PRINT "INCAPABLE OF CROSS-CIRCUITING TO"
-    PRINT "ENGINE ROOM!!"
-    PRINT : Pause()
-    RETURN ST_GAMEOVER
-    CommandPrompt: PRINT : SRSFLAG=0 : LX=3 : PRINT "{13}{REVERSE ON}{LIGHTBLUE}COMMAND:{REVERSE OFF}{WHITE} "; : GetInput()
-    A$=LII$ : Z2$=A$ : ATAKFLAG=0
-    IF A$="SLS" THEN SLSFLAG=1
-    IF A$="SLS" THEN PRINT : PRINT "{CLR}{REVERSE ON}SHORT & LONG RANGE SCAN...{REVERSE OFF}" : RETURN ShortRangeScan()
-    IF A$<>"KEY" THEN GOTO ParseCommand
-    ShowKey() : REM KEY TO SRS ICONS
-    GOTO CommandPrompt
-    ParseCommand: COMFLAG=0 : IF A$="GAL" AND D(8)>=0 THEN A$="COM" : COMFLAG=1
-    IF D(8)<0 AND A$="GAL" THEN PRINT : PRINT "SHIPS COMPUTER DISABLED" : GOTO CommandPrompt
-    CMD=0 : FOR I=1 TO 10 : IF LEFT$(A$,3)=MID$(A1$,3*I-2,3) THEN CMD=I
-    NEXT I
-    SELECT CASE CMD
-    CASE 1
-        RETURN Nav()
-    CASE 2
-        RETURN ShortRangeScan()
-    CASE 3
-        RETURN Lrs()
-    CASE 4
-        RETURN Phasers()
-    CASE 5
-        RETURN Torpedo()
-    CASE 6
-        RETURN Shields()
-    CASE 7
-        RETURN Damage()
-    CASE 8
-        RETURN Computer()
-    CASE 9
-        RETURN ST_MISSIONEND
-    END SELECT
-    ShowCommands()
-    GOTO MainLoop
+    IF S+E <= 10 OR (E<=10 AND D(7)<>0) THEN
+      PRINT : PRINT "** FATAL ERROR **"
+      PRINT "YOUVE STRANDED YOUR SHIP IN SPACE."
+      PRINT "YOU HAVE INSUFFICIENT MANOEUVRING"
+      PRINT "ENERGY, & SHIELD CONTROL IS PRESENTLY"
+      PRINT "INCAPABLE OF CROSS-CIRCUITING TO"
+      PRINT "ENGINE ROOM!!"
+      PRINT : Pause()
+      RETURN ST_GAMEOVER
+    END IF
+    DO
+      PRINT : SRSFLAG=0 : LX=3 : PRINT "{13}{REVERSE ON}{LIGHTBLUE}COMMAND:{REVERSE OFF}{WHITE} "; : GetInput()
+      A$=LII$ : Z2$=A$ : ATAKFLAG=0
+      IF A$="SLS" THEN SLSFLAG=1
+      IF A$="SLS" THEN PRINT : PRINT "{CLR}{REVERSE ON}SHORT & LONG RANGE SCAN...{REVERSE OFF}" : RETURN ShortRangeScan()
+      IF A$="KEY" THEN ShowKey() : REM KEY TO SRS ICONS
+      IF A$="KEY" THEN CONTINUE DO
+      COMFLAG=0 : IF A$="GAL" AND D(8)>=0 THEN A$="COM" : COMFLAG=1
+      IF D(8)<0 AND A$="GAL" THEN PRINT : PRINT "SHIPS COMPUTER DISABLED" : CONTINUE DO
+      CMD=0 : FOR I=1 TO 10 : IF LEFT$(A$,3)=MID$(A1$,3*I-2,3) THEN CMD=I
+      NEXT I
+      SELECT CASE CMD
+      CASE 1
+          RETURN Nav()
+      CASE 2
+          RETURN ShortRangeScan()
+      CASE 3
+          RETURN Lrs()
+      CASE 4
+          RETURN Phasers()
+      CASE 5
+          RETURN Torpedo()
+      CASE 6
+          RETURN Shields()
+      CASE 7
+          RETURN Damage()
+      CASE 8
+          RETURN Computer()
+      CASE 9
+          RETURN ST_MISSIONEND
+      END SELECT
+      ShowCommands()
+    LOOP
 END FUNCTION
 
 
@@ -198,21 +206,22 @@ FUNCTION Nav()
     ShowDirections() : REM ** DIRECTION HELPER **
     PRINT : LX=5 : PRINT "COURSE (1-9) :  "; : GetInput()
     C1=VAL(LII$) : IFC1=9THENC1=1
-    IF C1>=1 AND C1<9 THEN GOTO NavWarp
+    IF C1<1 OR C1>=9 THEN
     BACKGROUND 6: COLOR 1
     PRINT : PRINT "LT. SULU REPORTS, INCORRECT COURSE"
     PRINT "DATA, SIR!";: BACKGROUND 0: PRINT
     RETURN ST_COMMAND
-    NavWarp: X$="8" : IFD(1)<0THENX$="0.2"
+    END IF
+    X$="8" : IFD(1)<0THENX$="0.2"
     SRSFLAG=1 : LX=5 : PRINT "WARP FACTOR (0-";X$;") :  "; : GetInput()
-    W1=VAL(LII$) : IF D(1)<0 AND W1>.2 THEN GOTO NavWarpDamaged
-    IF W1>0 AND W1<=8 THEN GOTO NavEnergyCheck
-    IF W1=0 THEN RETURN ST_COMMAND
-    PRINT : BACKGROUND 6: COLOR 1:PRINT "CHIEF ENGINEER SCOTT REPORTS THE"
-    PRINT "ENGINES WONT TAKE WARP ";W1;"!";: BACKGROUND 0 : RETURN ST_COMMAND
-    NavWarpDamaged: PRINT : PRINT "WARP ENGINES ARE DAMAGED."
+    W1=VAL(LII$)
+    IF D(1)<0 AND W1>.2 THEN
+    PRINT : PRINT "WARP ENGINES ARE DAMAGED."
     PRINT "MAXIMUM SPEED = WARP 0.2" : RETURN ST_COMMAND
-    NavEnergyCheck: N=INT(W1*8+.5) : IFE-N>=0THEN GOTO KlingonsMove
+    END IF
+    IF W1>0 AND W1<=8 THEN
+    N=INT(W1*8+.5)
+    IF E-N<0 THEN
     PRINT : BACKGROUND 6: COLOR 1:PRINT "ENGINEERING REPORTS INSUFFICIENT ENERGY";
     PRINT "AVAILABLE FOR WARP ";W1;"!";: BACKGROUND 0
     IF S < N-E OR D(7) < 0 THEN RETURN ST_COMMAND
@@ -220,6 +229,12 @@ FUNCTION Nav()
     S1$=STR$(S)
     PRINT "SHIELD ENERGY DEPLOYED IS ";S1$;" UNITS.";: BACKGROUND 0
     RETURN ST_COMMAND
+    END IF
+    ELSE
+    IF W1=0 THEN RETURN ST_COMMAND
+    PRINT : BACKGROUND 6: COLOR 1:PRINT "CHIEF ENGINEER SCOTT REPORTS THE"
+    PRINT "ENGINES WONT TAKE WARP ";W1;"!";: BACKGROUND 0 : RETURN ST_COMMAND
+    END IF
     REM KLINGONS MOVE/FIRE ON MOVING STARSHIP . . .
     KlingonsMove: FORI=1 TO K3 : IFK(I,3)=0THEN CONTINUE FOR
     A$=EM$ : Z1=K(I,1) : Z2=K(I,2) : PlaceToken() : FindEmpty()
@@ -233,41 +248,40 @@ FUNCTION Nav()
     IFD1<>1THEND1=1 : PRINT : PRINT "DAMAGE CONTROL REPORT :   "
     R1=I : DeviceName() : PRINT G2$;" REPAIR COMPLETED"
     NEXTI
-    IFRND(1)>.2THEN GOTO MoveShip
-    R1=FNR(1) : IFRND(1)>=.6THEN GOTO DamagePartRepair
+    IF RND(1)<=.2 THEN
+    R1=FNR(1)
+    IF RND(1)<.6 THEN
     D(R1)=D(R1)-(RND(1)*5+1) : PRINT : PRINT "DAMAGE CONTROL REPORTS:"
-    DeviceName() : PRINT G2$;" DAMAGED" : GOTO MoveShip
-    DamagePartRepair: D(R1)=D(R1)+RND(1)*3+1 : PRINT : PRINT "DAMAGE CONTROL REPORTS:"
+    DeviceName() : PRINT G2$;" DAMAGED"
+    ELSE
+    D(R1)=D(R1)+RND(1)*3+1 : PRINT : PRINT "DAMAGE CONTROL REPORTS:"
     DeviceName() : PRINT G2$;" PARTLY REPAIRED"
+    END IF
+    END IF
     REM BEGIN MOVING STARSHIP
-    MoveShip: A$=EM$ : Z1=INT(S1) : Z2=INT(S2) : PlaceToken()
+    A$=EM$ : Z1=INT(S1) : Z2=INT(S2) : PlaceToken()
     X1=C(C1,1)+(C(C1+1,1)-C(C1,1))*(C1-INT(C1)) : X=S1 : Y=S2
     X2=C(C1,2)+(C(C1+1,2)-C(C1,2))*(C1-INT(C1)) : Q4=Q1 : Q5=Q2
+    MoveInterrupted=0 : CrossedQuadrant=0
     FOR I=1 TO N : S1=S1+X1 : S2=S2+X2
-        IF S1<1 OR S1>=9 OR S2<1 OR S2>=9THEN GOTO CrossQuadrant
+        IF S1<1 OR S1>=9 OR S2<1 OR S2>=9THEN CrossedQuadrant=1 : EXIT FOR
         S8=INT(S1)*24+INT(S2)*3-26 : IFMID$(Q$,S8,2)="  "THEN CONTINUE FOR
         S1=INT(S1-X1) : S2=INT(S2-X2) : PRINT : PRINT "WARP ENGINES SHUT DOWN AT ";
         PRINT "SECTOR ";S1;",";S2
         PRINT "DUE TO BAD NAVIGATION"
         SRSFLAG=1
-        GOTO MovePlace
+        MoveInterrupted=1
+        EXIT FOR
     NEXT I
-    S1=INT(S1) : S2=INT(S2)
-    MovePlace: A$=ES$ : Z1=INT(S1) : Z2=INT(S2) : PlaceToken() : ManeuverEnergy() : T8=1
-    IFW1<1THENT8=.1*INT(10*W1)
-    T=T+T8 : IFT>T0+T9THEN RETURN ST_GAMEOVER
-
-    REM SEE IF DOCKED, THEN GET COMMAND
-    RETURN ShortRangeScan()
-    REM EXCEEDED QUADRANT LIMITS
-    CrossQuadrant: X=8*Q1+X+N*X1 : Y=8*Q2+Y+N*X2 : Q1=INT(X/8) : Q2=INT(Y/8) : S1=INT(X-Q1*8)
+    IF CrossedQuadrant=1 THEN
+    X=8*Q1+X+N*X1 : Y=8*Q2+Y+N*X2 : Q1=INT(X/8) : Q2=INT(Y/8) : S1=INT(X-Q1*8)
     S2=INT(Y-Q2*8) : IFS1=0THENQ1=Q1-1 : S1=8
     IFS2=0THENQ2=Q2-1 : S2=8
     X5=0 : IFQ1<1THENX5=1 : Q1=1 : S1=1
     IFQ1>8THENX5=1 : Q1=8 : S1=8
     IFQ2<1THENX5=1 : Q2=1 : S2=1
     IFQ2>8THENX5=1 : Q2=8 : S2=8
-    IFX5=0THEN GOTO CrossDone
+    IFX5<>0THEN
     PRINT : BACKGROUND 6: COLOR 1: PRINT "LT. UHURA REPORTS MESSAGE FROM STARFLEET";
     PRINT " COMMAND:{13}PERMISSION TO ATTEMPT CROSSING OF GALACTIC PERIMETER IS HEREBY{13}{RED}*DENIED*{WHITE}";
     PRINT " - SHUT DOWN YOUR ENGINES.{13}{13} CHIEF ENGINEER SCOTT REPORTS WARP";
@@ -276,8 +290,22 @@ FUNCTION Nav()
     SRSFLAG=1
     PRINT : Pause()
     IFT>T0+T9THEN RETURN ST_GAMEOVER
-    CrossDone: IF8*Q1+Q2=8*Q4+Q5THEN GOTO MovePlace
+    END IF
+    IF8*Q1+Q2=8*Q4+Q5THEN
+    A$=ES$ : Z1=INT(S1) : Z2=INT(S2) : PlaceToken() : ManeuverEnergy() : T8=1
+    IFW1<1THENT8=.1*INT(10*W1)
+    T=T+T8 : IFT>T0+T9THEN RETURN ST_GAMEOVER
+    RETURN ShortRangeScan()
+    END IF
     T=T+1 : ManeuverEnergy() : RETURN ST_NEWQUAD
+    END IF
+    IF MoveInterrupted=0 THEN S1=INT(S1) : S2=INT(S2)
+    A$=ES$ : Z1=INT(S1) : Z2=INT(S2) : PlaceToken() : ManeuverEnergy() : T8=1
+    IFW1<1THENT8=.1*INT(10*W1)
+    T=T+T8 : IFT>T0+T9THEN RETURN ST_GAMEOVER
+
+    REM SEE IF DOCKED, THEN GET COMMAND
+    RETURN ShortRangeScan()
 END FUNCTION
 
 
@@ -309,14 +337,16 @@ FUNCTION Lrs()
     NEXTJ : FORL=1TO3
     IF K1=2 AND L=3 THEN PRINT "";
     PRINT " {221}";
-    IF K1=2 AND L=2 THEN PRINT " "; : GOTO LrsCell
     PRINT " ";
-    LrsCell: IFN(L)<0THEN PRINT "▒▒▒"; : GOTO LrsColDone
+    IFN(L)<0THEN
+      PRINT "▒▒▒";
+      CONTINUE FOR
+    END IF
     G1$=RIGHT$(STR$(N(L)+1000),3)
     G2$=ECOL$+MID$(G1$,1,1) : PRINT G2$;
     G2$=DCOL$+MID$(G1$,2,1) : PRINT G2$;
     G2$=HCOL$+MID$(G1$,3,1) : PRINT G2$;FCOL$;
-    LrsColDone: NEXTL : PRINT " {221}"; : K1=K1+1
+    NEXTL : PRINT " {221}"; : K1=K1+1
     IF K1=1 THEN PRINT "        . . ."
     IF K1=3 THEN PRINT "      .   .   ."
     IF K1=5 THEN PRINT "    .           ."
@@ -334,26 +364,30 @@ END FUNCTION
 REM ** ===== PHASER CONTROL ===== **
 FUNCTION Phasers()
     IF D(4)<0 THEN PRINT : PRINT "PHASERS INOPERATIVE" : RETURN ST_COMMAND
-    IF K3>0 THEN GOTO PhasersFire
-    NoEnemyMsg() : RETURN ST_COMMAND
-    PhasersFire: IFD(8)<0 THEN PRINT : PRINT "COMPUTER FAILURE HAMPERS ACCURACY"
+    IF K3<=0 THEN NoEnemyMsg() : RETURN ST_COMMAND
+    IFD(8)<0 THEN PRINT : PRINT "COMPUTER FAILURE HAMPERS ACCURACY"
     PRINT : PRINT "PHASERS LOCKED ON TARGET!  "
-    PhasersEnergy: PRINT : PRINT "ENERGY AVAILABLE = ";E;" UNITS"
+    DO
+    PRINT : PRINT "ENERGY AVAILABLE = ";E;" UNITS"
     LX=5 : PRINT "NUMBER OF UNITS TO FIRE :  "; : GetInput()
     X=VAL(LII$) : IF X<=0 THEN RETURN ST_COMMAND
-    IF E-X<0 THEN GOTO PhasersEnergy
+    LOOP UNTIL E-X>=0
     E=E-X : IFD(7)<0 THEN X=X*RND(1)
     H1=INT(X/K3) : FOR I=1 TO 3 : IFK(I,3)<=0 THEN CONTINUE FOR
-    H=INT((H1/FND(0))*(RND(1)+2)) : IF H>.15*K(I,3) THEN GOTO PhaserHit
+    H=INT((H1/FND(0))*(RND(1)+2))
+    IF H<=.15*K(I,3) THEN
     PRINT : PRINT " SENSORS SHOW NO DAMAGE TO ENEMY"
     PRINT " AT ";K(I,1);",";K(I,2)
     CONTINUE FOR
-    PhaserHit: K(I,3)=K(I,3)-H : PRINT
+    END IF
+    K(I,3)=K(I,3)-H : PRINT
     PRINT H;" UNIT HIT KLINGON AT ";K(I,1);",";K(I,2)
-    IF K(I,3)<=0 THEN PRINT " *** KLINGON DESTROYED ***" : GOTO KlingonDestroyed
+    IF K(I,3)>0 THEN
     PRINT " (SENSORS SHOW ";INT(K(I,3));" UNITS REMAINING)"
     CONTINUE FOR
-    KlingonDestroyed: K3=K3-1 : K9=K9-1 : Z1=K(I,1) : Z2=K(I,2) : A$=EM$ : PlaceToken()
+    END IF
+    PRINT " *** KLINGON DESTROYED ***"
+    K3=K3-1 : K9=K9-1 : Z1=K(I,1) : Z2=K(I,2) : A$=EM$ : PlaceToken()
     K(I,3)=0 : G(Q1,Q2)=G(Q1,Q2)-100 : Z(Q1,Q2)=G(Q1,Q2) : IF K9<=0 THEN RETURN ST_VICTORY
     NEXTI
     IF K3>0 THEN PRINT : Pause()
@@ -367,52 +401,78 @@ REM ** ===== PHOTON TORPEDO ===== **
 FUNCTION Torpedo()
     IF P<=0 THEN PRINT : PRINT "ALL PHOTON TORPEDOES EXPENDED" : RETURN ST_COMMAND
     IF D(5)<0 THEN PRINT : PRINT "PHOTON TUBES ARE NOT OPERATIONAL" : RETURN ST_COMMAND
-    TorpedoCourse: ShowDirections() : REM ** DIRECTION HELPER **
+    DO
+    ShowDirections() : REM ** DIRECTION HELPER **
     PRINT : LX=5 : PRINT "PHOTON TORPEDO COURSE (1-9) :  "; : GetInput()
     C1=VAL(LII$) : IF C1=9 THEN C1=1
-    IF C1>=1 AND C1<9 THEN GOTO TorpedoFire
+    IF C1<1 OR C1>=9 THEN
     PRINT : BACKGROUND 6: COLOR 1: PRINT "ENSIGN CHEKOV REPORTS, INCORRECT"
     PRINT "COURSE DATA, SIR!";:BACKGROUND 0: PRINT : RETURN ST_COMMAND
-    TorpedoFire: X1=C(C1,1)+(C(C1+1,1)-C(C1,1))*(C1-INT(C1)) : E=E-2 : P=P-1
+    END IF
+    X1=C(C1,1)+(C(C1+1,1)-C(C1,1))*(C1-INT(C1)) : E=E-2 : P=P-1
     X2=C(C1,2)+(C(C1+1,2)-C(C1,2))*(C1-INT(C1)) : X=S1 : Y=S2
     PRINT : PRINT "TORPEDO TRACKING:"
-    TorpedoTrack: X=X+X1 : Y=Y+X2 : X3=INT(X+.5) : Y3=INT(Y+.5)
-    IF X3<1 OR X3>8 OR Y3<1 OR Y3>8 THEN GOTO TorpedoMiss
+    RetryCourse=0
+    DO
+    X=X+X1 : Y=Y+X2 : X3=INT(X+.5) : Y3=INT(Y+.5)
+    IF X3<1 OR X3>8 OR Y3<1 OR Y3>8 THEN
+    PRINT " ** TORPEDO MISSED **"
+    IF K3<>0 THEN PRINT : Pause()
+    KlingonsFire()
+    IF SHIPDEAD THEN RETURN ST_DEAD
+    RETURN ST_COMMAND
+    END IF
     PRINT " ";X3;",";Y3 : A$=EM$ : Z1=X : Z2=Y : CheckSector()
-    IF Z3<>0 THEN GOTO TorpedoTrack
-    A$=KS$ : Z1=X : Z2=Y : CheckSector() : IF Z3=0 THEN GOTO TorpedoStar
+    IF Z3<>0 THEN CONTINUE DO
+
+    A$=KS$ : Z1=X : Z2=Y : CheckSector()
+    IF Z3<>0 THEN
     PRINT " *** KLINGON DESTROYED ***"
     K3=K3-1 : IF K3>0 THEN PRINT : Pause()
     K9=K9-1 : IFK9<=0 THEN RETURN ST_VICTORY
-    FOR I=1 TO 3 : IF X3=K(I,1) AND Y3=K(I,2) THEN GOTO TorpedoKlingonKill
-    NEXT I : I=3
-    TorpedoKlingonKill: K(I,3)=0 : GOTO TorpedoEnd
-    TorpedoStar: A$=SS$ : Z1=X : Z2=Y : CheckSector() : IF Z3=0 THEN GOTO TorpedoBase
+    HitIdx=3
+    FOR I=1 TO 3
+    IF X3=K(I,1) AND Y3=K(I,2) THEN HitIdx=I : EXIT FOR
+    NEXT I
+    K(HitIdx,3)=0
+    Z1=X : Z2=Y : A$=EM$ : PlaceToken()
+    G(Q1,Q2)=K3*100+B3*10+S3 : Z(Q1,Q2)=G(Q1,Q2) : KlingonsFire()
+    IF SHIPDEAD THEN RETURN ST_DEAD
+    RETURN ST_COMMAND
+    END IF
+
+    A$=SS$ : Z1=X : Z2=Y : CheckSector()
+    IF Z3<>0 THEN
     PRINT " ** STAR AT";X3;",";Y3;"ABSORBED TORPEDO **"
     IF K3<>0 THEN PRINT : Pause()
     KlingonsFire()
     IF SHIPDEAD THEN RETURN ST_DEAD
     RETURN ST_COMMAND
-    TorpedoBase: A$=BS$ : Z1=X : Z2=Y : CheckSector() : IF Z3=0 THEN GOTO TorpedoCourse
+    END IF
+
+    A$=BS$ : Z1=X : Z2=Y : CheckSector()
+    IF Z3=0 THEN
+    RetryCourse=1
+    EXIT DO
+    END IF
     PRINT " *** STARBASE DESTROYED ***"
     PRINT : Pause()
     B3=B3-1 : B9=B9-1
-    IF B9>0 OR K9>T-T0-T9 THEN GOTO CourtMartial
+    IF B9<=0 AND K9<=T-T0-T9 THEN
     PRINT : BACKGROUND 6: COLOR 1: PRINT "THAT DOES IT, CAPTAIN!!  YOU ARE HEREBY"
     PRINT "RELIEVED OF COMMAND AND SENTENCED TO 99"
     PRINT "STARDATES AT HARD LABOUR ON CYGNUS 12!!";:BACKGROUND 0
     RETURN ST_MISSIONEND
-    CourtMartial: PRINT : PRINT "STARFLEET COMMAND REVIEWING YOUR RECORD"
+    END IF
+    PRINT : PRINT "STARFLEET COMMAND REVIEWING YOUR RECORD"
     PRINT "TO CONSIDER COURT MARTIAL!" : D0=0
-    TorpedoEnd: Z1=X : Z2=Y : A$=EM$ : PlaceToken()
+    Z1=X : Z2=Y : A$=EM$ : PlaceToken()
     G(Q1,Q2)=K3*100+B3*10+S3 : Z(Q1,Q2)=G(Q1,Q2) : KlingonsFire()
     IF SHIPDEAD THEN RETURN ST_DEAD
     RETURN ST_COMMAND
-    TorpedoMiss: PRINT " ** TORPEDO MISSED **"
-    IF K3<>0 THEN PRINT : Pause()
-    KlingonsFire()
-    IF SHIPDEAD THEN RETURN ST_DEAD
-    RETURN ST_COMMAND
+    LOOP
+    IF RetryCourse=1 THEN CONTINUE DO
+    LOOP
 END FUNCTION
 
 
@@ -423,11 +483,12 @@ FUNCTION Shields()
     LX=5 : PRINT "NUMBER OF UNITS TO SHIELDS :  "; : GetInput()
     X=VAL(LII$)
     IF X<0 OR S=X THEN PRINT "<SHIELDS UNCHANGED>" : RETURN ST_COMMAND
-    IF X<=E+S THEN GOTO ShieldsSet
+    IF X>E+S THEN
     PRINT :  BACKGROUND 6: COLOR 1: PRINT "SHIELD CONTROL REPORTS THIS IS NOT THE"
     PRINT "FEDERATION TREASURY."
     PRINT "<SHIELDS UNCHANGED>";:BACKGROUND 0: PRINT : RETURN ST_COMMAND
-    ShieldsSet: E=E+S-X : S=X : PRINT :BACKGROUND 6: COLOR 1: PRINT "DEFLECTOR CONTROL ROOM REPORT:"
+    END IF
+    E=E+S-X : S=X : PRINT :BACKGROUND 6: COLOR 1: PRINT "DEFLECTOR CONTROL ROOM REPORT:"
     PRINT "SHIELDS NOW AT ";INT(S);" UNITS PER"
     PRINT "YOUR COMMAND.";:BACKGROUND 0: PRINT : RETURN ST_COMMAND
 END FUNCTION
@@ -435,10 +496,13 @@ END FUNCTION
 
 REM ** ===== DAMAGE CONTROL ===== **
 FUNCTION Damage()
-    IF D(6)>=0 THEN GOTO DamageReport
+    IF D(6)<0 THEN
     PRINT : PRINT "DAMAGE CONTROL REPORT NOT AVAILABLE"
     IF D0=0 THEN RETURN ST_COMMAND
-    DamageRepair: D3=0 : FOR I=1 TO 8 : IF D(I)<0 THEN D3=D3+.1
+    END IF
+    DO
+    IF D(6)<0 AND D0<>0 THEN
+    D3=0 : FOR I=1 TO 8 : IF D(I)<0 THEN D3=D3+.1
     NEXT I : IF D3=0 THEN RETURN ST_COMMAND
     D3=D3+D4 : IF D3>=1 THEN D3=.9
     PRINT : PRINT "TECHNICIANS STANDING BY TO EFFECT"
@@ -450,7 +514,8 @@ FUNCTION Damage()
     IF A$<>"Y" THEN RETURN ST_COMMAND
     FOR I=1 TO 8 : IF D(I)<0 THEN D(I)=0
     NEXT I : T=T+D3+.1
-    DamageReport: PRINT : PRINT " SYSTEM              STATE OF REPAIR"
+    END IF
+    PRINT : PRINT " SYSTEM              STATE OF REPAIR"
     PRINT      " ------------------- -----------------"
     FOR R1=1 TO 8
     DeviceName() : PRINT " ";G2$;LEFT$(Z$,20-LEN(G2$));
@@ -458,7 +523,9 @@ FUNCTION Damage()
     IF D2<0 THEN PRINT CCOL$;"DAMAGED     ";D2;FCOL$
     IF D2>0 THEN PRINT "OPERATIONAL ";D2
     IF D2=0 THEN PRINT "OPERATIONAL ";D2
-    NEXTR1 : IFD0<>0THEN GOTO DamageRepair
+    NEXTR1
+    IF D0=0 THEN EXIT DO
+    LOOP
     RETURN ST_COMMAND
 END FUNCTION
 
@@ -531,26 +598,35 @@ END FUNCTION
 REM ** ===== SHORT RANGE SCAN & SUMMARY (SLS CHAINS INTO LRS) ===== **
 FUNCTION ShortRangeScan()
     IF ATAKFLAG=1 THEN PRINT : Pause()
-    IF D(2)<0 THEN GOTO SrsSensorsOut
+    IF D(2)<0 THEN
+    PRINT : PRINT "*** SHORT RANGE SENSORS ARE OUT ***"
+    IF SLSFLAG=1 THEN RETURN Lrs()
+    RETURN ST_COMMAND
+    END IF
     REM
     IF SRSFLAG=0 THEN PRINT : PRINT "{LIGHTBLUE}SHORT RANGE SCAN + SUMMARY DATA{WHITE}"
     SRSFLAG=0 : ATAKFLAG=0
+    Docked=0
     FOR I=S1-1 TO S1+1 : FOR J=S2-1 TO S2+1
     IF INT(I+.5)<1 OR INT(I+.5)>8 OR INT(J+.5)<1 OR INT(J+.5)>8 THEN CONTINUE FOR
-    A$=BS$ : Z1=I : Z2=J : CheckSector() : IF Z3=1 THEN GOTO SrsDocked
-    NEXT J : NEXT I : D0=0 : GOTO SrsCondition
-    SrsDocked: D0=1 : C$="DOCKED" : E=E0 : P=P0
-    PRINT : PRINT "SHIELDS DROPPED FOR DOCKING PURPOSES" : S=0 : GOTO SrsSensorCheck
-    SrsCondition: IF K3>0 THEN C$="RED" : GOTO SrsSensorCheck
-    C$="GREEN" : IF E<E0*.1 THEN C$="AMBER"
-    SrsSensorCheck: IF D(2)>=0 THEN GOTO SrsCombat
-    SrsSensorsOut: PRINT : PRINT "*** SHORT RANGE SENSORS ARE OUT ***"
-    IF SLSFLAG=1 THEN RETURN Lrs()
-    RETURN ST_COMMAND
-    SrsCombat: IF K3=0 THEN GOTO SrsGrid
+    A$=BS$ : Z1=I : Z2=J : CheckSector()
+    IF Z3=1 THEN Docked=1 : EXIT FOR
+    NEXT J
+    IF Docked=1 THEN EXIT FOR
+    NEXT I
+    IF Docked=1 THEN
+    D0=1 : C$="DOCKED" : E=E0 : P=P0
+    PRINT : PRINT "SHIELDS DROPPED FOR DOCKING PURPOSES" : S=0
+    ELSE
+    D0=0
+    IF K3>0 THEN C$="RED"
+    IF K3=0 THEN C$="GREEN" : IF E<E0*.1 THEN C$="AMBER"
+    END IF
+    IF K3>0 THEN
     PRINT : PRINT CCOL$;"COMBAT AREA  ";
     PRINT "** CONDITION RED **";FCOL$
-    SrsGrid: LOW$=" LOW!" : PRINT
+    END IF
+    LOW$=" LOW!" : PRINT
     PRINT "   {YELLOW}1 2 3 4 5 6 7 8"
     PRINT "  {GREEN}{176}─{178}─{178}─{178}─{178}─{178}─{178}─{178}─┐{WHITE} {LIGHTBLUE}STARDATE{YELLOW}  ";INT(T*10)*.1
     FOR I=1 TO 8
@@ -559,10 +635,9 @@ FUNCTION ShortRangeScan()
     J1=(I-1)*24+1 : J2=(I-1)*24+22
     FOR J = J1 TO J2 STEP 3
     Z3$=MID$(Q$,J,3)
-    IF Z3$="   " THEN PRINT " "; : GOTO SrsGridCell
-    PRINT LEFT$(Z3$,1);
-    SrsGridCell: IF J=J2 THEN PRINT "{GREEN}{125}{WHITE}";
-    IF J<>J2 THEN PRINT "{GREEN}{125}{WHITE}";
+    IF Z3$="   " THEN PRINT " ";
+    IF Z3$<>"   " THEN PRINT LEFT$(Z3$,1);
+    PRINT "{GREEN}{125}{WHITE}";
     NEXT J
     SELECT CASE I
     CASE 1
@@ -605,32 +680,42 @@ FUNCTION Computer()
     PRINT " 4 - DIRECTION/DISTANCE CALCULATOR"
     PRINT " 5 - GALAXY REGION NAME MAP"
     PRINT : LX=1 : PRINT CHR$(13);"COMPUTER ACTIVE & AWAITING COMMAND :  ";
-    IF COMFLAG=1 THEN PRINT "0" : A=0 : GOTO ComputerDispatch
-    GetInput()
-    A=VAL(LII$) : A1=A : IFA<0 OR A>5THEN RETURN ST_COMMAND
-    IF LII$="" THEN RETURN ST_COMMAND
-    ComputerDispatch: H8=1
+    IF COMFLAG=1 THEN
+      PRINT "0"
+      A=0
+      A1=A
+    ELSE
+      GetInput()
+      A=VAL(LII$) : A1=A : IFA<0 OR A>5THEN RETURN ST_COMMAND
+      IF LII$="" THEN RETURN ST_COMMAND
+    END IF
     SELECT CASE A
     CASE 0
-        GOTO GalacticRecord
+      H8=1 : G5=0 : A=0 : A1=0
+      RETURN ComputerGalacticRecord()
     CASE 1
-        GOTO StatusReport
+      RETURN ComputerStatusReport()
     CASE 2
-        GOTO NavCalcKlingon
+      RETURN ComputerNavCalcKlingon()
     CASE 3
-        GOTO BaseNav
+      RETURN ComputerBaseNav()
     CASE 4
-        GOTO Calculator
+      RETURN ComputerCalculator()
     CASE 5
-        GOTO GalaxyMap
+      RETURN ComputerGalaxyMap()
     END SELECT
-    REM SETUP TO CHANGE CUM GAL RECORD TO GALAXY MAP
-    GalaxyMap: H8=0 : G5=1 : PRINT : PRINT "{CLR}{REVERSE ON}THE GALAXY:{REVERSE OFF}" : PRINT : PRINT "   "; : GOTO GalHeader
-    REM CUM GALACTIC RECORD
-    GalacticRecord: PRINT : GALFLAG=0
-    PRINT "{CLR}{REVERSE ON}COMPUTER RECORD OF GALAXY FOR " : PRINT "QUADRANT ";Q1;",";Q2 : PRINT "{REVERSE OFF}"
-    PRINT CHR$(13);: PRINT "   ";
-    GalHeader: FOR J=1 TO 8 : J$=STR$(J) : J$=RIGHT$(J$,1)
+    RETURN ST_COMMAND
+END FUNCTION
+
+
+FUNCTION ComputerGalacticRecord()
+    GALFLAG=0
+    IF G5=0 THEN
+      PRINT
+      PRINT "{CLR}{REVERSE ON}COMPUTER RECORD OF GALAXY FOR " : PRINT "QUADRANT ";Q1;",";Q2 : PRINT "{REVERSE OFF}"
+      PRINT CHR$(13);: PRINT "   ";
+    END IF
+    FOR J=1 TO 8 : J$=STR$(J) : J$=RIGHT$(J$,1)
     IF A1=5 THEN RomanNumeral() : CONTINUE FOR
     IF J=Q2 THEN PRINT " {WHITE}";J$;"{GREEN}  ";
     IF J<>Q2 THEN PRINT " {GREEN}";J;"{GREEN}  ";
@@ -640,51 +725,85 @@ FUNCTION Computer()
     O2$="  ├───┼───┼───┼───┼───┼───┼───┼───┤"
     PRINT O1$ : FOR I=1 TO 8 : I$=STR$(I) : I$=RIGHT$(I$,1)
     IF I=Q1 THEN PRINT " ";I$;"";
-    IF A1=5 AND I=Q1 THEN GOTO GalRegionRow
-    IF I<>Q1 THEN PRINT " ";I$; : IFH8=0THEN GOTO GalRegionRow
-    FOR J=1 TO 8
-    IF I=Q1 AND J=Q2 THEN PRINT "{221}"; : GALFLAG=1 : GOTO GalCell
-    IF I=Q1 AND J-1=Q2 THEN GOTO GalCell
-    IF I<>Q1 OR J<>Q2 THEN PRINT "{221}";
-    GalCell: IFZ(I,J)=0THEN PRINT "   "; : CONTINUE FOR
-    G1$=RIGHT$(STR$(Z(I,J)+1000),3)
-    G2$=ECOL$+MID$(G1$,1,1) : PRINT G2$;
-    G2$=DCOL$+MID$(G1$,2,1) : PRINT G2$;
-    G2$=HCOL$+MID$(G1$,3,1) : PRINT G2$;FCOL$;
-    IF GALFLAG=1 THEN PRINT "{221}"; : GALFLAG=0
-    NEXT J : GOTO GalRowEnd
-    GalRegionRow: Z4=I : Z5=1 : QuadrantName() : J0=INT(11-.5*LEN(G2$))
-    PRINT "{221}";
-    PRINT TAB(J0);G2$;
-    PRINT TAB(18);"{221}";
-    Z5=5 : QuadrantName() : J0=INT(27-.5*LEN(G2$))
-    PRINT TAB(J0);G2$; : PRINT TAB(34);"{221}";
-    GalRowEnd: IF A=0 AND J=9 AND Q1=I AND Q2=8 THEN PRINT : GOTO GalRowA5
-    IF A=0 THEN PRINT "{221}"
-    GalRowA5: IF A=5 THEN PRINT
+    RowIsRegion=0
+    IF A1=5 AND I=Q1 THEN RowIsRegion=1
+    IF I<>Q1 THEN PRINT " ";I$; : IFH8=0THEN RowIsRegion=1
+    IF RowIsRegion=0 THEN
+      FOR J=1 TO 8
+      IF I=Q1 AND J=Q2 THEN PRINT "{221}"; : GALFLAG=1
+      IF NOT (I=Q1 AND (J=Q2 OR J-1=Q2)) THEN PRINT "{221}";
+      IFZ(I,J)=0THEN PRINT "   "; : CONTINUE FOR
+      G1$=RIGHT$(STR$(Z(I,J)+1000),3)
+      G2$=ECOL$+MID$(G1$,1,1) : PRINT G2$;
+      G2$=DCOL$+MID$(G1$,2,1) : PRINT G2$;
+      G2$=HCOL$+MID$(G1$,3,1) : PRINT G2$;FCOL$;
+      IF GALFLAG=1 THEN PRINT "{221}"; : GALFLAG=0
+      NEXT J
+    END IF
+    IF RowIsRegion=1 THEN
+      J=9
+      Z4=I : Z5=1 : QuadrantName() : J0=INT(11-.5*LEN(G2$))
+      PRINT "{221}";
+      PRINT TAB(J0);G2$;
+      PRINT TAB(18);"{221}";
+      Z5=5 : QuadrantName() : J0=INT(27-.5*LEN(G2$))
+      PRINT TAB(J0);G2$; : PRINT TAB(34);"{221}";
+    END IF
+    GalRowEnd: IF A=0 AND J=9 AND Q1=I AND Q2=8 THEN PRINT
+    IF NOT (A=0 AND J=9 AND Q1=I AND Q2=8) THEN IF A=0 THEN PRINT "{221}"
+    IF A=5 THEN PRINT
     IF I<8 THEN PRINT O2$ : NEXT I
     PRINT "  {173}{45}{178}─{177}───{177}───{177}───{177}───{177}───{177}───{177}───{189}" : A1=0 : RETURN ST_COMMAND
-    StatusReport: PRINT : PRINT "{CLR}{REVERSE ON}STATUS REPORT:{REVERSE OFF}";CHR$(13) : X$="" : IF K9>1 THEN X$="S"
+END FUNCTION
+
+
+FUNCTION ComputerGalaxyMap()
+    H8=0
+    G5=1
+    A=5
+    A1=5
+    PRINT : PRINT "{CLR}{REVERSE ON}THE GALAXY:{REVERSE OFF}" : PRINT : PRINT "   ";
+    RETURN ComputerGalacticRecord()
+END FUNCTION
+
+
+FUNCTION ComputerStatusReport()
+    PRINT : PRINT "{CLR}{REVERSE ON}STATUS REPORT:{REVERSE OFF}";CHR$(13) : X$="" : IF K9>1 THEN X$="S"
     PRINT : PRINT " KLINGONS LEFT :";K9
     PRINT " ENERGY        :";INT(E+S)
     PRINT " TORPEDOES     :";INT(P)
     PRINT : PRINT "{13} MISSION MUST BE COMPLETED IN ";.1*INT((T0+T9-T)*10)
     PRINT " STARDATES"
-    X$="S" : IFB9<2THENX$="" : IFB9<1THEN GOTO StatusNoBase
+    X$="S" : IFB9<2THENX$=""
+    IF B9<1 THEN
+      PRINT : PRINT "{13}YOUR STUPIDITY HAS LEFT YOU ON YOUR OWN"
+      PRINT "IN THE GALAXY -- YOU HAVE NO STARBASES"
+      PRINT "LEFT!" : RETURN Damage()
+    END IF
     PRINT : PRINT "{13} THE FEDERATION IS MAINTAINING ";B9
     PRINT " STARBASE";X$;" IN THE GALAXY"; CHR$(13)
     RETURN Damage()
-    StatusNoBase: PRINT : PRINT "{13}YOUR STUPIDITY HAS LEFT YOU ON YOUR OWN"
-    PRINT "IN THE GALAXY -- YOU HAVE NO STARBASES"
-    PRINT "LEFT!" : RETURN Damage()
-    NavCalcKlingon: IFK3<=0THEN NoEnemyMsg() : RETURN ST_COMMAND
+END FUNCTION
+
+
+FUNCTION ComputerNavCalcKlingon()
+    IFK3<=0THEN NoEnemyMsg() : RETURN ST_COMMAND
     X$="" : IFK3>1THENX$="S"
     PRINT : PRINT "FROM ENTERPRISE TO KLINGON SHIP";
     PRINT X$
-    H8=0 : FORI=1TO3 : IFK(I,3)<=0THEN GOTO CalcDone
+    H8=0 : A1=2
+    FORI=1TO3
+    IFK(I,3)<=0THEN CONTINUE FOR
     W1=K(I,1) : X=K(I,2)
-    NavCalcFrom: C1=S1 : A=S2 : GOTO CalcCompute
-    Calculator: PRINT : PRINT "DIRECTION/DISTANCE CALCULATOR:"
+    C1=S1 : A=S2 : ComputerCalcCompute()
+    NEXTI
+    RETURN ST_COMMAND
+END FUNCTION
+
+
+FUNCTION ComputerCalculator()
+    H8=1 : A1=4
+    PRINT : PRINT "DIRECTION/DISTANCE CALCULATOR:"
     PRINT : PRINT "YOU ARE AT QUADRANT ";Q1;",";Q2
     PRINT "             SECTOR ";S1;",";S2
     PRINT : LX=4 : PRINT "ENTER INITIAL COORDINATES (Y) :  "; : GetInput()
@@ -696,42 +815,70 @@ FUNCTION Computer()
     PRINT : LX=4 : PRINT "ENTER FINAL COORDINATES   (X) :  "; : GetInput()
     X=VAL(LII$) : IF X=0 THEN PRINT : PRINT "CALCULATION ABORTED!" : RETURN ST_COMMAND
     IF C1=W1 AND A=X THEN PRINT : PRINT "NO RESULTS POSSIBLE!" : RETURN ST_COMMAND
-    CalcCompute: X=X-A : A=C1-W1 : IFX<0THEN GOTO CalcDirC
-    IFA<0THEN GOTO CalcDir7
-    IFX>0THEN GOTO CalcDir1
-    IFA=0THENC1=5 : GOTO CalcDirA
-    CalcDir1: C1=1
-    CalcDirA: IFABS(A)<=ABS(X)THEN GOTO CalcDirB
+    RETURN ComputerCalcCompute()
+END FUNCTION
+
+
+FUNCTION ComputerBaseNav()
+    H8=0 : A1=3
+    IFB3<>0THEN PRINT : PRINT "FROM ENTERPRISE TO STARBASE" : W1=B4 : X=B5 : C1=S1 : A=S2 : ComputerCalcCompute() : RETURN ST_COMMAND
+    PRINT : PRINT "MR. SPOCK REPORTS, SENSORS SHOW NO"
+    PRINT "STARBASES IN THIS QUADRANT." : RETURN ST_COMMAND
+END FUNCTION
+
+
+FUNCTION ComputerCalcCompute()
+    X=X-A : A=C1-W1
+    IF X>=0 THEN
+    IF A<0 THEN
+    C1=7
+    IFABS(A)>=ABS(X)THEN
     PRINT : PRINT " DIRECTION =";
-    D2=C1+(((ABS(A)-ABS(X))+ABS(A))/ABS(A))
-    D2=D2*1000 : D2=D2+0.5 : D2=INT(D2) : D2=D2/1000
-    PRINT D2 : GOTO CalcDistance
-    CalcDirB: PRINT : PRINT " DIRECTION =";
-    D2=C1+(ABS(A)/ABS(X))
-    D2=D2*1000 : D2=D2+0.5 : D2=INT(D2) : D2=D2/1000
-    PRINT D2 : GOTO CalcDistance
-    CalcDirC: IFA>0THENC1=3 : GOTO CalcDirD
-    IFX<>0THENC1=5 : GOTO CalcDirA
-    CalcDir7: C1=7
-    CalcDirD: IFABS(A)>=ABS(X)THEN GOTO CalcDirE
+    D2=C1+(ABS(X)/ABS(A))
+    ELSE
     PRINT : PRINT " DIRECTION =";
     D2=C1+(((ABS(X)-ABS(A))+ABS(X))/ABS(X))
-    D2=D2*1000 : D2=D2+0.5 : D2=INT(D2) : D2=D2/1000
-    PRINT D2 : GOTO CalcDistance
-    CalcDirE: PRINT : PRINT " DIRECTION =";
+    END IF
+    ELSE
+    IF X>0 OR A>0 THEN C1=1
+    IF A=0 THEN C1=5
+    IFABS(A)<=ABS(X)THEN
+    PRINT : PRINT " DIRECTION =";
+    D2=C1+(ABS(A)/ABS(X))
+    ELSE
+    PRINT : PRINT " DIRECTION =";
+    D2=C1+(((ABS(A)-ABS(X))+ABS(A))/ABS(A))
+    END IF
+    END IF
+    ELSE
+    IF A>0 THEN
+    C1=3
+    IFABS(A)>=ABS(X)THEN
+    PRINT : PRINT " DIRECTION =";
     D2=C1+(ABS(X)/ABS(A))
+    ELSE
+    PRINT : PRINT " DIRECTION =";
+    D2=C1+(((ABS(X)-ABS(A))+ABS(X))/ABS(X))
+    END IF
+    ELSE
+    C1=5
+    IFABS(A)<=ABS(X)THEN
+    PRINT : PRINT " DIRECTION =";
+    D2=C1+(ABS(A)/ABS(X))
+    ELSE
+    PRINT : PRINT " DIRECTION =";
+    D2=C1+(((ABS(A)-ABS(X))+ABS(A))/ABS(A))
+    END IF
+    END IF
+    END IF
     D2=D2*1000 : D2=D2+0.5 : D2=INT(D2) : D2=D2/1000
     PRINT D2
-    CalcDistance: PRINT " DISTANCE  =";
+    PRINT " DISTANCE  =";
     D2=SQR(X^2+A^2)
     IF A1=3 OR A1=2 THEN D2=D2/10
     D2=D2*1000 : D2=D2+0.5 : D2=INT(D2) : D2=D2/1000
     PRINT D2
-    IFH8=1THEN RETURN ST_COMMAND
-    CalcDone: NEXTI : RETURN ST_COMMAND
-    BaseNav: IFB3<>0THEN PRINT : PRINT "FROM ENTERPRISE TO STARBASE" : W1=B4 : X=B5 : GOTO NavCalcFrom
-    PRINT : PRINT "MR. SPOCK REPORTS, SENSORS SHOW NO"
-    PRINT "STARBASES IN THIS QUADRANT." : RETURN ST_COMMAND
+    RETURN ST_COMMAND
 END FUNCTION
 
 

@@ -2097,7 +2097,7 @@ static struct select_frame select_stack[MAX_SELECT_DEPTH];
 static int select_top = 0;
 
 #define MAX_UDF_PARAMS 16
-#define MAX_UDF_FUNCS  32
+#define MAX_UDF_FUNCS  128
 #define MAX_UDF_DEPTH  16
 
 struct udf_func {
