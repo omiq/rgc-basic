@@ -136,7 +136,9 @@ Run this once after unpacking, and macOS will stop treating the binary as “fro
   - `IF ... THEN` / `IF ... ELSE ... END IF`: conditional execution. Inline `IF X THEN 100` or `IF X THEN PRINT "Y"`; multi-line blocks with `IF X THEN` … `ELSE` … `END IF`. Supports nested blocks.
   - `SELECT CASE` … `CASE` … `CASE ELSE` … `END SELECT`: block multi-way dispatch (the modern replacement for `ON x GOTO` and long `IF/ELSEIF` ladders). Selector may be numeric or string. Each `CASE` accepts a comma list (`CASE 2, 3`), a relational test (`CASE IS >= 10`), or a range (`CASE 1 TO 5`); `CASE ELSE` is the default. Exactly one matching body runs (no fall-through). Nestable; safe to `GOTO` out of a `CASE` body inside a `FUNCTION`.
   - `WHILE` … `WEND`: pre-test loops. `WHILE X < 5` … `WEND`; supports nested WHILE/WEND.
-  - `DO` … `LOOP [UNTIL cond]`: post-test / infinite loops. `DO` … `LOOP` repeats until `EXIT`; `DO` … `LOOP UNTIL X>5` exits when the condition is true. `EXIT` leaves the innermost DO loop. Nested DO/LOOP supported.
+  - `DO` … `LOOP [UNTIL cond]`: post-test / infinite loops. `DO` … `LOOP` repeats until `EXIT`; `DO` … `LOOP UNTIL X>5` exits when the condition is true. Nested DO/LOOP supported.
+  - `EXIT [DO|FOR|WHILE]`: leave the innermost loop of that kind early. Bare `EXIT` (and `EXIT DO`) leaves the innermost `DO`; `EXIT FOR` leaves the innermost `FOR`/`FOREACH`; `EXIT WHILE` leaves the innermost `WHILE`.
+  - `CONTINUE FOR|DO|WHILE`: skip the rest of the current iteration and jump to the loop's test/increment (`NEXT` / `LOOP` / `WEND`). The kind keyword is required. Safe to use from inside a block `IF` or `SELECT CASE` in the loop body (the block frames are unwound).
   - `GOTO`: jump to a given line number **or label** (e.g. `GOTO 100` or `GOTO GAMELOOP`).
   - `GOSUB` / `RETURN`: subroutines with a fixed-depth stack; targets may be line numbers or labels.
   - `ON expr GOTO` / `ON expr GOSUB`: multi-branch jumps; e.g. `ON N GOTO 100,200,300` or `ON K GOSUB 500,600`.
@@ -603,6 +605,7 @@ The `examples` folder (included in release archives) contains:
   - `RND(X)` behaves like classic BASIC; a negative argument reseeds the generator.
 - **Structured loops and `GOTO`**:
   - `DO ... LOOP [UNTIL]`, `WHILE ... WEND`, `FOR ... NEXT`, block `IF ... ELSE IF ... END IF` and `SELECT CASE ... END SELECT` can be mixed freely with `GOTO`.
+  - `EXIT [DO|FOR|WHILE]` breaks out of the innermost loop of that kind; `CONTINUE FOR|DO|WHILE` jumps to its test/increment. Both unwind any block `IF`/`SELECT` opened in the body, so they're safe to use from inside those blocks (unlike `GOTO`).
   - A `GOTO` abandons any block frames opened since the current routine started (the classic unstructured behaviour), but it no longer disturbs blocks owned by a *caller*.
   - **Fixed bug (2026-06-01):** a `GOTO` inside a `FUNCTION` that ran while the caller was sitting inside a `DO ... LOOP` used to clear the loop bookkeeping globally, so the caller's matching `LOOP` later failed with `LOOP without DO`. The block stack (`DO`/`WHILE`/`FOR`/`IF`) is now snapshotted per function call and restored on return, so `GOTO` only unwinds the blocks that the running function itself opened. This is what lets a state-machine main loop (`DO ... LOOP UNTIL done`) dispatch to handler functions that use their own internal `GOTO`s, as in `examples/trek-new.bas`. Regression test: `tests/do_loop_func_goto_test.bas`.
 

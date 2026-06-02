@@ -1999,6 +1999,11 @@ struct for_frame {
     int is_each;
     struct var *each_array;
     int each_idx;
+    /* Block-IF / SELECT nesting when this FOR was entered. EXIT FOR /
+     * CONTINUE FOR restore to these so jumping out of a block IF or SELECT
+     * inside the body doesn't orphan those frames. */
+    int if_depth_at_entry;
+    int select_top_at_entry;
 };
 
 static struct line *program_lines[MAX_LINES];
@@ -2063,6 +2068,8 @@ static int if_depth = 0;
 struct while_frame {
     int line_index;
     char *position;
+    int if_depth_at_entry;
+    int select_top_at_entry;
 };
 static struct while_frame while_stack[MAX_WHILE_DEPTH];
 static int while_top = 0;
@@ -2072,6 +2079,8 @@ static int while_top = 0;
 struct do_frame {
     int line_index;
     char *position;
+    int if_depth_at_entry;
+    int select_top_at_entry;
 };
 static struct do_frame do_stack[MAX_DO_DEPTH];
 static int do_top = 0;
@@ -3760,9 +3769,12 @@ static void statement_wend(char **p);
 static void statement_do(char **p);
 static void statement_loop(char **p);
 static void statement_exit_do(char **p);
+static void statement_exit(char **p);
+static void statement_continue(char **p);
 static void skip_if_block_to_target(char **p, int want_else);
 static void skip_while_to_wend(char **p);
 static void skip_do_to_after_loop(char **p);
+static void skip_foreach_to_next(char **p);
 
 enum func_code {
     FN_NONE = 0,
@@ -4292,7 +4304,7 @@ static const char *const reserved_words[] = {
     "JOIN",
     "SGN", "SIN", "SLEEP", "SORT", "SPC", "SPLIT", "SPRITEH", "SPRITEW", "SQR", "STEP", "STOP", "STR", "STRING",
     "DOUBLEBUFFER", "DRAWSPRITE", "DRAWSPRITETILE", "DRAWTEXT", "HTTP", "HTTPFETCH", "HTTPSTATUS", "JOY", "JOYAXIS", "JOYSTICK", "MAPLOAD", "MAPSAVE", "OBJLOAD", "OBJSAVE", "OVERLAY", "RGCVERSION", "SCROLLX", "SCROLLY", "SYSTEM", "TAB", "TAN", "TEXTAT", "THEN", "TI", "TIMER", "TO", "TRIM", "UCASE", "UNLOADSPRITE", "VAL", "WEND", "WHILE",
-    "DO", "LOOP", "UNTIL", "EXIT",
+    "DO", "LOOP", "UNTIL", "EXIT", "CONTINUE",
     "SELECT", "CASE",
     "GETBYTE",
     "DICTNEW", "DICTLOAD", "DICTGET", "DICTGETN", "DICTGETBOOL", "DICTHAS", "DICTTYPE", "DICTLEN", "DICTKEY",
@@ -18424,6 +18436,8 @@ static void statement_while(char **p, char *while_pos)
     }
     while_stack[while_top].line_index = current_line;
     while_stack[while_top].position = while_pos;
+    while_stack[while_top].if_depth_at_entry = if_depth;
+    while_stack[while_top].select_top_at_entry = select_top;
     while_top++;
 }
 
@@ -18519,6 +18533,8 @@ static void statement_do(char **p)
         skip_spaces(p);
         do_stack[do_top].line_index = current_line;
         do_stack[do_top].position = while_kw;  /* re-test from here on each LOOP */
+        do_stack[do_top].if_depth_at_entry = if_depth;
+        do_stack[do_top].select_top_at_entry = select_top;
         do_top++;
         if (!eval_condition(p)) {
             /* condition false on entry — skip to after matching LOOP */
@@ -18530,6 +18546,8 @@ static void statement_do(char **p)
     /* Plain DO — post-test (exit via LOOP UNTIL or EXIT) */
     do_stack[do_top].line_index = current_line;
     do_stack[do_top].position = *p;
+    do_stack[do_top].if_depth_at_entry = if_depth;
+    do_stack[do_top].select_top_at_entry = select_top;
     do_top++;
 }
 
@@ -18589,11 +18607,187 @@ static void statement_loop(char **p)
 static void statement_exit_do(char **p)
 {
     if (do_top <= 0) {
-        runtime_error_hint("EXIT without DO", "EXIT only exits the innermost DO … LOOP.");
+        runtime_error_hint("EXIT without DO", "EXIT / EXIT DO only exits the innermost DO … LOOP.");
         return;
     }
+    /* Discard any block IF / SELECT opened inside the loop body before EXIT. */
+    if_depth = do_stack[do_top - 1].if_depth_at_entry;
+    select_unwind_to(do_stack[do_top - 1].select_top_at_entry);
     do_top--;
     skip_do_to_after_loop(p);
+}
+
+/* CONTINUE targets: land execution ON the matching closer keyword (NEXT /
+ * LOOP / WEND) so its normal increment / condition / loop-back runs. We do
+ * NOT pop the frame — the closer handles that. Nesting matches the
+ * corresponding skip_* scanner so inner loops are stepped over. */
+static void continue_to_next(char **p)
+{
+    int line = current_line;
+    char *pos = *p;
+    int nesting = 1;
+    while (line >= 0 && line < line_count && program_lines[line]) {
+        if (!pos) pos = program_lines[line]->text;
+        while (pos && *pos) {
+            char *q = pos;
+            skip_spaces(&q);
+            if (!*q) break;
+            if (starts_with_kw(q, "FOREACH") || starts_with_kw(q, "FOR")) {
+                nesting++;
+                while (*q && *q != ':') q++;
+                pos = (*q == ':') ? q + 1 : q;
+                continue;
+            }
+            if (starts_with_kw(q, "NEXT")) {
+                nesting--;
+                if (nesting == 0) { current_line = line; statement_pos = q; *p = q; return; }
+                { char *r = q + 4; while (*r == ' ' || *r == '\t') r++; while (isalnum((unsigned char)*r) || *r == '_' || *r == '$') r++; pos = r; }
+                continue;
+            }
+            pos = strchr(pos, ':');
+            pos = pos ? pos + 1 : NULL;
+        }
+        line++;
+        pos = NULL;
+    }
+    runtime_error_hint("NEXT expected", "CONTINUE FOR must sit inside a FOR … NEXT loop.");
+}
+
+static void continue_to_loop(char **p)
+{
+    int line = current_line;
+    char *pos = *p;
+    int nesting = 1;
+    while (line >= 0 && line < line_count && program_lines[line]) {
+        if (!pos) pos = program_lines[line]->text;
+        while (pos && *pos) {
+            char *q = pos;
+            skip_spaces(&q);
+            if (!*q) break;
+            if (starts_with_kw(q, "DO")) { nesting++; q += 2; skip_spaces(&q); pos = q; continue; }
+            if (starts_with_kw(q, "LOOP")) {
+                nesting--;
+                if (nesting == 0) { current_line = line; statement_pos = q; *p = q; return; }
+                pos = q + 4;
+                continue;
+            }
+            pos = strchr(pos, ':');
+            pos = pos ? pos + 1 : NULL;
+        }
+        line++;
+        pos = NULL;
+    }
+    runtime_error_hint("LOOP expected", "CONTINUE DO must sit inside a DO … LOOP block.");
+}
+
+static void continue_to_wend(char **p)
+{
+    int line = current_line;
+    char *pos = *p;
+    int nesting = 1;
+    while (line >= 0 && line < line_count && program_lines[line]) {
+        if (!pos) pos = program_lines[line]->text;
+        while (pos && *pos) {
+            char *q = pos;
+            skip_spaces(&q);
+            if (!*q) break;
+            if (starts_with_kw(q, "WHILE")) {
+                q += 5;
+                skip_spaces(&q);
+                if (*q && *q != ':') {
+                    nesting++;
+                    while (*q && *q != ':') q++;
+                    pos = (*q == ':') ? q + 1 : q;
+                    continue;
+                }
+            }
+            if (starts_with_kw(q, "WEND")) {
+                nesting--;
+                if (nesting == 0) { current_line = line; statement_pos = q; *p = q; return; }
+                pos = q + 4;
+                continue;
+            }
+            pos = strchr(pos, ':');
+            pos = pos ? pos + 1 : NULL;
+        }
+        line++;
+        pos = NULL;
+    }
+    runtime_error_hint("WEND expected", "CONTINUE WHILE must sit inside a WHILE … WEND loop.");
+}
+
+/* EXIT [DO|FOR|WHILE] — leave the innermost loop of that kind. Bare EXIT
+ * keeps its historical meaning of EXIT DO. */
+static void statement_exit(char **p)
+{
+    skip_spaces(p);
+    if (starts_with_kw(*p, "FOR")) {
+        *p += 3;
+        if (for_top <= 0) {
+            runtime_error_hint("EXIT FOR without FOR", "EXIT FOR only works inside a FOR … NEXT loop.");
+            return;
+        }
+        if_depth = for_stack[for_top - 1].if_depth_at_entry;
+        select_unwind_to(for_stack[for_top - 1].select_top_at_entry);
+        for_top--;
+        skip_foreach_to_next(p);
+        return;
+    }
+    if (starts_with_kw(*p, "WHILE")) {
+        *p += 5;
+        if (while_top <= 0) {
+            runtime_error_hint("EXIT WHILE without WHILE", "EXIT WHILE only works inside a WHILE … WEND loop.");
+            return;
+        }
+        if_depth = while_stack[while_top - 1].if_depth_at_entry;
+        select_unwind_to(while_stack[while_top - 1].select_top_at_entry);
+        while_top--;
+        skip_while_to_wend(p);
+        return;
+    }
+    if (starts_with_kw(*p, "DO")) *p += 2;
+    statement_exit_do(p);
+}
+
+/* CONTINUE DO|FOR|WHILE — skip the rest of this iteration and run the loop's
+ * test/increment. The kind keyword is required (no ambiguous bare form). */
+static void statement_continue(char **p)
+{
+    skip_spaces(p);
+    if (starts_with_kw(*p, "FOR")) {
+        *p += 3;
+        if (for_top <= 0) {
+            runtime_error_hint("CONTINUE FOR without FOR", "CONTINUE FOR only works inside a FOR … NEXT loop.");
+            return;
+        }
+        if_depth = for_stack[for_top - 1].if_depth_at_entry;
+        select_unwind_to(for_stack[for_top - 1].select_top_at_entry);
+        continue_to_next(p);
+        return;
+    }
+    if (starts_with_kw(*p, "WHILE")) {
+        *p += 5;
+        if (while_top <= 0) {
+            runtime_error_hint("CONTINUE WHILE without WHILE", "CONTINUE WHILE only works inside a WHILE … WEND loop.");
+            return;
+        }
+        if_depth = while_stack[while_top - 1].if_depth_at_entry;
+        select_unwind_to(while_stack[while_top - 1].select_top_at_entry);
+        continue_to_wend(p);
+        return;
+    }
+    if (starts_with_kw(*p, "DO")) {
+        *p += 2;
+        if (do_top <= 0) {
+            runtime_error_hint("CONTINUE DO without DO", "CONTINUE DO only works inside a DO … LOOP block.");
+            return;
+        }
+        if_depth = do_stack[do_top - 1].if_depth_at_entry;
+        select_unwind_to(do_stack[do_top - 1].select_top_at_entry);
+        continue_to_loop(p);
+        return;
+    }
+    runtime_error_hint("CONTINUE needs a loop kind", "Write CONTINUE FOR, CONTINUE DO, or CONTINUE WHILE.");
 }
 
 static void statement_for(char **p)
@@ -18680,6 +18874,8 @@ static void statement_for(char **p)
     for_stack[for_top].is_each = 0;
     for_stack[for_top].each_array = NULL;
     for_stack[for_top].each_idx = 0;
+    for_stack[for_top].if_depth_at_entry = if_depth;
+    for_stack[for_top].select_top_at_entry = select_top;
     for_top++;
 #if defined(__EMSCRIPTEN__) && defined(GFX_VIDEO)
     if (wasm_canvas_debug_trace_for) {
@@ -18846,6 +19042,8 @@ static void statement_foreach(char **p)
     for_stack[for_top].is_each = 1;
     for_stack[for_top].each_array = arr_var;
     for_stack[for_top].each_idx = 0;
+    for_stack[for_top].if_depth_at_entry = if_depth;
+    for_stack[for_top].select_top_at_entry = select_top;
     if (arr_var->size <= 0) {
         /* Empty array — don't push a frame, skip ahead to the matching
          * NEXT so zero iterations happen. */
@@ -19182,6 +19380,11 @@ static void execute_statement(char **p)
         if (starts_with_kw(*p, "CASE")) {
             *p += 4;
             statement_case(p);
+            return;
+        }
+        if (starts_with_kw(*p, "CONTINUE")) {
+            *p += 8;
+            statement_continue(p);
             return;
         }
         if (starts_with_kw(*p, "CLOSE")) {
@@ -19772,8 +19975,8 @@ static void execute_statement(char **p)
             return;
         }
         if (starts_with_kw(*p, "EXIT")) {
-            *p += 4;  /* consume EXIT */
-            statement_exit_do(p);
+            *p += 4;  /* consume EXIT; statement_exit peeks for DO/FOR/WHILE */
+            statement_exit(p);
             return;
         }
         if (starts_with_kw(*p, "ELSEIF")) {

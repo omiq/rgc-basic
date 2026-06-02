@@ -9,15 +9,15 @@
     "portable": "runs on rgc-basic and transpiles to ugBASIC retro targets"
   },
   "counts": {
-    "total": 279,
+    "total": 280,
     "by_kind": {
       "function": 116,
-      "keyword": 141,
+      "keyword": 142,
       "constant": 22
     },
     "by_tier": {
       "portable": 120,
-      "modern": 147,
+      "modern": 148,
       "conditional": 11,
       "param": 1
     }
@@ -175,6 +175,12 @@
       "name": "COLOURRGB",
       "kind": "keyword",
       "tier": "modern"
+    },
+    {
+      "name": "CONTINUE",
+      "kind": "keyword",
+      "tier": "modern",
+      "note": "CONTINUE FOR / CONTINUE DO / CONTINUE WHILE \u2014 skip to the loop's test/increment; kind keyword required"
     },
     {
       "name": "COS",
@@ -385,7 +391,8 @@
     {
       "name": "EXIT",
       "kind": "keyword",
-      "tier": "portable"
+      "tier": "portable",
+      "note": "bare EXIT or EXIT DO leaves the innermost DO; EXIT FOR / EXIT WHILE leave the innermost FOR / WHILE"
     },
     {
       "name": "EXP",

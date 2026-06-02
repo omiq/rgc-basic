@@ -158,7 +158,7 @@ is a built-in. `tier` and `note` come from the portability rules.
 
 <!-- BEGIN GENERATED KEYWORDS -->
 
-### Statements / keywords (141)
+### Statements / keywords (142)
 
 | name | tier | note |
 | --- | --- | --- |
@@ -181,6 +181,7 @@ is a built-in. `tier` and `note` come from the portability rules.
 | `COLORRGB` | modern | use COLOR n (0..15) for portable code |
 | `COLOUR` | portable |  |
 | `COLOURRGB` | modern |  |
+| `CONTINUE` | modern | CONTINUE FOR / CONTINUE DO / CONTINUE WHILE — skip to the loop's test/increment; kind keyword required |
 | `CURSOR` | conditional | PETSCII terminal control; behaviour/availability differs across retro targets |
 | `DATA` | portable |  |
 | `DEF` | portable | DEF FN — transpiler maps to ugBASIC DEFINE |
@@ -202,7 +203,7 @@ is a built-in. `tier` and `note` come from the portability rules.
 | `ELSE` | portable |  |
 | `ELSEIF` | portable |  |
 | `END` | portable | END / END IF / END FUNCTION / END SELECT all portable |
-| `EXIT` | portable |  |
+| `EXIT` | portable | bare EXIT or EXIT DO leaves the innermost DO; EXIT FOR / EXIT WHILE leave the innermost FOR / WHILE |
 | `FILLCIRCLE` | portable |  |
 | `FILLELLIPSE` | modern |  |
 | `FILLPOLYGON` | modern |  |

@@ -1,5 +1,34 @@
 ## Changelog
 
+### New: EXIT FOR / EXIT WHILE + CONTINUE FOR / DO / WHILE (2026-06-01)
+
+Structured loop early-exit and skip-to-next-iteration, so loop bodies no longer
+need `GOTO` to a label sitting on the closing `NEXT` / `LOOP` / `WEND`:
+
+```basic
+FOR i = 1 TO 8
+  IF done THEN EXIT FOR          ' break out of the loop
+  IF skip THEN CONTINUE FOR      ' jump straight to NEXT (increment + test)
+  PRINT i
+NEXT i
+```
+
+- **`EXIT`** now takes an optional kind: bare `EXIT` / `EXIT DO` (innermost `DO`,
+  unchanged), `EXIT FOR` (innermost `FOR` / `FOREACH`), `EXIT WHILE` (innermost
+  `WHILE`).
+- **`CONTINUE FOR` / `CONTINUE DO` / `CONTINUE WHILE`** skip the rest of the
+  current iteration and run the loop's closer (`NEXT` increments + tests; `LOOP`
+  re-tests `UNTIL` / `DO WHILE`; `WEND` loops back to re-test `WHILE`). The kind
+  keyword is required (no ambiguous bare `CONTINUE`).
+
+**Footgun closed:** every loop frame (`for`/`do`/`while`) now records the block
+`IF` and `SELECT CASE` nesting at entry, and `EXIT`/`CONTINUE` restore to it.
+So `EXIT`/`CONTINUE` from inside a block `IF` or `SELECT` no longer orphans
+those frames (which previously leaked `if_depth` and eventually tripped
+`IF nesting too deep`). This also fixes the latent case for the pre-existing
+bare `EXIT`. Tests: `tests/exit_continue_test.bas`; demo `examples/exit_continue.bas`.
+Lint: `EXIT` portable, `CONTINUE` tier `modern`.
+
 ### New: SELECT CASE / CASE / CASE ELSE / END SELECT (2026-06-01)
 
 Block multi-way dispatch, the modern structured replacement for `ON x GOTO`
