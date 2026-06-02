@@ -57,9 +57,10 @@ Mirrors the rule that already exists implicitly via the rgc-basic `examples/` di
 Backslash escapes already cover 99% of cases. Two ergonomic additions worth considering when there's bandwidth:
 
 - **`""` (Pascal/SQL/BASIC tradition)** — `"a""b"` → literal `a"b`. Cheap (single tokeniser branch). Helps muscle-memory for old-school BASIC users who don't reach for `\"`. Current behaviour: parser stops at the first `"`, treats `""` as adjacent string concatenation = empty string. Backwards-compat-safe to redefine since the current behaviour is useless.
-- **`"""..."""` (Python triple-quote)** — multi-line literal that may contain raw `"`. Big UX win for embedding markdown templates, long prompts, JSON blobs with literal quotes. Avoids `+ CHR$(10) +` between every line.
+- **`"""..."""` (Python triple-quote)** — multi-line literal that may contain raw `"`. Big UX win for embedding markdown templates, long prompts, JSON blobs with literal quotes. Avoids `+ CHR$(10) +` between every line. **Approved semantics (numberless-only):** `docs/triple-quote-strings.md`.
+- **`_` line continuation (VB-style)** — join physical lines into one statement; complementary to triple quotes, not a replacement. **Approved semantics (numberless-only):** `docs/line-continuation.md`.
 
-Backslash escapes covering most pain means these are nice-to-have, not load-bearing.
+Backslash escapes covering most pain means these are nice-to-have, not load-bearing until adventure/JSON authoring needs them.
 
 ### 2b. `DICTPUSHDICT h, path$, sub_h` — deep-clone push (2026-05-22) — parked
 
