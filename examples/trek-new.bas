@@ -14,13 +14,20 @@ screencodes on : background 0
 ' ** IS A FUNCTION THAT DOES ITS WORK AND RETURNS THE NEXT STATE, SO
 ' ** THERE ARE NO GOTOS BETWEEN ROUTINES
 
-
+' ** STATE MACHINE STATES **
 ST_QUIT=0 : ST_NEWGAME=1 : ST_NEWQUAD=2 : ST_COMMAND=3 : ST_DEAD=4
 ST_GAMEOVER=5 : ST_VICTORY=6 : ST_MISSIONEND=7 : ST_PLAYAGAIN=8
+
+' ** TOKEN STRINGS **
+' Enterprise, Klingon, Starbase, Star, Empty
 ENTERPRISE_TOKEN$="E  " : KLINGON_TOKEN$="K  " : STARBASE_TOKEN$="B  " : STAR_TOKEN$="*  " : EMPTY_TOKEN$="   "
 
+' ** COMMAND DICTIONARY **
+' -1: not initialized yet (lazy init in DoCommand)
+' 0..63: initialized dict slot (allocated by dictnew)
 CMD_DICT=-1
 
+' ** INITIALIZE COLOURS USED IN STRING PRINTS **
 InitColours()
 
 ' COURSE_VEC(9,2) = nav keypad deltas (course n -> dx, dy); DEVICE_DAMAGE(8) = stardates-to-repair per system
@@ -63,20 +70,11 @@ do
 loop until GameState = ST_QUIT
 end
 
+' ** DISPLAY TITLE SCREEN AND WAIT FOR KEY **
+function TitleScreen()
 
-
-' ** ===== ONE-TIME GAME SETUP (NEW GAME / RESTART) ===== **
-function SetupGame()
-    Z2$=""
-    ATAKFLAG=0
-    SLSFLAG=0
-    N=rnd(-1)
-    print chr$(147);
-    print HCOL$;"{YELLOW}   --S-U-P-E-R---S-T-A-R---T-R-E-K--"
-    print "{WHITE}"
-    for N=1 to 5
-      print
-    next
+    print "{CLR}{YELLOW}\n\n   --S-U-P-E-R---S-T-A-R---T-R-E-K--"
+    print "{WHITE}\n\n\n\n\n"
     print BCOL$;
     print "                    ,------*-------,"
     print "    ,-------------,  '---  -------'"
@@ -85,12 +83,38 @@ function SetupGame()
     print "          '----------------'"
     print DCOL$
     print "    THE USS ENTERPRISE --- NCC-1701"
-    for N=1 to 5
-      print FCOL$
-    next
+    print "{GREEN}\n\n\n\n\n"
+    pause()
+    return
+
+end function
+
+' ** PRINT MISSION ORDERS **
+function PrintMissionOrders()
+    if STARBASE_COUNT<>1 then X$="S" : X0$=" ARE "
+    print
+    print "{CLR}{REVERSE ON}YOUR ORDERS ARE AS FOLLOWS:{REVERSE OFF}"
+    print
+    print "DESTROY THE ";KLINGON_COUNT;" KLINGON WARSHIPS BEFORE"
+    print "STARDATE ";STARDATE_START+MISSION_DAYS;". THIS GIVES YOU ";MISSION_DAYS;" DAYS."
+    print "THERE";X0$;STARBASE_COUNT;" STARBASE";X$;" IN THE GALAXY"
+    print "FOR RESUPPLYING & REPAIRING YOUR SHIP."
+    return
+end function
+
+' ** ===== ONE-TIME GAME SETUP (NEW GAME / RESTART) ===== **
+function SetupGame()
+    Z2$=""
+    ATAKFLAG=0
+    SLSFLAG=0
+    N=rnd(-1)
+
+    ' ** DISPLAY TITLE SCREEN AND WAIT FOR KEY **
+    TitleScreen()
     CRSTART=1
-    Pause()
-    RANDOM_SEED=rnd(-TI) : ' ** RANDOM SEED GENERATOR **
+
+    ' ** RANDOM SEED GENERATOR **
+    RANDOM_SEED=rnd(-TI)  
     print : print "{CLR}           GENERATING GALAXY";
     SPACE_PAD$="                         "
     STARDATE_CUR=int(rnd(1)*20+20)*100
@@ -150,6 +174,7 @@ function SetupGame()
         G(I,J)=K3*100+B3*10+FNR(1)
       next J
     next I
+
     if KLINGON_COUNT>MISSION_DAYS then MISSION_DAYS=KLINGON_COUNT+1
     print
     ShowKey() : ' ** KEY TO SRS ICONS **
@@ -166,14 +191,7 @@ function SetupGame()
       QUADRANT_Y=FNR(1)
     end if
     K7=KLINGON_COUNT
-    if STARBASE_COUNT<>1 then X$="S" : X0$=" ARE "
-    print
-    print "{CLR}{REVERSE ON}YOUR ORDERS ARE AS FOLLOWS:{REVERSE OFF}"
-    print
-    print "DESTROY THE ";KLINGON_COUNT;" KLINGON WARSHIPS BEFORE"
-    print "STARDATE ";STARDATE_START+MISSION_DAYS;". THIS GIVES YOU ";MISSION_DAYS;" DAYS."
-    print "THERE";X0$;STARBASE_COUNT;" STARBASE";X$;" IN THE GALAXY"
-    print "FOR RESUPPLYING & REPAIRING YOUR SHIP."
+    PrintMissionOrders()
     I=rnd(1)
     return ST_NEWQUAD
 end function
@@ -226,7 +244,11 @@ function EnterQuadrant()
     A$=ENTERPRISE_TOKEN$
     TOKEN_X=SECTOR_X
     TOKEN_Y=SECTOR_Y
+    
+    ' POSITION ENTERPRISE IN QUADRANT
     PlaceToken()
+    
+    ' PLACE KLINGONS
     if K3 >= 1 then
       for I=1 to K3
         FindEmpty()
@@ -236,6 +258,8 @@ function EnterQuadrant()
         K(I,1)=RANDOM_X : K(I,2)=RANDOM_Y : K(I,3)=KLINGON_HP_BASE*(0.5+rnd(1))
       next I
     end if
+
+    ' PLACE STARBASES
     if B3 >= 1 then
       FindEmpty()
       A$=STARBASE_TOKEN$
@@ -243,12 +267,16 @@ function EnterQuadrant()
       TOKEN_Y=RANDOM_Y : B5=RANDOM_Y
       PlaceToken()
     end if
+
+    ' PLACE STARS
     for I=1 to S3
       FindEmpty()
       A$=STAR_TOKEN$
       TOKEN_X=RANDOM_X : TOKEN_Y=RANDOM_Y
       PlaceToken()
     next I
+
+    ' DO SHORT RANGE SCAN
     return ShortRangeScan()
 end function
 
@@ -257,7 +285,11 @@ end function
 
 ' ** ===== COMMAND PHASE: ENERGY CHECK, PROMPT, DISPATCH ONE COMMAND ===== **
 function DoCommand()
+
+    ' INITIALIZE COMMAND DICTIONARY
     if CMD_DICT<0 then InitCommandDict()
+
+    ' CHECK IF SHIP HAS ENOUGH ENERGY
     if SHIELD_UNITS+SHIP_ENERGY <= 10 or (SHIP_ENERGY<=10 and DEVICE_DAMAGE(7)<>0) then
       print : print "** FATAL ERROR **"
       print "YOUVE STRANDED YOUR SHIP IN SPACE."
@@ -268,6 +300,8 @@ function DoCommand()
       print : Pause()
       return ST_GAMEOVER
     end if
+
+    ' COMMAND LOOP
     do
       print
       SRSFLAG=0
@@ -280,6 +314,7 @@ function DoCommand()
         print "{CLR}{REVERSE ON}SHORT & LONG RANGE SCAN...{REVERSE OFF}"
         return ShortRangeScan()
       end if
+
       if A$="KEY" then ShowKey() : ' KEY TO SRS ICONS
       if A$="KEY" then continue do
       COMFLAG=0
@@ -288,10 +323,15 @@ function DoCommand()
         print : print "SHIPS COMPUTER DISABLED"
         continue do
       end if
+
+      ' GET COMMAND CODE
       K$=left$(A$,3)
       CMD=0
+
+      ' Legal command?
       if dicthas(CMD_DICT, K$) then CMD=dictgetn(CMD_DICT, K$)
 
+      ' EXECUTE COMMAND
       select case CMD
       case 1
           return Nav()
@@ -324,12 +364,16 @@ function Nav()
     ShowDirections() : ' ** DIRECTION HELPER **
     print : LX=5 : print "COURSE (1-9) :  "; : GetInput()
     C1=val(LII$) : if C1=9 then C1=1
+
+    ' CHECK IF COURSE IS VALID
     if C1<1 or C1>=9 then
       background 6: color 1
       print : print "LT. SULU REPORTS, INCORRECT COURSE"
       print "DATA, SIR!";: background 0: print
       return ST_COMMAND
     end if
+
+    ' GET WARP FACTOR
     X$="8"
     if DEVICE_DAMAGE(1)<0 then X$="0.2"
     SRSFLAG=1
@@ -337,10 +381,14 @@ function Nav()
     print "WARP FACTOR (0-";X$;") :  ";
     GetInput()
     NAV_WARP_FACTOR=val(LII$)
+
+    ' CHECK IF WARP FACTOR IS POSSIBLE
     if DEVICE_DAMAGE(1)<0 and NAV_WARP_FACTOR>.2 then
       print : print "WARP ENGINES ARE DAMAGED."
       print "MAXIMUM SPEED = WARP 0.2" : return ST_COMMAND
     end if
+
+    ' CHECK IF WARP FACTOR IS ALLOWED
     if NAV_WARP_FACTOR>0 and NAV_WARP_FACTOR<=8 then
       N=int(NAV_WARP_FACTOR*8+.5)
       if SHIP_ENERGY-N<0 then
@@ -352,11 +400,16 @@ function Nav()
         print "SHIELD ENERGY DEPLOYED IS ";S1$;" UNITS.";: background 0
         return ST_COMMAND
       end if
+
     else
+
       if NAV_WARP_FACTOR=0 then return ST_COMMAND
       print : background 6: color 1:print "CHIEF ENGINEER SCOTT REPORTS THE"
-      print "ENGINES WONT TAKE WARP ";NAV_WARP_FACTOR;"!";: background 0 : return ST_COMMAND
+      print "ENGINES WONT TAKE WARP ";NAV_WARP_FACTOR;"!";: background 0  
+      return ST_COMMAND
+    
     end if
+
     ' KLINGONS MOVE/FIRE ON MOVING STARSHIP . . .
     KlingonsMove: for I=1 to K3
       if K(I,3)=0 then continue for
@@ -364,7 +417,11 @@ function Nav()
       K(I,1)=TOKEN_X : K(I,2)=TOKEN_Y : A$=KLINGON_TOKEN$ : PlaceToken()
     next I
     KlingonsFire()
+
+    ' CHECK IF SHIP IS DEAD
     if SHIPDEAD then return ST_DEAD
+
+    ' REPAIRS
     D1=0 : D6=NAV_WARP_FACTOR : if NAV_WARP_FACTOR>=1 then D6=1
     for I=1 to 8
       if DEVICE_DAMAGE(I)>=0 then continue for
@@ -374,6 +431,8 @@ function Nav()
       if D1<>1 then D1=1 : print : print "DAMAGE CONTROL REPORT :   "
       DEVICE_INDEX=I : DeviceName() : print G2$;" REPAIR COMPLETED"
     next I
+
+    ' CHECK IF DEVICE IS DAMAGED
     if rnd(1)<=.2 then
       DEVICE_INDEX=FNR(1)
       if rnd(1)<.6 then
@@ -384,11 +443,14 @@ function Nav()
         DeviceName() : print G2$;" PARTLY REPAIRED"
       end if
     end if
+
     ' BEGIN MOVING STARSHIP
     A$=EMPTY_TOKEN$ : TOKEN_X=int(SECTOR_X) : TOKEN_Y=int(SECTOR_Y) : PlaceToken()
     X1=COURSE_VEC(C1,1)+(COURSE_VEC(C1+1,1)-COURSE_VEC(C1,1))*(C1-int(C1)) : X=SECTOR_X : Y=SECTOR_Y
     X2=COURSE_VEC(C1,2)+(COURSE_VEC(C1+1,2)-COURSE_VEC(C1,2))*(C1-int(C1)) : Q4=QUADRANT_X : Q5=QUADRANT_Y
     MoveInterrupted=0 : CrossedQuadrant=0
+
+    ' MOVE STARSHIP
     for I=1 to N : SECTOR_X=SECTOR_X+X1 : SECTOR_Y=SECTOR_Y+X2
         if SECTOR_X<1 or SECTOR_X>=9 or SECTOR_Y<1 or SECTOR_Y>=9 then CrossedQuadrant=1 : exit for
         S8=int(SECTOR_X)*24+int(SECTOR_Y)*3-26 : if mid$(QUADRANT_BUFFER$,S8,2)="  "then continue for
@@ -399,6 +461,8 @@ function Nav()
         MoveInterrupted=1
         exit for
     next I
+
+    ' CHECK IF SHIP HAS CROSSED QUADRANT
     if CrossedQuadrant=1 then
       X=8*QUADRANT_X+X+N*X1 : Y=8*QUADRANT_Y+Y+N*X2 : QUADRANT_X=int(X/8) : QUADRANT_Y=int(Y/8) : SECTOR_X=int(X-QUADRANT_X*8)
       SECTOR_Y=int(Y-QUADRANT_Y*8) : if SECTOR_X=0 then QUADRANT_X=QUADRANT_X-1 : SECTOR_X=8
@@ -407,6 +471,8 @@ function Nav()
       if QUADRANT_X>8 then X5=1 : QUADRANT_X=8 : SECTOR_X=8
       if QUADRANT_Y<1 then X5=1 : QUADRANT_Y=1 : SECTOR_Y=1
       if QUADRANT_Y>8 then X5=1 : QUADRANT_Y=8 : SECTOR_Y=8
+
+      ' CHECK IF SHIP HAS CROSSED QUADRANT
       if X5<>0 then
         print : background 6: color 1: print "LT. UHURA REPORTS MESSAGE FROM STARFLEET";
         print " COMMAND:{13}PERMISSION TO ATTEMPT CROSSING OF GALACTIC PERIMETER IS HEREBY{13}{RED}*DENIED*{WHITE}";
@@ -417,6 +483,8 @@ function Nav()
         print : Pause()
         if STARDATE_CUR>STARDATE_START+MISSION_DAYS then return ST_GAMEOVER
       end if
+
+      ' CHECK IF SHIP HAS RETURNED TO ORIGINAL QUADRANT
       if 8*QUADRANT_X+QUADRANT_Y=8*Q4+Q5 then
         A$=ENTERPRISE_TOKEN$ : TOKEN_X=int(SECTOR_X) : TOKEN_Y=int(SECTOR_Y) : PlaceToken() : ManeuverEnergy() : T8=1
         if NAV_WARP_FACTOR<1 then T8=.1*int(10*NAV_WARP_FACTOR)
@@ -425,13 +493,22 @@ function Nav()
       end if
       STARDATE_CUR=STARDATE_CUR+1 : ManeuverEnergy() : return ST_NEWQUAD
     end if
+
+    ' MOVE STARSHIP
     if MoveInterrupted=0 then 
       SECTOR_X=int(SECTOR_X)
       SECTOR_Y=int(SECTOR_Y)
     end if
-    A$=ENTERPRISE_TOKEN$ : TOKEN_X=int(SECTOR_X) : TOKEN_Y=int(SECTOR_Y) : PlaceToken() : ManeuverEnergy() : T8=1
+
+    A$=ENTERPRISE_TOKEN$
+    TOKEN_X=int(SECTOR_X)
+    TOKEN_Y=int(SECTOR_Y)
+    PlaceToken()
+    ManeuverEnergy()
+    T8=1
     if NAV_WARP_FACTOR<1 then T8=.1*int(10*NAV_WARP_FACTOR)
-    STARDATE_CUR=STARDATE_CUR+T8 : if STARDATE_CUR>STARDATE_START+MISSION_DAYS then return ST_GAMEOVER
+    STARDATE_CUR=STARDATE_CUR+T8
+    if STARDATE_CUR>STARDATE_START+MISSION_DAYS then return ST_GAMEOVER
 
     ' SEE IF DOCKED, THEN GET COMMAND
     return ShortRangeScan()
