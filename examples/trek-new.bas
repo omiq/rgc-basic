@@ -1272,9 +1272,12 @@ end function
 
 ' ** THREE-LETTER COMMAND CODES -> CMD (1..10) FOR DoCommand SELECT CASE **
 function InitCommandDict()
+
+    ' Lazy once-per-run: DoCommand calls this; CMD_DICT starts -1 (no slot yet).
     if CMD_DICT>=0 then return
+
+    ' Fill the dictionary with the command codes.
     CMD_DICT=dictnew()
-    if CMD_DICT<0 then return
     dictset CMD_DICT, "NAV", 1
     dictset CMD_DICT, "SRS", 2
     dictset CMD_DICT, "LRS", 3

@@ -2,7 +2,7 @@
 2 Q$ = CHR$(34)
 3 PRINT "Testing DICTNEW / DICTFREE..."
 10 H = DICTNEW()
-11 IF H >= 0 AND H < 16 THEN PRINT "OK: DICTNEW returns valid slot"
+11 IF H >= 0 THEN PRINT "OK: DICTNEW returns valid slot"
 20 DICTFREE H
 21 PRINT "OK: DICTFREE returned"
 30 DICTFREE H
@@ -73,13 +73,13 @@
 640 PRINT "OK: write after free is no-op (no crash)"
 650 PRINT
 660 PRINT "Testing slot exhaustion..."
-670 DIM SLOTS(20)
-680 FOR I = 0 TO 15
+670 DIM SLOTS(128)
+680 FOR I = 0 TO 127
 690 SLOTS(I) = DICTNEW()
 700 NEXT
 710 OVER = DICTNEW()
-720 IF OVER = -1 THEN PRINT "OK: 17th allocation returns -1"
-730 FOR I = 0 TO 15
+720 IF OVER = -1 THEN PRINT "OK: allocation past slot table returns -1"
+730 FOR I = 0 TO 127
 740 DICTFREE SLOTS(I)
 750 NEXT
 760 PRINT "OK: cleanup"

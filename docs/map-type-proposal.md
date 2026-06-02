@@ -132,7 +132,7 @@ The slot table, refcount discipline, and `*FREE` semantics you built for `BUFFER
 - **Lookup**: maps need string→node hashtable (or sorted array for small N — under, say, 16 keys the linear-scan cost is negligible and saves the hash overhead). For consistency with `JSON$` path parsing, the same `json_path_walk()` helper drives both reads and writes.
 - **Memory**: nodes can be refcounted the same way as `rgc_str_t` from the big-strings refactor. Deep-clone on cross-handle assignment, shallow-clone inside a handle.
 
-Bounded slot count (suggested: 16, same as `BUFFER*`) keeps memory pressure predictable and matches the user's existing mental model.
+Bounded slot count (`MAX_DICTS`, currently 128; `BUFFER*` remains 16) keeps handle tables predictable. Dict slot count was raised from the Phase 1 default of 16 when nested structures made multi-dict programs plausible.
 
 ### Path syntax — same as `JSON$`
 

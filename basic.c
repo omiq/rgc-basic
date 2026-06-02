@@ -2281,7 +2281,7 @@ static unsigned g_buffer_next_id = 0;
  * Use-after-free is a no-op for writes and returns defaults for reads
  * (matches BUFFER*'s fail-soft posture). Set json_last_status = 4
  * when a dangling handle is touched so callers can detect it. */
-#define MAX_DICTS 16
+#define MAX_DICTS 128
 enum map_node_kind {
     DICT_NULL   = 0,
     DICT_BOOL   = 1,
@@ -11851,7 +11851,7 @@ static struct value eval_function(const char *name, char **p)
             json_last_status = 2;
             if (json_strict_mode) {
                 runtime_error_hint("DICTNEW: no free slot",
-                                     "MAX_DICTS = 16.  DICTFREE one before allocating more.");
+                                     "No free DICT slot; DICTFREE one before allocating more.");
             }
             return make_num(-1.0);
         }
@@ -13889,7 +13889,7 @@ static struct value eval_function(const char *name, char **p)
             json_last_status = 2;
             if (json_strict_mode) {
                 runtime_error_hint("DICTLOAD: no free slot",
-                                     "MAX_DICTS = 16.  DICTFREE one before MAPLOAD.");
+                                     "No free DICT slot; DICTFREE one before DICTLOAD.");
             }
             return make_num(-1.0);
         }

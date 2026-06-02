@@ -1,5 +1,11 @@
 ## Changelog
 
+### Changed: `MAX_DICTS` 16 → 128 (2026-06-02)
+
+`DICTNEW` / `DICTLOAD` may allocate up to **128** concurrent dict handles (was 16).
+Empty slots are still cheap; `DICTFREE` when done. `DICTNEW` returns **-1** when the
+table is full. Runtime hints no longer hard-code the old limit.
+
 ### New: EXIT FOR / EXIT WHILE + CONTINUE FOR / DO / WHILE (2026-06-01)
 
 Structured loop early-exit and skip-to-next-iteration, so loop bodies no longer
