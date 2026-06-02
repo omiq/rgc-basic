@@ -1,18 +1,18 @@
 #OPTION PETSCII
-SCREENCODES ON : BACKGROUND 0
-REM ** SUPER STAR TREK -- STRUCTURED (STATE-MACHINE) VERSION
-REM ** BY MIKE MAYFIELD 1974
-REM ** MODIFIED BY DAVID AHL 1978
-REM ** CONVERTED TO 40 COLUMNS
-REM ** BY ELECTRON.GREG 2022-2023
-REM ** MODIFIED BY CHRIS GARRETT 2025
-REM ** ( FOR TUTORIAL USE )
-REM ** SUPPORT ELECTRON.GREG
-REM ** https://electrongreg.itch.io/
-REM **
-REM ** THE WHOLE GAME IS NOW DRIVEN BY ONE STATE LOOP (BELOW). EACH STATE
-REM ** IS A FUNCTION THAT DOES ITS WORK AND RETURNS THE NEXT STATE, SO
-REM ** THERE ARE NO GOTOS BETWEEN ROUTINES
+screencodes on : background 0
+' ** SUPER STAR TREK -- STRUCTURED (STATE-MACHINE) VERSION
+' ** BY MIKE MAYFIELD 1974
+' ** MODIFIED BY DAVID AHL 1978
+' ** CONVERTED TO 40 COLUMNS
+' ** BY ELECTRON.GREG 2022-2023
+' ** MODIFIED BY CHRIS GARRETT 2025
+' ** ( FOR TUTORIAL USE )
+' ** SUPPORT ELECTRON.GREG
+' ** https://electrongreg.itch.io/
+' **
+' ** THE WHOLE GAME IS NOW DRIVEN BY ONE STATE LOOP (BELOW). EACH STATE
+' ** IS A FUNCTION THAT DOES ITS WORK AND RETURNS THE NEXT STATE, SO
+' ** THERE ARE NO GOTOS BETWEEN ROUTINES
 
 
 ST_QUIT=0 : ST_NEWGAME=1 : ST_NEWQUAD=2 : ST_COMMAND=3 : ST_DEAD=4
@@ -20,79 +20,79 @@ ST_GAMEOVER=5 : ST_VICTORY=6 : ST_MISSIONEND=7 : ST_PLAYAGAIN=8
 ENTERPRISE_TOKEN$="E  " : KLINGON_TOKEN$="K  " : STARBASE_TOKEN$="B  " : STAR_TOKEN$="*  " : EMPTY_TOKEN$="   "
 A1$="NAVSRSLRSPHATORSHEDAMCOMXXXHLP"
 InitColours()
-REM COURSE_VEC(9,2) = nav keypad deltas (course n -> dx, dy); DEVICE_DAMAGE(8) = stardates-to-repair per system
-DIM G(8,8),COURSE_VEC(9,2),K(3,3),N(3),Z(8,8),DEVICE_DAMAGE(8)
+' COURSE_VEC(9,2) = nav keypad deltas (course n -> dx, dy); DEVICE_DAMAGE(8) = stardates-to-repair per system
+dim G(8,8),COURSE_VEC(9,2),K(3,3),N(3),Z(8,8),DEVICE_DAMAGE(8)
 
-REM ** DISTANCE CALCULATION **
-REM Uses the Pythagorean theorem to calculate the distance between two points.
-DEF FND(D)=SQR((K(I,1)-SECTOR_X)^2+(K(I,2)-SECTOR_Y)^2)
+' ** DISTANCE CALCULATION **
+' Uses the Pythagorean theorem to calculate the distance between two points.
+def FND(D)=sqr((K(I,1)-SECTOR_X)^2+(K(I,2)-SECTOR_Y)^2)
 
-REM ** RANDOM NUMBER GENERATOR **
-REM Generates a random number between 1 and 8.
-REM R is the random number generator seed.
-DEF FNR(R)=INT(RND(R)*7.98+1.01)
+' ** RANDOM NUMBER GENERATOR **
+' Generates a random number between 1 and 8.
+' R is the random number generator seed.
+def FNR(R)=int(rnd(R)*7.98+1.01)
 
 
-REM ** ===== MAIN STATE LOOP ===== **
-REM ** EACH STATE FUNCTION DOES ITS WORK AND RETURNS THE NEXT STATE. WE
-REM ** DISPATCH WITH A SELECT CASE AND REPEAT UNTIL A FUNCTION HANDS BACK
-REM ** ST_QUIT. NO GOTOS HERE AT ALL -- JUST A DO/LOOP + SELECT CASE. **
+' ** ===== MAIN STATE LOOP ===== **
+' ** EACH STATE FUNCTION DOES ITS WORK AND RETURNS THE NEXT STATE. WE
+' ** DISPATCH WITH A SELECT CASE AND REPEAT UNTIL A FUNCTION HANDS BACK
+' ** ST_QUIT. NO GOTOS HERE AT ALL -- JUST A DO/LOOP + SELECT CASE. **
 GameState = ST_NEWGAME
-DO
-  SELECT CASE GameState
-    CASE ST_NEWGAME
+do
+  select case GameState
+    case ST_NEWGAME
       GameState = SetupGame()
-    CASE ST_NEWQUAD
+    case ST_NEWQUAD
       GameState = EnterQuadrant()
-    CASE ST_COMMAND
+    case ST_COMMAND
       GameState = DoCommand()
-    CASE ST_DEAD
+    case ST_DEAD
       GameState = ShipDestroyed()
-    CASE ST_GAMEOVER
+    case ST_GAMEOVER
       GameState = ShowGameOver()
-    CASE ST_VICTORY
+    case ST_VICTORY
       GameState = ShowVictory()
-    CASE ST_MISSIONEND
+    case ST_MISSIONEND
       GameState = ShowMissionEnd()
-    CASE ST_PLAYAGAIN
+    case ST_PLAYAGAIN
       GameState = AskPlayAgain()
-  END SELECT
-LOOP UNTIL GameState = ST_QUIT
-END
+  end select
+loop until GameState = ST_QUIT
+end
 
 
 
-REM ** ===== ONE-TIME GAME SETUP (NEW GAME / RESTART) ===== **
-FUNCTION SetupGame()
+' ** ===== ONE-TIME GAME SETUP (NEW GAME / RESTART) ===== **
+function SetupGame()
     Z2$=""
     ATAKFLAG=0
     SLSFLAG=0
-    N=RND(-1)
-    PRINT CHR$(147);
-    PRINT HCOL$;"{YELLOW}   --S-U-P-E-R---S-T-A-R---T-R-E-K--"
-    PRINT "{WHITE}"
-    FOR N=1 TO 5
-      PRINT
-    NEXT
-    PRINT BCOL$;
-    PRINT "                    ,------*-------,"
-    PRINT "    ,-------------,  '---  -------'"
-    PRINT "    '--------{109}{109}--'      / /"
-    PRINT "          ,---{109}{109}-------/ /--,"
-    PRINT "          '----------------'"
-    PRINT DCOL$
-    PRINT "    THE USS ENTERPRISE --- NCC-1701"
-    FOR N=1 TO 5
-      PRINT FCOL$
-    NEXT
+    N=rnd(-1)
+    print chr$(147);
+    print HCOL$;"{YELLOW}   --S-U-P-E-R---S-T-A-R---T-R-E-K--"
+    print "{WHITE}"
+    for N=1 to 5
+      print
+    next
+    print BCOL$;
+    print "                    ,------*-------,"
+    print "    ,-------------,  '---  -------'"
+    print "    '--------{109}{109}--'      / /"
+    print "          ,---{109}{109}-------/ /--,"
+    print "          '----------------'"
+    print DCOL$
+    print "    THE USS ENTERPRISE --- NCC-1701"
+    for N=1 to 5
+      print FCOL$
+    next
     CRSTART=1
     Pause()
-    RANDOM_SEED=RND(-TI) : REM ** RANDOM SEED GENERATOR **
-    PRINT : PRINT "{CLR}           GENERATING GALAXY";
+    RANDOM_SEED=rnd(-TI) : ' ** RANDOM SEED GENERATOR **
+    print : print "{CLR}           GENERATING GALAXY";
     SPACE_PAD$="                         "
-    STARDATE_CUR=INT(RND(1)*20+20)*100
+    STARDATE_CUR=int(rnd(1)*20+20)*100
     STARDATE_START=STARDATE_CUR
-    MISSION_DAYS=25+INT(RND(1)*10)
+    MISSION_DAYS=25+int(rnd(1)*10)
     D0=0
     SHIP_ENERGY=3000
     ENERGY_MAX=SHIP_ENERGY
@@ -104,1149 +104,1181 @@ FUNCTION SetupGame()
     KLINGON_COUNT=0
     X$=""
     X0$=" IS "
-    REM INITIALIZE ENTERPRISES POSITION
+    
+    ' INITIALIZE ENTERPRISES POSITION
     QUADRANT_X=FNR(1)
     QUADRANT_Y=FNR(1)
     SECTOR_X=FNR(1)
     SECTOR_Y=FNR(1)
-    FOR I=1 TO 9
+
+    ' INITIALIZE COURSE_VEC
+    for I=1 to 9
       COURSE_VEC(I,1)=0
       COURSE_VEC(I,2)=0
-    NEXT I
+    next I
     COURSE_VEC(3,1)=-1 : COURSE_VEC(2,1)=-1 : COURSE_VEC(4,1)=-1 : COURSE_VEC(4,2)=-1 : COURSE_VEC(5,2)=-1 : COURSE_VEC(6,2)=-1
     COURSE_VEC(1,2)=1 : COURSE_VEC(2,2)=1 : COURSE_VEC(6,1)=1 : COURSE_VEC(7,1)=1 : COURSE_VEC(8,1)=1 : COURSE_VEC(8,2)=1 : COURSE_VEC(9,2)=1
-    FOR I=1 TO 8
+    
+    ' INITIALIZE DEVICE_DAMAGE
+    for I=1 to 8
       DEVICE_DAMAGE(I)=0
-    NEXT I
-    REM SETUP WHAT EXISTS IN GALAXY . . .
-    REM K3= # KLINGONS  B3= # STARBASES  S3 = # STARS
-    FOR I=1 TO 8
-      PRINT ".";
-      FOR J=1 TO 8
+    next I
+    
+    ' SETUP WHAT EXISTS IN GALAXY . . .
+    ' K3= # KLINGONS  B3= # STARBASES  S3 = # STARS
+    for I=1 to 8
+      print ".";
+      for J=1 to 8
         K3=0
         Z(I,J)=0
-        RAND_ROLL=RND(1)
-        SELECT CASE RAND_ROLL
-        CASE IS > .98
-        K3=3 : KLINGON_COUNT=KLINGON_COUNT+3
-        CASE IS > .95
-        K3=2 : KLINGON_COUNT=KLINGON_COUNT+2
-        CASE IS > .80
-        K3=1 : KLINGON_COUNT=KLINGON_COUNT+1
-        END SELECT
+        RAND_ROLL=rnd(1)
+        select case RAND_ROLL
+        case IS > .98
+            K3=3 : KLINGON_COUNT=KLINGON_COUNT+3
+        case IS > .95
+            K3=2 : KLINGON_COUNT=KLINGON_COUNT+2
+        case IS > .80
+            K3=1 : KLINGON_COUNT=KLINGON_COUNT+1
+        case else
+            K3=0
+        end select
         B3=0
-        IF RND(1)>.96 THEN B3=1 : STARBASE_COUNT=STARBASE_COUNT+1
+        if rnd(1)>.96 then B3=1 : STARBASE_COUNT=STARBASE_COUNT+1
         G(I,J)=K3*100+B3*10+FNR(1)
-      NEXT J
-    NEXT I
-    IF KLINGON_COUNT>MISSION_DAYS THEN MISSION_DAYS=KLINGON_COUNT+1
-    PRINT
-    ShowKey() : REM ** KEY TO SRS ICONS **
-    ShowCommands() : REM ** USE THESE COMMANDS LIST **
-    PRINT
-    Pause() : REM ** PAUSE **
-    REM Guarantee at least one starbase and preserve original balancing tweak.
-    IF STARBASE_COUNT=0 THEN
-      IF G(QUADRANT_X,QUADRANT_Y)<200 THEN G(QUADRANT_X,QUADRANT_Y)=G(QUADRANT_X,QUADRANT_Y)+120 : KLINGON_COUNT=KLINGON_COUNT+1
+      next J
+    next I
+    if KLINGON_COUNT>MISSION_DAYS then MISSION_DAYS=KLINGON_COUNT+1
+    print
+    ShowKey() : ' ** KEY TO SRS ICONS **
+    ShowCommands() : ' ** USE THESE COMMANDS LIST **
+    print
+    Pause() : ' ** PAUSE **
+
+    ' Guarantee at least one starbase and preserve original balancing tweak.
+    if STARBASE_COUNT=0 then
+      if G(QUADRANT_X,QUADRANT_Y)<200 then G(QUADRANT_X,QUADRANT_Y)=G(QUADRANT_X,QUADRANT_Y)+120 : KLINGON_COUNT=KLINGON_COUNT+1
       STARBASE_COUNT=1
       G(QUADRANT_X,QUADRANT_Y)=G(QUADRANT_X,QUADRANT_Y)+10
       QUADRANT_X=FNR(1)
       QUADRANT_Y=FNR(1)
-    END IF
+    end if
     K7=KLINGON_COUNT
-    IF STARBASE_COUNT<>1 THEN X$="S" : X0$=" ARE "
-    PRINT
-    PRINT "{CLR}{REVERSE ON}YOUR ORDERS ARE AS FOLLOWS:{REVERSE OFF}"
-    PRINT
-    PRINT "DESTROY THE ";KLINGON_COUNT;" KLINGON WARSHIPS BEFORE"
-    PRINT "STARDATE ";STARDATE_START+MISSION_DAYS;". THIS GIVES YOU ";MISSION_DAYS;" DAYS."
-    PRINT "THERE";X0$;STARBASE_COUNT;" STARBASE";X$;" IN THE GALAXY"
-    PRINT "FOR RESUPPLYING & REPAIRING YOUR SHIP."
-    I=RND(1)
-    RETURN ST_NEWQUAD
-END FUNCTION
+    if STARBASE_COUNT<>1 then X$="S" : X0$=" ARE "
+    print
+    print "{CLR}{REVERSE ON}YOUR ORDERS ARE AS FOLLOWS:{REVERSE OFF}"
+    print
+    print "DESTROY THE ";KLINGON_COUNT;" KLINGON WARSHIPS BEFORE"
+    print "STARDATE ";STARDATE_START+MISSION_DAYS;". THIS GIVES YOU ";MISSION_DAYS;" DAYS."
+    print "THERE";X0$;STARBASE_COUNT;" STARBASE";X$;" IN THE GALAXY"
+    print "FOR RESUPPLYING & REPAIRING YOUR SHIP."
+    I=rnd(1)
+    return ST_NEWQUAD
+end function
 
 
 
 
-REM ** ===== ENTER A QUADRANT: SET IT UP, PLACE OBJECTS, SHORT SCAN ===== **
-FUNCTION EnterQuadrant()
+' ** ===== ENTER A QUADRANT: SET IT UP, PLACE OBJECTS, SHORT SCAN ===== **
+function EnterQuadrant()
     Z4=QUADRANT_X
     Z5=QUADRANT_Y
     K3=0 : B3=0 : S3=0
     G5=0
-    D4=.5*RND(1)
+    D4=.5*rnd(1)
     Z(QUADRANT_X,QUADRANT_Y)=G(QUADRANT_X,QUADRANT_Y)
-    IF QUADRANT_X >= 1 AND QUADRANT_X <=8 AND QUADRANT_Y>=1 AND QUADRANT_Y<=8 THEN
+    if QUADRANT_X >= 1 and QUADRANT_X <=8 and QUADRANT_Y>=1 and QUADRANT_Y<=8 then
       QuadrantName()
-      PRINT
-    IF STARDATE_START=STARDATE_CUR THEN
-      PRINT "YOUR MISSION BEGINS WITH YOUR STARSHIP"
-      PRINT "IN THE QUADRANT, ";G2$;"."
-      SRSFLAG=1
-      PRINT
-      Pause() : REM ** PAUSE **
-      PRINT
-    ELSE
-      IF ATAKFLAG=1 THEN
-        Pause()
-        ATAKFLAG=0
-        PRINT
-      END IF
-      SRSFLAG=1
-      PRINT "ENTERING ";G2$;" QUADRANT..."
-    END IF
-    END IF
-    REM Decode G(quad): K3/B3/S3 = klingons / starbases / stars in this quadrant
-    K3=INT(G(QUADRANT_X,QUADRANT_Y)*.01)
-    B3=INT(G(QUADRANT_X,QUADRANT_Y)*.1)-10*K3
+      print
+      if STARDATE_START=STARDATE_CUR then
+        print "YOUR MISSION BEGINS WITH YOUR STARSHIP"
+        print "IN THE QUADRANT, ";G2$;"."
+        SRSFLAG=1
+        print
+        Pause() : ' ** PAUSE **
+        print
+      else
+        if ATAKFLAG=1 then
+          Pause()
+          ATAKFLAG=0
+          print
+        end if
+        SRSFLAG=1
+        print "ENTERING ";G2$;" QUADRANT..."
+      end if
+    end if
+    ' Decode G(quad): K3/B3/S3 = klingons / starbases / stars in this quadrant
+    K3=int(G(QUADRANT_X,QUADRANT_Y)*.01)
+    B3=int(G(QUADRANT_X,QUADRANT_Y)*.1)-10*K3
     S3=G(QUADRANT_X,QUADRANT_Y)-100*K3-10*B3
-    FOR I=1 TO 3
+    for I=1 to 3
       K(I,1)=0
       K(I,2)=0
-    NEXT I
-    FOR I=1 TO 3
+    next I
+    for I=1 to 3
       K(I,3)=0
-    NEXT I
-    QUADRANT_BUFFER$=SPACE_PAD$+SPACE_PAD$+SPACE_PAD$+SPACE_PAD$+SPACE_PAD$+SPACE_PAD$+SPACE_PAD$+LEFT$(SPACE_PAD$,17)
-    REM POSITION ENTERPRISE IN QUADRANT, THEN PLACE "K3" KLINGONS, &
-    REM "B3" STARBASES, & "S3" STARS ELSE WHERE.
+    next I
+    QUADRANT_BUFFER$=SPACE_PAD$+SPACE_PAD$+SPACE_PAD$+SPACE_PAD$+SPACE_PAD$+SPACE_PAD$+SPACE_PAD$+left$(SPACE_PAD$,17)
+    ' POSITION ENTERPRISE IN QUADRANT, THEN PLACE "K3" KLINGONS, &
+    ' "B3" STARBASES, & "S3" STARS ELSE WHERE.
     A$=ENTERPRISE_TOKEN$
     TOKEN_X=SECTOR_X
     TOKEN_Y=SECTOR_Y
     PlaceToken()
-    IF K3 >= 1 THEN
-      FOR I=1 TO K3
+    if K3 >= 1 then
+      for I=1 to K3
         FindEmpty()
         A$=KLINGON_TOKEN$
         TOKEN_X=RANDOM_X : TOKEN_Y=RANDOM_Y
         PlaceToken()
-        K(I,1)=RANDOM_X : K(I,2)=RANDOM_Y : K(I,3)=KLINGON_HP_BASE*(0.5+RND(1))
-      NEXT I
-    END IF
-    IF B3 >= 1 THEN
+        K(I,1)=RANDOM_X : K(I,2)=RANDOM_Y : K(I,3)=KLINGON_HP_BASE*(0.5+rnd(1))
+      next I
+    end if
+    if B3 >= 1 then
       FindEmpty()
       A$=STARBASE_TOKEN$
       TOKEN_X=RANDOM_X : B4=RANDOM_X
       TOKEN_Y=RANDOM_Y : B5=RANDOM_Y
       PlaceToken()
-    END IF
-    FOR I=1 TO S3
+    end if
+    for I=1 to S3
       FindEmpty()
       A$=STAR_TOKEN$
       TOKEN_X=RANDOM_X : TOKEN_Y=RANDOM_Y
       PlaceToken()
-    NEXT I
-    RETURN ShortRangeScan()
-END FUNCTION
+    next I
+    return ShortRangeScan()
+end function
 
 
 
 
-REM ** ===== COMMAND PHASE: ENERGY CHECK, PROMPT, DISPATCH ONE COMMAND ===== **
-FUNCTION DoCommand()
-    IF SHIELD_UNITS+SHIP_ENERGY <= 10 OR (SHIP_ENERGY<=10 AND DEVICE_DAMAGE(7)<>0) THEN
-      PRINT : PRINT "** FATAL ERROR **"
-      PRINT "YOUVE STRANDED YOUR SHIP IN SPACE."
-      PRINT "YOU HAVE INSUFFICIENT MANOEUVRING"
-      PRINT "ENERGY, & SHIELD CONTROL IS PRESENTLY"
-      PRINT "INCAPABLE OF CROSS-CIRCUITING TO"
-      PRINT "ENGINE ROOM!!"
-      PRINT : Pause()
-      RETURN ST_GAMEOVER
-    END IF
-    DO
-      PRINT
+' ** ===== COMMAND PHASE: ENERGY CHECK, PROMPT, DISPATCH ONE COMMAND ===== **
+function DoCommand()
+    if SHIELD_UNITS+SHIP_ENERGY <= 10 or (SHIP_ENERGY<=10 and DEVICE_DAMAGE(7)<>0) then
+      print : print "** FATAL ERROR **"
+      print "YOUVE STRANDED YOUR SHIP IN SPACE."
+      print "YOU HAVE INSUFFICIENT MANOEUVRING"
+      print "ENERGY, & SHIELD CONTROL IS PRESENTLY"
+      print "INCAPABLE OF CROSS-CIRCUITING TO"
+      print "ENGINE ROOM!!"
+      print : Pause()
+      return ST_GAMEOVER
+    end if
+    do
+      print
       SRSFLAG=0
       LX=3
-      PRINT "{13}{REVERSE ON}{LIGHTBLUE}COMMAND:{REVERSE OFF}{WHITE} ";
+      print "{13}{REVERSE ON}{LIGHTBLUE}COMMAND:{REVERSE OFF}{WHITE} ";
       GetInput()
       A$=LII$ : Z2$=A$ : ATAKFLAG=0
-      IF A$="SLS" THEN SLSFLAG=1
-      IF A$="SLS" THEN PRINT : PRINT "{CLR}{REVERSE ON}SHORT & LONG RANGE SCAN...{REVERSE OFF}" : RETURN ShortRangeScan()
-      IF A$="KEY" THEN ShowKey() : REM KEY TO SRS ICONS
-      IF A$="KEY" THEN CONTINUE DO
+      if A$="SLS" then SLSFLAG=1
+      if A$="SLS" then 
+        print "{CLR}{REVERSE ON}SHORT & LONG RANGE SCAN...{REVERSE OFF}"
+        return ShortRangeScan()
+      end if
+      if A$="KEY" then ShowKey() : ' KEY TO SRS ICONS
+      if A$="KEY" then continue do
       COMFLAG=0
-      IF A$="GAL" AND DEVICE_DAMAGE(8)>=0 THEN A$="COM" : COMFLAG=1
-      IF DEVICE_DAMAGE(8)<0 AND A$="GAL" THEN PRINT : PRINT "SHIPS COMPUTER DISABLED" : CONTINUE DO
-      CMD=0 : FOR I=1 TO 10 : IF LEFT$(A$,3)=MID$(A1$,3*I-2,3) THEN CMD=I
-      NEXT I
-      SELECT CASE CMD
-      CASE 1
-          RETURN Nav()
-      CASE 2
-          RETURN ShortRangeScan()
-      CASE 3
-          RETURN Lrs()
-      CASE 4
-          RETURN Phasers()
-      CASE 5
-          RETURN Torpedo()
-      CASE 6
-          RETURN Shields()
-      CASE 7
-          RETURN Damage()
-      CASE 8
-          RETURN Computer()
-      CASE 9
-          RETURN ST_MISSIONEND
-      END SELECT
+      if A$="GAL" and DEVICE_DAMAGE(8)>=0 then A$="COM" : COMFLAG=1
+      if DEVICE_DAMAGE(8)<0 and A$="GAL" then 
+        print : print "SHIPS COMPUTER DISABLED"
+        continue do
+      end if
+      CMD=0
+      for I=1 to 10
+        if left$(A$,3)=mid$(A1$,3*I-2,3) then CMD=I
+      next I
+
+      select case CMD
+      case 1
+          return Nav()
+      case 2
+          return ShortRangeScan()
+      case 3
+          return Lrs()
+      case 4
+          return Phasers()
+      case 5
+          return Torpedo()
+      case 6
+          return Shields()
+      case 7
+          return Damage()
+      case 8
+          return Computer()
+      case 9
+          return ST_MISSIONEND
+      end select
       ShowCommands()
-    LOOP
-END FUNCTION
+    loop
+end function
 
 
 
 
-REM ** ===== COURSE CONTROL (NAV) ===== **
-FUNCTION Nav()
-    ShowDirections() : REM ** DIRECTION HELPER **
-    PRINT : LX=5 : PRINT "COURSE (1-9) :  "; : GetInput()
-    C1=VAL(LII$) : IF C1=9 THEN C1=1
-    IF C1<1 OR C1>=9 THEN
-    BACKGROUND 6: COLOR 1
-    PRINT : PRINT "LT. SULU REPORTS, INCORRECT COURSE"
-    PRINT "DATA, SIR!";: BACKGROUND 0: PRINT
-    RETURN ST_COMMAND
-    END IF
+' ** ===== COURSE CONTROL (NAV) ===== **
+function Nav()
+    ShowDirections() : ' ** DIRECTION HELPER **
+    print : LX=5 : print "COURSE (1-9) :  "; : GetInput()
+    C1=val(LII$) : if C1=9 then C1=1
+    if C1<1 or C1>=9 then
+      background 6: color 1
+      print : print "LT. SULU REPORTS, INCORRECT COURSE"
+      print "DATA, SIR!";: background 0: print
+      return ST_COMMAND
+    end if
     X$="8"
-    IF DEVICE_DAMAGE(1)<0 THEN X$="0.2"
+    if DEVICE_DAMAGE(1)<0 then X$="0.2"
     SRSFLAG=1
     LX=5
-    PRINT "WARP FACTOR (0-";X$;") :  ";
+    print "WARP FACTOR (0-";X$;") :  ";
     GetInput()
-    NAV_WARP_FACTOR=VAL(LII$)
-    IF DEVICE_DAMAGE(1)<0 AND NAV_WARP_FACTOR>.2 THEN
-    PRINT : PRINT "WARP ENGINES ARE DAMAGED."
-    PRINT "MAXIMUM SPEED = WARP 0.2" : RETURN ST_COMMAND
-    END IF
-    IF NAV_WARP_FACTOR>0 AND NAV_WARP_FACTOR<=8 THEN
-      N=INT(NAV_WARP_FACTOR*8+.5)
-    IF SHIP_ENERGY-N<0 THEN
-    PRINT : BACKGROUND 6: COLOR 1:PRINT "ENGINEERING REPORTS INSUFFICIENT ENERGY";
-    PRINT "AVAILABLE FOR WARP ";NAV_WARP_FACTOR;"!";: BACKGROUND 0
-    IF SHIELD_UNITS < N-SHIP_ENERGY OR DEVICE_DAMAGE(7) < 0 THEN RETURN ST_COMMAND
-    PRINT :BACKGROUND 6: COLOR 1: PRINT "DEFLECTOR CONTROL ROOM ACKNOWLEDGES"
-    S1$=STR$(SHIELD_UNITS)
-    PRINT "SHIELD ENERGY DEPLOYED IS ";S1$;" UNITS.";: BACKGROUND 0
-    RETURN ST_COMMAND
-    END IF
-    ELSE
-    IF NAV_WARP_FACTOR=0 THEN RETURN ST_COMMAND
-    PRINT : BACKGROUND 6: COLOR 1:PRINT "CHIEF ENGINEER SCOTT REPORTS THE"
-    PRINT "ENGINES WONT TAKE WARP ";NAV_WARP_FACTOR;"!";: BACKGROUND 0 : RETURN ST_COMMAND
-    END IF
-    REM KLINGONS MOVE/FIRE ON MOVING STARSHIP . . .
-    KlingonsMove: FOR I=1 TO K3 : IF K(I,3)=0 THEN CONTINUE FOR
-    A$=EMPTY_TOKEN$ : TOKEN_X=K(I,1) : TOKEN_Y=K(I,2) : PlaceToken() : FindEmpty()
-    K(I,1)=TOKEN_X : K(I,2)=TOKEN_Y : A$=KLINGON_TOKEN$ : PlaceToken()
-    NEXT I : KlingonsFire()
-    IF SHIPDEAD THEN RETURN ST_DEAD
-    D1=0 : D6=NAV_WARP_FACTOR : IF NAV_WARP_FACTOR>=1 THEN D6=1
-    FOR I=1 TO 8 : IF DEVICE_DAMAGE(I)>=0 THEN CONTINUE FOR
-    DEVICE_DAMAGE(I)=DEVICE_DAMAGE(I)+D6 : IF DEVICE_DAMAGE(I)>-.1AND DEVICE_DAMAGE(I)<0THEN DEVICE_DAMAGE(I)=-.1 : CONTINUE FOR
-    IF DEVICE_DAMAGE(I)<0 THEN CONTINUE FOR
-    IF D1<>1 THEN D1=1 : PRINT : PRINT "DAMAGE CONTROL REPORT :   "
-    DEVICE_INDEX=I : DeviceName() : PRINT G2$;" REPAIR COMPLETED"
-    NEXT I
-    IF RND(1)<=.2 THEN
-    DEVICE_INDEX=FNR(1)
-    IF RND(1)<.6 THEN
-    DEVICE_DAMAGE(DEVICE_INDEX)=DEVICE_DAMAGE(DEVICE_INDEX)-(RND(1)*5+1) : PRINT : PRINT "DAMAGE CONTROL REPORTS:"
-    DeviceName() : PRINT G2$;" DAMAGED"
-    ELSE
-    DEVICE_DAMAGE(DEVICE_INDEX)=DEVICE_DAMAGE(DEVICE_INDEX)+RND(1)*3+1 : PRINT : PRINT "DAMAGE CONTROL REPORTS:"
-    DeviceName() : PRINT G2$;" PARTLY REPAIRED"
-    END IF
-    END IF
-    REM BEGIN MOVING STARSHIP
-    A$=EMPTY_TOKEN$ : TOKEN_X=INT(SECTOR_X) : TOKEN_Y=INT(SECTOR_Y) : PlaceToken()
-    X1=COURSE_VEC(C1,1)+(COURSE_VEC(C1+1,1)-COURSE_VEC(C1,1))*(C1-INT(C1)) : X=SECTOR_X : Y=SECTOR_Y
-    X2=COURSE_VEC(C1,2)+(COURSE_VEC(C1+1,2)-COURSE_VEC(C1,2))*(C1-INT(C1)) : Q4=QUADRANT_X : Q5=QUADRANT_Y
+    NAV_WARP_FACTOR=val(LII$)
+    if DEVICE_DAMAGE(1)<0 and NAV_WARP_FACTOR>.2 then
+      print : print "WARP ENGINES ARE DAMAGED."
+      print "MAXIMUM SPEED = WARP 0.2" : return ST_COMMAND
+    end if
+    if NAV_WARP_FACTOR>0 and NAV_WARP_FACTOR<=8 then
+      N=int(NAV_WARP_FACTOR*8+.5)
+      if SHIP_ENERGY-N<0 then
+        print : background 6: color 1:print "ENGINEERING REPORTS INSUFFICIENT ENERGY";
+        print "AVAILABLE FOR WARP ";NAV_WARP_FACTOR;"!";: background 0
+        if SHIELD_UNITS < N-SHIP_ENERGY or DEVICE_DAMAGE(7) < 0 then return ST_COMMAND
+        print :background 6: color 1: print "DEFLECTOR CONTROL ROOM ACKNOWLEDGES"
+        S1$=str$(SHIELD_UNITS)
+        print "SHIELD ENERGY DEPLOYED IS ";S1$;" UNITS.";: background 0
+        return ST_COMMAND
+      end if
+    else
+      if NAV_WARP_FACTOR=0 then return ST_COMMAND
+      print : background 6: color 1:print "CHIEF ENGINEER SCOTT REPORTS THE"
+      print "ENGINES WONT TAKE WARP ";NAV_WARP_FACTOR;"!";: background 0 : return ST_COMMAND
+    end if
+    ' KLINGONS MOVE/FIRE ON MOVING STARSHIP . . .
+    KlingonsMove: for I=1 to K3
+      if K(I,3)=0 then continue for
+      A$=EMPTY_TOKEN$ : TOKEN_X=K(I,1) : TOKEN_Y=K(I,2) : PlaceToken() : FindEmpty()
+      K(I,1)=TOKEN_X : K(I,2)=TOKEN_Y : A$=KLINGON_TOKEN$ : PlaceToken()
+    next I
+    KlingonsFire()
+    if SHIPDEAD then return ST_DEAD
+    D1=0 : D6=NAV_WARP_FACTOR : if NAV_WARP_FACTOR>=1 then D6=1
+    for I=1 to 8
+      if DEVICE_DAMAGE(I)>=0 then continue for
+      DEVICE_DAMAGE(I)=DEVICE_DAMAGE(I)+D6
+      if DEVICE_DAMAGE(I)>-.1and DEVICE_DAMAGE(I)<0then DEVICE_DAMAGE(I)=-.1 : continue for
+      if DEVICE_DAMAGE(I)<0 then continue for
+      if D1<>1 then D1=1 : print : print "DAMAGE CONTROL REPORT :   "
+      DEVICE_INDEX=I : DeviceName() : print G2$;" REPAIR COMPLETED"
+    next I
+    if rnd(1)<=.2 then
+      DEVICE_INDEX=FNR(1)
+      if rnd(1)<.6 then
+        DEVICE_DAMAGE(DEVICE_INDEX)=DEVICE_DAMAGE(DEVICE_INDEX)-(rnd(1)*5+1) : print : print "DAMAGE CONTROL REPORTS:"
+        DeviceName() : print G2$;" DAMAGED"
+      else
+        DEVICE_DAMAGE(DEVICE_INDEX)=DEVICE_DAMAGE(DEVICE_INDEX)+rnd(1)*3+1 : print : print "DAMAGE CONTROL REPORTS:"
+        DeviceName() : print G2$;" PARTLY REPAIRED"
+      end if
+    end if
+    ' BEGIN MOVING STARSHIP
+    A$=EMPTY_TOKEN$ : TOKEN_X=int(SECTOR_X) : TOKEN_Y=int(SECTOR_Y) : PlaceToken()
+    X1=COURSE_VEC(C1,1)+(COURSE_VEC(C1+1,1)-COURSE_VEC(C1,1))*(C1-int(C1)) : X=SECTOR_X : Y=SECTOR_Y
+    X2=COURSE_VEC(C1,2)+(COURSE_VEC(C1+1,2)-COURSE_VEC(C1,2))*(C1-int(C1)) : Q4=QUADRANT_X : Q5=QUADRANT_Y
     MoveInterrupted=0 : CrossedQuadrant=0
-    FOR I=1 TO N : SECTOR_X=SECTOR_X+X1 : SECTOR_Y=SECTOR_Y+X2
-        IF SECTOR_X<1 OR SECTOR_X>=9 OR SECTOR_Y<1 OR SECTOR_Y>=9 THEN CrossedQuadrant=1 : EXIT FOR
-        S8=INT(SECTOR_X)*24+INT(SECTOR_Y)*3-26 : IF MID$(QUADRANT_BUFFER$,S8,2)="  "THEN CONTINUE FOR
-        SECTOR_X=INT(SECTOR_X-X1) : SECTOR_Y=INT(SECTOR_Y-X2) : PRINT : PRINT "WARP ENGINES SHUT DOWN AT ";
-        PRINT "SECTOR ";SECTOR_X;",";SECTOR_Y
-        PRINT "DUE TO BAD NAVIGATION"
+    for I=1 to N : SECTOR_X=SECTOR_X+X1 : SECTOR_Y=SECTOR_Y+X2
+        if SECTOR_X<1 or SECTOR_X>=9 or SECTOR_Y<1 or SECTOR_Y>=9 then CrossedQuadrant=1 : exit for
+        S8=int(SECTOR_X)*24+int(SECTOR_Y)*3-26 : if mid$(QUADRANT_BUFFER$,S8,2)="  "then continue for
+        SECTOR_X=int(SECTOR_X-X1) : SECTOR_Y=int(SECTOR_Y-X2) : print : print "WARP ENGINES SHUT DOWN AT ";
+        print "SECTOR ";SECTOR_X;",";SECTOR_Y
+        print "DUE TO BAD NAVIGATION"
         SRSFLAG=1
         MoveInterrupted=1
-        EXIT FOR
-    NEXT I
-    IF CrossedQuadrant=1 THEN
-    X=8*QUADRANT_X+X+N*X1 : Y=8*QUADRANT_Y+Y+N*X2 : QUADRANT_X=INT(X/8) : QUADRANT_Y=INT(Y/8) : SECTOR_X=INT(X-QUADRANT_X*8)
-    SECTOR_Y=INT(Y-QUADRANT_Y*8) : IF SECTOR_X=0 THEN QUADRANT_X=QUADRANT_X-1 : SECTOR_X=8
-    IF SECTOR_Y=0 THEN QUADRANT_Y=QUADRANT_Y-1 : SECTOR_Y=8
-    X5=0 : IF QUADRANT_X<1 THEN X5=1 : QUADRANT_X=1 : SECTOR_X=1
-    IF QUADRANT_X>8 THEN X5=1 : QUADRANT_X=8 : SECTOR_X=8
-    IF QUADRANT_Y<1 THEN X5=1 : QUADRANT_Y=1 : SECTOR_Y=1
-    IF QUADRANT_Y>8 THEN X5=1 : QUADRANT_Y=8 : SECTOR_Y=8
-    IF X5<>0 THEN
-    PRINT : BACKGROUND 6: COLOR 1: PRINT "LT. UHURA REPORTS MESSAGE FROM STARFLEET";
-    PRINT " COMMAND:{13}PERMISSION TO ATTEMPT CROSSING OF GALACTIC PERIMETER IS HEREBY{13}{RED}*DENIED*{WHITE}";
-    PRINT " - SHUT DOWN YOUR ENGINES.{13}{13} CHIEF ENGINEER SCOTT REPORTS WARP";
-    PRINT " ENGINES SHUT DOWN AT SECTOR ";SECTOR_X;",";SECTOR_Y;" OF QUADRANT ";QUADRANT_X;",";QUADRANT_Y;".";:
-    BACKGROUND 0: PRINT
-    SRSFLAG=1
-    PRINT : Pause()
-    IF STARDATE_CUR>STARDATE_START+MISSION_DAYS THEN RETURN ST_GAMEOVER
-    END IF
-    IF 8*QUADRANT_X+QUADRANT_Y=8*Q4+Q5 THEN 
-    A$=ENTERPRISE_TOKEN$ : TOKEN_X=INT(SECTOR_X) : TOKEN_Y=INT(SECTOR_Y) : PlaceToken() : ManeuverEnergy() : T8=1
-    IF NAV_WARP_FACTOR<1 THEN T8=.1*INT(10*NAV_WARP_FACTOR)
-    STARDATE_CUR=STARDATE_CUR+T8 : IF STARDATE_CUR>STARDATE_START+MISSION_DAYS THEN RETURN ST_GAMEOVER
-    RETURN ShortRangeScan()
-    END IF
-    STARDATE_CUR=STARDATE_CUR+1 : ManeuverEnergy() : RETURN ST_NEWQUAD
-    END IF
-    IF MoveInterrupted=0 THEN 
-      SECTOR_X=INT(SECTOR_X)
-      SECTOR_Y=INT(SECTOR_Y)
-    END IF
-    A$=ENTERPRISE_TOKEN$ : TOKEN_X=INT(SECTOR_X) : TOKEN_Y=INT(SECTOR_Y) : PlaceToken() : ManeuverEnergy() : T8=1
-    IF NAV_WARP_FACTOR<1 THEN T8=.1*INT(10*NAV_WARP_FACTOR)
-    STARDATE_CUR=STARDATE_CUR+T8 : IF STARDATE_CUR>STARDATE_START+MISSION_DAYS THEN RETURN ST_GAMEOVER
+        exit for
+    next I
+    if CrossedQuadrant=1 then
+      X=8*QUADRANT_X+X+N*X1 : Y=8*QUADRANT_Y+Y+N*X2 : QUADRANT_X=int(X/8) : QUADRANT_Y=int(Y/8) : SECTOR_X=int(X-QUADRANT_X*8)
+      SECTOR_Y=int(Y-QUADRANT_Y*8) : if SECTOR_X=0 then QUADRANT_X=QUADRANT_X-1 : SECTOR_X=8
+      if SECTOR_Y=0 then QUADRANT_Y=QUADRANT_Y-1 : SECTOR_Y=8
+      X5=0 : if QUADRANT_X<1 then X5=1 : QUADRANT_X=1 : SECTOR_X=1
+      if QUADRANT_X>8 then X5=1 : QUADRANT_X=8 : SECTOR_X=8
+      if QUADRANT_Y<1 then X5=1 : QUADRANT_Y=1 : SECTOR_Y=1
+      if QUADRANT_Y>8 then X5=1 : QUADRANT_Y=8 : SECTOR_Y=8
+      if X5<>0 then
+        print : background 6: color 1: print "LT. UHURA REPORTS MESSAGE FROM STARFLEET";
+        print " COMMAND:{13}PERMISSION TO ATTEMPT CROSSING OF GALACTIC PERIMETER IS HEREBY{13}{RED}*DENIED*{WHITE}";
+        print " - SHUT DOWN YOUR ENGINES.{13}{13} CHIEF ENGINEER SCOTT REPORTS WARP";
+        print " ENGINES SHUT DOWN AT SECTOR ";SECTOR_X;",";SECTOR_Y;" OF QUADRANT ";QUADRANT_X;",";QUADRANT_Y;".";:
+        background 0: print
+        SRSFLAG=1
+        print : Pause()
+        if STARDATE_CUR>STARDATE_START+MISSION_DAYS then return ST_GAMEOVER
+      end if
+      if 8*QUADRANT_X+QUADRANT_Y=8*Q4+Q5 then
+        A$=ENTERPRISE_TOKEN$ : TOKEN_X=int(SECTOR_X) : TOKEN_Y=int(SECTOR_Y) : PlaceToken() : ManeuverEnergy() : T8=1
+        if NAV_WARP_FACTOR<1 then T8=.1*int(10*NAV_WARP_FACTOR)
+        STARDATE_CUR=STARDATE_CUR+T8 : if STARDATE_CUR>STARDATE_START+MISSION_DAYS then return ST_GAMEOVER
+        return ShortRangeScan()
+      end if
+      STARDATE_CUR=STARDATE_CUR+1 : ManeuverEnergy() : return ST_NEWQUAD
+    end if
+    if MoveInterrupted=0 then 
+      SECTOR_X=int(SECTOR_X)
+      SECTOR_Y=int(SECTOR_Y)
+    end if
+    A$=ENTERPRISE_TOKEN$ : TOKEN_X=int(SECTOR_X) : TOKEN_Y=int(SECTOR_Y) : PlaceToken() : ManeuverEnergy() : T8=1
+    if NAV_WARP_FACTOR<1 then T8=.1*int(10*NAV_WARP_FACTOR)
+    STARDATE_CUR=STARDATE_CUR+T8 : if STARDATE_CUR>STARDATE_START+MISSION_DAYS then return ST_GAMEOVER
 
-    REM SEE IF DOCKED, THEN GET COMMAND
-    RETURN ShortRangeScan()
-END FUNCTION
-
-
+    ' SEE IF DOCKED, THEN GET COMMAND
+    return ShortRangeScan()
+end function
 
 
-REM MANEUVER ENERGY S/R **
-FUNCTION ManeuverEnergy()
+
+
+' MANEUVER ENERGY S/R **
+function ManeuverEnergy()
     SHIP_ENERGY=SHIP_ENERGY-N-10
-    IF SHIP_ENERGY>=0 THEN RETURN
-    PRINT : PRINT "SHIELD CONTROL SUPPLIES ENERGY TO"
-    PRINT "COMPLETE THE MANOEUVRE."
+    if SHIP_ENERGY>=0 then return
+    print : print "SHIELD CONTROL SUPPLIES ENERGY TO"
+    print "COMPLETE THE MANOEUVRE."
     SHIELD_UNITS=SHIELD_UNITS+SHIP_ENERGY
     SHIP_ENERGY=0
-    IF SHIELD_UNITS<=0 THEN SHIELD_UNITS=0
-    RETURN
-END FUNCTION
+    if SHIELD_UNITS<=0 then SHIELD_UNITS=0
+    return
+end function
 
 
 
 
-REM ** ===== LONG RANGE SCAN ===== **
-FUNCTION Lrs()
+' ** ===== LONG RANGE SCAN ===== **
+function Lrs()
     K1=0
-    IF DEVICE_DAMAGE(3)<0 THEN 
-      PRINT
-      PRINT "LONG RANGE SENSORS ARE INOPERABLE"
+    if DEVICE_DAMAGE(3)<0 then 
+      print
+      print "LONG RANGE SENSORS ARE INOPERABLE"
       SLSFLAG=0
-      RETURN ST_COMMAND
-    END IF
-    PRINT : PRINT "{13}{LIGHTBLUE}LONG RANGE SCAN FOR QUADRANT{WHITE} ";QUADRANT_X;",";QUADRANT_Y
-    PRINT : O1$=" ┌─────┬─────┬─────┐" : PRINT "{13}{GREEN}";O1$;
+      return ST_COMMAND
+    end if
+    print : print "{13}{LIGHTBLUE}LONG RANGE SCAN FOR QUADRANT{WHITE} ";QUADRANT_X;",";QUADRANT_Y
+    print : O1$=" ┌─────┬─────┬─────┐" : print "{13}{GREEN}";O1$;
     O2$=" ├─────┼─────┼─────┤":O3$=" {173}─────{177}─────{177}─────{189}" 
-    PRINT "         ";ECOL$;"#";DCOL$;"#";HCOL$;"#";FCOL$
-    FOR I=QUADRANT_X-1 TO QUADRANT_X+1 : N(1)=-1 : N(2)=-2 : N(3)=-3 : FOR J=QUADRANT_Y-1 TO QUADRANT_Y+1
-    IF I>0 AND I<9 AND J>0 AND J<9 THEN N(J-QUADRANT_Y+2)=G(I,J) : Z(I,J)=G(I,J)
-    NEXT J : FOR L=1 TO 3
-    IF K1=2 AND L=3 THEN PRINT "";
-    PRINT " {221}";
-    PRINT " ";
-    IF N(L)<0 THEN 
-      PRINT "▒▒▒";
-      CONTINUE FOR
-    END IF
-    G1$=RIGHT$(STR$(N(L)+1000),3)
-    G2$=ECOL$+MID$(G1$,1,1) : PRINT G2$;
-    G2$=DCOL$+MID$(G1$,2,1) : PRINT G2$;
-    G2$=HCOL$+MID$(G1$,3,1) : PRINT G2$;FCOL$;
-    NEXT L : PRINT " {221}"; : K1=K1+1
-    IF K1=1 THEN PRINT "        . . ."
-    IF K1=3 THEN PRINT "      .   .   ."
-    IF K1=5 THEN PRINT "    .           ."
-    K1=K1+1 : IF K1<6 THEN PRINT O2$;
-    IF K1=6 THEN PRINT O3$;
-    IF K1=2 THEN PRINT "       .  .  ."
-    IF K1=4 THEN PRINT "     .  {CYAN}BASES{GREEN}";
-    IF K1=4 THEN PRINT "  ."
-    IF K1=6 THEN PRINT "  {PINK}KLINGONS{WHITE}    {YELLOW}STARS{WHITE}"
-    NEXT I : K1=0 : IF SLSFLAG=1 THEN SLSFLAG=0
-    RETURN ST_COMMAND
-END FUNCTION
+    print "         ";ECOL$;"#";DCOL$;"#";HCOL$;"#";FCOL$
+    for I=QUADRANT_X-1 to QUADRANT_X+1
+      N(1)=-1 : N(2)=-2 : N(3)=-3
+      for J=QUADRANT_Y-1 to QUADRANT_Y+1
+        if I>0 and I<9 and J>0 and J<9 then N(J-QUADRANT_Y+2)=G(I,J) : Z(I,J)=G(I,J)
+      next J
+      for L=1 to 3
+        if K1=2 and L=3 then print "";
+        print " {221}";
+        print " ";
+        if N(L)<0 then
+          print "▒▒▒";
+          continue for
+        end if
+        G1$=right$(str$(N(L)+1000),3)
+        G2$=ECOL$+mid$(G1$,1,1) : print G2$;
+        G2$=DCOL$+mid$(G1$,2,1) : print G2$;
+        G2$=HCOL$+mid$(G1$,3,1) : print G2$;FCOL$;
+      next L
+      print " {221}"; : K1=K1+1
+      if K1=1 then print "        . . ."
+      if K1=3 then print "      .   .   ."
+      if K1=5 then print "    .           ."
+      K1=K1+1 : if K1<6 then print O2$;
+      if K1=6 then print O3$;
+      if K1=2 then print "       .  .  ."
+      if K1=4 then print "     .  {CYAN}BASES{GREEN}";
+      if K1=4 then print "  ."
+      if K1=6 then print "  {PINK}KLINGONS{WHITE}    {YELLOW}STARS{WHITE}"
+    next I
+    K1=0 : if SLSFLAG=1 then SLSFLAG=0
+    return ST_COMMAND
+end function
 
 
-REM ** ===== PHASER CONTROL ===== **
-FUNCTION Phasers()
-    IF DEVICE_DAMAGE(4)<0 THEN PRINT : PRINT "PHASERS INOPERATIVE" : RETURN ST_COMMAND
-    IF K3<=0 THEN NoEnemyMsg() : RETURN ST_COMMAND
-    IF DEVICE_DAMAGE(8)<0 THEN PRINT : PRINT "COMPUTER FAILURE HAMPERS ACCURACY"
-    PRINT : PRINT "PHASERS LOCKED ON TARGET!  "
-    DO
-    PRINT : PRINT "ENERGY AVAILABLE = ";SHIP_ENERGY;" UNITS"
-    LX=5 : PRINT "NUMBER OF UNITS TO FIRE :  "; : GetInput()
-    X=VAL(LII$) : IF X<=0 THEN RETURN ST_COMMAND
-    LOOP UNTIL SHIP_ENERGY-X>=0
-    SHIP_ENERGY=SHIP_ENERGY-X : IF DEVICE_DAMAGE(7)<0 THEN X=X*RND(1)
-    H1=INT(X/K3) : FOR I=1 TO 3 : IF K(I,3)<=0 THEN CONTINUE FOR
-    H=INT((H1/FND(0))*(RND(1)+2))
-    IF H<=.15*K(I,3) THEN 
-    PRINT : PRINT " SENSORS SHOW NO DAMAGE TO ENEMY"
-    PRINT " AT ";K(I,1);",";K(I,2)
-    CONTINUE FOR
-    END IF
-    K(I,3)=K(I,3)-H : PRINT
-    PRINT H;" UNIT HIT KLINGON AT ";K(I,1);",";K(I,2)
-    IF K(I,3)>0 THEN 
-    PRINT " (SENSORS SHOW ";INT(K(I,3));" UNITS REMAINING)"
-    CONTINUE FOR
-    END IF
-    PRINT " *** KLINGON DESTROYED ***"
-    K3=K3-1 : KLINGON_COUNT=KLINGON_COUNT-1 : TOKEN_X=K(I,1) : TOKEN_Y=K(I,2) : A$=EMPTY_TOKEN$ : PlaceToken()
-    K(I,3)=0 : G(QUADRANT_X,QUADRANT_Y)=G(QUADRANT_X,QUADRANT_Y)-100 : Z(QUADRANT_X,QUADRANT_Y)=G(QUADRANT_X,QUADRANT_Y) : IF KLINGON_COUNT<=0 THEN RETURN ST_VICTORY
-    NEXT I
-    IF K3>0 THEN PRINT : Pause()
+' ** ===== PHASER CONTROL ===== **
+function Phasers()
+    if DEVICE_DAMAGE(4)<0 then print : print "PHASERS INOPERATIVE" : return ST_COMMAND
+    if K3<=0 then NoEnemyMsg() : return ST_COMMAND
+    if DEVICE_DAMAGE(8)<0 then print : print "COMPUTER FAILURE HAMPERS ACCURACY"
+    print : print "PHASERS LOCKED ON TARGET!  "
+    do
+    print : print "ENERGY AVAILABLE = ";SHIP_ENERGY;" UNITS"
+    LX=5 : print "NUMBER OF UNITS TO FIRE :  "; : GetInput()
+    X=val(LII$) : if X<=0 then return ST_COMMAND
+    loop until SHIP_ENERGY-X>=0
+    SHIP_ENERGY=SHIP_ENERGY-X : if DEVICE_DAMAGE(7)<0 then X=X*rnd(1)
+    H1=int(X/K3)
+    for I=1 to 3
+      if K(I,3)<=0 then continue for
+      H=int((H1/FND(0))*(rnd(1)+2))
+      if H<=.15*K(I,3) then
+        print : print " SENSORS SHOW NO DAMAGE TO ENEMY"
+        print " AT ";K(I,1);",";K(I,2)
+        continue for
+      end if
+      K(I,3)=K(I,3)-H : print
+      print H;" UNIT HIT KLINGON AT ";K(I,1);",";K(I,2)
+      if K(I,3)>0 then
+        print " (SENSORS SHOW ";int(K(I,3));" UNITS REMAINING)"
+        continue for
+      end if
+      print " *** KLINGON DESTROYED ***"
+      K3=K3-1 : KLINGON_COUNT=KLINGON_COUNT-1 : TOKEN_X=K(I,1) : TOKEN_Y=K(I,2) : A$=EMPTY_TOKEN$ : PlaceToken()
+      K(I,3)=0 : G(QUADRANT_X,QUADRANT_Y)=G(QUADRANT_X,QUADRANT_Y)-100 : Z(QUADRANT_X,QUADRANT_Y)=G(QUADRANT_X,QUADRANT_Y)
+      if KLINGON_COUNT<=0 then return ST_VICTORY
+    next I
+    if K3>0 then print : Pause()
     KlingonsFire()
-    IF SHIPDEAD THEN RETURN ST_DEAD
-    RETURN ST_COMMAND
-END FUNCTION
+    if SHIPDEAD then return ST_DEAD
+    return ST_COMMAND
+end function
 
 
-REM ** ===== PHOTON TORPEDO ===== **
-FUNCTION Torpedo()
-    IF TORPEDO_COUNT<=0 THEN PRINT : PRINT "ALL PHOTON TORPEDOES EXPENDED" : RETURN ST_COMMAND
-    IF DEVICE_DAMAGE(5)<0 THEN PRINT : PRINT "PHOTON TUBES ARE NOT OPERATIONAL" : RETURN ST_COMMAND
-    DO
-    ShowDirections() : REM ** DIRECTION HELPER **
-    PRINT : LX=5 : PRINT "PHOTON TORPEDO COURSE (1-9) :  "; : GetInput()
-    C1=VAL(LII$) : IF C1=9 THEN C1=1
-    IF C1<1 OR C1>=9 THEN
-    PRINT : BACKGROUND 6: COLOR 1: PRINT "ENSIGN CHEKOV REPORTS, INCORRECT"
-    PRINT "COURSE DATA, SIR!";:BACKGROUND 0: PRINT : RETURN ST_COMMAND
-    END IF
-    X1=COURSE_VEC(C1,1)+(COURSE_VEC(C1+1,1)-COURSE_VEC(C1,1))*(C1-INT(C1)) : SHIP_ENERGY=SHIP_ENERGY-2 : TORPEDO_COUNT=TORPEDO_COUNT-1
-    X2=COURSE_VEC(C1,2)+(COURSE_VEC(C1+1,2)-COURSE_VEC(C1,2))*(C1-INT(C1)) : X=SECTOR_X : Y=SECTOR_Y
-    PRINT : PRINT "TORPEDO TRACKING:"
-    RetryCourse=0
-    DO
-    X=X+X1 : Y=Y+X2 : X3=INT(X+.5) : Y3=INT(Y+.5)
-    IF X3<1 OR X3>8 OR Y3<1 OR Y3>8 THEN
-    PRINT " ** TORPEDO MISSED **"
-    IF K3<>0 THEN PRINT : Pause()
-    KlingonsFire()
-    IF SHIPDEAD THEN RETURN ST_DEAD
-    RETURN ST_COMMAND
-    END IF
-    PRINT " ";X3;",";Y3 : A$=EMPTY_TOKEN$ : TOKEN_X=X : TOKEN_Y=Y : CheckSector()
-    IF Z3<>0 THEN CONTINUE DO
+' ** ===== PHOTON TORPEDO ===== **
+function Torpedo()
+    if TORPEDO_COUNT<=0 then print : print "ALL PHOTON TORPEDOES EXPENDED" : return ST_COMMAND
+    if DEVICE_DAMAGE(5)<0 then print : print "PHOTON TUBES ARE NOT OPERATIONAL" : return ST_COMMAND
+    do
+      ShowDirections() : ' ** DIRECTION HELPER **
+      print : LX=5 : print "PHOTON TORPEDO COURSE (1-9) :  "; : GetInput()
+      C1=val(LII$) : if C1=9 then C1=1
+      if C1<1 or C1>=9 then
+        print : background 6: color 1: print "ENSIGN CHEKOV REPORTS, INCORRECT"
+        print "COURSE DATA, SIR!";:background 0: print : return ST_COMMAND
+      end if
+      X1=COURSE_VEC(C1,1)+(COURSE_VEC(C1+1,1)-COURSE_VEC(C1,1))*(C1-int(C1)) : SHIP_ENERGY=SHIP_ENERGY-2 : TORPEDO_COUNT=TORPEDO_COUNT-1
+      X2=COURSE_VEC(C1,2)+(COURSE_VEC(C1+1,2)-COURSE_VEC(C1,2))*(C1-int(C1)) : X=SECTOR_X : Y=SECTOR_Y
+      print : print "TORPEDO TRACKING:"
+      RetryCourse=0
+      do
+        X=X+X1 : Y=Y+X2 : X3=int(X+.5) : Y3=int(Y+.5)
+        if X3<1 or X3>8 or Y3<1 or Y3>8 then
+          print " ** TORPEDO MISSED **"
+          if K3<>0 then print : Pause()
+          KlingonsFire()
+          if SHIPDEAD then return ST_DEAD
+          return ST_COMMAND
+        end if
+        print " ";X3;",";Y3 : A$=EMPTY_TOKEN$ : TOKEN_X=X : TOKEN_Y=Y : CheckSector()
+        if Z3<>0 then continue do
 
-    A$=KLINGON_TOKEN$ : TOKEN_X=X : TOKEN_Y=Y : CheckSector()
-    IF Z3<>0 THEN
-    PRINT " *** KLINGON DESTROYED ***"
-    K3=K3-1 : IF K3>0 THEN PRINT : Pause()
-    KLINGON_COUNT=KLINGON_COUNT-1 : IF KLINGON_COUNT<=0 THEN RETURN ST_VICTORY
-    HitIdx=3
-    FOR I=1 TO 3
-    IF X3=K(I,1) AND Y3=K(I,2) THEN HitIdx=I : EXIT FOR
-    NEXT I
-    K(HitIdx,3)=0
-    TOKEN_X=X : TOKEN_Y=Y : A$=EMPTY_TOKEN$ : PlaceToken()
-    G(QUADRANT_X,QUADRANT_Y)=K3*100+B3*10+S3 : Z(QUADRANT_X,QUADRANT_Y)=G(QUADRANT_X,QUADRANT_Y) : KlingonsFire()
-    IF SHIPDEAD THEN RETURN ST_DEAD
-    RETURN ST_COMMAND
-    END IF
+        A$=KLINGON_TOKEN$ : TOKEN_X=X : TOKEN_Y=Y : CheckSector()
+        if Z3<>0 then
+          print " *** KLINGON DESTROYED ***"
+          K3=K3-1 : if K3>0 then print : Pause()
+          KLINGON_COUNT=KLINGON_COUNT-1 : if KLINGON_COUNT<=0 then return ST_VICTORY
+          HitIdx=3
+          for I=1 to 3
+            if X3=K(I,1) and Y3=K(I,2) then HitIdx=I : exit for
+          next I
+          K(HitIdx,3)=0
+          TOKEN_X=X : TOKEN_Y=Y : A$=EMPTY_TOKEN$ : PlaceToken()
+          G(QUADRANT_X,QUADRANT_Y)=K3*100+B3*10+S3 : Z(QUADRANT_X,QUADRANT_Y)=G(QUADRANT_X,QUADRANT_Y) : KlingonsFire()
+          if SHIPDEAD then return ST_DEAD
+          return ST_COMMAND
+        end if
 
-    A$=STAR_TOKEN$ : TOKEN_X=X : TOKEN_Y=Y : CheckSector()
-    IF Z3<>0 THEN
-    PRINT " ** STAR AT";X3;",";Y3;"ABSORBED TORPEDO **"
-    IF K3<>0 THEN PRINT : Pause()
-    KlingonsFire()
-    IF SHIPDEAD THEN RETURN ST_DEAD
-    RETURN ST_COMMAND
-    END IF
+        A$=STAR_TOKEN$ : TOKEN_X=X : TOKEN_Y=Y : CheckSector()
+        if Z3<>0 then
+          print " ** STAR AT";X3;",";Y3;"ABSORBED TORPEDO **"
+          if K3<>0 then print : Pause()
+          KlingonsFire()
+          if SHIPDEAD then return ST_DEAD
+          return ST_COMMAND
+        end if
 
-    A$=STARBASE_TOKEN$ : TOKEN_X=X : TOKEN_Y=Y : CheckSector()
-    IF Z3=0 THEN
-    RetryCourse=1
-    EXIT DO
-    END IF
-    PRINT " *** STARBASE DESTROYED ***"
-    PRINT : Pause()
-    B3=B3-1 : STARBASE_COUNT=STARBASE_COUNT-1
-    IF STARBASE_COUNT<=0 AND KLINGON_COUNT<=STARDATE_CUR-STARDATE_START-MISSION_DAYS THEN
-    PRINT : BACKGROUND 6: COLOR 1: PRINT "THAT DOES IT, CAPTAIN!!  YOU ARE HEREBY"
-    PRINT "RELIEVED OF COMMAND AND SENTENCED TO 99"
-    PRINT "STARDATES AT HARD LABOUR ON CYGNUS 12!!";:BACKGROUND 0
-    RETURN ST_MISSIONEND
-    END IF
-    PRINT : PRINT "STARFLEET COMMAND REVIEWING YOUR RECORD"
-    PRINT "TO CONSIDER COURT MARTIAL!" : D0=0
-    TOKEN_X=X : TOKEN_Y=Y : A$=EMPTY_TOKEN$ : PlaceToken()
-    G(QUADRANT_X,QUADRANT_Y)=K3*100+B3*10+S3 : Z(QUADRANT_X,QUADRANT_Y)=G(QUADRANT_X,QUADRANT_Y) : KlingonsFire()
-    IF SHIPDEAD THEN RETURN ST_DEAD
-    RETURN ST_COMMAND
-    LOOP
-    IF RetryCourse=1 THEN CONTINUE DO
-    LOOP
-END FUNCTION
-
-
-REM ** ===== SHIELD CONTROL ===== **
-FUNCTION Shields()
-    IF DEVICE_DAMAGE(7)<0 THEN PRINT : PRINT "SHIELD CONTROL INOPERABLE" : RETURN ST_COMMAND
-    PRINT : PRINT "ENERGY AVAILABLE = ";SHIP_ENERGY+SHIELD_UNITS
-    LX=5 : PRINT "NUMBER OF UNITS TO SHIELDS :  "; : GetInput()
-    X=VAL(LII$)
-    IF X<0 OR SHIELD_UNITS=X THEN PRINT "<SHIELDS UNCHANGED>" : RETURN ST_COMMAND
-    IF X>SHIP_ENERGY+SHIELD_UNITS THEN
-    PRINT :  BACKGROUND 6: COLOR 1: PRINT "SHIELD CONTROL REPORTS THIS IS NOT THE"
-    PRINT "FEDERATION TREASURY."
-    PRINT "<SHIELDS UNCHANGED>";:BACKGROUND 0: PRINT : RETURN ST_COMMAND
-    END IF
-    SHIP_ENERGY=SHIP_ENERGY+SHIELD_UNITS-X : SHIELD_UNITS=X : PRINT :BACKGROUND 6: COLOR 1: PRINT "DEFLECTOR CONTROL ROOM REPORT:"
-    PRINT "SHIELDS NOW AT ";INT(SHIELD_UNITS);" UNITS PER"
-    PRINT "YOUR COMMAND.";:BACKGROUND 0: PRINT : RETURN ST_COMMAND
-END FUNCTION
+        A$=STARBASE_TOKEN$ : TOKEN_X=X : TOKEN_Y=Y : CheckSector()
+        if Z3=0 then
+          RetryCourse=1
+          exit do
+        end if
+        print " *** STARBASE DESTROYED ***"
+        print : Pause()
+        B3=B3-1 : STARBASE_COUNT=STARBASE_COUNT-1
+        if STARBASE_COUNT<=0 and KLINGON_COUNT<=STARDATE_CUR-STARDATE_START-MISSION_DAYS then
+          print : background 6: color 1: print "THAT DOES IT, CAPTAIN!!  YOU ARE HEREBY"
+          print "RELIEVED OF COMMAND AND SENTENCED TO 99"
+          print "STARDATES AT HARD LABOUR ON CYGNUS 12!!";:background 0
+          return ST_MISSIONEND
+        end if
+        print : print "STARFLEET COMMAND REVIEWING YOUR RECORD"
+        print "TO CONSIDER COURT MARTIAL!" : D0=0
+        TOKEN_X=X : TOKEN_Y=Y : A$=EMPTY_TOKEN$ : PlaceToken()
+        G(QUADRANT_X,QUADRANT_Y)=K3*100+B3*10+S3 : Z(QUADRANT_X,QUADRANT_Y)=G(QUADRANT_X,QUADRANT_Y) : KlingonsFire()
+        if SHIPDEAD then return ST_DEAD
+        return ST_COMMAND
+      loop
+      if RetryCourse=1 then continue do
+    loop
+end function
 
 
-REM ** ===== DAMAGE CONTROL ===== **
-FUNCTION Damage()
-    IF DEVICE_DAMAGE(6)<0 THEN
-    PRINT : PRINT "DAMAGE CONTROL REPORT NOT AVAILABLE"
-    IF D0=0 THEN RETURN ST_COMMAND
-    END IF
-    DO
-    IF DEVICE_DAMAGE(6)<0 AND D0<>0 THEN
-    D3=0 : FOR I=1 TO 8 : IF DEVICE_DAMAGE(I)<0 THEN D3=D3+.1
-    NEXT I : IF D3=0 THEN RETURN ST_COMMAND
-    D3=D3+D4 : IF D3>=1 THEN D3=.9
-    PRINT : PRINT "TECHNICIANS STANDING BY TO EFFECT"
-    PRINT "REPAIRS TO YOUR SHIP;"
-    PRINT "ESTIMATED TIME TO REPAIR: "
-    PRINT .01*INT(100*D3);" STARDATES"
-    LX=1 : PRINT : PRINT "AUTHORISE THE REPAIR ORDER (Y/N)? "; : GetInput()
-    A$=LII$
-    IF A$<>"Y" THEN RETURN ST_COMMAND
-    FOR I=1 TO 8 : IF DEVICE_DAMAGE(I)<0 THEN DEVICE_DAMAGE(I)=0
-    NEXT I : STARDATE_CUR=STARDATE_CUR+D3+.1
-    END IF
-    PRINT : PRINT " SYSTEM              STATE OF REPAIR"
-    PRINT      " ------------------- -----------------"
-    FOR DEVICE_INDEX=1 TO 8
-    DeviceName() : PRINT " ";G2$;LEFT$(SPACE_PAD$,20-LEN(G2$));
-    D2=INT(DEVICE_DAMAGE(DEVICE_INDEX)*100)*.01
-    IF D2<0 THEN PRINT CCOL$;"DAMAGED     ";D2;FCOL$
-    IF D2>0 THEN PRINT "OPERATIONAL ";D2
-    IF D2=0 THEN PRINT "OPERATIONAL ";D2
-    NEXT DEVICE_INDEX
-    IF D0=0 THEN EXIT DO
-    LOOP
-    RETURN ST_COMMAND
-END FUNCTION
+' ** ===== SHIELD CONTROL ===== **
+function Shields()
+    if DEVICE_DAMAGE(7)<0 then print : print "SHIELD CONTROL INOPERABLE" : return ST_COMMAND
+    print : print "ENERGY AVAILABLE = ";SHIP_ENERGY+SHIELD_UNITS
+    LX=5 : print "NUMBER OF UNITS TO SHIELDS :  "; : GetInput()
+    X=val(LII$)
+    if X<0 or SHIELD_UNITS=X then print "<SHIELDS UNCHANGED>" : return ST_COMMAND
+    if X>SHIP_ENERGY+SHIELD_UNITS then
+      print :  background 6: color 1: print "SHIELD CONTROL REPORTS THIS IS NOT THE"
+      print "FEDERATION TREASURY."
+      print "<SHIELDS UNCHANGED>";:background 0: print : return ST_COMMAND
+    end if
+    SHIP_ENERGY=SHIP_ENERGY+SHIELD_UNITS-X : SHIELD_UNITS=X : print :background 6: color 1: print "DEFLECTOR CONTROL ROOM REPORT:"
+    print "SHIELDS NOW AT ";int(SHIELD_UNITS);" UNITS PER"
+    print "YOUR COMMAND.";:background 0: print : return ST_COMMAND
+end function
 
 
-REM ** ===== KLINGONS SHOOT BACK (SETS SHIPDEAD IF SHIELDS FAIL) ===== **
-FUNCTION KlingonsFire()
+' ** ===== DAMAGE CONTROL ===== **
+function Damage()
+    if DEVICE_DAMAGE(6)<0 then
+      print : print "DAMAGE CONTROL REPORT NOT AVAILABLE"
+      if D0=0 then return ST_COMMAND
+    end if
+    do
+      if DEVICE_DAMAGE(6)<0 and D0<>0 then
+        D3=0 : for I=1 to 8 : if DEVICE_DAMAGE(I)<0 then D3=D3+.1
+        next I : if D3=0 then return ST_COMMAND
+        D3=D3+D4 : if D3>=1 then D3=.9
+        print : print "TECHNICIANS STANDING BY TO EFFECT"
+        print "REPAIRS TO YOUR SHIP;"
+        print "ESTIMATED TIME TO REPAIR: "
+        print .01*int(100*D3);" STARDATES"
+        LX=1 : print : print "AUTHORISE THE REPAIR ORDER (Y/N)? "; : GetInput()
+        A$=LII$
+        if A$<>"Y" then return ST_COMMAND
+        for I=1 to 8 : if DEVICE_DAMAGE(I)<0 then DEVICE_DAMAGE(I)=0
+        next I : STARDATE_CUR=STARDATE_CUR+D3+.1
+      end if
+      print : print " SYSTEM              STATE OF REPAIR"
+      print      " ------------------- -----------------"
+      for DEVICE_INDEX=1 to 8
+        DeviceName() : print " ";G2$;left$(SPACE_PAD$,20-len(G2$));
+        D2=int(DEVICE_DAMAGE(DEVICE_INDEX)*100)*.01
+        if D2<0 then print CCOL$;"DAMAGED     ";D2;FCOL$
+        if D2>0 then print "OPERATIONAL ";D2
+        if D2=0 then print "OPERATIONAL ";D2
+      next DEVICE_INDEX
+      if D0=0 then exit do
+    loop
+    return ST_COMMAND
+end function
+
+
+' ** ===== KLINGONS SHOOT BACK (SETS SHIPDEAD IF SHIELDS FAIL) ===== **
+function KlingonsFire()
     SHIPDEAD=0
-    IF K3<=0 THEN RETURN
-    IF D0<>0 THEN PRINT : PRINT "STARBASE SHIELDS PROTECT THE ENTERPRISE"
-    IF D0<>0 THEN RETURN
-    FOR I=1 TO 3 : IF K(I,3)<=0 THEN CONTINUE FOR
-    H=INT((K(I,3)/FND(1))*(2+RND(1))) : SHIELD_UNITS=SHIELD_UNITS-H : K(I,3)=K(I,3)/(3+RND(0))
-    PRINT : PRINT H;" UNIT HIT ENTERPRISE FROM ";K(I,1);",";K(I,2)
-    IF SHIELD_UNITS<=0 THEN SHIPDEAD=1 : RETURN
-    PRINT " <SHIELDS DOWN TO ";SHIELD_UNITS;" UNITS>" : IF H<20 THEN CONTINUE FOR
-    IF RND(1)>.6 OR H/SHIELD_UNITS<=.02 THEN CONTINUE FOR
-    DEVICE_INDEX=FNR(1) : DEVICE_DAMAGE(DEVICE_INDEX)=DEVICE_DAMAGE(DEVICE_INDEX)-H/SHIELD_UNITS-.5*RND(1) : DeviceName()
-    PRINT : BACKGROUND 6: COLOR 1: PRINT "DAMAGE CONTROL REPORTS :  "
-    PRINT G2$;" DAMAGED BY THE HIT";:BACKGROUND 0: PRINT
-    NEXT I
+    if K3<=0 then return
+    if D0<>0 then print : print "STARBASE SHIELDS PROTECT THE ENTERPRISE"
+    if D0<>0 then return
+    for I=1 to 3
+      if K(I,3)<=0 then continue for
+      H=int((K(I,3)/FND(1))*(2+rnd(1))) : SHIELD_UNITS=SHIELD_UNITS-H : K(I,3)=K(I,3)/(3+rnd(0))
+      print : print H;" UNIT HIT ENTERPRISE FROM ";K(I,1);",";K(I,2)
+      if SHIELD_UNITS<=0 then SHIPDEAD=1 : return
+      print " <SHIELDS DOWN TO ";SHIELD_UNITS;" UNITS>"
+      if H<20 then continue for
+      if rnd(1)>.6 or H/SHIELD_UNITS<=.02 then continue for
+      DEVICE_INDEX=FNR(1) : DEVICE_DAMAGE(DEVICE_INDEX)=DEVICE_DAMAGE(DEVICE_INDEX)-H/SHIELD_UNITS-.5*rnd(1) : DeviceName()
+      print : background 6: color 1: print "DAMAGE CONTROL REPORTS :  "
+      print G2$;" DAMAGED BY THE HIT";:background 0: print
+    next I
     ATAKFLAG=1
-    RETURN
-END FUNCTION
+    return
+end function
 
 
-REM ** ===== END-OF-GAME STATES ===== **
-FUNCTION ShowGameOver()
-    PRINT : PRINT "IT IS STARDATE ";STARDATE_CUR
-    RETURN ST_MISSIONEND
-END FUNCTION
+' ** ===== END-OF-GAME STATES ===== **
+function ShowGameOver()
+    print : print "IT IS STARDATE ";STARDATE_CUR
+    return ST_MISSIONEND
+end function
 
 
-FUNCTION ShipDestroyed()
-    PRINT : Pause()
-    PRINT : PRINT "{RED}THE ENTERPRISE HAS BEEN DESTROYED.{WHITE}"
-    PRINT CHR$(13);"THE FEDERATION WILL BE CONQUERED"
-    RETURN ST_GAMEOVER
-END FUNCTION
+function ShipDestroyed()
+    print : Pause()
+    print : print "{RED}THE ENTERPRISE HAS BEEN DESTROYED.{WHITE}"
+    print chr$(13);"THE FEDERATION WILL BE CONQUERED"
+    return ST_GAMEOVER
+end function
 
 
-FUNCTION ShowMissionEnd()
-    PRINT : PRINT "THERE WERE ";KLINGON_COUNT;" KLINGON BATTLE CRUISERS"
-    PRINT "LEFT AT THE END OF YOUR MISSION."
-    RETURN ST_PLAYAGAIN
-END FUNCTION
+function ShowMissionEnd()
+    print : print "THERE WERE ";KLINGON_COUNT;" KLINGON BATTLE CRUISERS"
+    print "LEFT AT THE END OF YOUR MISSION."
+    return ST_PLAYAGAIN
+end function
 
 
-FUNCTION AskPlayAgain()
-    IF STARBASE_COUNT=0 THEN RETURN ST_QUIT
-    PRINT : PRINT "THE FEDERATION IS IN NEED OF A NEW"
-    PRINT "STARSHIP COMMANDER FOR ANOTHER MISSION."
-    PRINT : PRINT "... IF THERE IS A VOLUNTEER,"
-    LX=3 : PRINT "STEP FORWARD AND ENTER AYE :  "; : GetInput()
-    A$=LII$ : IF A$="AYE" THEN RETURN ST_NEWGAME
-    RETURN ST_QUIT
-END FUNCTION
+function AskPlayAgain()
+    if STARBASE_COUNT=0 then return ST_QUIT
+    print : print "THE FEDERATION IS IN NEED OF A NEW"
+    print "STARSHIP COMMANDER FOR ANOTHER MISSION."
+    print : print "... IF THERE IS A VOLUNTEER,"
+    LX=3 : print "STEP FORWARD AND ENTER AYE :  "; : GetInput()
+    A$=LII$ : if A$="AYE" then return ST_NEWGAME
+    return ST_QUIT
+end function
 
 
-FUNCTION ShowVictory()
-    PRINT : Pause()
-    PRINT : PRINT "CONGRATULATIONS, CAPTAIN! THE LAST"
-    PRINT "KLINGON BATTLE CRUISER MENACING THE"
-    PRINT "FEDERATION HAS BEEN DESTROYED."
-    PRINT : PRINT "YOUR EFFICIENCY RATING IS";
-    PRINT INT(1000*(K7/(STARDATE_CUR-STARDATE_START))^2)
-    RETURN ST_PLAYAGAIN
-END FUNCTION
+function ShowVictory()
+    print : Pause()
+    print : print "CONGRATULATIONS, CAPTAIN! THE LAST"
+    print "KLINGON BATTLE CRUISER MENACING THE"
+    print "FEDERATION HAS BEEN DESTROYED."
+    print : print "YOUR EFFICIENCY RATING IS";
+    print int(1000*(K7/(STARDATE_CUR-STARDATE_START))^2)
+    return ST_PLAYAGAIN
+end function
 
 
-REM ** ===== SHORT RANGE SCAN & SUMMARY (SLS CHAINS INTO LRS) ===== **
-FUNCTION ShortRangeScan()
-    IF ATAKFLAG=1 THEN
-      PRINT
+' ** ===== SHORT RANGE SCAN & SUMMARY (SLS CHAINS INTO LRS) ===== **
+function ShortRangeScan()
+    if ATAKFLAG=1 then
+      print
       Pause()
-    END IF
-    IF DEVICE_DAMAGE(2)<0 THEN
-      PRINT
-      PRINT "*** SHORT RANGE SENSORS ARE OUT ***"
-      IF SLSFLAG=1 THEN RETURN Lrs()
-      RETURN ST_COMMAND
-    END IF
-    IF SRSFLAG=0 THEN
-      PRINT
-      PRINT "{LIGHTBLUE}SHORT RANGE SCAN + SUMMARY DATA{WHITE}"
-    END IF
+    end if
+    if DEVICE_DAMAGE(2)<0 then
+      print
+      print "*** SHORT RANGE SENSORS ARE OUT ***"
+      if SLSFLAG=1 then return Lrs()
+      return ST_COMMAND
+    end if
+    if SRSFLAG=0 then
+      print
+      print "{LIGHTBLUE}SHORT RANGE SCAN + SUMMARY DATA{WHITE}"
+    end if
     SRSFLAG=0
     ATAKFLAG=0
     Docked=0
-    FOR I=SECTOR_X-1 TO SECTOR_X+1
-    FOR J=SECTOR_Y-1 TO SECTOR_Y+1
-      IF INT(I+.5)<1 OR INT(I+.5)>8 OR INT(J+.5)<1 OR INT(J+.5)>8 THEN CONTINUE FOR
-      A$=STARBASE_TOKEN$
-      TOKEN_X=I
-      TOKEN_Y=J
-      CheckSector()
-      IF Z3=1 THEN
-        Docked=1
-        EXIT FOR
-      END IF
-    NEXT J
-    IF Docked=1 THEN
-      EXIT FOR
-    END IF
-    NEXT I
-    IF Docked=1 THEN
+    for I=SECTOR_X-1 to SECTOR_X+1
+      for J=SECTOR_Y-1 to SECTOR_Y+1
+        if int(I+.5)<1 or int(I+.5)>8 or int(J+.5)<1 or int(J+.5)>8 then continue for
+        A$=STARBASE_TOKEN$
+        TOKEN_X=I
+        TOKEN_Y=J
+        CheckSector()
+        if Z3=1 then
+          Docked=1
+          exit for
+        end if
+      next J
+      if Docked=1 then
+        exit for
+      end if
+    next I
+    if Docked=1 then
       D0=1
       C$="DOCKED"
       SHIP_ENERGY=ENERGY_MAX
       TORPEDO_COUNT=TORPEDO_MAX
-      PRINT
-      PRINT "SHIELDS DROPPED FOR DOCKING PURPOSES"
+      print
+      print "SHIELDS DROPPED FOR DOCKING PURPOSES"
       SHIELD_UNITS=0
-    ELSE
+    else
       D0=0
-      IF K3>0 THEN C$="RED"
-      IF K3=0 THEN
+      if K3>0 then C$="RED"
+      if K3=0 then
         C$="GREEN"
-        IF SHIP_ENERGY<ENERGY_MAX*.1 THEN C$="AMBER"
-      END IF
-    END IF
-    IF K3>0 THEN
-      PRINT
-      PRINT CCOL$;"COMBAT AREA  ";
-      PRINT "** CONDITION RED **";FCOL$
-    END IF
+        if SHIP_ENERGY<ENERGY_MAX*.1 then C$="AMBER"
+      end if
+    end if
+    if K3>0 then
+      print
+      print CCOL$;"COMBAT AREA  ";
+      print "** CONDITION RED **";FCOL$
+    end if
     LOW$=" LOW!"
-    PRINT
-    PRINT "   {YELLOW}1 2 3 4 5 6 7 8"
-    PRINT "  {GREEN}{176}─{178}─{178}─{178}─{178}─{178}─{178}─{178}─┐{WHITE} {LIGHTBLUE}STARDATE{YELLOW}  ";INT(STARDATE_CUR*10)*.1
-    FOR I=1 TO 8
-      I$=RIGHT$(STR$(I),1)
-      PRINT "{YELLOW}";I$;" {GREEN}{125}{WHITE}"; : REM BORDER
+    print
+    print "   {YELLOW}1 2 3 4 5 6 7 8"
+    print "  {GREEN}{176}─{178}─{178}─{178}─{178}─{178}─{178}─{178}─┐{WHITE} {LIGHTBLUE}STARDATE{YELLOW}  ";int(STARDATE_CUR*10)*.1
+    for I=1 to 8
+      I$=right$(str$(I),1)
+      print "{YELLOW}";I$;" {GREEN}{125}{WHITE}"; : ' BORDER
       J1=(I-1)*24+1
       J2=(I-1)*24+22
-      FOR J = J1 TO J2 STEP 3
-        Z3$=MID$(QUADRANT_BUFFER$,J,3)
-        IF Z3$="   " THEN PRINT " ";
-        IF Z3$<>"   " THEN PRINT LEFT$(Z3$,1);
-        PRINT "{GREEN}{125}{WHITE}";
-      NEXT J
-      SELECT CASE I
-      CASE 1
-        PRINT " {LIGHTBLUE}DAYS LEFT{YELLOW} ";.1*INT((STARDATE_START+MISSION_DAYS-STARDATE_CUR)*10);
-      CASE 2
-        PRINT " {LIGHTBLUE}CONDITION{YELLOW} "; : PRINT C$;
-      CASE 3
-        PRINT " {LIGHTBLUE}QUADRANT  {YELLOW}";QUADRANT_X;",";QUADRANT_Y;
-      CASE 4
-        PRINT " {LIGHTBLUE}SECTOR    {YELLOW}";SECTOR_X;",";SECTOR_Y;
-      CASE 5
-        PRINT " {LIGHTBLUE}TORPEDOES {YELLOW}";INT(TORPEDO_COUNT);
-      CASE 6
-        PRINT " {LIGHTBLUE}ENERGY    {YELLOW}";INT(SHIP_ENERGY+SHIELD_UNITS);
-      CASE 7
-        PRINT " {LIGHTBLUE}SHIELDS   {YELLOW}";INT(SHIELD_UNITS);
-        IF SHIELD_UNITS<201 AND K3>0 THEN PRINT LOW$;
-      CASE 8
-        PRINT " {LIGHTBLUE}KLINGONS  {YELLOW}";INT(KLINGON_COUNT);
-      END SELECT
-      PRINT
-    NEXT I
-    PRINT "  {GREEN}{173}─{177}─{177}─{177}─{177}─{177}─{177}─{177}─{189}{WHITE}";
+      for J = J1 to J2 step 3
+        Z3$=mid$(QUADRANT_BUFFER$,J,3)
+        if Z3$="   " then print " ";
+        if Z3$<>"   " then print left$(Z3$,1);
+        print "{GREEN}{125}{WHITE}";
+      next J
+      select case I
+      case 1
+        print " {LIGHTBLUE}DAYS LEFT{YELLOW} ";.1*int((STARDATE_START+MISSION_DAYS-STARDATE_CUR)*10);
+      case 2
+        print " {LIGHTBLUE}CONDITION{YELLOW} "; : print C$;
+      case 3
+        print " {LIGHTBLUE}QUADRANT  {YELLOW}";QUADRANT_X;",";QUADRANT_Y;
+      case 4
+        print " {LIGHTBLUE}SECTOR    {YELLOW}";SECTOR_X;",";SECTOR_Y;
+      case 5
+        print " {LIGHTBLUE}TORPEDOES {YELLOW}";int(TORPEDO_COUNT);
+      case 6
+        print " {LIGHTBLUE}ENERGY    {YELLOW}";int(SHIP_ENERGY+SHIELD_UNITS);
+      case 7
+        print " {LIGHTBLUE}SHIELDS   {YELLOW}";int(SHIELD_UNITS);
+        if SHIELD_UNITS<201 and K3>0 then print LOW$;
+      case 8
+        print " {LIGHTBLUE}KLINGONS  {YELLOW}";int(KLINGON_COUNT);
+      end select
+      print
+    next I
+    print "  {GREEN}{173}─{177}─{177}─{177}─{177}─{177}─{177}─{177}─{189}{WHITE}";
     MW=SHIP_ENERGY/8
     MW=MW*10
-    MW=INT(MW)
+    MW=int(MW)
     MW=MW/10
-    IF MW>8 THEN MW=8
-    IF DEVICE_DAMAGE(1)<0 AND MW>0.2 THEN MW=0.2
-    PRINT " {LIGHTBLUE}MAX WARP{YELLOW}  ";MW
-    IF SLSFLAG=1 THEN RETURN Lrs()
-    RETURN ST_COMMAND
-END FUNCTION
+    if MW>8 then MW=8
+    if DEVICE_DAMAGE(1)<0 and MW>0.2 then MW=0.2
+    print " {LIGHTBLUE}MAX WARP{YELLOW}  ";MW
+    if SLSFLAG=1 then return Lrs()
+    return ST_COMMAND
+end function
 
 
-REM ** ===== LIBRARY COMPUTER ===== **
-FUNCTION Computer()
-    IF DEVICE_DAMAGE(8)<0 THEN PRINT : PRINT "SHIPS COMPUTER DISABLED" : RETURN ST_COMMAND
-    PRINT : PRINT "FUNCTIONS AVAILABLE FROM COMPUTER:" : PRINT
-    PRINT " 0 - CUMULATIVE GALACTIC RECORD"
-    PRINT " 1 - STATUS & DAMAGE REPORT"
-    PRINT " 2 - PHOTON TORPEDO TARGETING DATA"
-    PRINT " 3 - STARBASE NAV DATA"
-    PRINT " 4 - DIRECTION/DISTANCE CALCULATOR"
-    PRINT " 5 - GALAXY REGION NAME MAP"
-    PRINT : LX=1 : PRINT CHR$(13);"COMPUTER ACTIVE & AWAITING COMMAND :  ";
-    IF COMFLAG=1 THEN
-      PRINT "0"
+' ** ===== LIBRARY COMPUTER ===== **
+function Computer()
+    if DEVICE_DAMAGE(8)<0 then print : print "SHIPS COMPUTER DISABLED" : return ST_COMMAND
+    print : print "FUNCTIONS AVAILABLE FROM COMPUTER:" : print
+    print " 0 - CUMULATIVE GALACTIC RECORD"
+    print " 1 - STATUS & DAMAGE REPORT"
+    print " 2 - PHOTON TORPEDO TARGETING DATA"
+    print " 3 - STARBASE NAV DATA"
+    print " 4 - DIRECTION/DISTANCE CALCULATOR"
+    print " 5 - GALAXY REGION NAME MAP"
+    print : LX=1 : print chr$(13);"COMPUTER ACTIVE & AWAITING COMMAND :  ";
+    if COMFLAG=1 then
+      print "0"
       A=0
       A1=A
-    ELSE
+    else
       GetInput()
-      A=VAL(LII$) : A1=A : IF A<0 OR A>5 THEN RETURN ST_COMMAND
-      IF LII$="" THEN RETURN ST_COMMAND
-    END IF
-    SELECT CASE A
-    CASE 0
+      A=val(LII$) : A1=A : if A<0 or A>5 then return ST_COMMAND
+      if LII$="" then return ST_COMMAND
+    end if
+    select case A
+    case 0
       H8=1 : G5=0 : A=0 : A1=0
-      RETURN ComputerGalacticRecord()
-    CASE 1
-      RETURN ComputerStatusReport()
-    CASE 2
-      RETURN ComputerNavCalcKlingon()
-    CASE 3
-      RETURN ComputerBaseNav()
-    CASE 4
-      RETURN ComputerCalculator()
-    CASE 5
-      RETURN ComputerGalaxyMap()
-    END SELECT
-    RETURN ST_COMMAND
-END FUNCTION
+      return ComputerGalacticRecord()
+    case 1
+      return ComputerStatusReport()
+    case 2
+      return ComputerNavCalcKlingon()
+    case 3
+      return ComputerBaseNav()
+    case 4
+      return ComputerCalculator()
+    case 5
+      return ComputerGalaxyMap()
+    end select
+    return ST_COMMAND
+end function
 
 
-FUNCTION ComputerGalacticRecord()
-    REM GALFLAG marks the highlighted current quadrant separator slot.
+function ComputerGalacticRecord()
+    ' GALFLAG marks the highlighted current quadrant separator slot.
     GALFLAG=0
-    IF G5=0 THEN
-      PRINT
-      PRINT "{CLR}{REVERSE ON}COMPUTER RECORD OF GALAXY FOR "
-      PRINT "QUADRANT ";QUADRANT_X;",";QUADRANT_Y
-      PRINT "{REVERSE OFF}"
-      PRINT CHR$(13);
-      PRINT "   ";
-    END IF
-    FOR J=1 TO 8
-      J$=STR$(J)
-      J$=RIGHT$(J$,1)
-      IF A1=5 THEN RomanNumeral() : CONTINUE FOR
-      IF J=QUADRANT_Y THEN PRINT " {WHITE}";J$;"{GREEN}  ";
-      IF J<>QUADRANT_Y THEN PRINT " {GREEN}";J;"{GREEN}  ";
-    NEXT J
-    PRINT
+    if G5=0 then
+      print
+      print "{CLR}{REVERSE ON}COMPUTER RECORD OF GALAXY FOR "
+      print "QUADRANT ";QUADRANT_X;",";QUADRANT_Y
+      print "{REVERSE OFF}"
+      print chr$(13);
+      print "   ";
+    end if
+    for J=1 to 8
+      J$=str$(J)
+      J$=right$(J$,1)
+      if A1=5 then RomanNumeral() : continue for
+      if J=QUADRANT_Y then print " {WHITE}";J$;"{GREEN}  ";
+      if J<>QUADRANT_Y then print " {GREEN}";J;"{GREEN}  ";
+    next J
+    print
     O1$="  ┌───┬───┬───┬───┬───┬───┬───┬───┐"
     O2$="  ├───┼───┼───┼───┼───┼───┼───┼───┤"
-    PRINT O1$
-    FOR I=1 TO 8
-      I$=STR$(I)
-      I$=RIGHT$(I$,1)
-      IF I=QUADRANT_X THEN PRINT " ";I$;"";
+    print O1$
+    for I=1 to 8
+      I$=str$(I)
+      I$=right$(I$,1)
+      if I=QUADRANT_X then print " ";I$;"";
       RowIsRegion=0
-      IF A1=5 AND I=QUADRANT_X THEN RowIsRegion=1
-      IF I<>QUADRANT_X THEN PRINT " ";I$; : IF H8=0 THEN RowIsRegion=1
-      IF RowIsRegion=0 THEN
-      FOR J=1 TO 8
-        IF I=QUADRANT_X AND J=QUADRANT_Y THEN PRINT "{221}"; : GALFLAG=1
-        IF NOT (I=QUADRANT_X AND (J=QUADRANT_Y OR J-1=QUADRANT_Y)) THEN PRINT "{221}";
-        IF Z(I,J)=0 THEN PRINT "   "; : CONTINUE FOR
-        G1$=RIGHT$(STR$(Z(I,J)+1000),3)
-        G2$=ECOL$+MID$(G1$,1,1) : PRINT G2$;
-        G2$=DCOL$+MID$(G1$,2,1) : PRINT G2$;
-        G2$=HCOL$+MID$(G1$,3,1) : PRINT G2$;FCOL$;
-        IF GALFLAG=1 THEN PRINT "{221}"; : GALFLAG=0
-      NEXT J
-      END IF
-      IF RowIsRegion=1 THEN
+      if A1=5 and I=QUADRANT_X then RowIsRegion=1
+      if I<>QUADRANT_X then print " ";I$; : if H8=0 then RowIsRegion=1
+      if RowIsRegion=0 then
+        for J=1 to 8
+          if I=QUADRANT_X and J=QUADRANT_Y then print "{221}"; : GALFLAG=1
+          if not (I=QUADRANT_X and (J=QUADRANT_Y or J-1=QUADRANT_Y)) then print "{221}";
+          if Z(I,J)=0 then print "   "; : continue for
+          G1$=right$(str$(Z(I,J)+1000),3)
+          G2$=ECOL$+mid$(G1$,1,1) : print G2$;
+          G2$=DCOL$+mid$(G1$,2,1) : print G2$;
+          G2$=HCOL$+mid$(G1$,3,1) : print G2$;FCOL$;
+          if GALFLAG=1 then print "{221}"; : GALFLAG=0
+        next J
+      end if
+      if RowIsRegion=1 then
         J=9
-        Z4=I : Z5=1 : QuadrantName() : J0=INT(11-.5*LEN(G2$))
-        PRINT "{221}";
-        PRINT TAB(J0);G2$;
-        PRINT TAB(18);"{221}";
-        Z5=5 : QuadrantName() : J0=INT(27-.5*LEN(G2$))
-        PRINT TAB(J0);G2$; : PRINT TAB(34);"{221}";
-      END IF
-      IF A=0 AND J=9 AND QUADRANT_X=I AND QUADRANT_Y=8 THEN PRINT
-      IF NOT (A=0 AND J=9 AND QUADRANT_X=I AND QUADRANT_Y=8) THEN IF A=0 THEN PRINT "{221}"
-      IF A=5 THEN PRINT
-      IF I<8 THEN PRINT O2$
-    NEXT I
-    PRINT "  {173}{45}{178}─{177}───{177}───{177}───{177}───{177}───{177}───{177}───{189}"
+        Z4=I : Z5=1 : QuadrantName() : J0=int(11-.5*len(G2$))
+        print "{221}";
+        print tab(J0);G2$;
+        print tab(18);"{221}";
+        Z5=5 : QuadrantName() : J0=int(27-.5*len(G2$))
+        print tab(J0);G2$; : print tab(34);"{221}";
+      end if
+      if A=0 and J=9 and QUADRANT_X=I and QUADRANT_Y=8 then print
+      if not (A=0 and J=9 and QUADRANT_X=I and QUADRANT_Y=8) then if A=0 then print "{221}"
+      if A=5 then print
+      if I<8 then print O2$
+    next I
+    print "  {173}{45}{178}─{177}───{177}───{177}───{177}───{177}───{177}───{177}───{189}"
     A1=0
-    RETURN ST_COMMAND
-END FUNCTION
+    return ST_COMMAND
+end function
 
 
-FUNCTION ComputerGalaxyMap()
+function ComputerGalaxyMap()
     H8=0
     G5=1
     A=5
     A1=5
-    PRINT : PRINT "{CLR}{REVERSE ON}THE GALAXY:{REVERSE OFF}" : PRINT : PRINT "   ";
-    RETURN ComputerGalacticRecord()
-END FUNCTION
+    print : print "{CLR}{REVERSE ON}THE GALAXY:{REVERSE OFF}" : print : print "   ";
+    return ComputerGalacticRecord()
+end function
 
 
-FUNCTION ComputerStatusReport()
-    PRINT : PRINT "{CLR}{REVERSE ON}STATUS REPORT:{REVERSE OFF}";CHR$(13) : X$="" : IF KLINGON_COUNT>1 THEN X$="S"
-    PRINT : PRINT " KLINGONS LEFT :";KLINGON_COUNT
-    PRINT " ENERGY        :";INT(SHIP_ENERGY+SHIELD_UNITS)
-    PRINT " TORPEDOES     :";INT(TORPEDO_COUNT)
-    PRINT : PRINT "{13} MISSION MUST BE COMPLETED IN ";.1*INT((STARDATE_START+MISSION_DAYS-STARDATE_CUR)*10)
-    PRINT " STARDATES"
-    X$="S" : IF STARBASE_COUNT<2THEN X$=""
-    IF STARBASE_COUNT<1 THEN
-      PRINT : PRINT "{13}YOUR STUPIDITY HAS LEFT YOU ON YOUR OWN"
-      PRINT "IN THE GALAXY -- YOU HAVE NO STARBASES"
-      PRINT "LEFT!" : RETURN Damage()
-    END IF
-    PRINT : PRINT "{13} THE FEDERATION IS MAINTAINING ";STARBASE_COUNT
-    PRINT " STARBASE";X$;" IN THE GALAXY"; CHR$(13)
-    RETURN Damage()
-END FUNCTION
+function ComputerStatusReport()
+    print : print "{CLR}{REVERSE ON}STATUS REPORT:{REVERSE OFF}";chr$(13) : X$="" : if KLINGON_COUNT>1 then X$="S"
+    print : print " KLINGONS LEFT :";KLINGON_COUNT
+    print " ENERGY        :";int(SHIP_ENERGY+SHIELD_UNITS)
+    print " TORPEDOES     :";int(TORPEDO_COUNT)
+    print : print "{13} MISSION MUST BE COMPLETED IN ";.1*int((STARDATE_START+MISSION_DAYS-STARDATE_CUR)*10)
+    print " STARDATES"
+    X$="S" : if STARBASE_COUNT<2then X$=""
+    if STARBASE_COUNT<1 then
+      print : print "{13}YOUR STUPIDITY HAS LEFT YOU ON YOUR OWN"
+      print "IN THE GALAXY -- YOU HAVE NO STARBASES"
+      print "LEFT!" : return Damage()
+    end if
+    print : print "{13} THE FEDERATION IS MAINTAINING ";STARBASE_COUNT
+    print " STARBASE";X$;" IN THE GALAXY"; chr$(13)
+    return Damage()
+end function
 
 
-FUNCTION ComputerNavCalcKlingon()
-    IF K3<=0 THEN NoEnemyMsg() : RETURN ST_COMMAND
-    X$="" : IF K3>1THEN X$="S"
-    PRINT : PRINT "FROM ENTERPRISE TO KLINGON SHIP";
-    PRINT X$
+function ComputerNavCalcKlingon()
+    if K3<=0 then NoEnemyMsg() : return ST_COMMAND
+    X$="" : if K3>1then X$="S"
+    print : print "FROM ENTERPRISE TO KLINGON SHIP";
+    print X$
     H8=0 : A1=2
-    FOR I=1 TO 3
-    IF K(I,3)<=0 THEN CONTINUE FOR
-    CALC_TARGET_Y=K(I,1) : X=K(I,2)
-    C1=SECTOR_X : A=SECTOR_Y : ComputerCalcCompute()
-    NEXT I
-    RETURN ST_COMMAND
-END FUNCTION
+    for I=1 to 3
+      if K(I,3)<=0 then continue for
+      CALC_TARGET_Y=K(I,1) : X=K(I,2)
+      C1=SECTOR_X : A=SECTOR_Y : ComputerCalcCompute()
+    next I
+    return ST_COMMAND
+end function
 
 
-FUNCTION ComputerCalculator()
+function ComputerCalculator()
     H8=1 : A1=4
-    PRINT : PRINT "DIRECTION/DISTANCE CALCULATOR:"
-    PRINT : PRINT "YOU ARE AT QUADRANT ";QUADRANT_X;",";QUADRANT_Y
-    PRINT "             SECTOR ";SECTOR_X;",";SECTOR_Y
-    PRINT : LX=4 : PRINT "ENTER INITIAL COORDINATES (Y) :  "; : GetInput()
-    C1=VAL(LII$) : IF C1=0 THEN PRINT : PRINT "CALCULATION ABORTED!" : RETURN ST_COMMAND
-    LX=4 : PRINT "ENTER INITIAL COORDINATES (X) :  "; : GetInput()
-    A=VAL(LII$) : IF A=0 THEN PRINT : PRINT "CALCULATION ABORTED!" : RETURN ST_COMMAND
-    PRINT : LX=4 : PRINT "ENTER FINAL COORDINATES   (Y) :  "; : GetInput()
-    CALC_TARGET_Y=VAL(LII$) : IF CALC_TARGET_Y=0 THEN PRINT : PRINT "CALCULATION ABORTED!" : RETURN ST_COMMAND
-    PRINT : LX=4 : PRINT "ENTER FINAL COORDINATES   (X) :  "; : GetInput()
-    X=VAL(LII$) : IF X=0 THEN PRINT : PRINT "CALCULATION ABORTED!" : RETURN ST_COMMAND
-    IF C1=CALC_TARGET_Y AND A=X THEN PRINT : PRINT "NO RESULTS POSSIBLE!" : RETURN ST_COMMAND
-    RETURN ComputerCalcCompute()
-END FUNCTION
+    print : print "DIRECTION/DISTANCE CALCULATOR:"
+    print : print "YOU ARE AT QUADRANT ";QUADRANT_X;",";QUADRANT_Y
+    print "             SECTOR ";SECTOR_X;",";SECTOR_Y
+    print : LX=4 : print "ENTER INITIAL COORDINATES (Y) :  "; : GetInput()
+    C1=val(LII$) : if C1=0 then print : print "CALCULATION ABORTED!" : return ST_COMMAND
+    LX=4 : print "ENTER INITIAL COORDINATES (X) :  "; : GetInput()
+    A=val(LII$) : if A=0 then print : print "CALCULATION ABORTED!" : return ST_COMMAND
+    print : LX=4 : print "ENTER FINAL COORDINATES   (Y) :  "; : GetInput()
+    CALC_TARGET_Y=val(LII$) : if CALC_TARGET_Y=0 then print : print "CALCULATION ABORTED!" : return ST_COMMAND
+    print : LX=4 : print "ENTER FINAL COORDINATES   (X) :  "; : GetInput()
+    X=val(LII$) : if X=0 then print : print "CALCULATION ABORTED!" : return ST_COMMAND
+    if C1=CALC_TARGET_Y and A=X then print : print "NO RESULTS POSSIBLE!" : return ST_COMMAND
+    return ComputerCalcCompute()
+end function
 
 
-FUNCTION ComputerBaseNav()
+function ComputerBaseNav()
     H8=0 : A1=3
-    IF B3<>0 THEN PRINT : PRINT "FROM ENTERPRISE TO STARBASE" : CALC_TARGET_Y=B4 : X=B5 : C1=SECTOR_X : A=SECTOR_Y : ComputerCalcCompute() : RETURN ST_COMMAND
-    PRINT : PRINT "MR. SPOCK REPORTS, SENSORS SHOW NO"
-    PRINT "STARBASES IN THIS QUADRANT." : RETURN ST_COMMAND
-END FUNCTION
+    if B3<>0 then print : print "FROM ENTERPRISE TO STARBASE" : CALC_TARGET_Y=B4 : X=B5 : C1=SECTOR_X : A=SECTOR_Y : ComputerCalcCompute() : return ST_COMMAND
+    print : print "MR. SPOCK REPORTS, SENSORS SHOW NO"
+    print "STARBASES IN THIS QUADRANT." : return ST_COMMAND
+end function
 
 
-FUNCTION ComputerCalcCompute()
+function ComputerCalcCompute()
     X=X-A : A=C1-CALC_TARGET_Y
-    IF X>=0 THEN
-    IF A<0 THEN
-    C1=7
-    IF ABS(A)>=ABS(X) THEN
-    PRINT : PRINT " DIRECTION =";
-    D2=C1+(ABS(X)/ABS(A))
-    ELSE
-    PRINT : PRINT " DIRECTION =";
-    D2=C1+(((ABS(X)-ABS(A))+ABS(X))/ABS(X))
-    END IF
-    ELSE
-    IF X>0 OR A>0 THEN C1=1
-    IF A=0 THEN C1=5
-    IF ABS(A)<=ABS(X) THEN
-    PRINT : PRINT " DIRECTION =";
-    D2=C1+(ABS(A)/ABS(X))
-    ELSE
-    PRINT : PRINT " DIRECTION =";
-    D2=C1+(((ABS(A)-ABS(X))+ABS(A))/ABS(A))
-    END IF
-    END IF
-    ELSE
-    IF A>0 THEN
-    C1=3
-    IF ABS(A)>=ABS(X) THEN
-    PRINT : PRINT " DIRECTION =";
-    D2=C1+(ABS(X)/ABS(A))
-    ELSE
-    PRINT : PRINT " DIRECTION =";
-    D2=C1+(((ABS(X)-ABS(A))+ABS(X))/ABS(X))
-    END IF
-    ELSE
-    C1=5
-    IF ABS(A)<=ABS(X) THEN
-    PRINT : PRINT " DIRECTION =";
-    D2=C1+(ABS(A)/ABS(X))
-    ELSE
-    PRINT : PRINT " DIRECTION =";
-    D2=C1+(((ABS(A)-ABS(X))+ABS(A))/ABS(A))
-    END IF
-    END IF
-    END IF
-    D2=D2*1000 : D2=D2+0.5 : D2=INT(D2) : D2=D2/1000
-    PRINT D2
-    PRINT " DISTANCE  =";
-    D2=SQR(X^2+A^2)
-    IF A1=3 OR A1=2 THEN D2=D2/10
-    D2=D2*1000 : D2=D2+0.5 : D2=INT(D2) : D2=D2/1000
-    PRINT D2
-    RETURN ST_COMMAND
-END FUNCTION
+    if X>=0 then
+      if A<0 then
+        C1=7
+        if abs(A)>=abs(X) then
+          print : print " DIRECTION =";
+          D2=C1+(abs(X)/abs(A))
+        else
+          print : print " DIRECTION =";
+          D2=C1+(((abs(X)-abs(A))+abs(X))/abs(X))
+        end if
+      else
+        if X>0 or A>0 then C1=1
+        if A=0 then C1=5
+        if abs(A)<=abs(X) then
+          print : print " DIRECTION =";
+          D2=C1+(abs(A)/abs(X))
+        else
+          print : print " DIRECTION =";
+          D2=C1+(((abs(A)-abs(X))+abs(A))/abs(A))
+        end if
+      end if
+    else
+      if A>0 then
+        C1=3
+        if abs(A)>=abs(X) then
+          print : print " DIRECTION =";
+          D2=C1+(abs(X)/abs(A))
+        else
+          print : print " DIRECTION =";
+          D2=C1+(((abs(X)-abs(A))+abs(X))/abs(X))
+        end if
+      else
+        C1=5
+        if abs(A)<=abs(X) then
+          print : print " DIRECTION =";
+          D2=C1+(abs(A)/abs(X))
+        else
+          print : print " DIRECTION =";
+          D2=C1+(((abs(A)-abs(X))+abs(A))/abs(A))
+        end if
+      end if
+    end if
+    D2=D2*1000 : D2=D2+0.5 : D2=int(D2) : D2=D2/1000
+    print D2
+    print " DISTANCE  =";
+    D2=sqr(X^2+A^2)
+    if A1=3 or A1=2 then D2=D2/10
+    D2=D2*1000 : D2=D2+0.5 : D2=int(D2) : D2=D2/1000
+    print D2
+    return ST_COMMAND
+end function
 
 
-REM ** ===== SHARED MESSAGE: NO ENEMY IN QUADRANT ===== **
-FUNCTION NoEnemyMsg()
-    PRINT : BACKGROUND 6: COLOR 1: PRINT "SCIENCE OFFICER SPOCK REPORTS SENSORS"
-    PRINT "SHOW NO ENEMY SHIPS IN THIS QUADRANT";:BACKGROUND 0: PRINT
-    RETURN
-END FUNCTION
+' ** ===== SHARED MESSAGE: NO ENEMY IN QUADRANT ===== **
+function NoEnemyMsg()
+    print : background 6: color 1: print "SCIENCE OFFICER SPOCK REPORTS SENSORS"
+    print "SHOW NO ENEMY SHIPS IN THIS QUADRANT";:background 0: print
+    return
+end function
 
 
-REM FIND EMPTY PLACE IN QUADRANT (FOR THINGS)
-FUNCTION FindEmpty()
-    REM ** RETRY UNTIL CHECKSECTOR REPORTS THE SQUARE IS EMPTY (Z3<>0) **
-    DO
-    A$=EMPTY_TOKEN$
-    RANDOM_X=FNR(1) : RANDOM_Y=FNR(1) : TOKEN_X=RANDOM_X : TOKEN_Y=RANDOM_Y
-    CheckSector()
-    LOOP UNTIL Z3<>0
-    RETURN
-END FUNCTION
+' FIND EMPTY PLACE IN QUADRANT (FOR THINGS)
+function FindEmpty()
+    ' ** RETRY UNTIL CHECKSECTOR REPORTS THE SQUARE IS EMPTY (Z3<>0) **
+    do
+        A$=EMPTY_TOKEN$
+        RANDOM_X=FNR(1) : RANDOM_Y=FNR(1) : TOKEN_X=RANDOM_X : TOKEN_Y=RANDOM_Y
+        CheckSector()
+    loop until Z3<>0
+    return
+end function
 
 
-REM INSERT IN STRING ARRAY FOR QUADRANT
-FUNCTION PlaceToken()
-    S8 = INT(TOKEN_Y-0.5) * 3 + INT(TOKEN_X-0.5) * 24 + 1
-    IF LEN(A$)<>3 THEN PRINT "TOKEN LENGTH ERROR: ";A$;" LEN=";LEN(A$) : STOP
-    IF S8=1THEN QUADRANT_BUFFER$=A$+RIGHT$(QUADRANT_BUFFER$,189) : RETURN
-    IF S8=190THEN QUADRANT_BUFFER$=LEFT$(QUADRANT_BUFFER$,189)+A$ : RETURN
-    QUADRANT_BUFFER$=LEFT$(QUADRANT_BUFFER$,S8-1)+A$+RIGHT$(QUADRANT_BUFFER$,190-S8) : RETURN
-END FUNCTION
+' INSERT IN STRING ARRAY FOR QUADRANT
+function PlaceToken()
+    S8 = int(TOKEN_Y-0.5) * 3 + int(TOKEN_X-0.5) * 24 + 1
+    if len(A$)<>3 then print "TOKEN LENGTH ERROR: ";A$;" LEN=";len(A$) : stop
+    if S8=1then QUADRANT_BUFFER$=A$+right$(QUADRANT_BUFFER$,189) : return
+    if S8=190then QUADRANT_BUFFER$=left$(QUADRANT_BUFFER$,189)+A$ : return
+    QUADRANT_BUFFER$=left$(QUADRANT_BUFFER$,S8-1)+A$+right$(QUADRANT_BUFFER$,190-S8) : return
+end function
 
 
-REM PRINTS DEVICE NAME -- SELECT CASE LOOKUP, NO GOTOS
-FUNCTION DeviceName()
-    SELECT CASE DEVICE_INDEX
-    CASE 1
+' printS DEVICE NAME -- SELECT CASE LOOKUP, NO GOTOS
+function DeviceName()
+    select case DEVICE_INDEX
+    case 1
         G2$="WARP ENGINES"
-    CASE 2
+    case 2
         G2$="SHORT RANGE SENSORS"
-    CASE 3
+    case 3
         G2$="LONG RANGE SENSORS"
-    CASE 4
+    case 4
         G2$="PHASER CONTROL"
-    CASE 5
+    case 5
         G2$="PHOTON TUBES"
-    CASE 6
+    case 6
         G2$="DAMAGE CONTROL"
-    CASE 7
+    case 7
         G2$="SHIELD CONTROL"
-    CASE 8
+    case 8
         G2$="LIBRARY-COMPUTER"
-    END SELECT
-    RETURN
-END FUNCTION
+    end select
+    return
+end function
 
 
-REM STRING COMPARISON IN QUADRANT ARRAY
-FUNCTION CheckSector()
-    TOKEN_X=INT(TOKEN_X+.5) : TOKEN_Y=INT(TOKEN_Y+.5) : S8=(TOKEN_Y-1)*3+(TOKEN_X-1)*24+1 : Z3=0
-    IF MID$(QUADRANT_BUFFER$,S8,3)<>A$ THEN RETURN
-    Z3=1 : RETURN
-END FUNCTION
+' STRING COMPARISON IN QUADRANT ARRAY
+function CheckSector()
+    TOKEN_X=int(TOKEN_X+.5) : 
+    TOKEN_Y=int(TOKEN_Y+.5) : 
+    S8=(TOKEN_Y-1)*3+(TOKEN_X-1)*24+1
+    Z3=0
+    if mid$(QUADRANT_BUFFER$,S8,3)<>A$ then return
+    Z3=1 : return
+end function
 
 
-REM QUADRANT NAME IN G2$ FROM Z4,Z5 (=Q1,Q2)
-REM CALL WITH G5=1 TO GET REGION NAME ONLY
-FUNCTION QuadrantName()
-    REM ** REGIONS 1-4 OF EACH ROW USE THE FIRST NAME, 5-8 THE SECOND **
-    SELECT CASE Z4
-    CASE 1
-        G2$="ANTARES" : IF Z5>4 THEN G2$="SIRIUS"
-    CASE 2
-        G2$="RIGEL" : IF Z5>4 THEN G2$="DENEB"
-    CASE 3
-        G2$="PROCYON" : IF Z5>4 THEN G2$="CAPELLA"
-    CASE 4
-        G2$="VEGA" : IF Z5>4 THEN G2$="BETELGEUSE"
-    CASE 5
-        G2$="CANOPUS" : IF Z5>4 THEN G2$="ALDEBARAN"
-    CASE 6
-        G2$="ALTAIR" : IF Z5>4 THEN G2$="REGULUS"
-    CASE 7
-        G2$="SAGITTARIUS" : IF Z5>4 THEN G2$="ARCTURUS"
-    CASE 8
-        G2$="POLLUX" : IF Z5>4 THEN G2$="SPICA"
-    END SELECT
-    IF G5=1 THEN RETURN
-    SELECT CASE Z5
-    CASE 1, 5
+' QUADRANT NAME IN G2$ FROM Z4,Z5 (=Q1,Q2)
+' CALL WITH G5=1 TO GET REGION NAME ONLY
+function QuadrantName()
+    ' ** REGIONS 1-4 OF EACH ROW USE THE FIRST NAME, 5-8 THE SECOND **
+    select case Z4
+    case 1
+        G2$="ANTARES" : if Z5>4 then G2$="SIRIUS"
+    case 2
+        G2$="RIGEL" : if Z5>4 then G2$="DENEB"
+    case 3
+        G2$="PROCYON" : if Z5>4 then G2$="CAPELLA"
+    case 4
+        G2$="VEGA" : if Z5>4 then G2$="BETELGEUSE"
+    case 5
+        G2$="CANOPUS" : if Z5>4 then G2$="ALDEBARAN"
+    case 6
+        G2$="ALTAIR" : if Z5>4 then G2$="REGULUS"
+    case 7
+        G2$="SAGITTARIUS" : if Z5>4 then G2$="ARCTURUS"
+    case 8
+        G2$="POLLUX" : if Z5>4 then G2$="SPICA"
+    end select
+    if G5=1 then return
+    select case Z5
+    case 1, 5
         G2$=G2$+" I"
-    CASE 2, 6
+    case 2, 6
         G2$=G2$+" II"
-    CASE 3, 7
+    case 3, 7
         G2$=G2$+" III"
-    CASE 4, 8
+    case 4, 8
         G2$=G2$+" IV"
-    END SELECT
-    RETURN
-END FUNCTION
+    end select
+    return
+end function
 
 
-REM ** GET INPUT **
-REM GET CHARACTERS UNTIL RETURN IS PRESSED
-REM THEN RETURN 
-FUNCTION GetInput()
-    REM ** LX = MAX INPUT  LII$ = OUTPUT STRING **
-    REM ** ACCEPTS A-Z/0-9/PUNCT + SPACE, CHR$(20)=BACKSPACE, ENTER ENDS **
+' ** GET INPUT **
+' GET CHARACTERS UNTIL RETURN IS PRESSED
+' THEN RETURN 
+function GetInput()
+    ' ** LX = MAX INPUT  LII$ = OUTPUT STRING **
+    ' ** ACCEPTS A-Z/0-9/PUNCT + SPACE, CHR$(20)=BACKSPACE, ENTER ENDS **
     LII$=""
-    DO 
-        GET Y$
-        Y$=UCASE$(Y$)
-        IF Y$="" THEN CONTINUE DO
-        IF ASC(Y$)=0 THEN Y$=CHR$(13)
+    do 
+        get Y$
+        Y$=ucase$(Y$)
+        if Y$="" then continue do
+        if asc(Y$)=0 then Y$=chr$(13)
 
-        IF ASC(Y$)=13 AND LX=0 THEN
-          PRINT "{CLR}"
-          PRINT FCOL$
-          RETURN
-        END IF
-        IF ASC(Y$)=13 THEN PRINT : PRINT FCOL$ : RETURN
+        if asc(Y$)=13 and LX=0 then
+          print "{CLR}"
+          print FCOL$
+          return
+        end if
+        if asc(Y$)=13 then print : print FCOL$ : return
 
-        IF ASC(Y$)=20 AND LEN(LII$)<1 THEN CONTINUE DO
-        IF Y$=CHR$(20) THEN Y$="" : LII$=LEFT$(LII$,(LEN(LII$)-1))
+        if asc(Y$)=20 and len(LII$)<1 then continue do
+        if Y$=chr$(20) then Y$="" : LII$=left$(LII$,(len(LII$)-1))
 
-        IF ASC(Y$)<>32 AND (ASC(Y$)<46 OR ASC(Y$)>90) THEN CONTINUE DO
+        if asc(Y$)<>32 and (asc(Y$)<46 or asc(Y$)>90) then continue do
 
-        IF LEN(LII$)<LX THEN PRINT Y$;
-        IF LEN(LII$)<LX THEN LII$=LII$+Y$
-    LOOP
-END FUNCTION
+        if len(LII$)<LX then print Y$;
+        if len(LII$)<LX then LII$=LII$+Y$
+    loop
+end function
 
-
-FUNCTION Pause()
-    REM ** PAUSE WITHOUT CR**
-    IF CRSTART=1 THEN CR$="PRESS RETURN TO BEGIN"
-    IF CRSTART=0 THEN CR$="PRESS RETURN TO CONTINUE"
-    LX=0 : PRINT "{REVERSE ON}{LIGHTBLUE}":PRINT CR$:PRINT "{REVERSE OFF}{WHITE}" : GetInput()
+' ** PAUSE WITHOUT CR**
+function Pause()
+    if CRSTART=1 then CR$="PRESS RETURN TO BEGIN"
+    if CRSTART=0 then CR$="PRESS RETURN TO CONTINUE"
+    LX=0 : print "{REVERSE ON}{LIGHTBLUE}":print CR$:print "{REVERSE OFF}{WHITE}"
+    GetInput()
     CRSTART=0
-    RETURN
-END FUNCTION
+    return
+end function
 
-REM ** KEY TO SRS ICONS **
-FUNCTION ShowKey()
-    PRINT : PRINT "{13}KEY TO SHORT RANGE SCANNER ICONS:" : PRINT
-    PRINT " {CYAN}E{WHITE} = THE USS ENTERPRISE"
-    PRINT " {CYAN}B{WHITE} = FEDERATION STARBASE"
-    PRINT " {CYAN}*{WHITE} = STAR"
-    PRINT " {CYAN}K{WHITE} = KLINGON BATTLE CRUISER"
-    RETURN
-END FUNCTION
+' ** KEY TO SRS ICONS **
+function ShowKey()
+    print : print "{13}KEY TO SHORT RANGE SCANNER ICONS:" : print
+    print " {CYAN}E{WHITE} = THE USS ENTERPRISE"
+    print " {CYAN}B{WHITE} = FEDERATION STARBASE"
+    print " {CYAN}*{WHITE} = STAR"
+    print " {CYAN}K{WHITE} = KLINGON BATTLE CRUISER"
+    return
+end function
 
-REM ** LIST OF COMMANDS **
-FUNCTION ShowCommands()
-    PRINT : PRINT "{13}USE THESE COMMANDS:" : PRINT
-    PRINT " {CYAN}NAV{WHITE} - TO SET COURSE"
-    PRINT " {CYAN}SRS{WHITE} - FOR SHORT RANGE SCAN"
-    PRINT " {CYAN}LRS{WHITE} - FOR LONG RANGE SCAN"
-    PRINT " {CYAN}SLS{WHITE} - FOR SHORT & LONG RANGE SCAN"
-    PRINT " {CYAN}PHA{WHITE} - TO FIRE PHASERS"
-    PRINT " {CYAN}TOR{WHITE} - TO FIRE PHOTON TORPEDOES"
-    PRINT " {CYAN}SHE{WHITE} - TO RAISE OR LOWER SHIELDS"
-    PRINT " {CYAN}DAM{WHITE} - FOR DAMAGE CONTROL REPORTS"
-    PRINT " {CYAN}COM{WHITE} - TO CALL ON LIBRARY-COMPUTER"
-    PRINT " {CYAN}KEY{WHITE} - DISPLAY KEY TO SRS ICONS"
-    PRINT " {CYAN}HLP{WHITE} - THIS LIST OF COMMANDS"
-    PRINT " {CYAN}XXX{WHITE} - TO RESIGN YOUR COMMAND"
-    RETURN
-END FUNCTION
+' ** LIST OF COMMANDS **
+function ShowCommands()
+    print : print "{13}USE THESE COMMANDS:" : print
+    print " {CYAN}NAV{WHITE} - TO SET COURSE"
+    print " {CYAN}SRS{WHITE} - FOR SHORT RANGE SCAN"
+    print " {CYAN}LRS{WHITE} - FOR LONG RANGE SCAN"
+    print " {CYAN}SLS{WHITE} - FOR SHORT & LONG RANGE SCAN"
+    print " {CYAN}PHA{WHITE} - TO FIRE PHASERS"
+    print " {CYAN}TOR{WHITE} - TO FIRE PHOTON TORPEDOES"
+    print " {CYAN}SHE{WHITE} - TO RAISE OR LOWER SHIELDS"
+    print " {CYAN}DAM{WHITE} - FOR DAMAGE CONTROL REPORTS"
+    print " {CYAN}COM{WHITE} - TO CALL ON LIBRARY-COMPUTER"
+    print " {CYAN}KEY{WHITE} - DISPLAY KEY TO SRS ICONS"
+    print " {CYAN}HLP{WHITE} - THIS LIST OF COMMANDS"
+    print " {CYAN}XXX{WHITE} - TO RESIGN YOUR COMMAND"
+    return
+end function
 
-REM ** DIRECTION HELPER **
-FUNCTION ShowDirections()
-    PRINT ""
-    PRINT " ENTER A NUMBER       4  3  2"
-    PRINT " BETWEEN 1 AND 9       . . ."
-    PRINT "                        ..."
-    PRINT " DECIMALS MAY BE    5 ---*--- 1"
-    PRINT " USED (EG. 8.57)        ..."
-    PRINT "                       . . ."
-    PRINT "                      6  7  8"
-    RETURN
-END FUNCTION
+' ** DIRECTION HELPER **
+function ShowDirections()
+    print ""
+    print " ENTER A NUMBER       4  3  2"
+    print " BETWEEN 1 AND 9       . . ."
+    print "                        ..."
+    print " DECIMALS MAY BE    5 ---*--- 1"
+    print " USED (EG. 8.57)        ..."
+    print "                       . . ."
+    print "                      6  7  8"
+    return
+end function
 
-REM ** GALAXY MAP ROMAN NUMERALS **
-FUNCTION RomanNumeral()
+' ** GALAXY MAP ROMAN NUMERALS **
+function RomanNumeral()
+    print "";
+    select case J
+    case 1, 5
+        print " I ";;
+    case 2, 6
+        print "II ";
+    case 3, 7
+        print "III";
+    case 4, 8
+        print "IV ";
+    end select
+    print " "; : return
+end function
 
-    PRINT "";
-    SELECT CASE J
-    CASE 1, 5
-        PRINT " I ";;
-    CASE 2, 6
-        PRINT "II ";
-    CASE 3, 7
-        PRINT "III";
-    CASE 4, 8
-        PRINT "IV ";
-    END SELECT
-    PRINT " "; : RETURN
-END FUNCTION
-
-REM ** COLOURS FOR IN-GAME **
-FUNCTION InitColours()
-    ACOL$="{BLACK}" : REM CHR$(144) : REM 144 = (00) BLACK
-    BCOL$="{WHITE}" : REM CHR$(005) : REM 005 = (01) WHITE
-    CCOL$="{RED}" : REM CHR$(028) : REM 028 = (02) RED
-    DCOL$="{CYAN}" : REM CHR$(159) : REM 159 = (03) CYAN
-    ECOL$="{PINK}" : REM CHR$(156) : REM 156 = (04) VIOLET
-    FCOL$="{GREEN}" : REM CHR$(030) : REM 030 = (05) GREEN
-    GCOL$="{BLUE}" : REM CHR$(031) : REM 031 = (06) BLUE
-    HCOL$="{YELLOW}" : REM CHR$(158) : REM 158 = (07) YELLOW
-    ICOL$="{ORANGE}" : REM CHR$(129) : REM 129 = (08) ORANGE
-    REM ** COLOURS FOR INITIALISATION **
-    REM POKE 53280,0 : POKE 53281,0 : POKE 646,5 : RETURN
-    RETURN
-END FUNCTION
+' ** COLOURS FOR IN-GAME **
+function InitColours()
+    ACOL$="{BLACK}" 
+    BCOL$="{WHITE}" 
+    CCOL$="{RED}" 
+    DCOL$="{CYAN}" 
+    ECOL$="{PINK}" 
+    FCOL$="{GREEN}" 
+    GCOL$="{BLUE}" 
+    HCOL$="{YELLOW}" 
+    ICOL$="{ORANGE}"
+    return
+end function
 
 
