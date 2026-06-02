@@ -1,5 +1,13 @@
 ## Changelog
 
+### Fix: UDF call inside PRINT resumes parse after `)` (2026-06-02)
+
+A user function used in the middle of a `PRINT` list (e.g.
+`PRINT "A";Foo$(1);"."`) left the statement cursor wrong after `RETURN`, so a
+following bare `PRINT` on the next line did not emit its newline. Expression
+calls now pass an explicit resume pointer (position after the closing `)`) into
+`invoke_udf` and restore it on return. Test: `tests/udf_print_inline_next.bas`.
+
 ### Changed: `MAX_DICTS` 16 → 128 (2026-06-02)
 
 `DICTNEW` / `DICTLOAD` may allocate up to **128** concurrent dict handles (was 16).

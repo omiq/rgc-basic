@@ -2134,7 +2134,7 @@ static struct udf_call_frame udf_call_stack[MAX_UDF_DEPTH];
 static volatile int halted;
 static int udf_lookup(const char *name, int param_count);
 struct value;  /* incomplete forward — full def follows below */
-static struct value invoke_udf(int func_index, struct value *args, int nargs);
+static struct value invoke_udf(int func_index, struct value *args, int nargs, char *caller_resume_pos);
 
 /* -----------------------------------------------------------------------
  * Periodic timers ("IRQ-light"): TIMER id, ms, FuncName
@@ -2217,7 +2217,7 @@ static void timers_dispatch(void)
         fi = rgc_timers[i].func_index;
         if (fi < 0 || fi >= udf_func_count) continue;  /* function not found */
         rgc_timers[i].running = 1;
-        invoke_udf(fi, no_args, 0);
+        invoke_udf(fi, no_args, 0, NULL);
         rgc_timers[i].running = 0;
         if (halted) return;
     }
@@ -14444,8 +14444,10 @@ static void run_until_udf_return(void)
     }
 }
 
-/* Invoke UDF and return its value. Caller has already parsed name and '('; args evaluated. */
-static struct value invoke_udf(int func_index, struct value *args, int nargs)
+/* Invoke UDF and return its value. Caller has already parsed name, '(', args, and ')'.
+ * caller_resume_pos: parse cursor in the caller immediately after the closing ')'
+ * (required for expression calls from PRINT etc.; NULL for TIMER dispatch). */
+static struct value invoke_udf(int func_index, struct value *args, int nargs, char *caller_resume_pos)
 {
     struct udf_func *uf = &udf_funcs[func_index];
     struct var *param_var;
@@ -14458,7 +14460,8 @@ static struct value invoke_udf(int func_index, struct value *args, int nargs)
     }
     udf_call_stack[udf_call_depth].func_index = func_index;
     udf_call_stack[udf_call_depth].saved_line = current_line;
-    udf_call_stack[udf_call_depth].saved_pos = statement_pos;
+    udf_call_stack[udf_call_depth].saved_pos =
+        caller_resume_pos ? caller_resume_pos : statement_pos;
     /* Snapshot WHILE/FOR/IF nesting so a RETURN that bypasses WEND /
      * NEXT / END IF cannot leak counters back into the caller's
      * statement stream. Restored in statement_return / statement_end_function. */
@@ -14502,6 +14505,9 @@ static struct value invoke_udf(int func_index, struct value *args, int nargs)
      * work to do bails out of its own loop the moment inner() finishes,
      * and outer's caller sees inner's return value instead of outer's. */
     udf_returned = 0;
+    if (caller_resume_pos) {
+        statement_pos = caller_resume_pos;
+    }
     return udf_return_value;
 }
 
@@ -14776,7 +14782,9 @@ static struct value eval_factor(char **p)
                 if (**p == ')') (*p)++;
                 udf_idx = udf_lookup(namebuf, arg_count);
                 if (udf_idx >= 0) {
-                    struct value ret = invoke_udf(udf_idx, args, arg_count);
+                    char *resume = *p;
+                    struct value ret = invoke_udf(udf_idx, args, arg_count, resume);
+                    *p = resume;
                     free(args);
                     return ret;
                 }
@@ -17716,16 +17724,20 @@ static void statement_gosub(char **p)
 static void statement_return(char **p)
 {
     if (udf_call_depth > 0) {
+        char *resume_pos;
+        int resume_line;
         skip_spaces(p);
         if (*p && **p && **p != ':' && (isalnum((unsigned char)**p) || **p == '(' || **p == '-' || **p == '+' || **p == '\"')) {
             v_assign(&udf_return_value, eval_expr(p));
         } else {
             v_assign(&udf_return_value, make_num(0.0));
         }
+        resume_line = udf_call_stack[udf_call_depth - 1].saved_line;
+        resume_pos = udf_call_stack[udf_call_depth - 1].saved_pos;
         udf_returned = 1;
         udf_call_depth--;
-        current_line = udf_call_stack[udf_call_depth].saved_line;
-        statement_pos = udf_call_stack[udf_call_depth].saved_pos;
+        current_line = resume_line;
+        statement_pos = resume_pos;
         /* Unwind any WHILE / FOR / IF / DO blocks the UDF entered but did
          * not close — the caller resumes with its own stacks intact. */
         while_top = udf_call_stack[udf_call_depth].saved_while_top;
@@ -20262,7 +20274,9 @@ static void execute_statement(char **p)
                 if (**p == ')') (*p)++;
                 udf_idx = udf_lookup(namebuf, arg_count);
                 if (udf_idx >= 0) {
-                    (void)invoke_udf(udf_idx, args, arg_count);
+                    char *resume = *p;
+                    (void)invoke_udf(udf_idx, args, arg_count, resume);
+                    *p = resume;
                     free(args);
                     return;
                 }
