@@ -57,13 +57,13 @@ PRESS RETURN TO CONTINUE
 
 [2J[H[7mYOUR ORDERS ARE AS FOLLOWS:[27m
 
-DESTROY THE 17 KLINGON WARSHIPS BEFORE
-STARDATE 2033. THIS GIVES YOU 33 DAYS.
-THERE ARE 5 STARBASES IN THE GALAXY
+DESTROY THE 16 KLINGON WARSHIPS BEFORE
+STARDATE 3529. THIS GIVES YOU 29 DAYS.
+THERE ARE 3 STARBASES IN THE GALAXY
 FOR RESUPPLYING & REPAIRING YOUR SHIP.
 
 YOUR MISSION BEGINS WITH YOUR STARSHIP
-IN THE QUADRANT, DENEB I.
+IN THE QUADRANT, CANOPUS II.
 
 [7m[94m
 PRESS RETURN TO CONTINUE
@@ -72,18 +72,16 @@ PRESS RETURN TO CONTINUE
 [32m
 
 
-[31mCOMBAT AREA  ** CONDITION RED **[32m
-
    [33m1 2 3 4 5 6 7 8
-  [32m┌─┬─┬─┬─┬─┬─┬─┬─┐[37m [94mSTARDATE[33m  2000
-[33m1 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37mK[32m│[37m [32m│[37mE[32m│[37m [94mDAYS LEFT[33m 33
-[33m2 [32m│[37m [32m│[37m [32m│[37m [32m│[37m*[32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mCONDITION[33m RED
-[33m3 [32m│[37m [32m│[37m [32m│[37m [32m│[37m*[32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mQUADRANT  [33m2,5
-[33m4 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m*[32m│[37m [32m│[37m [32m│[37m*[32m│[37m [94mSECTOR    [33m1,8
-[33m5 [32m│[37m [32m│[37mK[32m│[37m [32m│[37m [32m│[37m*[32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mTORPEDOES [33m10
+  [32m┌─┬─┬─┬─┬─┬─┬─┬─┐[37m [94mSTARDATE[33m  3500
+[33m1 [32m│[37m [32m│[37m [32m│[37m [32m│[37m*[32m│[37m [32m│[37mE[32m│[37m [32m│[37m [32m│[37m [94mDAYS LEFT[33m 29
+[33m2 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mCONDITION[33m GREEN
+[33m3 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mQUADRANT  [33m5,2
+[33m4 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mSECTOR    [33m1,6
+[33m5 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m*[32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mTORPEDOES [33m10
 [33m6 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mENERGY    [33m3000
-[33m7 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mSHIELDS   [33m0 LOW!
-[33m8 [32m│[37m*[32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mKLINGONS  [33m17
+[33m7 [32m│[37m [32m│[37m [32m│[37m*[32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mSHIELDS   [33m0
+[33m8 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m*[32m│[37m [94mKLINGONS  [33m16
   [32m└─┴─┴─┴─┴─┴─┴─┴─┘[37m [94mMAX WARP[33m  8
 
 
@@ -92,18 +90,16 @@ PRESS RETURN TO CONTINUE
 
 [94mSHORT RANGE SCAN + SUMMARY DATA[37m
 
-[31mCOMBAT AREA  ** CONDITION RED **[32m
-
    [33m1 2 3 4 5 6 7 8
-  [32m┌─┬─┬─┬─┬─┬─┬─┬─┐[37m [94mSTARDATE[33m  2000
-[33m1 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37mK[32m│[37m [32m│[37mE[32m│[37m [94mDAYS LEFT[33m 33
-[33m2 [32m│[37m [32m│[37m [32m│[37m [32m│[37m*[32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mCONDITION[33m RED
-[33m3 [32m│[37m [32m│[37m [32m│[37m [32m│[37m*[32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mQUADRANT  [33m2,5
-[33m4 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m*[32m│[37m [32m│[37m [32m│[37m*[32m│[37m [94mSECTOR    [33m1,8
-[33m5 [32m│[37m [32m│[37mK[32m│[37m [32m│[37m [32m│[37m*[32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mTORPEDOES [33m10
+  [32m┌─┬─┬─┬─┬─┬─┬─┬─┐[37m [94mSTARDATE[33m  3500
+[33m1 [32m│[37m [32m│[37m [32m│[37m [32m│[37m*[32m│[37m [32m│[37mE[32m│[37m [32m│[37m [32m│[37m [94mDAYS LEFT[33m 29
+[33m2 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mCONDITION[33m GREEN
+[33m3 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mQUADRANT  [33m5,2
+[33m4 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mSECTOR    [33m1,6
+[33m5 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m*[32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mTORPEDOES [33m10
 [33m6 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mENERGY    [33m3000
-[33m7 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mSHIELDS   [33m0 LOW!
-[33m8 [32m│[37m*[32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mKLINGONS  [33m17
+[33m7 [32m│[37m [32m│[37m [32m│[37m*[32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mSHIELDS   [33m0
+[33m8 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m*[32m│[37m [94mKLINGONS  [33m16
   [32m└─┴─┴─┴─┴─┴─┴─┴─┘[37m [94mMAX WARP[33m  8
 
 
@@ -111,15 +107,15 @@ PRESS RETURN TO CONTINUE
 [32m
 
 
-[94mLONG RANGE SCAN FOR QUADRANT[37m 2,5
+[94mLONG RANGE SCAN FOR QUADRANT[37m 5,2
 
 
 [32m ┌─────┬─────┬─────┐         [91m#[96m#[33m#[32m
- │ [91m0[96m0[33m7[32m │ [91m0[96m0[33m6[32m │ [91m1[96m0[33m4[32m │        . . .
+ │ [91m1[96m0[33m1[32m │ [91m0[96m0[33m6[32m │ [91m0[96m0[33m8[32m │        . . .
  ├─────┼─────┼─────┤       .  .  .
- │ [91m0[96m0[33m1[32m │ [91m2[96m0[33m6[32m │ [91m0[96m0[33m8[32m │      .   .   .
+ │ [91m0[96m0[33m7[32m │ [91m0[96m0[33m4[32m │ [91m2[96m0[33m5[32m │      .   .   .
  ├─────┼─────┼─────┤     .  [96mBASES[32m  .
- │ [91m0[96m0[33m3[32m │ [91m0[96m0[33m8[32m │ [91m0[96m0[33m6[32m │    .           .
+ │ [91m0[96m0[33m8[32m │ [91m0[96m0[33m6[32m │ [91m0[96m0[33m4[32m │    .           .
  └─────┴─────┴─────┘  [91mKLINGONS[37m    [33mSTARS[37m
 
 
@@ -174,16 +170,16 @@ COMPUTER ACTIVE & AWAITING COMMAND :  1
 [2J[H[7mSTATUS REPORT:[27m
 
 
- KLINGONS LEFT :17
+ KLINGONS LEFT :16
  ENERGY        :3000
  TORPEDOES     :10
 
 
- MISSION MUST BE COMPLETED IN 33
+ MISSION MUST BE COMPLETED IN 29
  STARDATES
 
 
- THE FEDERATION IS MAINTAINING 5
+ THE FEDERATION IS MAINTAINING 3
  STARBASES IN THE GALAXY
 
 
@@ -254,22 +250,22 @@ COMPUTER ACTIVE & AWAITING COMMAND :  0
 [32m
 
 [2J[H[7mCOMPUTER RECORD OF GALAXY FOR 
-QUADRANT 2,5
+QUADRANT 5,2
 [27m
 
-    [32m1[32m   [32m2[32m   [32m3[32m   [32m4[32m   [37m5[32m   [32m6[32m   [32m7[32m   [32m8[32m  
+    [32m1[32m   [37m2[32m   [32m3[32m   [32m4[32m   [32m5[32m   [32m6[32m   [32m7[32m   [32m8[32m  
   ┌───┬───┬───┬───┬───┬───┬───┬───┐
- 1│   │   │   │[91m0[96m0[33m7[32m│[91m0[96m0[33m6[32m│[91m1[96m0[33m4[32m│   │   │
+ 1│   │   │   │   │   │   │   │   │
   ├───┼───┼───┼───┼───┼───┼───┼───┤
- 2│   │   │   │[91m0[96m0[33m1[32m│[91m2[96m0[33m6[32m│[91m0[96m0[33m8[32m│   │   │
+ 2│   │   │   │   │   │   │   │   │
   ├───┼───┼───┼───┼───┼───┼───┼───┤
- 3│   │   │   │[91m0[96m0[33m3[32m│[91m0[96m0[33m8[32m│[91m0[96m0[33m6[32m│   │   │
+ 3│   │   │   │   │   │   │   │   │
   ├───┼───┼───┼───┼───┼───┼───┼───┤
- 4│   │   │   │   │   │   │   │   │
+ 4│[91m1[96m0[33m1[32m│[91m0[96m0[33m6[32m│[91m0[96m0[33m8[32m│   │   │   │   │   │
   ├───┼───┼───┼───┼───┼───┼───┼───┤
- 5│   │   │   │   │   │   │   │   │
+ 5│[91m0[96m0[33m7[32m│[91m0[96m0[33m4[32m│[91m2[96m0[33m5[32m│   │   │   │   │   │
   ├───┼───┼───┼───┼───┼───┼───┼───┤
- 6│   │   │   │   │   │   │   │   │
+ 6│[91m0[96m0[33m8[32m│[91m0[96m0[33m6[32m│[91m0[96m0[33m4[32m│   │   │   │   │   │
   ├───┼───┼───┼───┼───┼───┼───┼───┤
  7│   │   │   │   │   │   │   │   │
   ├───┼───┼───┼───┼───┼───┼───┼───┤
@@ -293,13 +289,8 @@ FUNCTIONS AVAILABLE FROM COMPUTER:
 COMPUTER ACTIVE & AWAITING COMMAND :  2
 [32m
 
-FROM ENTERPRISE TO KLINGON SHIPS
-
- DIRECTION =5.667
- DISTANCE  =0.721
-
- DIRECTION =5
- DISTANCE  =0.2
+[44m[37mSCIENCE OFFICER SPOCK REPORTS SENSORS
+SHOW NO ENEMY SHIPS IN THIS QUADRANT[40m
 
 
 [7m[94mCOMMAND:[27m[37m COM
@@ -373,26 +364,131 @@ COURSE (1-9) :  1
 WARP FACTOR (0-8) :  1
 [32m
 
-85 UNIT HIT ENTERPRISE FROM 6,2
+ENTERING CANOPUS III QUADRANT...
 
-[7m[94m
-PRESS RETURN TO CONTINUE
-[27m[37m
-[2J[H
+[31mCOMBAT AREA  ** CONDITION RED **[32m
+
+   [33m1 2 3 4 5 6 7 8
+  [32m┌─┬─┬─┬─┬─┬─┬─┬─┐[37m [94mSTARDATE[33m  3501
+[33m1 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37mE[32m│[37m [32m│[37m [32m│[37m [94mDAYS LEFT[33m 28
+[33m2 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mCONDITION[33m RED
+[33m3 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mQUADRANT  [33m5,3
+[33m4 [32m│[37m*[32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37mK[32m│[37m [32m│[37m [32m│[37m [94mSECTOR    [33m1,6
+[33m5 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mTORPEDOES [33m10
+[33m6 [32m│[37m*[32m│[37m [32m│[37m [32m│[37m*[32m│[37m [32m│[37m*[32m│[37mK[32m│[37m [32m│[37m [94mENERGY    [33m2982
+[33m7 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mSHIELDS   [33m0 LOW!
+[33m8 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m*[32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mKLINGONS  [33m16
+  [32m└─┴─┴─┴─┴─┴─┴─┴─┘[37m [94mMAX WARP[33m  8
+
+
+[7m[94mCOMMAND:[27m[37m SRS
 [32m
 
-[31mTHE ENTERPRISE HAS BEEN DESTROYED.[37m
+[94mSHORT RANGE SCAN + SUMMARY DATA[37m
 
-THE FEDERATION WILL BE CONQUERED
+[31mCOMBAT AREA  ** CONDITION RED **[32m
 
-IT IS STARDATE 2000
+   [33m1 2 3 4 5 6 7 8
+  [32m┌─┬─┬─┬─┬─┬─┬─┬─┐[37m [94mSTARDATE[33m  3501
+[33m1 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37mE[32m│[37m [32m│[37m [32m│[37m [94mDAYS LEFT[33m 28
+[33m2 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mCONDITION[33m RED
+[33m3 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mQUADRANT  [33m5,3
+[33m4 [32m│[37m*[32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37mK[32m│[37m [32m│[37m [32m│[37m [94mSECTOR    [33m1,6
+[33m5 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mTORPEDOES [33m10
+[33m6 [32m│[37m*[32m│[37m [32m│[37m [32m│[37m*[32m│[37m [32m│[37m*[32m│[37mK[32m│[37m [32m│[37m [94mENERGY    [33m2982
+[33m7 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mSHIELDS   [33m0 LOW!
+[33m8 [32m│[37m [32m│[37m [32m│[37m [32m│[37m [32m│[37m*[32m│[37m [32m│[37m [32m│[37m [32m│[37m [94mKLINGONS  [33m16
+  [32m└─┴─┴─┴─┴─┴─┴─┴─┘[37m [94mMAX WARP[33m  8
 
-THERE WERE 17 KLINGON BATTLE CRUISERS
+
+[7m[94mCOMMAND:[27m[37m GAL
+[32m
+
+FUNCTIONS AVAILABLE FROM COMPUTER:
+
+ 0 - CUMULATIVE GALACTIC RECORD
+ 1 - STATUS & DAMAGE REPORT
+ 2 - PHOTON TORPEDO TARGETING DATA
+ 3 - STARBASE NAV DATA
+ 4 - DIRECTION/DISTANCE CALCULATOR
+ 5 - GALAXY REGION NAME MAP
+
+
+COMPUTER ACTIVE & AWAITING COMMAND :  0
+
+[2J[H[7mCOMPUTER RECORD OF GALAXY FOR 
+QUADRANT 5,3
+[27m
+
+    [32m1[32m   [32m2[32m   [37m3[32m   [32m4[32m   [32m5[32m   [32m6[32m   [32m7[32m   [32m8[32m  
+  ┌───┬───┬───┬───┬───┬───┬───┬───┐
+ 1│   │   │   │   │   │   │   │   │
+  ├───┼───┼───┼───┼───┼───┼───┼───┤
+ 2│   │   │   │   │   │   │   │   │
+  ├───┼───┼───┼───┼───┼───┼───┼───┤
+ 3│   │   │   │   │   │   │   │   │
+  ├───┼───┼───┼───┼───┼───┼───┼───┤
+ 4│[91m1[96m0[33m1[32m│[91m0[96m0[33m6[32m│[91m0[96m0[33m8[32m│   │   │   │   │   │
+  ├───┼───┼───┼───┼───┼───┼───┼───┤
+ 5│[91m0[96m0[33m7[32m│[91m0[96m0[33m4[32m│[91m2[96m0[33m5[32m│   │   │   │   │   │
+  ├───┼───┼───┼───┼───┼───┼───┼───┤
+ 6│[91m0[96m0[33m8[32m│[91m0[96m0[33m6[32m│[91m0[96m0[33m4[32m│   │   │   │   │   │
+  ├───┼───┼───┼───┼───┼───┼───┼───┤
+ 7│   │   │   │   │   │   │   │   │
+  ├───┼───┼───┼───┼───┼───┼───┼───┤
+ 8│   │   │   │   │   │   │   │   │
+  └-┬─┴───┴───┴───┴───┴───┴───┴───┘
+
+
+[7m[94mCOMMAND:[27m[37m 
+[32m
+
+
+USE THESE COMMANDS:
+
+ [96mNAV[37m - TO SET COURSE
+ [96mSRS[37m - FOR SHORT RANGE SCAN
+ [96mLRS[37m - FOR LONG RANGE SCAN
+ [96mSLS[37m - FOR SHORT & LONG RANGE SCAN
+ [96mPHA[37m - TO FIRE PHASERS
+ [96mTOR[37m - TO FIRE PHOTON TORPEDOES
+ [96mSHE[37m - TO RAISE OR LOWER SHIELDS
+ [96mDAM[37m - FOR DAMAGE CONTROL REPORTS
+ [96mCOM[37m - TO CALL ON LIBRARY-COMPUTER
+ [96mKEY[37m - DISPLAY KEY TO SRS ICONS
+ [96mHLP[37m - THIS LIST OF COMMANDS
+ [96mXXX[37m - TO RESIGN YOUR COMMAND
+
+
+[7m[94mCOMMAND:[27m[37m 
+[32m
+
+
+USE THESE COMMANDS:
+
+ [96mNAV[37m - TO SET COURSE
+ [96mSRS[37m - FOR SHORT RANGE SCAN
+ [96mLRS[37m - FOR LONG RANGE SCAN
+ [96mSLS[37m - FOR SHORT & LONG RANGE SCAN
+ [96mPHA[37m - TO FIRE PHASERS
+ [96mTOR[37m - TO FIRE PHOTON TORPEDOES
+ [96mSHE[37m - TO RAISE OR LOWER SHIELDS
+ [96mDAM[37m - FOR DAMAGE CONTROL REPORTS
+ [96mCOM[37m - TO CALL ON LIBRARY-COMPUTER
+ [96mKEY[37m - DISPLAY KEY TO SRS ICONS
+ [96mHLP[37m - THIS LIST OF COMMANDS
+ [96mXXX[37m - TO RESIGN YOUR COMMAND
+
+
+[7m[94mCOMMAND:[27m[37m XXX
+[32m
+
+THERE WERE 16 KLINGON BATTLE CRUISERS
 LEFT AT THE END OF YOUR MISSION.
 
 THE FEDERATION IS IN NEED OF A NEW
 STARSHIP COMMANDER FOR ANOTHER MISSION.
 
 ... IF THERE IS A VOLUNTEER,
-STEP FORWARD AND ENTER AYE :  GAL
+STEP FORWARD AND ENTER AYE :  NO
 [32m

@@ -18,8 +18,11 @@ screencodes on : background 0
 ST_QUIT=0 : ST_NEWGAME=1 : ST_NEWQUAD=2 : ST_COMMAND=3 : ST_DEAD=4
 ST_GAMEOVER=5 : ST_VICTORY=6 : ST_MISSIONEND=7 : ST_PLAYAGAIN=8
 ENTERPRISE_TOKEN$="E  " : KLINGON_TOKEN$="K  " : STARBASE_TOKEN$="B  " : STAR_TOKEN$="*  " : EMPTY_TOKEN$="   "
-A1$="NAVSRSLRSPHATORSHEDAMCOMXXXHLP"
+
+CMD_DICT=-1
+
 InitColours()
+
 ' COURSE_VEC(9,2) = nav keypad deltas (course n -> dx, dy); DEVICE_DAMAGE(8) = stardates-to-repair per system
 dim G(8,8),COURSE_VEC(9,2),K(3,3),N(3),Z(8,8),DEVICE_DAMAGE(8)
 
@@ -254,6 +257,7 @@ end function
 
 ' ** ===== COMMAND PHASE: ENERGY CHECK, PROMPT, DISPATCH ONE COMMAND ===== **
 function DoCommand()
+    if CMD_DICT<0 then InitCommandDict()
     if SHIELD_UNITS+SHIP_ENERGY <= 10 or (SHIP_ENERGY<=10 and DEVICE_DAMAGE(7)<>0) then
       print : print "** FATAL ERROR **"
       print "YOUVE STRANDED YOUR SHIP IN SPACE."
@@ -284,10 +288,9 @@ function DoCommand()
         print : print "SHIPS COMPUTER DISABLED"
         continue do
       end if
+      K$=left$(A$,3)
       CMD=0
-      for I=1 to 10
-        if left$(A$,3)=mid$(A1$,3*I-2,3) then CMD=I
-      next I
+      if dicthas(CMD_DICT, K$) then CMD=dictgetn(CMD_DICT, K$)
 
       select case CMD
       case 1
@@ -1266,6 +1269,25 @@ function RomanNumeral()
     end select
     print " "; : return
 end function
+
+' ** THREE-LETTER COMMAND CODES -> CMD (1..10) FOR DoCommand SELECT CASE **
+function InitCommandDict()
+    if CMD_DICT>=0 then return
+    CMD_DICT=dictnew()
+    if CMD_DICT<0 then return
+    dictset CMD_DICT, "NAV", 1
+    dictset CMD_DICT, "SRS", 2
+    dictset CMD_DICT, "LRS", 3
+    dictset CMD_DICT, "PHA", 4
+    dictset CMD_DICT, "TOR", 5
+    dictset CMD_DICT, "SHE", 6
+    dictset CMD_DICT, "DAM", 7
+    dictset CMD_DICT, "COM", 8
+    dictset CMD_DICT, "XXX", 9
+    dictset CMD_DICT, "HLP", 10
+    return
+end function
+
 
 ' ** COLOURS FOR IN-GAME **
 function InitColours()

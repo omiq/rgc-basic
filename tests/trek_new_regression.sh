@@ -32,7 +32,7 @@ if [ ! -f "$SRC" ]; then
   exit 1
 fi
 
-sed -e 's/RND(-1)/RND(1)/g' -e 's/RND(-TI)/RND(1)/g' "$SRC" > "$WORK"
+sed -e 's/rnd(-1)/rnd(1)/gi' -e 's/rnd(-ti)/rnd(1)/gi' "$SRC" > "$WORK"
 
 fail=0
 for tag in A B C; do
