@@ -199,12 +199,38 @@ IF DICTGETN(FACTIONS, "klingon.count") = 0 THEN GameState = ST_VICTORY
 
 ### Phase B — NPC movement (tutorial: “they move when you move”)
 
-**Goal:** Prove the matrix model.
+**Goal:** Prove the entity model by driving Klingon movement from `SHIPS`, not `K(3,3)`.
 
-- After player warp or end-of-turn tick: `UpdateQuadrantAI()` moves non-player ships in current quadrant.
-- Start with one behaviour: Klingon drifts toward Enterprise or random empty sector.
-- Replace `KlingonsMove:` loop body with iterate-entity-list.
-- Remove dependence on `K(3,3)` for position (keep HP on entity).
+**Current reality (grounded in `examples/trek-new.bas`, not the old sketch):**
+
+- Klingons live in `K(3,3)`: `K(i,1)=sx`, `K(i,2)=sy`, `K(i,3)=hp`. Max 3. `K3` / `KLINGON_COUNT` track the live total.
+- "Movement" is a statement label `KlingonsMove:` *inside* `Nav()` (~line 402), not a routine. Its actual behaviour is **random teleport** — `FindEmpty()` picks any empty sector — **not** drift-toward-Enterprise. (The previous draft of this doc overstated it.)
+- `KlingonsFire()` (~817) and the computer nav-calc (~1213) read `K()` and use `def FND` (~39), which closes over the global loop var `I`. Any loop restructure trips that coupling, so `FND` must die here.
+
+**Split Phase B into two episodes so the regression goldens stay honest:**
+
+#### B1 — structural (goldens unchanged)
+
+Pure refactor: move the *same* random-teleport behaviour off `K()` and onto `SHIPS`, byte-for-byte identical output.
+
+- Spawn Klingons into `SHIPS` at `EnterQuadrant` (alongside `K()` during transition), `fac = "klingon"`, `status = ST_ALIVE`, `hp`.
+- New `MoveQuadrantShips()`: iterate `SHIPS`, take `ST_ALIVE` entities in the current quadrant, pick the new sector, write `sx`/`sy` on the entity, then `BuildQuadrantString()` rebuilds the view. This replaces the `KlingonsMove:` label body — movement updates **entity state**, never pokes `THIS_QUADRANT$` directly.
+- Kill `def FND` → `Distance(x1, y1, x2, y2)` (debt item #2). Both movement and fire need real distance; the global-`I` closure goes.
+- `K()` flips from source-of-truth to a **one-way mirror** written from `SHIPS`, so the unported readers (`KlingonsFire`, computer nav, LRS) keep working untouched. Retire `K()` in a later phase, not here.
+
+**RNG-order landmine.** `FindEmpty` draws `rnd`. If entity iteration order differs from the old `for I=1 to K3`, the draw *sequence* changes → different sectors → goldens A/B/C diff. `DICTKEY$` is insertion-order, so spawn Klingons into `SHIPS` in the **same order** as the old `K()` indices and the sequence is preserved. This is the fiddly part of B1; verify with the byte-for-byte assertion from Phase A.
+
+**Regression:** existing `trek_new_regression.sh` stays green. No new golden.
+
+#### B2 — behaviour (new golden)
+
+The visible payoff: replace random-teleport with **deterministic drift toward the Enterprise**.
+
+- Drift rule: step one sector toward the Enterprise on each axis (8-direction / Chebyshev); if the target sector is occupied, hold (or fall back to nearest free adjacent — pick one and lock it, it defines the golden).
+- This is new behaviour, so it owns a **new golden** and a new test `trek_entity_move.bas` (already in the test plan): one Klingon, fixed seed, asserted to advance one sector toward the player per tick.
+- Movement stays in-quadrant only. Cross-quadrant NPC movement is north-star §1, deferred past Phase D.
+
+**Open for B2 (decide when we build it):** exact tie/blocked-sector rule, and whether drift happens every tick or only on player warp.
 
 ### Phase C — Factions and behaviour flags (tutorial: “pirates that run”)
 
@@ -317,7 +343,7 @@ Names are illustrative; the series can introduce one file per episode.
 
 | Test | When |
 |------|------|
-| `trek_entity_move.bas` | After Phase B: one NPC moves deterministically |
+| `trek_entity_move.bas` | After Phase B2: one NPC drifts one sector toward player, deterministically (B1 is a goldens-unchanged refactor and adds no test) |
 | `trek_pirate_flee.bas` | After Phase C: pirate aggression = flee when damaged |
 | `trek_fleet_count.bas` | After Phase D: fleet strength on LRS matches entities |
 | `trek_trade_smoke.bas` | After Phase E: buy/sell changes cargo and credits |
