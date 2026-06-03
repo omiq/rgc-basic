@@ -96,19 +96,106 @@ Small, safe cleanups that do not change game design. Do these in tutorial-sized 
 
 ## Phased roadmap
 
-### Phase A — Data model sketch (tutorial: “galaxy as tables”)
+### Phase A — Data model sketch (tutorial: “galaxy as a dictionary”)
 
-**Goal:** Introduce parallel structures without deleting Trek behaviour yet.
+**Goal:** Introduce the dict-backed entity model alongside Trek behaviour, without deleting the legacy `G`/`Z`/`K()` arrays yet.
 
-- Add typed constants: `ENTITY_EMPTY`, `ENTITY_SHIP`, `ENTITY_BASE`, `ENTITY_STAR`, factions `FAC_FED`, `FAC_KLINGON`, `FAC_NEUTRAL`, …
-- `dim GalaxyQuadrant(8,8)` or separate arrays: `GalaxyKlingons(8,8)`, `GalaxyBases(8,8)`, … OR one record per cell if the language gains a struct story (until then, parallel arrays are fine).
-- **Quadrant entities:** `dim SectorEntityType(8,8, MAX_ENTITIES_PER_SECTOR)` or a flat list with `(sector_x, sector_y, type, faction, hp, …)` and `EntityCount`.
-- **Bridge:** `BuildQuadrantString()` fills `THIS_QUADRANT$` from entity list; `PlaceToken` becomes `SetEntityAt(sx, sy, type, faction)` + rebuild view.
-- Keep `G`/`Z` in sync via `PackGalaxyCell` / `UnpackGalaxyCell` during transition so LRS/computer still work.
+**Decided storage model: a few top-level dicts split by type, each keyed by id; entities are tombstoned (status), never deleted, during play.** Verified against the interpreter (`basic.c`), not assumed:
 
-**Regression:** existing `trek_new_regression.sh` must stay green after each step.
+- `MAX_DICTS` (`basic.c:2284`) caps *top-level dict handles* (slots) at 128. It does **not** cap children. Each `DICTNEW()` slot holds an unbounded nested tree (objects/arrays grow by `cap`). Dict-per-entity (`DICTNEW()` in a loop) would burn the slot cap and is the wrong shape. The opposite extreme (one mega-dict for everything) works but bloats every path string and forces a type filter on every iteration.
+- **Middle ground: one handle per entity *type* (plus one for factions).** A fixed, tiny handle set — `SHIPS`, `BASES`, `STARS`, `PLAYER`, `GALAXY`, `FACTIONS` — plus the existing `CMD_DICT`. ~7 handles, set up once at boot, never grows with entity count. Trivially inside 128 with room for later types (`MINES`, `STATIONS`, …). Each type-dict is an object keyed by monotonic id; entity count is bounded only by memory.
+- The array-dimension limit (`MAX_DIMS 3`, `basic.c:1968`) is real but irrelevant here — dicts sidestep it entirely.
+- **Kill == mark status, not delete.** A destroyed ship gets `status = ST_DESTROYED`; its key stays. This sidesteps the array-reindex hazard entirely (`DICTDEL` on an array splices + shifts via `dict_arr_del`, `basic.c:11091`, rotting positional ids — but we never delete during play, so it cannot bite). It also keeps the *record*: defeated count = count of `ST_DESTROYED`, and the score screen / post-mortem get data, not just a number. Use a **status enum, not a bool** — `ST_ALIVE` / `ST_DESTROYED` / `ST_FLED` / `ST_DOCKED` — because Phase C pirates *flee*, which is not the same event as *killed* and must be distinguishable.
+- **Objects, not JSON arrays, within each type-dict.** Even with tombstoning, object-key storage makes the eventual compaction sweep trivial (rebuild the dict copying only live entities; survivors keep their ids within the session). Arrays would force a positional rebuild.
+
+Why split by type beats one mega-dict:
+
+- **Iterate one type with no filter** — `UpdateShips` walks `SHIPS` only; it never sees stars or bases.
+- **Shorter paths** — `DICTGETN(SHIPS, ID$ + ".hp")` not `DICTGETN(GAME, "ships." + ID$ + ".hp")`.
+- **Pass one type to a function** — `ResolveCombat(SHIPS)` instead of threading a sub-path.
+- **Per-type lifecycle** — regenerate a quadrant's stars with `DICTFREE STARS : STARS = DICTNEW()`; ships and the player survive untouched.
+
+**Slot budget:** ~7 named handles, fixed at boot, vs a cap of 128. Headroom is a non-issue.
+
+**Faction is data, not a constant.** Each entity's `fac` is the **string key** into `FACTIONS` (`"klingon"`), so `DICTGETN(FACTIONS, ENT_FAC$ + ".aggression")` works with no constant↔key mapping table. The old `FAC_*` integer constants are dropped. In Phase A `FACTIONS` carries only identity/display/victory fields (`name`, `token`, `colour`, live `count`); behaviour fields (`rel` faction-vs-faction relations, `aggression`, `reputation`) land in Phase C, after Phase B proves movement. Reserve the shape now; don't model the AI table yet.
+
+Concrete shape:
+
+```basic
+' --- status enum (tombstone, not delete) ---
+ST_ALIVE=0 : ST_DESTROYED=1 : ST_FLED=2 : ST_DOCKED=3
+
+' --- type dicts: one handle each, allocated once at boot ---
+SHIPS    = DICTNEW()            ' mobile actors (incl. Klingons), keyed by id
+BASES    = DICTNEW()            ' starbases / ports, keyed by id
+STARS    = DICTNEW()            ' stars, keyed by id
+PLAYER   = DICTNEW()            ' the Enterprise (singleton: fields at root)
+GALAXY   = DICTNEW()            ' quadrant-level summary for LRS / map
+FACTIONS = DICTNEW()            ' faction records, keyed by faction name
+NextId   = 0                    ' monotonic id source, shared across types; never reused
+
+' --- faction setup (Phase A: identity + victory count only) ---
+DICTSET FACTIONS, "klingon.name",   "Klingon"
+DICTSET FACTIONS, "klingon.token",  "K"
+DICTSET FACTIONS, "klingon.colour", RED
+DICTSET FACTIONS, "klingon.count",  0     ' bumped per spawn, dropped per kill
+
+' --- spawn into a given type dict (returns the new id as a string key) ---
+function SpawnInto$(TYPEDICT, FAC$, QX, QY, SX, SY, HP)
+  ID$ = "e" + STR$(NextId) : NextId = NextId + 1
+  P$ = ID$ + "."
+  DICTSET TYPEDICT, P$ + "fac",    FAC$          ' string key into FACTIONS
+  DICTSET TYPEDICT, P$ + "status", ST_ALIVE
+  DICTSET TYPEDICT, P$ + "qx",     QX
+  DICTSET TYPEDICT, P$ + "qy",     QY
+  DICTSET TYPEDICT, P$ + "sx",     SX
+  DICTSET TYPEDICT, P$ + "sy",     SY
+  DICTSET TYPEDICT, P$ + "hp",     HP
+  DICTSET FACTIONS, FAC$ + ".count", DICTGETN(FACTIONS, FAC$ + ".count") + 1
+  SpawnInto$ = ID$
+end function
+```
+
+The id source is shared across type-dicts so an id is globally unique — a cross-reference can carry `(typedict, id$)` without ambiguity (relevant once ships target each other in Phase B/C).
+
+**Iterate one type** via `DICTKEY$` (enumerates object keys in insertion order, `basic.c:13833`), skipping the dead:
+
+```basic
+N = DICTLEN(SHIPS, "")          ' "" path = the dict root object
+FOR I = 0 TO N-1
+  ID$ = DICTKEY$(SHIPS, "", I)
+  IF DICTGETN(SHIPS, ID$ + ".status") <> ST_ALIVE THEN CONTINUE
+  IF DICTGETN(SHIPS, ID$ + ".qx") = QUAD_X THEN ...
+NEXT
+```
+
+**Kill = tombstone** (key persists; denormalised faction count decremented for an O(1) victory test):
+
+```basic
+function KillShip(ID$)
+  DICTSET SHIPS, ID$ + ".status", ST_DESTROYED
+  FAC$ = DICTGET$(SHIPS, ID$ + ".fac")
+  DICTSET FACTIONS, FAC$ + ".count", DICTGETN(FACTIONS, FAC$ + ".count") - 1
+end function
+
+' victory: O(1), no scan
+IF DICTGETN(FACTIONS, "klingon.count") = 0 THEN GameState = ST_VICTORY
+' end-of-game breakdown: scan statuses for "you destroyed N"
+```
+
+**Tombstones never reclaim — sweep at boundaries (deferred).** Every ship ever spawned lingers. Fine at Trek scale (tens of entities, one mission). For the long-running BBS sandbox (Phase F/G) add a **compaction sweep** at safe points (quadrant regen, save/load) that rebuilds each type-dict copying only `ST_ALIVE` entities. Object-key storage makes this a straight copy-the-living loop. Noted now, built when Phase F/G needs it (see Tests/roadmap).
+
+**Arrays stay legal — but only for transient, reference-free lists** (e.g. torpedoes in flight this turn). Anything another entity points at, or anything that needs a stable id across its lifetime, lives in a type-dict keyed by id.
+
+**Bridge to the view:** `BuildQuadrantString()` fills `THIS_QUADRANT$` by walking each type-dict, taking only `status = ST_ALIVE` entities whose `qx`/`qy` = current quadrant, placing each at `sx,sy` using its faction `token`/`colour`. `PlaceToken` becomes `SetEntityAt(...)` writing the entity then rebuilding the view. `THIS_QUADRANT$` is now a derived view, not the source of truth.
+
+**Keep legacy in sync during transition:** after every entity mutation, mirror into `G`/`Z`/`K()` (`SyncGalaxyCell`, debt item #3) so LRS and the computer keep working until later phases retire them.
+
+**Regression:** existing `trek_new_regression.sh` must stay green after each step. Add an assertion that `BuildQuadrantString()` output equals the legacy `THIS_QUADRANT$` byte-for-byte during transition — that proves the dict→view rebuild is faithful.
 
 **Demo idea:** same SRS output, but log “entity moved” when a test Klingon advances one sector.
+
+> **Note on `entity.field` ergonomics.** The dotted path lives *inside the string* (`DICTGETN(GAME,"ent.e3.hp")`); there is no native `entity.hp` member operator. Adding one is a parser-level feature, out of scope for Phase A. See `docs/dot-member-syntax-proposal.md`.
 
 ### Phase B — NPC movement (tutorial: “they move when you move”)
 
@@ -184,7 +271,7 @@ Names are illustrative; the series can introduce one file per episode.
 |--------|-------------------|
 | `G(qx,qy)`, `Z(qx,qy)` | `GalaxyCell` record or parallel arrays |
 | `K3`, `B3`, `S3` | Count entities by type in quadrant |
-| `K(i,1..3)`, `K(i,3)` hp | Entity list slot `i` or fleet member |
+| `K(i,1..3)`, `K(i,3)` hp | `ent.<id>` fields (`sx`,`sy`,`hp`) in the `GAME` dict |
 | `THIS_QUADRANT$` | `RenderQuadrantView()` |
 | `PlaceToken` | `SetEntity` + rebuild view |
 | `CheckSector` | `EntityAt(sx,sy)` |
@@ -220,7 +307,7 @@ Names are illustrative; the series can introduce one file per episode.
 ## Open decisions (pick as tutorials go)
 
 1. **Grid sizes:** stay 8×8 galaxy / 8×8 sector for familiarity, or resize early?
-2. **Max entities per sector:** fixed array (simple) vs dynamic list (needs dict or linked structure).
+2. ~~**Max entities per sector:** fixed array vs dynamic list.~~ **Decided (Phase A):** one container dict `GAME`, entities as an object keyed by monotonic id (`ent.e0`, `ent.e1`, …). Dict children are uncapped; only top-level handles hit `MAX_DICTS`. Object keys give stable identity under delete; arrays reindex on `DICTDEL`.
 3. **Turn model:** continuous time (stardate += warp factor) vs explicit turns for multiplayer.
 4. **Faction count:** start with Fed / Klingon / Neutral, add pirates in Phase C.
 5. **Public docs:** when galaxy matrix is user-visible, add a retrodocs page under `retrodocs` (same change-set rule as language features).
