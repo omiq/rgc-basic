@@ -183,7 +183,7 @@ IF DICTGETN(FACTIONS, "klingon.count") = 0 THEN GameState = ST_VICTORY
 ' end-of-game breakdown: scan statuses for "you destroyed N"
 ```
 
-**Tombstones never reclaim — sweep at boundaries (deferred).** Every ship ever spawned lingers. Fine at Trek scale (tens of entities, one mission). For the long-running BBS sandbox (Phase F/G) add a **compaction sweep** at safe points (quadrant regen, save/load) that rebuilds each type-dict copying only `ST_ALIVE` entities. Object-key storage makes this a straight copy-the-living loop. Noted now, built when Phase F/G needs it (see Tests/roadmap).
+**Tombstones never reclaim — sweep at boundaries (deferred).** Every ship ever spawned lingers. Fine at Trek scale (tens of entities, one mission). For the long-running BBS sandbox (Phase F/G) add a **compaction sweep** at safe points that rebuilds each type-dict copying only `ST_ALIVE` entities. Object-key storage makes this a straight copy-the-living loop. The natural "safe point" is the campaign-cadence intermission — see **Campaign cadence** under Phase F/G; that is where the sweep, the free, and the save all happen together.
 
 **Arrays stay legal — but only for transient, reference-free lists** (e.g. torpedoes in flight this turn). Anything another entity points at, or anything that needs a stable id across its lifetime, lives in a type-dict keyed by id.
 
@@ -245,6 +245,37 @@ IF DICTGETN(FACTIONS, "klingon.count") = 0 THEN GameState = ST_VICTORY
 - Authoritative server vs host-turn BBS door.
 - Command text lines as protocol (`NAV 4 2` …).
 - What must leave `trek-new.bas` and live in a shared “engine” module (still BASIC for the series, or C host later).
+
+### Campaign cadence (stardate milestones) — spans F/G
+
+**Goal:** Make housekeeping (compaction, slot-free, reindex, persist) a *diegetic event* instead of a hidden chore, and use the same mechanism as the single-player save screen and the multiplayer turn barrier.
+
+Borrowed from tabletop campaign play: continuous action *within* a session, punctuated by explicit milestone boundaries where the world consolidates and players get a between-sessions "crunch" window (repair, restock, purchase, customise, swap assets). Players never see "freed 40 dict slots"; they see *"Stardate 3200: refit window."*
+
+**Two-scale time model (this is the answer to open-decision #3).** Don't choose continuous-vs-turns — it is both, at two scales:
+
+- **In play (`IN_PLAY`):** stardate advances continuously with warp/actions. The data structure is **append-only** — tombstone on kill, never compact. No mid-session reindex, so no stale-loop hazard during a turn.
+- **At the boundary (`INTERMISSION`):** sim frozen. This is the *only* moment the structure is allowed to shrink, and the only moment economy state is mutable.
+
+**Strict ordering at the boundary — report before you sweep:**
+
+1. **Report** — build the milestone summary by reading the *tombstones* (`"3 Klingon cruisers destroyed, starbase Epsilon lost"`). This is why kill == tombstone, not delete: the corpses *are* the story. Sweep first and you lose the narrative.
+2. **Persist** — snapshot seed + live state (Phase F save boundary).
+3. **Compact / free** — rebuild each type-dict copying only `ST_ALIVE`; free reclaimed slots. Structure shrinks here, exactly once per cadence.
+4. **Crunch window** — economy mutations (repair/buy/refit/swap). The "between-window" asset changes map precisely onto the one time the structure may change shape.
+5. **Resume** — flip back to `IN_PLAY`, new stardate epoch.
+
+**Same mechanism, two framings:**
+
+- **Single-player (Phase F):** the intermission *is* the shop/repair screen (FTL between jumps, roguelike town visit). Milestone = canonical save point; seed + snapshot per tick = reproducible and resumable.
+- **Multiplayer (Phase G):** the intermission *is* turn resolution. Players act async inside the window; the host resolves + consolidates at the stardate tick and broadcasts the milestone report. The barrier the sim already needs for sync is the same barrier housekeeping already needs.
+
+**Parked decisions (not now):**
+
+- Cadence trigger: fixed stardate interval vs event-driven (quadrant cleared, objective met) vs session boundary. Tabletop leans session/event over clock — likely *"session end OR stardate threshold, whichever first."*
+- Crunch depth: full 4X refit vs light "repair + restock." Start light.
+
+Do not build any of this before Phase F. It is recorded here because it is the *rationale* for choices already locked in Phase A (tombstones, deferred sweep, the two-scale turn model).
 
 ---
 
@@ -308,7 +339,7 @@ Names are illustrative; the series can introduce one file per episode.
 
 1. **Grid sizes:** stay 8×8 galaxy / 8×8 sector for familiarity, or resize early?
 2. ~~**Max entities per sector:** fixed array vs dynamic list.~~ **Decided (Phase A):** one container dict `GAME`, entities as an object keyed by monotonic id (`ent.e0`, `ent.e1`, …). Dict children are uncapped; only top-level handles hit `MAX_DICTS`. Object keys give stable identity under delete; arrays reindex on `DICTDEL`.
-3. **Turn model:** continuous time (stardate += warp factor) vs explicit turns for multiplayer.
+3. ~~**Turn model:** continuous time vs explicit turns for multiplayer.~~ **Decided:** both, at two scales — continuous stardate *in play*, explicit milestone barriers at *intermission*. See **Campaign cadence (stardate milestones)** under Phase F/G. The intermission barrier doubles as the SP save point, the MP turn-resolution sync, and the only safe point for compaction/free/reindex.
 4. **Faction count:** start with Fed / Klingon / Neutral, add pirates in Phase C.
 5. **Public docs:** when galaxy matrix is user-visible, add a retrodocs page under `retrodocs` (same change-set rule as language features).
 
