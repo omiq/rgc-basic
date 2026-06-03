@@ -1,13 +1,17 @@
 # Proposal: `.` member-access syntax for dict values
 
-**Status:** Proposal / parked. Not scheduled. Captured so the idea isn't
-re-derived from scratch each time the dict-as-struct pattern gets verbose.
+**Status:** Candidate general language feature. Not yet scheduled, but
+promoted from "parked trek sugar" — the value is language-wide, not
+trek-specific (see *Cost / value*). Its own work item with its own
+regression sweep; never bundled into a trek episode.
 
 **Origin:** Fell out of the `trek-new.bas` entity-model refactor
-(`docs/trek-refactor-next-steps.md`, Phase A). The entity model lives in a
-single dict keyed by id; every field read/write is a `DICTGETN` /
-`DICTSET` call with a dotted **string** path. That works, but the call-based
-form is noisy in hot code (AI loops, combat resolution).
+(`docs/trek-refactor-next-steps.md`, Phase A). The entity model lives in
+type-dicts keyed by id; every field read/write is a `DICTGETN` / `DICTSET`
+call with a dotted **string** path. That works, but the call-based form is
+noisy in hot code (AI loops, combat resolution). The general case — *any*
+rgc-basic program that wants struct-shaped data without struct/OOP
+machinery — is the real motivation; trek is just the first consumer.
 
 ## TL;DR
 
@@ -98,27 +102,97 @@ The two hook points, both in the expression/statement layer of `basic.c`:
 
 ## Cost / value
 
-- **Value:** readability in entity/AI code; lowers the barrier for tutorial
-  readers who expect `e.hp`. Aligns with the "dicts as objects" pull case
-  already accepted in `docs/map-type-proposal.md`.
+- **Value (general, not trek):** this is the cheapest way to give rgc-basic
+  struct-shaped ergonomics without adding a struct/record/OOP type system.
+  It is the "dicts as objects" pattern every dynamic language leaned on
+  before formal records (Perl, Lua, JS, Python pre-dataclass). For a retro
+  teaching language it directly lowers the "this reads like 1980s BASIC"
+  barrier: `ship.hp = ship.hp - 20` looks like every modern language. Any
+  program modelling entities, config, parsed JSON, or game state benefits;
+  trek is just the first consumer. Aligns with the "dicts as struct
+  substitute" pull case already accepted in `docs/map-type-proposal.md`.
 - **Cost:** medium-high *risk*, low-medium *effort*. The code is small; the
-  exposure is the whole expression grammar. Needs the float-literal and
-  `.`-in-identifier questions answered first, plus a dedicated regression
-  pass (existing `.bas` corpus must produce identical output).
+  exposure is the whole expression grammar. Needs the float-literal
+  question handled (the `.`-in-identifier gating question is already
+  answered, below), plus a dedicated regression pass (existing `.bas` corpus
+  must produce identical output).
+
+### It is struct *aesthetics*, not struct *safety* — be honest about that
+
+The sugar makes a hashmap *look* like a record. It does not make it *behave*
+like one, and that gap is a teaching trap if undocumented:
+
+- **No field checking.** `DICTGETN` is fail-soft — a typo `ship.hl` silently
+  reads the default (0/""), no error. A real struct catches that at compile.
+  The reader thinks they have a struct; they have a hashmap with nicer
+  syntax.
+- **Mitigation — optional strict-field mode.** An opt-in (`#OPTION
+  STRICTFIELDS`, following the `#OPTION beats CLI beats default` precedence
+  rule) where reading an absent key *errors* instead of returning the
+  default. Opt-in so the fail-soft default everyone else relies on is
+  unchanged. This is what elevates the feature from sugar to something worth
+  marketing — "structs when you want them, hashmaps when you don't" — but it
+  is a follow-up, not part of the first cut.
+
+### Reference semantics — the "looks like value, acts like reference" trap
+
+A dict handle is a type-erased integer (`DICTNEW()` returns a number). So
+`a = ship` copies the **handle**, not the dict — `a.hp = 0` mutates the same
+underlying dict. OOP-trained users expect that; BASIC-trained users expect a
+value copy. The dot syntax sharpens the trap because `a.hp` *looks* like
+member access on an object.
+
+The crux: the language cannot tell `a = ship` (handle) from `a = score`
+(plain number) at assignment time, because both are just numbers. That rules
+out the obvious fix and shapes the menu:
+
+| Option | Cost | Notes |
+|--------|------|-------|
+| **Reference default + document loudly** | zero | Matches Py/JS/Lua; the `.` signals objectness. Footgun remains. |
+| Auto value-copy on `=` | — | **Impossible** while handles are ints (can't distinguish handle-assign from number-assign). Needs the value-type option below. |
+| **`DICTCLONE(h)` builtin, reference stays default** | low | Teaches "alias by default, clone when you mean copy" (Python's `.copy()`). |
+| Promote MAP to a first-class value type with copy-on-write | high | Lets `=` *define* value semantics cheaply. The "proper" fix. |
+| Type sigil for handles (`ship~`) | medium | BASIC-idiomatic visibility (`$` for strings); add only if users actually trip. |
+
+**Clustering insight:** every *clean* answer (auto-copy, COW value
+semantics) requires promoting MAP to a distinct value type — and that is the
+*same* investment that unlocks strict-field safety and real type errors. So
+the decision is one fork, not three:
+
+- **Cheap track (recommended now):** handles stay ints → reference semantics
+  + `DICTCLONE` + loud docs + optional `STRICTFIELDS`. Footgun *managed*,
+  not removed.
+- **Proper track (someday):** MAP becomes a first-class value type → value
+  semantics *and* strict fields *and* real errors in one investment. Big
+  lift; do it whole or not at all. Don't half-build a value type.
 
 ## Recommendation
 
-Park until the entity model has shipped through at least Phase B and the
-string-path verbosity is felt in real code, not anticipated. If/when picked
-up:
+Treat as a **candidate general language feature** on the cheap track:
+reference semantics, `DICTCLONE` for explicit copies, loud docs on aliasing,
+and an optional `STRICTFIELDS` mode as a follow-up. Do **not** half-build a
+MAP value type; that is the proper-track investment and is whole-or-nothing.
+
+Sequencing when picked up (still independent of any trek episode — trek runs
+fine on the string-path API regardless):
 
 1. Gating question already answered (`.` not an identifier char,
    `basic.c:954`). The remaining live risk is the float-literal
    disambiguation in the expression parser.
-2. Spike rvalue read only (`SHIP.hull` → `DICTGETN`), behind no flag, run
-   the full example/regression corpus, diff output.
-3. Add lvalue write only if read lands clean.
-4. Leave `[]` indexing and computed keys on the string API indefinitely.
+2. Spike **rvalue read only** (`SHIP.hull` → `DICTGETN`), behind no flag, run
+   the full example/regression corpus, diff output. This is the make-or-break
+   step for the float-literal question.
+3. Add **lvalue write** only if read lands clean.
+4. Ship `DICTCLONE` alongside, and document reference semantics in the same
+   change-set (it becomes user-visible the moment dot syntax exists).
+5. `STRICTFIELDS` and the whole MAP-value-type question are **separate**
+   follow-ups, decided on their own merits.
+6. Leave `[]` indexing and computed keys on the string API indefinitely.
+
+When this ships, it is a public-facing language feature → update
+`retrodocs/docs/basic/rgc-basic/language.md` in the same change-set (the
+CLAUDE.md public-docs rule), including the aesthetics-not-safety and
+reference-semantics caveats so external adopters aren't surprised.
 
 ## References
 
