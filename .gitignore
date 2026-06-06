@@ -128,3 +128,7 @@ web/basic-raylib.wasm
 web/basic-raylib.wasm.map
 basic-raylib.js
 basic-raylib.wasm
+
+# Python bytecode cache
+__pycache__/
+*.pyc
