@@ -501,9 +501,9 @@ function Lrs()
 
     ' PRINT LONG RANGE SCAN FOR QUADRANT
     print "\n  LONG RANGE SCAN FOR QUADRANT  ";QUADRANT_X;",";QUADRANT_Y
-    print : O1$=" +─────+─────+─────+" : print O1$;
-    O2$=" +─────+─────+─────+"
-    O3$=" +─────+─────+─────+"
+    print : O1$=" +-----+-----+-----+" : print O1$;
+    O2$=" +-----+-----+-----+"
+    O3$=" +-----+-----+-----+"
     print "         ";ECOL$;"#";DCOL$;"#";HCOL$;"#";FCOL$
 
     ' LONG RANGE SCAN LOOP
@@ -942,7 +942,7 @@ function ShortRangeScan()
     LOW$=" LOW!"
     print
     print "    1 2 3 4 5 6 7 8"
-    print "   +─+─+─+─+─+─+─+─┐ STARDATE  ";int(STARDATE_CUR*10)*.1
+    print "   +-+-+-+-+-+-+-+-- STARDATE  ";int(STARDATE_CUR*10)*.1
     
     ' PRINT QUADRANT
     for I=1 to 8
@@ -983,7 +983,7 @@ function ShortRangeScan()
     next I
 
     ' PRINT MAX WARP
-    print "   +─+─+─+─+─+─+─+─+";
+    print "   +-+-+-+-+-+-+-+-+";
     MW=SHIP_ENERGY/8
     MW=MW*10
     MW=int(MW)
@@ -1069,8 +1069,8 @@ function ComputerGalacticRecord()
 
 
     print
-    O1$="  ┌───┬───┬───┬───┬───┬───┬───┬───┐"
-    O2$="  ├───┼───┼───┼───┼───┼───┼───┼───┤"
+    O1$="  +---+---+---+---+---+---+---+----"
+    O2$="  +---+---+---+---+---+---+---+---+"
     print O1$
 
     for I=1 to 8
@@ -1112,7 +1112,7 @@ function ComputerGalacticRecord()
     next I
 
     ' PRINT GALACTIC RECORD FOOTER
-    print "  ┼───┼───┼───┼───┼───┼───┼───┼───┼"
+    print "  +---+---+---+---+---+---+---+---+"
     A1=0
     return ST_COMMAND
 end function
