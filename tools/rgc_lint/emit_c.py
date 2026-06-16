@@ -25,6 +25,7 @@ from typing import Iterable
 
 from .tokenizer import Statement, tokenize
 from . import expr as _expr
+from . import blocks as _blk
 from .expr import Num, Str, Var, Apply, Unary, Binary
 
 
@@ -514,58 +515,66 @@ def _emit_helpers(ctx: "Ctx") -> str:
     return ("".join(parts) + "\n") if parts else ""
 
 
+def _emit_if_single(stmt: Statement, ctx: Ctx) -> str:
+    """Single-line IF cond THEN stmt -> one-line C if."""
+    m = _IF_RE.match(stmt.rest)
+    if not m:
+        raise EmitError(f"line {stmt.line}: IF needs THEN: {stmt.rest!r}")
+    cond, then_src = m.groups()
+    then_stmt = next(tokenize(then_src), None)
+    if then_stmt is None:
+        raise EmitError(f"line {stmt.line}: empty THEN")
+    then_stmt.line = stmt.line
+    return (f"if ({_xlate_cond(cond, ctx)}) {{ "
+            f"{_emit_simple(then_stmt, ctx)} }}")
+
+
+def _emit_nodes(nodes: list, ctx: Ctx, out: list[str], indent: int) -> None:
+    """Recursively lower a list of block-tree nodes to C lines."""
+    def line(txt: str) -> None:
+        out.append("    " * indent + txt)
+
+    for n in nodes:
+        if isinstance(n, _blk.Line):
+            s = n.stmt
+            if s.first_word in ("DIM", "REM"):
+                continue
+            line(_emit_simple(s, ctx))
+        elif isinstance(n, _blk.For):
+            m = _FOR_RE.match(n.head.rest)
+            if not m:
+                raise EmitError(f"line {n.head.line}: malformed FOR: {n.head.rest!r}")
+            var, start, end, step = m.groups()
+            step_expr = _xlate_expr(step, ctx) if step else "1"
+            line(f"for ({var} = {_xlate_expr(start, ctx)}; "
+                 f"{var} <= {_xlate_expr(end, ctx)}; {var} += {step_expr}) {{")
+            _emit_nodes(n.body, ctx, out, indent + 1)
+            line("}")
+        elif isinstance(n, _blk.While):
+            line(f"while ({_xlate_cond(n.head.rest, ctx)}) {{")
+            _emit_nodes(n.body, ctx, out, indent + 1)
+            line("}")
+        elif isinstance(n, _blk.IfSingle):
+            line(_emit_if_single(n.stmt, ctx))
+        else:
+            kind = type(n).__name__
+            ln = getattr(getattr(n, "head", None) or getattr(n, "stmt", None),
+                         "line", "?")
+            raise EmitError(f"line {ln}: {kind} not supported yet")
+
+
 def emit(source: str) -> str:
     statements = [s for s in tokenize(source) if s.first_word != "REM"]
     ctx = Ctx()
     _collect(statements, ctx)
 
+    program = _blk.parse_blocks(statements)
+    if program.functions:
+        fn = program.functions[0]
+        raise EmitError(f"line {fn.head.line}: user FUNCTIONs not supported yet")
+
     body: list[str] = []
-    block_stack: list[str] = []   # 'for' / 'while'
-    indent = 1
-
-    def line(txt: str) -> None:
-        body.append("    " * indent + txt)
-
-    for s in statements:
-        kw = s.first_word
-        if kw == "DIM":
-            continue
-        elif kw == "FOR":
-            m = _FOR_RE.match(s.rest)
-            if not m:
-                raise EmitError(f"line {s.line}: malformed FOR: {s.rest!r}")
-            var, start, end, step = m.groups()
-            step_expr = _xlate_expr(step, ctx) if step else "1"
-            line(f"for ({var} = {_xlate_expr(start, ctx)}; "
-                 f"{var} <= {_xlate_expr(end, ctx)}; {var} += {step_expr}) {{")
-            block_stack.append("for"); indent += 1
-        elif kw == "NEXT":
-            if not block_stack or block_stack[-1] != "for":
-                raise EmitError(f"line {s.line}: NEXT without FOR")
-            block_stack.pop(); indent -= 1; line("}")
-        elif kw == "WHILE":
-            line(f"while ({_xlate_cond(s.rest, ctx)}) {{")
-            block_stack.append("while"); indent += 1
-        elif kw == "WEND":
-            if not block_stack or block_stack[-1] != "while":
-                raise EmitError(f"line {s.line}: WEND without WHILE")
-            block_stack.pop(); indent -= 1; line("}")
-        elif kw == "IF":
-            m = _IF_RE.match(s.rest)
-            if not m:
-                raise EmitError(f"line {s.line}: IF needs THEN: {s.rest!r}")
-            cond, then_src = m.groups()
-            then_stmt = next(tokenize(then_src), None)
-            if then_stmt is None:
-                raise EmitError(f"line {s.line}: empty THEN")
-            then_stmt.line = s.line
-            line(f"if ({_xlate_cond(cond, ctx)}) {{ "
-                 f"{_emit_simple(then_stmt, ctx)} }}")
-        else:
-            line(_emit_simple(s, ctx))
-
-    if block_stack:
-        raise EmitError(f"unclosed block(s): {block_stack}")
+    _emit_nodes(program.main, ctx, body, 1)
 
     decls = ""
     if ctx.scalars:
