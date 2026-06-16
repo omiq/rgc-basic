@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from .tokenizer import Statement
+from .tokenizer import Statement, in_string_literal
 
 
 @dataclass
@@ -375,6 +375,8 @@ def lint(
         # `SPRITE LOAD ...` doesn't trip on LOAD.
         skip_next = stmt.first_word in _TWO_WORD_NAMESPACES
         for m in _TOKEN_RE.finditer(stmt.rest):
+            if in_string_literal(stmt.rest, m.start()):
+                continue
             tok = m.group(1).upper()
             if skip_next:
                 skip_next = False

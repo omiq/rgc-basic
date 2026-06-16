@@ -66,6 +66,12 @@ def to_c(node, ctx) -> tuple[str, str]:
         if up == "CHR$":
             ctx.funcs.add("CHR$")
             return f"rgc_chr({a[0]})", "str"
+        if up == "STR$":
+            ctx.funcs.add("STR$")
+            return f"rgc_str({a[0]})", "str"
+        if up == "VAL":
+            ctx.funcs.add("VAL")
+            return f"rgc_val({a[0]})", "num"
         if up == "LEN":
             ctx.funcs.add("LEN")
             return f"((int)rgc_slen({a[0]}))", "num"
@@ -96,6 +102,9 @@ def to_c(node, ctx) -> tuple[str, str]:
         if op == "^":
             raise EmitError("'^' (power) not supported on integer targets "
                             "(no float/pow); use repeated multiply")
+        if op == "+" and (lt == "str" or rt == "str"):
+            ctx.funcs.add("CAT")
+            return f"rgc_scat({lc}, {rc})", "str"
         if op in _ARITH:
             return f"({lc} {_ARITH[op]} {rc})", "num"
         if op in ("=", "<>"):
@@ -148,7 +157,61 @@ _STRLIT_RE = re.compile(r'^"[^"]*"$')
 _CHR_RE = re.compile(r"^\s*CHR\$\s*\((.+)\)\s*$", re.IGNORECASE)
 
 _KEYWORDS = {"CLS", "TEXTAT", "FOR", "NEXT", "IF", "DIM", "REM",
-             "GET", "WHILE", "WEND"}
+             "GET", "WHILE", "WEND", "PRINT", "LOCATE"}
+
+
+def _split_print(rest: str) -> list:
+    """Split a PRINT list on top-level ';' and ',' (respecting quotes/parens).
+    Returns [(expr, sep), ...] where sep is the separator AFTER expr ('' last)."""
+    items, buf, depth, in_str = [], [], 0, False
+    for c in rest:
+        if c == '"':
+            in_str = not in_str; buf.append(c)
+        elif in_str:
+            buf.append(c)
+        elif c == "(":
+            depth += 1; buf.append(c)
+        elif c == ")":
+            depth -= 1; buf.append(c)
+        elif c in ";," and depth == 0:
+            items.append(("".join(buf).strip(), c)); buf = []
+        else:
+            buf.append(c)
+    items.append(("".join(buf).strip(), ""))
+    return items
+
+
+def _emit_print(rest: str, ctx: "Ctx") -> str:
+    ctx.uses_print = True
+    if not rest.strip():
+        return "rgc_nl();"
+    items = _split_print(rest)
+    suppress = False
+    if items and items[-1][0] == "":
+        items.pop(); suppress = True
+    out = []
+    for e, sep in items:
+        code, typ = to_c(_expr.parse(e), ctx)
+        if typ == "str":
+            out.append(f"rgc_pstr({code});")
+        else:
+            ctx.funcs.add("STR$")
+            out.append(f"rgc_pstr(rgc_str({code}));")
+        if sep == ",":
+            ctx.uses_tab = True
+            out.append("rgc_tab();")
+    if not suppress:
+        out.append("rgc_nl();")
+    return " ".join(out)
+
+
+def _emit_locate(rest: str, ctx: "Ctx") -> str:
+    ctx.uses_print = True
+    args = _split_args(rest)
+    if len(args) != 2:
+        raise EmitError(f"LOCATE needs x, y (got {len(args)})")
+    return (f"rgc_cx = (unsigned char)({_xlate(args[0], ctx)}); "
+            f"rgc_cy = (unsigned char)({_xlate(args[1], ctx)});")
 
 
 def _split_args(rest: str) -> list[str]:
@@ -191,6 +254,8 @@ class Ctx:
         self.uses_rnd = False
         self.uses_seq = False                   # string equality (rgc_seq)
         self.uses_scpy = False                  # string copy (rgc_scpy)
+        self.uses_print = False                 # PRINT/LOCATE cursor runtime
+        self.uses_tab = False                   # PRINT ',' zone tab
         self.funcs: set[str] = set()            # string/len builtins used
 
     def add_scalar(self, n: str) -> None:
@@ -242,13 +307,18 @@ def _collect(statements: list[Statement], ctx: Ctx) -> None:
                 continue
             ctx.add_string(m.group(0))
         if s.first_word == "DIM":
-            m = _DIM_RE.match(s.rest)
-            if not m:
-                raise EmitError(f"line {s.line}: malformed DIM: {s.rest!r}")
-            name, dims = m.group(1), _split_args(m.group(2))
-            ctx.arrays[name.upper()] = len(dims)
-            sizes = "".join(f"[{_dim_size(d)}]" for d in dims)
-            ctx.array_decls.append(f"int {name}{sizes};")
+            # DIM may declare several arrays: DIM A(5), B(3,3), C(9)
+            for decl in _split_args(s.rest):
+                if "$" in decl:
+                    raise EmitError(
+                        f"line {s.line}: string arrays not supported yet: {decl!r}")
+                m = _DIM_RE.match(decl)
+                if not m:
+                    raise EmitError(f"line {s.line}: malformed DIM: {decl!r}")
+                name, dims = m.group(1), _split_args(m.group(2))
+                ctx.arrays[name.upper()] = len(dims)
+                sizes = "".join(f"[{_dim_size(d)}]" for d in dims)
+                ctx.array_decls.append(f"int {name}{sizes};")
         elif s.first_word == "FOR":
             m = _FOR_RE.match(s.rest)
             if m:
@@ -286,6 +356,10 @@ def _emit_simple(stmt: Statement, ctx: Ctx) -> str:
     rest = stmt.rest
     if kw == "CLS":
         return "plat_cls();"
+    if kw == "PRINT":
+        return _emit_print(rest, ctx)
+    if kw == "LOCATE":
+        return _emit_locate(rest, ctx)
     if kw == "GET":
         return _emit_get(rest.strip(), ctx)
     if kw == "TEXTAT":
@@ -327,6 +401,24 @@ def _emit_helpers(ctx: "Ctx") -> str:
     rotating static pool so they compose in expressions (BASIC string-temp
     idiom). Emitted only when needed; dependency order preserved."""
     parts: list[str] = []
+    if ctx.uses_print:
+        # Flowing-text cursor built on plat_puts (the contract has no cursor).
+        # No scroll: at the bottom row PRINT clamps (plat has no scroll/read).
+        parts.append(
+            "static unsigned char rgc_cx = 0, rgc_cy = 0;\n"
+            "static void rgc_pstr(const char *s) {\n"
+            "    plat_puts(rgc_cx, rgc_cy, s, COL_WHITE);\n"
+            "    while (*s++) rgc_cx++;\n"
+            "}\n"
+            "static void rgc_nl(void) {\n"
+            "    rgc_cx = 0;\n"
+            "    if (rgc_cy + 1 < plat_screen_h()) rgc_cy++;\n"
+            "}\n")
+    if ctx.uses_tab:
+        parts.append(
+            "static void rgc_tab(void) {\n"
+            "    rgc_cx = (unsigned char)(((rgc_cx / 10) + 1) * 10);\n"
+            "}\n")
     if ctx.uses_scpy:
         parts.append(
             "static void rgc_scpy(char *d, const char *s) {\n"
@@ -340,7 +432,7 @@ def _emit_helpers(ctx: "Ctx") -> str:
             "}\n")
     f = ctx.funcs
     need_left = bool(f & {"LEFT$", "RIGHT$", "MID$"})
-    need_pool = need_left or bool(f & {"UCASE$", "LCASE$", "CHR$"})
+    need_pool = need_left or bool(f & {"UCASE$", "LCASE$", "CHR$", "STR$", "CAT"})
     need_slen = bool(f & {"LEN", "RIGHT$", "MID$"})
     if need_slen:
         parts.append(
@@ -356,6 +448,32 @@ def _emit_helpers(ctx: "Ctx") -> str:
             "static char *rgc_chr(int n) {\n"
             "    char *d = rgc_pool[rgc_pi = (rgc_pi + 1) & 3];\n"
             "    d[0] = (char)n; d[1] = 0; return d;\n"
+            "}\n")
+    if "CAT" in f:
+        parts.append(
+            "static char *rgc_scat(const char *a, const char *b) {\n"
+            "    char *d = rgc_pool[rgc_pi = (rgc_pi + 1) & 3]; int i = 0;\n"
+            f"    while (*a && i < {STRMAX}) {{ d[i++] = *a++; }}\n"
+            f"    while (*b && i < {STRMAX}) {{ d[i++] = *b++; }}\n"
+            "    d[i] = 0; return d;\n"
+            "}\n")
+    if "STR$" in f:
+        parts.append(
+            "static char *rgc_str(int n) {\n"
+            "    char *d = rgc_pool[rgc_pi = (rgc_pi + 1) & 3]; char t[7]; int i = 0, j = 0;\n"
+            "    unsigned u; if (n < 0) { d[j++] = '-'; u = (unsigned)(-n); } else u = (unsigned)n;\n"
+            "    do { t[i++] = (char)('0' + u % 10); u /= 10; } while (u);\n"
+            "    while (i) d[j++] = t[--i];\n"
+            "    d[j] = 0; return d;\n"
+            "}\n")
+    if "VAL" in f:
+        parts.append(
+            "static int rgc_val(const char *s) {\n"
+            "    int n = 0, sign = 1;\n"
+            "    while (*s == ' ') s++;\n"
+            "    if (*s == '-') { sign = -1; s++; } else if (*s == '+') s++;\n"
+            "    while (*s >= '0' && *s <= '9') n = n * 10 + (*s++ - '0');\n"
+            "    return n * sign;\n"
             "}\n")
     for which in ("UCASE$", "LCASE$"):
         if which in f:

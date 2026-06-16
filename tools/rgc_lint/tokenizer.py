@@ -60,6 +60,32 @@ class Statement:
 _KW_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\$?")
 
 
+def in_string_literal(text: str, pos: int) -> bool:
+    """True if index ``pos`` falls inside a double-quoted string literal."""
+    if pos < 0 or pos > len(text):
+        return False
+    in_string = False
+    i = 0
+    while i < len(text):
+        if i == pos:
+            return in_string
+        c = text[i]
+        if in_string:
+            if c == '"':
+                in_string = False
+            elif c == "\\" and i + 1 < len(text):
+                i += 2
+                continue
+            i += 1
+            continue
+        if c == '"':
+            in_string = True
+            i += 1
+            continue
+        i += 1
+    return in_string
+
+
 def _strip_comment(line: str) -> str:
     """Remove trailing REM / `'` comment.
 

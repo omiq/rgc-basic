@@ -6,10 +6,11 @@ First working slice of the BASIC to C transpiler (`tools/rgc_lint/emit_c.py`), e
 against retro-c's `platform.h` contract so one `.bas` builds for multiple retro targets.
 Proven on C64 (cc65), CoCo3 (cmoc) and Z80 (sdcc) from the same source.
 
-- Language subset: `CLS`, `TEXTAT x,y,s`, `FOR`/`NEXT`, `WHILE`/`WEND`, `IF ... THEN`
-  (single line), integer vars, `DIM` 1-3D arrays, `RND(n)` (mapped to `plat_rand() % n`),
-  fixed-length string vars, `GET` (non-blocking key input), and the string functions
-  `UCASE$` `LCASE$` `LEFT$` `RIGHT$` `MID$` `CHR$` `LEN`.
+- Language subset: `CLS`, `PRINT` (with `;`/`,` and a flowing cursor), `LOCATE x,y`,
+  `TEXTAT x,y,s`, `FOR`/`NEXT`, `WHILE`/`WEND`, `IF ... THEN` (single line), integer vars,
+  `DIM` 1-3D arrays (multiple per statement), `RND(n)` (mapped to `plat_rand() % n`),
+  fixed-length string vars, string concat (`A$ + B$`), `GET` (non-blocking key input), and
+  the string functions `UCASE$` `LCASE$` `LEFT$` `RIGHT$` `MID$` `CHR$` `STR$` `VAL` `LEN`.
 - Shared front end: a real recursive-descent expression parser and AST (`expr.py`) used by
   both the emitter and the linter. The emitter does type inference (string vs numeric) so
   `=`/`<>` pick string compare or numeric compare correctly.
