@@ -753,6 +753,7 @@ def _iter_stmts(nodes: list):
             yield n.stmt
         elif isinstance(n, _blk.IfSingle):
             yield n.stmt
+            yield from _iter_stmts(n.tail)
         elif isinstance(n, (_blk.For, _blk.While, _blk.Do)):
             yield n.head
             yield from _iter_stmts(n.body)
@@ -1257,8 +1258,8 @@ def _if_cond(rest: str) -> str:
     return m.group(1) if m else (rest or "").strip()
 
 
-def _emit_if_single(stmt: Statement, ctx: Ctx) -> str:
-    """Single-line IF cond THEN stmt -> one-line C if."""
+def _if_single_parts(stmt: Statement, ctx: Ctx):
+    """Parse `cond THEN stmt` -> (cond C-expr, first THEN Statement)."""
     m = _IF_RE.match(stmt.rest)
     if not m:
         raise EmitError(f"line {stmt.line}: IF needs THEN: {stmt.rest!r}")
@@ -1267,8 +1268,13 @@ def _emit_if_single(stmt: Statement, ctx: Ctx) -> str:
     if then_stmt is None:
         raise EmitError(f"line {stmt.line}: empty THEN")
     then_stmt.line = stmt.line
-    return (f"if ({_xlate_cond(cond, ctx)}) {{ "
-            f"{_emit_simple(then_stmt, ctx)} }}")
+    return _xlate_cond(cond, ctx), then_stmt
+
+
+def _emit_if_single(stmt: Statement, ctx: Ctx) -> str:
+    """Single-line IF cond THEN stmt -> one-line C if (no colon tail)."""
+    cond_c, then_stmt = _if_single_parts(stmt, ctx)
+    return f"if ({cond_c}) {{ {_emit_simple(then_stmt, ctx)} }}"
 
 
 def _loop_target(ctx: Ctx, kind_word: str, ln) -> dict:
@@ -1367,7 +1373,15 @@ def _emit_nodes(nodes: list, ctx: Ctx, out: list[str], indent: int) -> None:
             if entry["want_brk"]:
                 line(f"_brk{entry['id']}: ;")
         elif isinstance(n, _blk.IfSingle):
-            line(_emit_if_single(n.stmt, ctx))
+            if not n.tail:
+                line(_emit_if_single(n.stmt, ctx))
+            else:
+                # THEN clause spans the rest of the line (colon-split siblings)
+                cond_c, then_stmt = _if_single_parts(n.stmt, ctx)
+                line(f"if ({cond_c}) {{")
+                out.append("    " * (indent + 1) + _emit_simple(then_stmt, ctx))
+                _emit_nodes(n.tail, ctx, out, indent + 1)
+                line("}")
         elif isinstance(n, _blk.IfBlock):
             line(f"if ({_xlate_cond(_if_cond(n.head.rest), ctx)}) {{")
             _emit_nodes(n.body, ctx, out, indent + 1)

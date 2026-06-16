@@ -47,8 +47,14 @@ class Do:
 
 @dataclass
 class IfSingle:
-    """Single-line IF cond THEN stmt — lowered exactly as the old walker did."""
+    """Single-line IF cond THEN stmt [: stmt ...].
+
+    `stmt.rest` holds `cond THEN <first-then-statement>`. Everything else on the
+    SAME source line after the `:` belongs to the THEN clause too (BASIC has no
+    way to leave a single-line THEN except ELSE), so those colon-split siblings
+    are absorbed into `tail` rather than left as unconditional statements."""
     stmt: Statement
+    tail: list = field(default_factory=list)
 
 
 @dataclass
@@ -155,7 +161,7 @@ class _Parser:
         if is_block_if(st):
             return self.parse_if()
         if kw == "IF":
-            return IfSingle(self.next())
+            return self.parse_if_single()
         if kw == "FUNCTION":
             raise BlockError(f"line {st.line}: nested FUNCTION not allowed")
         # stray terminators reaching here = unbalanced source.
@@ -164,6 +170,23 @@ class _Parser:
                 or _end_kind(st) in ("FUNCTION", "SELECT", "IF"):
             raise BlockError(f"line {st.line}: unexpected {kw!r}")
         return Line(self.next())
+
+    def parse_if_single(self) -> IfSingle:
+        head = self.next()
+        node = IfSingle(stmt=head)
+        # Absorb the rest of the physical source line (colon-split siblings) as
+        # the THEN clause. Stop at a different line or a block terminator that
+        # belongs to an enclosing block (a single-line THEN can't open one).
+        while True:
+            nxt = self.peek()
+            if nxt is None or nxt.line != head.line:
+                break
+            if nxt.first_word in ("NEXT", "WEND", "LOOP", "CASE", "ELSE",
+                                  "ELSEIF", "FUNCTION") \
+                    or _end_kind(nxt) in ("FUNCTION", "SELECT", "IF"):
+                break
+            node.tail.append(self.parse_statement())
+        return node
 
     def parse_body(self, stop) -> list:
         body = []
