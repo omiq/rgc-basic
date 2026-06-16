@@ -43,6 +43,12 @@ _ARITH = {"+": "+", "-": "-", "*": "*", "/": "/", "MOD": "%", "\\": "/",
           "<<": "<<", ">>": ">>"}
 
 
+def _arr_name(name_upper: str, ctx) -> str:
+    """C name for a numeric array. BASIC keeps scalar N and array N() separate;
+    C can't, so a colliding array base gets an _A suffix."""
+    return f"{name_upper}_A" if name_upper in ctx.arr_mangle else name_upper
+
+
 def _real_lit(value: str) -> str:
     """A BASIC real literal token -> RGC_LIT(fixedbits, floatval). The emitter
     pre-computes the 16.16 fixed bits so the cc65 path never sees a float."""
@@ -82,6 +88,10 @@ def to_c(node, ctx) -> tuple[str, str]:
         return node.name.upper(), t
     if isinstance(node, Apply):
         up = node.name.upper()
+        if up.endswith("$") and up.rstrip("$") in ctx.str_arrays:
+            subs = "".join(
+                f"[{_idx_node(arg, ctx)}]" for arg in node.args)
+            return _mangle_str(node.name) + subs, "str"
         if up in ctx.arrays:
             # array subscripts must be C ints — floor any real index
             subs = ""
@@ -91,7 +101,7 @@ def to_c(node, ctx) -> tuple[str, str]:
             t = "real" if up in ctx.real_arrays else "int"
             if t == "real":
                 ctx.uses_real = True
-            return node.name.upper() + subs, t
+            return _arr_name(up, ctx) + subs, t
         if up == "RND":
             ctx.uses_rnd = True
             ctx.uses_rrnd = True
@@ -139,6 +149,11 @@ def to_c(node, ctx) -> tuple[str, str]:
             ctx.funcs.add("MID$")
             n = a[2] if len(a) >= 3 else str(STRMAX)
             return f"rgc_mid({a[0]}, {a[1]}, {n})", "str"
+        if up == "ASC":
+            return f"((int)(unsigned char)({a[0]})[0])", "int"
+        if up == "STRING$":
+            ctx.funcs.add("STRING$")
+            return f"rgc_string({a[0]}, {a[1]})", "str"
         if up in ctx.udfs:
             u = ctx.udfs[up]
             t = "str" if u["ret"] == "str" else ("real" if up in ctx.udf_real else "int")
@@ -239,7 +254,8 @@ def _xlate(e: str, ctx) -> str:
     return _strip_outer(to_c(_expr.parse(e), ctx)[0])
 
 
-STRMAX = 40   # fixed string-var capacity (chars); char[STRMAX+1]
+STRMAX = 255  # fixed string-var capacity (chars); char[STRMAX+1].
+              # trek's THIS_QUADRANT$ is a 192-char grid, so 40 is too small.
 
 _FOR_RE = re.compile(
     r"^\s*([A-Za-z_]\w*)\s*=\s*(.+?)\s+TO\s+(.+?)(?:\s+STEP\s+(.+?))?\s*$",
@@ -385,6 +401,8 @@ class Ctx:
         self.scalars: list[str] = []
         self.arrays: dict[str, int] = {}
         self.array_sizes: dict[str, str] = {}   # NAME -> C subscript string
+        self.str_arrays: dict[str, str] = {}     # NAME$ UPPER (no $) -> subscripts
+        self.arr_mangle: set[str] = set()        # array bases colliding w/ a scalar
         self.strings: list[str] = []           # original names (with $)
         self.uses_rnd = False
         self.uses_seq = False                   # string equality (rgc_seq)
@@ -413,8 +431,8 @@ class Ctx:
 
     def add_scalar(self, n: str) -> None:
         u = n.upper()
-        if u not in self.arrays and all(s.upper() != u for s in self.scalars):
-            self.scalars.append(n)
+        if all(s.upper() != u for s in self.scalars):
+            self.scalars.append(n)   # may coexist with an array of the same name
 
     def add_string(self, n: str) -> None:
         if all(s.upper() != n.upper() for s in self.strings):
@@ -447,6 +465,8 @@ def _expr_type(node, ctx: Ctx) -> str:
         return "real" if _var_is_real(node.name.upper(), ctx) else "int"
     if isinstance(node, Apply):
         up = node.name.upper()
+        if up.endswith("$") and up.rstrip("$") in ctx.str_arrays:
+            return "str"
         if up in ctx.arrays:
             return "real" if up in ctx.real_arrays else "int"
         if up == "RND" or up in _REAL_FUNCS:
@@ -455,9 +475,10 @@ def _expr_type(node, ctx: Ctx) -> str:
             return "int"
         if up == "ABS":
             return _expr_type(node.args[0], ctx) if node.args else "int"
-        if up == "LEN":
+        if up in ("LEN", "ASC"):
             return "int"
-        if up in ("CHR$", "STR$", "UCASE$", "LCASE$", "LEFT$", "RIGHT$", "MID$"):
+        if up in ("CHR$", "STR$", "UCASE$", "LCASE$", "LEFT$", "RIGHT$",
+                  "MID$", "STRING$"):
             return "str"
         if up in ctx.udfs:
             if ctx.udfs[up]["ret"] == "str":
@@ -524,6 +545,17 @@ def _infer_types(program, ctx: Ctx) -> None:
     changed = True
     while changed:
         changed = False
+        # DEF FN body is real -> function returns real
+        for up, u in ctx.udfs.items():
+            if "deffn" in u and u["ret"] != "str" and up not in ctx.udf_real:
+                ctx.cur_fn = up
+                ctx.cur_params = {p.upper() for p, _ in u["params"]}
+                try:
+                    if _expr_type(_expr.parse(u["deffn"]), ctx) == "real":
+                        ctx.udf_real.add(up); changed = True
+                except Exception:
+                    pass
+                ctx.cur_fn, ctx.cur_params = "", set()
         for fn_upper, params, stmts in scopes:
             ctx.cur_fn, ctx.cur_params = fn_upper, params
             for s in stmts:
@@ -631,6 +663,12 @@ def _idx(e: str, ctx: Ctx) -> str:
     return f"RGC_TOINT({code})" if typ == "real" else _strip_outer(code)
 
 
+def _idx_node(node, ctx: Ctx) -> str:
+    """An array subscript AST node -> C int (floor a real index)."""
+    code, typ = to_c(node, ctx)
+    return f"RGC_TOINT({code})" if typ == "real" else _strip_outer(code)
+
+
 def _str_ref(tok: str) -> str:
     """A string operand token -> C: literal stays, A$ -> A_str. Used by the
     statement-level string paths (assignment RHS, TEXTAT text arg)."""
@@ -679,40 +717,56 @@ def _iter_stmts(nodes: list):
 def _collect(statements: list[Statement], ctx: Ctx,
              params: set[str] | None = None) -> None:
     params = params or set()
+    # DIMs first so array names are known before scanning uses (a string array
+    # ref N$(i) must not be mistaken for a scalar string).
+    for s in statements:
+        if s.first_word == "DIM":
+            _collect_dim(s, ctx)
     for s in statements:
         # string vars: any A$ token anywhere — but a `$`-name followed by '('
-        # is a string FUNCTION call (UCASE$, LEFT$, CHR$...), not a variable.
+        # is a string FUNCTION call (UCASE$, LEFT$, CHR$...) or a string ARRAY
+        # element, not a scalar string variable.
         text = (s.first_word or "") + " " + (s.rest or "")
         for m in _STRVAR_RE.finditer(text):
             if text[m.end():m.end() + 1] == "(":
+                continue
+            if m.group(0).rstrip("$").upper() in ctx.str_arrays:
                 continue
             if m.group(0).upper() in params:
                 continue
             ctx.add_string(m.group(0))
         if s.first_word == "DIM":
-            # DIM may declare several arrays: DIM A(5), B(3,3), C(9)
-            for decl in _split_args(s.rest):
-                if "$" in decl:
-                    raise EmitError(
-                        f"line {s.line}: string arrays not supported yet: {decl!r}")
-                m = _DIM_RE.match(decl)
-                if not m:
-                    raise EmitError(f"line {s.line}: malformed DIM: {decl!r}")
-                name, dims = m.group(1), _split_args(m.group(2))
-                ctx.arrays[name.upper()] = len(dims)
-                sizes = "".join(f"[{_dim_size(d)}]" for d in dims)
-                ctx.array_sizes[name] = sizes
+            continue                          # handled in the DIM pre-pass
         elif s.first_word == "FOR":
             m = _FOR_RE.match(s.rest)
             if m and m.group(1).upper() not in params:
                 ctx.add_scalar(m.group(1))
         elif (s.first_word and s.first_word not in _KEYWORDS
               and not _is_strvar(s.first_word)
-              and s.first_word.upper() not in ctx.arrays
               and s.first_word.upper() not in ctx.udfs
               and s.first_word.upper() not in params
               and _RHS_RE.match(s.rest)):
+            # rest starts with '=' (array assigns start with '(', so a name that
+            # is also an array still collects here only for its scalar use).
             ctx.add_scalar(s.first_word)
+
+
+def _collect_dim(s: Statement, ctx: Ctx) -> None:
+    """DIM may declare several arrays: DIM A(5), B$(8), C(3,3)."""
+    for decl in _split_args(s.rest):
+        sm = re.match(r"^\s*([A-Za-z_]\w*\$)\s*\(([^)]*)\)\s*$", decl)
+        if sm:                                # string array: DIM N$(8)
+            name, dims = sm.group(1), _split_args(sm.group(2))
+            sizes = "".join(f"[{_dim_size(d)}]" for d in dims)
+            ctx.str_arrays[name.rstrip("$").upper()] = sizes
+            continue
+        m = _DIM_RE.match(decl)
+        if not m:
+            raise EmitError(f"line {s.line}: malformed DIM: {decl!r}")
+        name, dims = m.group(1), _split_args(m.group(2))
+        ctx.arrays[name.upper()] = len(dims)
+        sizes = "".join(f"[{_dim_size(d)}]" for d in dims)
+        ctx.array_sizes[name] = sizes
 
 
 def _emit_get(strvar: str, ctx: Ctx) -> str:
@@ -783,17 +837,25 @@ def _emit_simple(stmt: Statement, ctx: Ctx) -> str:
                             f"string literal or string var, got {txt!r}")
         return (f"plat_puts((unsigned char)({_xlate_expr(x, ctx)}), "
                 f"(unsigned char)({_xlate_expr(y, ctx)}), {text_c}, COL_WHITE);")
+    if _is_strvar(kw) and kw.rstrip("$").upper() in ctx.str_arrays:
+        m = _ARRAY_ASSIGN_RE.match(rest)
+        if not m:
+            raise EmitError(f"line {stmt.line}: bad string-array assignment: {rest!r}")
+        subs = "".join(f"[{_idx(s, ctx)}]" for s in _split_args(m.group(1)))
+        code, typ = to_c(_expr.parse(m.group(2)), ctx)
+        if typ != "str":
+            raise EmitError(f"line {stmt.line}: string array {kw} assigned a number")
+        ctx.uses_scpy = True
+        return f"rgc_scpy({_mangle_str(kw)}{subs}, {_strip_outer(code)});"
     if _is_strvar(kw):
         m = _RHS_RE.match(rest)
         if not m:
             raise EmitError(f"line {stmt.line}: bad string assignment: {rest!r}")
         return _emit_str_assign(kw, m.group(1), ctx)
-    if kw and kw.upper() in ctx.arrays:
+    if kw and kw.upper() in ctx.arrays and _ARRAY_ASSIGN_RE.match(rest):
         m = _ARRAY_ASSIGN_RE.match(rest)
-        if not m:
-            raise EmitError(f"line {stmt.line}: bad array assignment: {rest!r}")
         subs = _split_args(m.group(1))
-        lhs = kw + "".join(f"[{_idx(s, ctx)}]" for s in subs)
+        lhs = _arr_name(kw.upper(), ctx) + "".join(f"[{_idx(s, ctx)}]" for s in subs)
         real = kw.upper() in ctx.real_arrays
         return f"{lhs} = {_xlate_to(m.group(2), real, ctx)};"
     if kw and kw not in _KEYWORDS:
@@ -848,7 +910,7 @@ def _emit_helpers(ctx: "Ctx") -> str:
     f = ctx.funcs
     need_left = bool(f & {"LEFT$", "RIGHT$", "MID$"})
     need_pool = (need_left or ctx.uses_rstr
-                 or bool(f & {"UCASE$", "LCASE$", "CHR$", "STR$", "CAT"}))
+                 or bool(f & {"UCASE$", "LCASE$", "CHR$", "STR$", "CAT", "STRING$"}))
     need_slen = bool(f & {"LEN", "RIGHT$", "MID$"})
     if need_slen:
         parts.append(
@@ -885,6 +947,15 @@ def _emit_helpers(ctx: "Ctx") -> str:
             "static char *rgc_chr(int n) {\n"
             "    char *d = rgc_pool[rgc_pi = (rgc_pi + 1) & 3];\n"
             "    d[0] = (char)n; d[1] = 0; return d;\n"
+            "}\n")
+    if "STRING$" in f:
+        parts.append(
+            "static char *rgc_string(int n, const char *s) {\n"
+            "    char *d = rgc_pool[rgc_pi = (rgc_pi + 1) & 3]; int i;\n"
+            f"    if (n > {STRMAX}) n = {STRMAX};\n"
+            "    if (n < 0) n = 0;\n"
+            "    for (i = 0; i < n; i++) d[i] = s[0];\n"
+            "    d[n] = 0; return d;\n"
             "}\n")
     if "CAT" in f:
         parts.append(
@@ -951,6 +1022,15 @@ def _emit_helpers(ctx: "Ctx") -> str:
     return ("".join(parts) + "\n") if parts else ""
 
 
+_THEN_TAIL_RE = re.compile(r"(?i)^(.*?)\s+THEN\s*$")
+
+
+def _if_cond(rest: str) -> str:
+    """Extract the condition from a block-IF / ELSEIF header ('cond THEN')."""
+    m = _THEN_TAIL_RE.match((rest or "").strip())
+    return m.group(1) if m else (rest or "").strip()
+
+
 def _emit_if_single(stmt: Statement, ctx: Ctx) -> str:
     """Single-line IF cond THEN stmt -> one-line C if."""
     m = _IF_RE.match(stmt.rest)
@@ -997,8 +1077,8 @@ def _emit_nodes(nodes: list, ctx: Ctx, out: list[str], indent: int) -> None:
     for n in nodes:
         if isinstance(n, _blk.Line):
             s = n.stmt
-            if s.first_word in ("DIM", "REM"):
-                continue
+            if s.first_word in ("DIM", "REM", "DEF"):
+                continue              # declarations, not executable statements
             line(_emit_simple(s, ctx))
         elif isinstance(n, _blk.For):
             m = _FOR_RE.match(n.head.rest)
@@ -1062,6 +1142,16 @@ def _emit_nodes(nodes: list, ctx: Ctx, out: list[str], indent: int) -> None:
                 line(f"_brk{entry['id']}: ;")
         elif isinstance(n, _blk.IfSingle):
             line(_emit_if_single(n.stmt, ctx))
+        elif isinstance(n, _blk.IfBlock):
+            line(f"if ({_xlate_cond(_if_cond(n.head.rest), ctx)}) {{")
+            _emit_nodes(n.body, ctx, out, indent + 1)
+            for ei, ei_body in n.elifs:
+                line(f"}} else if ({_xlate_cond(_if_cond(ei.rest), ctx)}) {{")
+                _emit_nodes(ei_body, ctx, out, indent + 1)
+            if n.else_body is not None:
+                line("} else {")
+                _emit_nodes(n.else_body, ctx, out, indent + 1)
+            line("}")
         elif isinstance(n, _blk.Select):
             _emit_select(n, ctx, out, indent, line)
         else:
@@ -1105,6 +1195,30 @@ def _emit_select(n, ctx: Ctx, out: list[str], indent: int, line) -> None:
         line("}")
         first = False
     line("}")
+
+
+_DEFFN_RE = re.compile(r"^\s*([A-Za-z_]\w*\$?)\s*\(([^)]*)\)\s*=\s*(.+?)\s*$")
+
+
+def _emit_deffn(nm: str, params: list, bodyexpr: str, ctx: Ctx,
+                out: list[str]) -> None:
+    """DEF FN single-line function -> C function returning its one expression."""
+    u = ctx.udfs[nm.upper()]
+    fu = nm.upper()
+    ret = u["ret"]
+    ret_real = fu in ctx.udf_real
+    ctx.cur_ret, ctx.cur_ret_real = ret, ret_real
+    ctx.cur_fn = fu
+    ctx.cur_params = {p.upper() for p, _ in params}
+    code, typ = to_c(_expr.parse(bodyexpr), ctx)
+    code = _strip_outer(code)
+    if ret_real and typ == "int":
+        code = f"RGC_FROMINT({code})"
+    elif not ret_real and ret != "str" and typ == "real":
+        code = f"RGC_TOINT({code})"
+    out.append(f"static {_c_ret_type(ret, ret_real)} {u['cname']}"
+               f"({_fn_c_params(fu, params, ctx)}) {{ return {code}; }}")
+    ctx.cur_ret, ctx.cur_ret_real, ctx.cur_fn, ctx.cur_params = "int", False, "", set()
 
 
 def _param_real(fn_upper: str, p: str, ctx: Ctx) -> bool:
@@ -1184,17 +1298,43 @@ def emit(source: str) -> str:
                                 "ret": _udf_ret(nm), "params": params}
         fn_headers.append((fn, nm, params))
 
+    # 1b. DEF FN single-line functions (DEF FNR(R) = expr) -> UDFs.
+    deffns = []
+    all_stmts = list(_iter_stmts(program.main))
+    for fn in program.functions:
+        all_stmts += list(_iter_stmts(fn.body))
+    for s in all_stmts:
+        if s.first_word != "DEF":
+            continue
+        dm = _DEFFN_RE.match(s.rest or "")
+        if not dm:
+            raise EmitError(f"line {s.line}: malformed DEF FN: {s.rest!r}")
+        nm, pstr, bodyexpr = dm.group(1), dm.group(2).strip(), dm.group(3)
+        params = [(pstr, pstr.endswith("$"))] if pstr else []
+        ctx.udfs[nm.upper()] = {"name": nm, "cname": _udf_cname(nm),
+                                "ret": _udf_ret(nm), "params": params,
+                                "deffn": bodyexpr}
+        deffns.append((nm, params, bodyexpr))
+
     # 2. Collect globals per scope (params excluded from each function body).
     _collect(list(_iter_stmts(program.main)), ctx)
     for fn, nm, params in fn_headers:
         _collect(list(_iter_stmts(fn.body)), ctx,
                  params={p.upper() for p, _ in params})
 
-    # 2b. Infer numeric types (int vs real) to a fixpoint.
+    # 2b. An array whose base name is also a scalar must be renamed in C.
+    scalar_uppers = {s.upper() for s in ctx.scalars}
+    ctx.arr_mangle = {a for a in ctx.arrays if a in scalar_uppers}
+
+    # 2c. Infer numeric types (int vs real) to a fixpoint.
     _infer_types(program, ctx)
 
     # 3. Emit function definitions (populates ctx with any global refs inside).
     fn_defs: list[str] = []
+    for nm, params, bodyexpr in deffns:
+        _emit_deffn(nm, params, bodyexpr, ctx, fn_defs)
+    if deffns:
+        fn_defs.append("")
     for fn in program.functions:
         _emit_function(fn, ctx, fn_defs)
         fn_defs.append("")
@@ -1213,15 +1353,19 @@ def emit(source: str) -> str:
         gdecls += "static rgc_real " + ", ".join(real_scalars) + ";\n"
     for name, sizes in ctx.array_sizes.items():
         ctype = "rgc_real" if name.upper() in ctx.real_arrays else "int"
-        gdecls += f"static {ctype} {name.upper()}{sizes};\n"
+        gdecls += f"static {ctype} {_arr_name(name.upper(), ctx)}{sizes};\n"
+    for base, sizes in ctx.str_arrays.items():
+        gdecls += f"static char {base}_STR{sizes}[{STRMAX + 1}];\n"
     for sv in ctx.strings:
         gdecls += f"static char {_mangle_str(sv)}[{STRMAX + 1}];\n"
 
+    proto_src = [(nm, params) for _, nm, params in fn_headers]
+    proto_src += [(nm, params) for nm, params, _ in deffns]
     protos = "".join(
         f"static {_c_ret_type(ctx.udfs[nm.upper()]['ret'], nm.upper() in ctx.udf_real)} "
         f"{ctx.udfs[nm.upper()]['cname']}"
         f"({_fn_proto_params(nm.upper(), params, ctx)});\n"
-        for _, nm, params in fn_headers)
+        for nm, params in proto_src)
 
     seed = ("    plat_seed_rand(1);   /* fixed non-zero seed -> deterministic RND */\n"
             if ctx.uses_rnd else "")
