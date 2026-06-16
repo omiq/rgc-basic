@@ -403,6 +403,11 @@ class Ctx:
         self.real_arrays: set[str] = set()      # array UPPER names typed real
         self.real_params: set[tuple] = set()    # (FN_UPPER, PARAM_UPPER) typed real
         self.udf_real: set[str] = set()         # UDF UPPER names returning real
+        self._tmp = 0                           # unique temp-id counter
+
+    def next_tmp(self) -> int:
+        self._tmp += 1
+        return self._tmp
 
     def add_scalar(self, n: str) -> None:
         u = n.upper()
@@ -986,11 +991,49 @@ def _emit_nodes(nodes: list, ctx: Ctx, out: list[str], indent: int) -> None:
             line("}")
         elif isinstance(n, _blk.IfSingle):
             line(_emit_if_single(n.stmt, ctx))
+        elif isinstance(n, _blk.Select):
+            _emit_select(n, ctx, out, indent, line)
         else:
             kind = type(n).__name__
             ln = getattr(getattr(n, "head", None) or getattr(n, "stmt", None),
                          "line", "?")
             raise EmitError(f"line {ln}: {kind} not supported yet")
+
+
+_SELECT_HEAD_RE = re.compile(r"(?i)^\s*case\s+(.*)$")
+
+
+def _emit_select(n, ctx: Ctx, out: list[str], indent: int, line) -> None:
+    """SELECT CASE expr / CASE v[,v] / CASE ELSE -> an if/else-if chain (not a C
+    switch: BASIC case values are arbitrary expressions, e.g. named constants)."""
+    m = _SELECT_HEAD_RE.match(n.head.rest)
+    if not m:
+        raise EmitError(f"line {n.head.line}: malformed SELECT CASE: {n.head.rest!r}")
+    code, typ = to_c(_expr.parse(m.group(1)), ctx)
+    tid = ctx.next_tmp()
+    sel = f"_sel{tid}"
+    ctype = {"str": "const char *", "real": "rgc_real"}.get(typ, "int")
+    line(f"{{ {ctype} {sel} = {_strip_outer(code)};")
+    first = True
+    for case_stmt, body in n.cases:
+        if case_stmt is None:                 # CASE ELSE
+            line("else {" if not first else "{")
+        else:
+            conds = []
+            for v in _split_args(case_stmt.rest):
+                vc, vt = to_c(_expr.parse(v), ctx)
+                if typ == "str" or vt == "str":
+                    ctx.uses_seq = True
+                    conds.append(f"rgc_seq({sel}, {_strip_outer(vc)})")
+                else:
+                    rc = _to_real(_strip_outer(vc), vt, ctx) if typ == "real" else _strip_outer(vc)
+                    conds.append(f"{sel} == {rc}")
+            kw = "if" if first else "else if"
+            line(f"{kw} ({' || '.join(conds)}) {{")
+        _emit_nodes(body, ctx, out, indent + 1)
+        line("}")
+        first = False
+    line("}")
 
 
 def _param_real(fn_upper: str, p: str, ctx: Ctx) -> bool:
