@@ -1,5 +1,44 @@
 ## Changelog
 
+### Transpiler: trek-portable.bas runs on the full 8-bit spread (2026-06-16)
+
+`examples/trek-portable.bas` (a 1530-line structured-BASIC Super Star Trek) now
+transpiles to C and compiles **warning-clean on cc65 (every 6502: C64, C128,
+PET, Apple II, Atari 8-bit, VIC-20, Plus/4), cmoc (6809: CoCo, Dragon) and SDCC
+(Z80: MSX, Spectrum, CPC, Coleco)**, plus native. It plays identically to the
+rgc-basic interpreter (galaxy layout differs by RND, as designed): the
+short-range-scan quadrant grid, status panel and command loop all render.
+
+The remaining language surface that trek needed:
+
+- **DICT subset** (`DICTNEW`/`DICTSET`/`DICTHAS`/`DICTGETN`) as a fixed-pool
+  string→int dict, no malloc (cc65-safe).
+- **SELECT CASE** `IS <relop> expr` and `lo TO hi` ranges; `STOP`; structured
+  labels; nested single-line `IF` in a `THEN`; empty `PRINT` items (`;;`).
+- **COLOR n** mapped from C64's 16-colour palette to the contract's 8 colours,
+  routed through a current-colour global; `BACKGROUND`/`PAPER` are no-ops (the
+  contract has no per-cell background). **PRINT TAB(n)** cursor move.
+- **Scrolling text console**: trek is written for a scrolling teletype (305
+  PRINTs, never a CLS) but the platform contract is a fixed no-scroll screen. A
+  runtime-side shadow buffer scrolls on newline and repaints via `plat_puts`,
+  preserving per-cell colour — works on every adapter without touching the 16
+  platform files.
+
+Correctness fixes flagged by the float caveat (navigation/targeting use reals):
+
+- **Single-line `IF cond THEN a : b : c`** now puts a, b and c all under the IF.
+  The `:`-split was lowering b/c as unconditional siblings, turning
+  `... then DEVICE_DAMAGE(I)=-.1 : continue for` into an unconditional
+  `continue` (corrupting the damage-repair loop and ~15 other lines).
+- **Call-arg → param type propagation** now scans the whole statement (a bare
+  call keeps its name in `first_word`) and no longer skips calls on the RHS of a
+  string assignment. So a real coordinate passed to an int-declared param marks
+  that param real — `SectorIndex` rounds `SX+.5`, and a pre-truncated int would
+  round to the wrong sector.
+- `STR$` of a real keeps its decimals; string index/count args (`MID$`/`LEFT$`/
+  `RIGHT$`/`STRING$`) floor reals explicitly; embedded `\n`/`\r` in PRINT move
+  the cursor.
+
 ### Transpiler: real numbers via rgc_real (float / fixed-point) (2026-06-16)
 
 BASIC numeric values are floating point, but cc65 (every 6502 target incl. the
