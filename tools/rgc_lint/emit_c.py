@@ -79,7 +79,7 @@ def to_c(node, ctx) -> tuple[str, str]:
         t = "real" if _var_is_real(node.name.upper(), ctx) else "int"
         if t == "real":
             ctx.uses_real = True
-        return node.name, t
+        return node.name.upper(), t
     if isinstance(node, Apply):
         up = node.name.upper()
         if up in ctx.arrays:
@@ -91,7 +91,7 @@ def to_c(node, ctx) -> tuple[str, str]:
             t = "real" if up in ctx.real_arrays else "int"
             if t == "real":
                 ctx.uses_real = True
-            return node.name + subs, t
+            return node.name.upper() + subs, t
         if up == "RND":
             ctx.uses_rnd = True
             ctx.uses_rrnd = True
@@ -337,8 +337,9 @@ def _split_args(rest: str) -> list[str]:
 
 
 def _mangle_str(name: str) -> str:
-    """A$ -> A_str (C-safe identifier for a string var)."""
-    return name.rstrip("$") + "_str"
+    """A$ -> A_STR. BASIC is case-insensitive, so canonicalise to upper for a
+    single C identifier (else GameState vs GAMESTATE become two C names)."""
+    return name.rstrip("$").upper() + "_STR"
 
 
 _FNHEAD_RE = re.compile(r"^\s*([A-Za-z_]\w*\$?)\s*(?:\(([^)]*)\))?\s*$")
@@ -403,6 +404,7 @@ class Ctx:
         self.real_arrays: set[str] = set()      # array UPPER names typed real
         self.real_params: set[tuple] = set()    # (FN_UPPER, PARAM_UPPER) typed real
         self.udf_real: set[str] = set()         # UDF UPPER names returning real
+        self.loop_stack: list[dict] = []        # active loops (CONTINUE/EXIT targets)
         self._tmp = 0                           # unique temp-id counter
 
     def next_tmp(self) -> int:
@@ -750,6 +752,12 @@ def _emit_simple(stmt: Statement, ctx: Ctx) -> str:
         return f"return {code};"
     if kw == "END" and not rest.strip():
         return "return 0;"
+    if kw in ("CONTINUE", "EXIT"):
+        e = _loop_target(ctx, rest.strip().upper(), stmt.line)
+        key = "want_cont" if kw == "CONTINUE" else "want_brk"
+        e[key] = True
+        tag = "_cont" if kw == "CONTINUE" else "_brk"
+        return f"goto {tag}{e['id']};"
     # bare function call as a statement (GOSUB-style, value discarded)
     if kw and kw.upper() in ctx.udfs:
         code, _ = to_c(_expr.parse(stmt.raw), ctx)
@@ -957,6 +965,30 @@ def _emit_if_single(stmt: Statement, ctx: Ctx) -> str:
             f"{_emit_simple(then_stmt, ctx)} }}")
 
 
+def _loop_target(ctx: Ctx, kind_word: str, ln) -> dict:
+    """Resolve CONTINUE/EXIT [DO|FOR|WHILE] to the nearest matching loop on the
+    stack. Bare CONTINUE/EXIT targets the innermost loop."""
+    want = kind_word.lower()
+    for entry in reversed(ctx.loop_stack):
+        if not want or entry["kind"] == want:
+            return entry
+    raise EmitError(f"line {ln}: {kind_word or 'CONTINUE/EXIT'} outside a loop")
+
+
+def _emit_loop_body(n_body, ctx, out, indent, entry):
+    """Emit a loop body then its continue-label (end of body, so it falls
+    through to the increment/test). Returns nothing; caller emits the close."""
+    _emit_nodes(n_body, ctx, out, indent + 1)
+    if entry["want_cont"]:
+        out.append("    " * (indent + 1) + f"_cont{entry['id']}: ;")
+
+
+def _docond(rest: str):
+    """DO/LOOP tail: '' | 'WHILE c' | 'UNTIL c' -> (kind, expr) or (None, None)."""
+    m = re.match(r"(?i)^\s*(while|until)\s+(.*)$", (rest or "").strip())
+    return (m.group(1).lower(), m.group(2)) if m else (None, None)
+
+
 def _emit_nodes(nodes: list, ctx: Ctx, out: list[str], indent: int) -> None:
     """Recursively lower a list of block-tree nodes to C lines."""
     def line(txt: str) -> None:
@@ -973,7 +1005,11 @@ def _emit_nodes(nodes: list, ctx: Ctx, out: list[str], indent: int) -> None:
             if not m:
                 raise EmitError(f"line {n.head.line}: malformed FOR: {n.head.rest!r}")
             var, start, end, step = m.groups()
-            if _var_is_real(var.upper(), ctx):
+            var = var.upper()
+            entry = {"kind": "for", "id": ctx.next_tmp(),
+                     "want_cont": False, "want_brk": False}
+            ctx.loop_stack.append(entry)
+            if _var_is_real(var, ctx):
                 st = _xlate_to(start, True, ctx)
                 en = _xlate_to(end, True, ctx)
                 stp = _xlate_to(step, True, ctx) if step else _real_lit("1.0")
@@ -983,12 +1019,47 @@ def _emit_nodes(nodes: list, ctx: Ctx, out: list[str], indent: int) -> None:
                 step_expr = _xlate_expr(step, ctx) if step else "1"
                 line(f"for ({var} = {_xlate_expr(start, ctx)}; "
                      f"{var} <= {_xlate_expr(end, ctx)}; {var} += {step_expr}) {{")
-            _emit_nodes(n.body, ctx, out, indent + 1)
+            _emit_loop_body(n.body, ctx, out, indent, entry)
             line("}")
+            ctx.loop_stack.pop()
+            if entry["want_brk"]:
+                line(f"_brk{entry['id']}: ;")
         elif isinstance(n, _blk.While):
+            entry = {"kind": "while", "id": ctx.next_tmp(),
+                     "want_cont": False, "want_brk": False}
+            ctx.loop_stack.append(entry)
             line(f"while ({_xlate_cond(n.head.rest, ctx)}) {{")
-            _emit_nodes(n.body, ctx, out, indent + 1)
+            _emit_loop_body(n.body, ctx, out, indent, entry)
             line("}")
+            ctx.loop_stack.pop()
+            if entry["want_brk"]:
+                line(f"_brk{entry['id']}: ;")
+        elif isinstance(n, _blk.Do):
+            entry = {"kind": "do", "id": ctx.next_tmp(),
+                     "want_cont": False, "want_brk": False}
+            ctx.loop_stack.append(entry)
+            hk, hc = _docond(n.head.rest)
+            tk, tc = _docond(n.tail.rest if n.tail else "")
+            if hk == "while":
+                line(f"while ({_xlate_cond(hc, ctx)}) {{")
+                close = "}"
+            elif hk == "until":
+                line(f"while (!({_xlate_cond(hc, ctx)})) {{")
+                close = "}"
+            elif tk == "until":
+                line("do {")
+                close = f"}} while (!({_xlate_cond(tc, ctx)}));"
+            elif tk == "while":
+                line("do {")
+                close = f"}} while ({_xlate_cond(tc, ctx)});"
+            else:
+                line("for (;;) {")
+                close = "}"
+            _emit_loop_body(n.body, ctx, out, indent, entry)
+            line(close)
+            ctx.loop_stack.pop()
+            if entry["want_brk"]:
+                line(f"_brk{entry['id']}: ;")
         elif isinstance(n, _blk.IfSingle):
             line(_emit_if_single(n.stmt, ctx))
         elif isinstance(n, _blk.Select):
@@ -1046,9 +1117,9 @@ def _fn_c_params(fn_upper: str, params: list, ctx: Ctx) -> str:
         if is_str:
             cp.append(f"const char *{_mangle_str(p)}")
         elif _param_real(fn_upper, p, ctx):
-            cp.append(f"rgc_real {p}")
+            cp.append(f"rgc_real {p.upper()}")
         else:
-            cp.append(f"int {p}")
+            cp.append(f"int {p.upper()}")
     return ", ".join(cp) if cp else "void"
 
 
@@ -1134,15 +1205,15 @@ def emit(source: str) -> str:
 
     # 5. Globals at file scope (built last so emit-time refs are captured).
     gdecls = ""
-    int_scalars = [s for s in ctx.scalars if s.upper() not in ctx.real_scalars]
-    real_scalars = [s for s in ctx.scalars if s.upper() in ctx.real_scalars]
+    int_scalars = [s.upper() for s in ctx.scalars if s.upper() not in ctx.real_scalars]
+    real_scalars = [s.upper() for s in ctx.scalars if s.upper() in ctx.real_scalars]
     if int_scalars:
         gdecls += "static int " + ", ".join(int_scalars) + ";\n"
     if real_scalars:
         gdecls += "static rgc_real " + ", ".join(real_scalars) + ";\n"
     for name, sizes in ctx.array_sizes.items():
         ctype = "rgc_real" if name.upper() in ctx.real_arrays else "int"
-        gdecls += f"static {ctype} {name}{sizes};\n"
+        gdecls += f"static {ctype} {name.upper()}{sizes};\n"
     for sv in ctx.strings:
         gdecls += f"static char {_mangle_str(sv)}[{STRMAX + 1}];\n"
 
