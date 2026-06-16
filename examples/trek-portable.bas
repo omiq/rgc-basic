@@ -501,8 +501,9 @@ function Lrs()
 
     ' PRINT LONG RANGE SCAN FOR QUADRANT
     print "\n  LONG RANGE SCAN FOR QUADRANT  ";QUADRANT_X;",";QUADRANT_Y
-    print : O1$=" ┌─────┬─────┬─────┐" : print "  ";O1$;
-    O2$=" ├─────┼─────┼─────┤":O3$="  ───── ───── ───── " 
+    print : O1$=" +─────+─────+─────+" : print O1$;
+    O2$=" +─────+─────+─────+"
+    O3$=" +─────+─────+─────+"
     print "         ";ECOL$;"#";DCOL$;"#";HCOL$;"#";FCOL$
 
     ' LONG RANGE SCAN LOOP
@@ -516,7 +517,7 @@ function Lrs()
       for L=1 to 3
       
         if K1=2 and L=3 then print "";
-        print "  ";
+        print " |";
         print " ";
       
         if N(L)<0 then
@@ -530,7 +531,7 @@ function Lrs()
         CH$=HCOL$+mid$(G1$,3,1) : print CH$;FCOL$;
       
       next L
-      print "  "; : K1=K1+1
+      print " |"; : K1=K1+1
       if K1=1 then print "        . . ."
       if K1=3 then print "      .   .   ."
       if K1=5 then print "    .           ."
@@ -538,9 +539,9 @@ function Lrs()
       if K1<6 then print O2$;
       if K1=6 then print O3$;
       if K1=2 then print "       .  .  ."
-      if K1=4 then print "     .   BASES ";
+      if K1=4 then print "     .  BASES";
       if K1=4 then print "  ."
-      if K1=6 then print "   KLINGONS      STARS "
+      if K1=6 then print " KLINGONS      STARS "
     next I
 
     K1=0 : if SLSFLAG=1 then SLSFLAG=0
@@ -941,12 +942,12 @@ function ShortRangeScan()
     LOW$=" LOW!"
     print
     print "    1 2 3 4 5 6 7 8"
-    print "    ─ ─ ─ ─ ─ ─ ─ ─┐   STARDATE   ";int(STARDATE_CUR*10)*.1
+    print "   +─+─+─+─+─+─+─+─┐ STARDATE  ";int(STARDATE_CUR*10)*.1
     
     ' PRINT QUADRANT
     for I=1 to 8
       I$=right$(str$(I),1)
-      print " ";I$;"    "; : ' BORDER
+      print " ";I$;" |"; : ' BORDER
 
       ' PRINT QUADRANT CELLS
       J1=(I-1)*24+1
@@ -955,41 +956,41 @@ function ShortRangeScan()
         CELL$=mid$(THIS_QUADRANT$,J,3)
         if CELL$="   " then print " ";
         if CELL$<>"   " then print left$(CELL$,1);
-        print "   ";
+        print "|";
       next J
 
       ' PRINT SUMMARY DATA
       select case I
       case 1
-        print "  DAYS LEFT  ";.1*int((STARDATE_START+MISSION_DAYS-STARDATE_CUR)*10);
+        print " DAYS LEFT ";.1*int((STARDATE_START+MISSION_DAYS-STARDATE_CUR)*10);
       case 2
-        print "  CONDITION  "; : print C$;
+        print " CONDITION "; : print C$;
       case 3
-        print "  QUADRANT   ";QUADRANT_X;",";QUADRANT_Y;
+        print " QUADRANT  ";QUADRANT_X;",";QUADRANT_Y;
       case 4
-        print "  SECTOR     ";SECTOR_X;",";SECTOR_Y;
+        print " SECTOR    ";SECTOR_X;",";SECTOR_Y;
       case 5
-        print "  TORPEDOES  ";int(TORPEDO_COUNT);
+        print " TORPEDOES ";int(TORPEDO_COUNT);
       case 6
-        print "  ENERGY     ";int(SHIP_ENERGY+SHIELD_UNITS);
+        print " ENERGY    ";int(SHIP_ENERGY+SHIELD_UNITS);
       case 7
-        print "  SHIELDS    ";int(SHIELD_UNITS);
+        print " SHIELDS   ";int(SHIELD_UNITS);
         if SHIELD_UNITS<201 and K3>0 then print LOW$;
       case 8
-        print "  KLINGONS   ";int(KLINGON_COUNT);
+        print " KLINGONS  ";int(KLINGON_COUNT);
       end select
       print
     next I
 
     ' PRINT MAX WARP
-    print "    ─ ─ ─ ─ ─ ─ ─ ─  ";
+    print "   +─+─+─+─+─+─+─+─+";
     MW=SHIP_ENERGY/8
     MW=MW*10
     MW=int(MW)
     MW=MW/10
     if MW>8 then MW=8
     if DEVICE_DAMAGE(1)<0 and MW>0.2 then MW=0.2
-    print "  MAX WARP   ";MW
+    print " MAX WARP  ";MW
     if SLSFLAG=1 then return Lrs()
     return ST_COMMAND
 end function
@@ -1053,8 +1054,7 @@ function ComputerGalacticRecord()
       print
       print "  COMPUTER RECORD OF GALAXY FOR "
       print "QUADRANT ";QUADRANT_X;",";QUADRANT_Y
-      print " "
-      print chr$(13);
+      print " \n"
       print "   ";
     end if
 
@@ -1063,8 +1063,8 @@ function ComputerGalacticRecord()
       J$=str$(J)
       J$=right$(J$,1)
       if A1=5 then RomanNumeral() : continue for
-      if J=QUADRANT_Y then print "  ";J$;"   ";
-      if J<>QUADRANT_Y then print "  ";J;"   ";
+      if J=QUADRANT_Y then print "  ";J$;" ";
+      if J<>QUADRANT_Y then print "  ";J;" ";
     next J
 
 
@@ -1084,35 +1084,35 @@ function ComputerGalacticRecord()
 
       if RowIsRegion=0 then
         for J=1 to 8
-          if I=QUADRANT_X and J=QUADRANT_Y then print " "; : GALFLAG=1
-          if not (I=QUADRANT_X and (J=QUADRANT_Y or J-1=QUADRANT_Y)) then print " ";
+          if I=QUADRANT_X and J=QUADRANT_Y then print "|"; : GALFLAG=1
+          if not (I=QUADRANT_X and (J=QUADRANT_Y or J-1=QUADRANT_Y)) then print "|";
           if Z(I,J)=0 then print "   "; : continue for
           G1$=right$(str$(Z(I,J)+1000),3)
           CH$=ECOL$+mid$(G1$,1,1) : print CH$;
           CH$=DCOL$+mid$(G1$,2,1) : print CH$;
           CH$=HCOL$+mid$(G1$,3,1) : print CH$;FCOL$;
-          if GALFLAG=1 then print " "; : GALFLAG=0
+          if GALFLAG=1 then print "|"; : GALFLAG=0
         next J
       end if
 
       if RowIsRegion=1 then
         J=9
         QN$=QuadrantName$(I, 1, 1) : J0=int(11-.5*len(QN$))
-        print " ";
+        print "|";
         print tab(J0);QN$;
-        print tab(18);" ";
+        print tab(18);"|";
         QN$=QuadrantName$(I, 5, 1) : J0=int(27-.5*len(QN$))
-        print tab(J0);QN$; : print tab(34);" ";
+        print tab(J0);QN$; : print tab(34);"|";
       end if
 
       if A=0 and J=9 and QUADRANT_X=I and QUADRANT_Y=8 then print
-      if not (A=0 and J=9 and QUADRANT_X=I and QUADRANT_Y=8) then if A=0 then print " "
+      if not (A=0 and J=9 and QUADRANT_X=I and QUADRANT_Y=8) then if A=0 then print "|"
       if A=5 then print
       if I<8 then print O2$
     next I
 
     ' PRINT GALACTIC RECORD FOOTER
-    print "     ─ ─── ─── ─── ─── ─── ─── ─── "
+    print "  ┼───┼───┼───┼───┼───┼───┼───┼───┼"
     A1=0
     return ST_COMMAND
 end function
