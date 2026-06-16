@@ -1,5 +1,29 @@
 ## Changelog
 
+### Transpiler: real numbers via rgc_real (float / fixed-point) (2026-06-16)
+
+BASIC numeric values are floating point, but cc65 (every 6502 target incl. the
+C64) has no float at all. Rather than drop those machines, the transpiler now
+emits against a single `rgc_real` type (`tools/rgc_lint/runtime/rgc_real.h`,
+inlined into output) lowered two ways: native `float` on capable compilers
+(cmoc, sdcc, vbcc), 16.16 fixed-point in `long` on cc65. Same `RGC_*` ops
+everywhere; only the backend differs. The fixed multiply pre-shifts operands to
+stay inside 32 bits (cc65 has no `long long`), and real literals are emitted as
+`RGC_LIT(fixedbits, floatval)` so the cc65 path never sees a float token.
+
+- Numeric **type inference** (int vs real) to a fixpoint over assignments, FOR
+  bounds, RETURNs and call args; arrays, scalars, params and function returns
+  each get a type. Fewer reals = less fixed-point overhead, so `INT()` yields an
+  int.
+- Real arithmetic, `SQR`, `^` (integer-literal exponent, repeated multiply, no
+  `pow`), real division, `ABS`, real `FOR` counters, and real `PRINT`
+  formatting (decimal, trimmed/rounded). Verified on cc65 (fixed) and cmoc
+  (float) producing identical output (`DIST=5 WARP=0.2 MW=3.75`).
+- **RND now returns a real in [0,1)** to match the interpreter
+  (`rand()/RAND_MAX`), reversing the earlier integer `RND(n) % n` mapping which
+  diverged from rgc-basic and broke real RND uses. `INT(RND(1)*n)` gives the old
+  0..n-1 idiom. (Updated the one example that relied on the old behaviour.)
+
 ### Transpiler: block-tree IR + user FUNCTIONs (2026-06-16)
 
 Toward transpiling `examples/trek-portable.bas` (a full structured-BASIC Star Trek)
