@@ -1,5 +1,21 @@
 ## Changelog
 
+### Transpiler: block-tree IR + user FUNCTIONs (2026-06-16)
+
+Toward transpiling `examples/trek-portable.bas` (a full structured-BASIC Star Trek)
+to every IDE target. Two foundational steps:
+
+- **Block-tree IR** (`tools/rgc_lint/blocks.py`): the flat statement stream is grouped
+  into a nested tree (program > main + functions; bodies hold For/While/Do/If/Select/Case
+  nodes). The emitter now walks the tree recursively instead of a flat block-stack loop.
+  Pure refactor: the 9 passing examples still transpile and compile unchanged.
+- **User FUNCTIONs** (`FUNCTION name(params) ... RETURN expr ... END FUNCTION`): emitted as
+  C functions with forward prototypes (so calls may precede definitions), called from both
+  statement and expression position. Parameters are the only locals and shadow globals
+  (matching the interpreter's save/restore semantics) which maps directly onto C scoping;
+  every other variable is a file-scope global. Return type inferred from the name
+  (`Name$` -> string). Verified on cc65 (6502) and cmoc (6809) from the same source.
+
 ### New: RGC-BASIC to C transpiler, text-mode subset (2026-06-16)
 
 First working slice of the BASIC to C transpiler (`tools/rgc_lint/emit_c.py`), emitting

@@ -158,9 +158,10 @@ class _Parser:
             return IfSingle(self.next())
         if kw == "FUNCTION":
             raise BlockError(f"line {st.line}: nested FUNCTION not allowed")
-        # stray terminators reaching here = unbalanced source
+        # stray terminators reaching here = unbalanced source.
+        # bare END (program end, _end_kind == "") is a normal statement.
         if kw in ("NEXT", "WEND", "LOOP", "CASE", "ELSE", "ELSEIF") \
-                or _end_kind(st) is not None:
+                or _end_kind(st) in ("FUNCTION", "SELECT", "IF"):
             raise BlockError(f"line {st.line}: unexpected {kw!r}")
         return Line(self.next())
 

@@ -52,7 +52,8 @@ def to_c(node, ctx) -> tuple[str, str]:
         return node.value, "str"
     if isinstance(node, Var):
         if node.name.endswith("$"):
-            ctx.add_string(node.name)
+            if node.name.upper() not in ctx.cur_params:
+                ctx.add_string(node.name)   # param strings are C locals, not globals
             return _mangle_str(node.name), "str"
         return node.name, "num"
     if isinstance(node, Apply):
@@ -90,6 +91,9 @@ def to_c(node, ctx) -> tuple[str, str]:
             ctx.funcs.add("MID$")
             n = a[2] if len(a) >= 3 else str(STRMAX)
             return f"rgc_mid({a[0]}, {a[1]}, {n})", "str"
+        if up in ctx.udfs:
+            u = ctx.udfs[up]
+            return f"{u['cname']}({', '.join(a)})", u["ret"]
         raise EmitError(f"unsupported function/array {node.name!r} in expression")
     if isinstance(node, Unary):
         c, _ = to_c(node.operand, ctx)
@@ -242,6 +246,38 @@ def _mangle_str(name: str) -> str:
     return name.rstrip("$") + "_str"
 
 
+_FNHEAD_RE = re.compile(r"^\s*([A-Za-z_]\w*\$?)\s*(?:\(([^)]*)\))?\s*$")
+
+
+def _parse_fn_header(rest: str):
+    """'PlaceToken(TOKEN$, X, Y)' -> ('PlaceToken', [('TOKEN$',True),('X',F),('Y',F)]).
+    Returns (orig_name, params). DEF FN headers ('FND(D)=...') handled by caller."""
+    m = _FNHEAD_RE.match(rest)
+    if not m:
+        raise EmitError(f"malformed FUNCTION header: {rest!r}")
+    name = m.group(1)
+    params = []
+    if m.group(2) and m.group(2).strip():
+        for p in _split_args(m.group(2)):
+            p = p.strip()
+            params.append((p, p.endswith("$")))
+    return name, params
+
+
+def _udf_ret(name: str) -> str:
+    """Return type from name: NAME$ -> 'str', else 'num'."""
+    return "str" if name.endswith("$") else "num"
+
+
+def _udf_cname(name: str) -> str:
+    """BASIC fn name -> C-safe identifier. Greet$ -> Greet_str (no '$' in C)."""
+    return name[:-1] + "_str" if name.endswith("$") else name
+
+
+def _c_ret_type(ret: str) -> str:
+    return "const char *" if ret == "str" else "int"
+
+
 def _is_strvar(tok: str) -> bool:
     return tok.endswith("$") and bool(re.fullmatch(r"[A-Za-z_]\w*\$", tok))
 
@@ -258,6 +294,9 @@ class Ctx:
         self.uses_print = False                 # PRINT/LOCATE cursor runtime
         self.uses_tab = False                   # PRINT ',' zone tab
         self.funcs: set[str] = set()            # string/len builtins used
+        self.udfs: dict[str, dict] = {}         # UPPER -> {name, ret, params}
+        self.cur_ret = "int"                    # return type of fn being emitted
+        self.cur_params: set[str] = set()       # param UPPER names in scope
 
     def add_scalar(self, n: str) -> None:
         u = n.upper()
@@ -298,13 +337,44 @@ def _dim_size(bound: str) -> str:
     return f"({b})+1"
 
 
-def _collect(statements: list[Statement], ctx: Ctx) -> None:
+def _iter_stmts(nodes: list):
+    """Yield every Statement in a block-tree node list (recurses into bodies).
+    Does NOT descend into Function nodes — callers collect per-scope."""
+    for n in nodes:
+        if isinstance(n, _blk.Line):
+            yield n.stmt
+        elif isinstance(n, _blk.IfSingle):
+            yield n.stmt
+        elif isinstance(n, (_blk.For, _blk.While, _blk.Do)):
+            yield n.head
+            yield from _iter_stmts(n.body)
+        elif isinstance(n, _blk.IfBlock):
+            yield n.head
+            yield from _iter_stmts(n.body)
+            for ei, body in n.elifs:
+                yield ei
+                yield from _iter_stmts(body)
+            if n.else_body is not None:
+                yield from _iter_stmts(n.else_body)
+        elif isinstance(n, _blk.Select):
+            yield n.head
+            for case, body in n.cases:
+                if case is not None:
+                    yield case
+                yield from _iter_stmts(body)
+
+
+def _collect(statements: list[Statement], ctx: Ctx,
+             params: set[str] | None = None) -> None:
+    params = params or set()
     for s in statements:
         # string vars: any A$ token anywhere — but a `$`-name followed by '('
         # is a string FUNCTION call (UCASE$, LEFT$, CHR$...), not a variable.
         text = (s.first_word or "") + " " + (s.rest or "")
         for m in _STRVAR_RE.finditer(text):
             if text[m.end():m.end() + 1] == "(":
+                continue
+            if m.group(0).upper() in params:
                 continue
             ctx.add_string(m.group(0))
         if s.first_word == "DIM":
@@ -322,11 +392,13 @@ def _collect(statements: list[Statement], ctx: Ctx) -> None:
                 ctx.array_decls.append(f"int {name}{sizes};")
         elif s.first_word == "FOR":
             m = _FOR_RE.match(s.rest)
-            if m:
+            if m and m.group(1).upper() not in params:
                 ctx.add_scalar(m.group(1))
         elif (s.first_word and s.first_word not in _KEYWORDS
               and not _is_strvar(s.first_word)
               and s.first_word.upper() not in ctx.arrays
+              and s.first_word.upper() not in ctx.udfs
+              and s.first_word.upper() not in params
               and _RHS_RE.match(s.rest)):
             ctx.add_scalar(s.first_word)
 
@@ -355,6 +427,18 @@ def _emit_str_assign(name: str, rhs: str, ctx: Ctx) -> str:
 def _emit_simple(stmt: Statement, ctx: Ctx) -> str:
     kw = stmt.first_word
     rest = stmt.rest
+    if kw == "RETURN":
+        e = rest.strip()
+        if not e:
+            return 'return "";' if ctx.cur_ret == "str" else "return 0;"
+        code, _ = to_c(_expr.parse(e), ctx)
+        return f"return {_strip_outer(code)};"
+    if kw == "END" and not rest.strip():
+        return "return 0;"
+    # bare function call as a statement (GOSUB-style, value discarded)
+    if kw and kw.upper() in ctx.udfs:
+        code, _ = to_c(_expr.parse(stmt.raw), ctx)
+        return f"{_strip_outer(code)};"
     if kw == "CLS":
         return "plat_cls();"
     if kw == "PRINT":
@@ -563,26 +647,77 @@ def _emit_nodes(nodes: list, ctx: Ctx, out: list[str], indent: int) -> None:
             raise EmitError(f"line {ln}: {kind} not supported yet")
 
 
+def _fn_c_params(params: list) -> str:
+    cp = [f"const char *{_mangle_str(p)}" if is_str else f"int {p}"
+          for p, is_str in params]
+    return ", ".join(cp) if cp else "void"
+
+
+def _fn_proto_params(params: list) -> str:
+    cp = ["const char *" if is_str else "int" for _, is_str in params]
+    return ", ".join(cp) if cp else "void"
+
+
+def _emit_function(fn, ctx: Ctx, out: list[str]) -> None:
+    name, params = _parse_fn_header(fn.head.rest)
+    u = ctx.udfs[name.upper()]
+    ret = u["ret"]
+    out.append(f"static {_c_ret_type(ret)} {u['cname']}({_fn_c_params(params)}) {{")
+    ctx.cur_ret = ret
+    ctx.cur_params = {p.upper() for p, _ in params}
+    start = len(out)
+    _emit_nodes(fn.body, ctx, out, 1)
+    # fall-through return only if control can reach the end (last line not a return)
+    last = out[-1].strip() if len(out) > start else ""
+    if not last.startswith("return "):
+        out.append('    return "";' if ret == "str" else "    return 0;")
+    out.append("}")
+    ctx.cur_ret = "int"
+    ctx.cur_params = set()
+
+
 def emit(source: str) -> str:
     statements = [s for s in tokenize(source) if s.first_word != "REM"]
     ctx = Ctx()
-    _collect(statements, ctx)
-
     program = _blk.parse_blocks(statements)
-    if program.functions:
-        fn = program.functions[0]
-        raise EmitError(f"line {fn.head.line}: user FUNCTIONs not supported yet")
 
+    # 1. Register all UDFs first so calls resolve regardless of definition order.
+    fn_headers = []
+    for fn in program.functions:
+        nm, params = _parse_fn_header(fn.head.rest)
+        ctx.udfs[nm.upper()] = {"name": nm, "cname": _udf_cname(nm),
+                                "ret": _udf_ret(nm), "params": params}
+        fn_headers.append((fn, nm, params))
+
+    # 2. Collect globals per scope (params excluded from each function body).
+    _collect(list(_iter_stmts(program.main)), ctx)
+    for fn, nm, params in fn_headers:
+        _collect(list(_iter_stmts(fn.body)), ctx,
+                 params={p.upper() for p, _ in params})
+
+    # 3. Emit function definitions (populates ctx with any global refs inside).
+    fn_defs: list[str] = []
+    for fn in program.functions:
+        _emit_function(fn, ctx, fn_defs)
+        fn_defs.append("")
+
+    # 4. Emit main from the top-level body.
     body: list[str] = []
     _emit_nodes(program.main, ctx, body, 1)
 
-    decls = ""
+    # 5. Globals at file scope (built last so emit-time refs are captured).
+    gdecls = ""
     if ctx.scalars:
-        decls += "    int " + ", ".join(ctx.scalars) + ";\n"
+        gdecls += "static int " + ", ".join(ctx.scalars) + ";\n"
     for d in ctx.array_decls:
-        decls += "    " + d + "\n"
+        gdecls += "static " + d + "\n"
     for sv in ctx.strings:
-        decls += f"    char {_mangle_str(sv)}[{STRMAX + 1}];\n"
+        gdecls += f"static char {_mangle_str(sv)}[{STRMAX + 1}];\n"
+
+    protos = "".join(
+        f"static {_c_ret_type(ctx.udfs[nm.upper()]['ret'])} "
+        f"{ctx.udfs[nm.upper()]['cname']}({_fn_proto_params(params)});\n"
+        for _, nm, params in fn_headers)
 
     seed = ("    plat_seed_rand(1);   /* fixed non-zero seed -> deterministic RND */\n"
             if ctx.uses_rnd else "")
@@ -596,13 +731,15 @@ def emit(source: str) -> str:
     return (
         '#include "platform.h"\n\n'
         + helpers
+        + (gdecls + "\n" if gdecls else "")
+        + (protos + "\n" if protos else "")
+        + ("\n".join(fn_defs) + "\n" if fn_defs else "")
         + "int main(void) {\n"
-        + decls
         + "    plat_init();\n"
         + seed
         + "\n".join(body) + "\n"
-        + "    return 0;\n"
-        "}\n"
+        + ("" if body and body[-1].strip().startswith("return ") else "    return 0;\n")
+        + "}\n"
     )
 
 
