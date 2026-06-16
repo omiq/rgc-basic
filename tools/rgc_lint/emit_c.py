@@ -278,6 +278,8 @@ STRMAX = 255  # fixed string-var capacity (chars); char[STRMAX+1].
 DICT_MAX = 8   # number of concurrent dicts (DICTNEW handles)
 DICT_CAP = 32  # entries per dict
 DICT_KLEN = 16 # max key length incl NUL
+CON_VH = 25    # scrolling console: max rows (shadow buffer)
+CON_VW = 80    # scrolling console: max cols (shadow buffer)
               # trek's THIS_QUADRANT$ is a 192-char grid, so 40 is too small.
 
 _FOR_RE = re.compile(
@@ -444,6 +446,7 @@ class Ctx:
         self.uses_dict = False                  # string->int dict runtime
         self.uses_color = False                 # COLOR n -> rgc_colmap + rgc_color
         self.uses_ptab = False                  # PRINT TAB(n) cursor move
+        self.uses_cls = False                   # CLS while console active -> rgc_cls
         self.funcs: set[str] = set()            # string/len builtins used
         self.udfs: dict[str, dict] = {}         # UPPER -> {name, ret, params}
         self.cur_ret = "int"                    # return type of fn being emitted
@@ -901,6 +904,11 @@ def _emit_simple(stmt: Statement, ctx: Ctx) -> str:
         code, _ = to_c(_expr.parse(stmt.raw), ctx)
         return f"{_strip_outer(code)};"
     if kw == "CLS":
+        # When the scrolling console is active, clear its shadow too (else a
+        # repaint would restore the old text). Otherwise clear the device.
+        if ctx.uses_print:
+            ctx.uses_cls = True
+            return "rgc_cls();"
         return "plat_cls();"
     if kw == "COLOR":
         ctx.uses_color = True
@@ -967,37 +975,76 @@ def _emit_helpers(ctx: "Ctx") -> str:
     idiom). Emitted only when needed; dependency order preserved."""
     parts: list[str] = []
     if ctx.uses_print:
-        # Flowing-text cursor built on plat_puts (the contract has no cursor).
-        # No scroll: at the bottom row PRINT clamps (plat has no scroll/read).
+        # Scrolling text console on top of the fixed-screen contract. The
+        # contract has no cursor and no scroll/read-back, and many BASIC
+        # programs (e.g. Super Star Trek) are written for a scrolling teletype
+        # and never CLS. So the runtime keeps a shadow buffer, scrolls it on
+        # newline past the bottom row, and repaints via plat_puts. Per-cell
+        # colour is preserved by blitting same-colour runs.
         parts.append(
+            f"#define RGC_VH {CON_VH}\n"
+            f"#define RGC_VW {CON_VW}\n"
+            "static char rgc_scr[RGC_VH][RGC_VW];\n"
+            "static unsigned char rgc_scol[RGC_VH][RGC_VW];\n"
             "static unsigned char rgc_cx = 0, rgc_cy = 0;\n"
             "static unsigned char rgc_color = COL_WHITE;\n"
+            "static unsigned char rgc_vw = RGC_VW, rgc_vh = RGC_VH;\n"
+            "static void rgc_con_init(void) {\n"
+            "    int r, c;\n"
+            "    rgc_vw = plat_screen_w(); if (rgc_vw > RGC_VW) rgc_vw = RGC_VW;\n"
+            "    rgc_vh = plat_screen_h(); if (rgc_vh > RGC_VH) rgc_vh = RGC_VH;\n"
+            "    for (r = 0; r < RGC_VH; r++)\n"
+            "        for (c = 0; c < RGC_VW; c++) { rgc_scr[r][c] = ' '; rgc_scol[r][c] = COL_WHITE; }\n"
+            "    rgc_cx = rgc_cy = 0;\n"
+            "}\n"
+            "static void rgc_repaint(void) {\n"
+            "    int r, c, s; char line[RGC_VW + 1];\n"
+            "    for (r = 0; r < rgc_vh; r++) {\n"
+            "        c = 0;\n"
+            "        while (c < rgc_vw) {\n"
+            "            unsigned char col = rgc_scol[r][c]; s = c;\n"
+            "            while (c < rgc_vw && rgc_scol[r][c] == col) { line[c - s] = rgc_scr[r][c]; c++; }\n"
+            "            line[c - s] = 0;\n"
+            "            plat_puts((unsigned char)s, (unsigned char)r, line, col);\n"
+            "        }\n"
+            "    }\n"
+            "}\n"
+            "static void rgc_scroll(void) {\n"
+            "    int r, c;\n"
+            "    for (r = 1; r < rgc_vh; r++)\n"
+            "        for (c = 0; c < rgc_vw; c++) { rgc_scr[r-1][c] = rgc_scr[r][c]; rgc_scol[r-1][c] = rgc_scol[r][c]; }\n"
+            "    for (c = 0; c < rgc_vw; c++) { rgc_scr[rgc_vh-1][c] = ' '; rgc_scol[rgc_vh-1][c] = COL_WHITE; }\n"
+            "}\n"
             "static void rgc_nl(void) {\n"
             "    rgc_cx = 0;\n"
-            "    if (rgc_cy + 1 < plat_screen_h()) rgc_cy++;\n"
+            "    if (rgc_cy + 1 >= rgc_vh) rgc_scroll(); else rgc_cy++;\n"
+            "    rgc_repaint();\n"
+            "}\n"
+            "static void rgc_putc(char ch) {\n"
+            "    if (rgc_cx >= rgc_vw) rgc_nl();\n"
+            "    rgc_scr[rgc_cy][rgc_cx] = ch; rgc_scol[rgc_cy][rgc_cx] = rgc_color; rgc_cx++;\n"
             "}\n"
             "static void rgc_pstr(const char *s) {\n"
-            "    static char seg[256]; int i;\n"
             "    while (*s) {\n"
-            "        i = 0;\n"
-            "        while (*s && *s != '\\n' && *s != '\\r' && i < 255) seg[i++] = *s++;\n"
-            "        seg[i] = 0;\n"
-            "        if (i) { plat_puts(rgc_cx, rgc_cy, seg, rgc_color);\n"
-            "                 rgc_cx = (unsigned char)(rgc_cx + i); }\n"
-            "        if (*s == '\\n' || *s == '\\r') { rgc_nl(); s++; }\n"
+            "        if (*s == '\\n' || *s == '\\r') { rgc_nl(); s++; continue; }\n"
+            "        rgc_putc(*s++);\n"
             "    }\n"
-            "}\n")
+            "    rgc_repaint();\n"
+            "}\n"
+            + ("static void rgc_cls(void) { rgc_con_init(); plat_cls(); rgc_repaint(); }\n"
+               if ctx.uses_cls else ""))
     if ctx.uses_tab:
         parts.append(
             "static void rgc_tab(void) {\n"
             "    rgc_cx = (unsigned char)(((rgc_cx / 10) + 1) * 10);\n"
+            "    if (rgc_cx >= rgc_vw) rgc_nl();\n"
             "}\n")
     if ctx.uses_ptab:
         # PRINT TAB(n): move cursor to column n (mod screen width). Wraps to a
         # fresh line when the target is left of the cursor (interpreter FN_TAB).
         parts.append(
             "static void rgc_ptab(int target) {\n"
-            "    unsigned char w = plat_screen_w(); if (!w) w = 80;\n"
+            "    unsigned char w = rgc_vw ? rgc_vw : 80;\n"
             "    target %= w; if (target < 0) target += w;\n"
             "    if ((unsigned char)target < rgc_cx) rgc_nl();\n"
             "    rgc_cx = (unsigned char)target;\n"
@@ -1591,6 +1638,7 @@ def emit(source: str) -> str:
         + ("\n".join(fn_defs) + "\n" if fn_defs else "")
         + "int main(void) {\n"
         + "    plat_init();\n"
+        + ("    rgc_con_init();\n" if ctx.uses_print else "")
         + seed
         + "\n".join(body) + "\n"
         + ("" if body and body[-1].strip().startswith("return ") else "    return 0;\n")
