@@ -1,0 +1,12 @@
+10 CLS
+20 A$ = "hello"
+30 B$ = UCASE$(A$)
+40 TEXTAT 0, 0, B$
+50 C$ = LEFT$(A$, 3)
+60 TEXTAT 0, 1, C$
+70 D$ = MID$(A$, 2, 3)
+80 TEXTAT 0, 2, D$
+90 N = LEN(A$)
+100 IF N = 5 THEN TEXTAT 0, 3, "FIVE"
+110 E$ = CHR$(65)
+120 TEXTAT 0, 4, E$

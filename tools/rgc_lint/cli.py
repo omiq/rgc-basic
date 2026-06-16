@@ -18,6 +18,8 @@ import json
 import sys
 from pathlib import Path
 
+import re
+
 from .directives import preprocess_file
 from .tokenizer import tokenize
 from .walker import Diagnostic, lint, load_rules
@@ -43,6 +45,30 @@ def _format_json(file: str, tier: str, diags: list[Diagnostic]) -> str:
     }, indent=2)
 
 
+def _transpile_check(text: str, path: str) -> Diagnostic | None:
+    """Run the C emitter; turn the first transpile blocker into a diagnostic.
+
+    This is the shared-front-end payoff: the linter answers 'does this
+    transpile?' by invoking the actual emitter (same expr AST). Reports only
+    the first blocker (the emitter stops there). Returns None if it transpiles.
+    """
+    from . import emit_c
+    try:
+        emit_c.emit(text)
+        return None
+    except Exception as e:  # EmitError | expr.ParseError
+        msg = str(e)
+        m = re.match(r"line (\d+):\s*(.*)", msg)
+        line = int(m.group(1)) if m else 1
+        body = m.group(2) if m else msg
+        return Diagnostic(
+            file=path, line=line, col=1, severity="error", code="T001",
+            keyword="", message=f"does not transpile to C: {body}",
+            suggestion="this construct is outside the transpilable subset "
+                       "(see docs/basic-to-c-transpiler-plan.md)",
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="rgc-lint",
@@ -59,6 +85,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--json", action="store_true",
         help="emit JSON diagnostics (one report per file, NDJSON)",
+    )
+    ap.add_argument(
+        "--check-transpile", action="store_true",
+        help="also run the RGC-BASIC->C emitter and report the first construct "
+             "that cannot be transpiled (uses the shared expr AST + emitter)",
     )
     ap.add_argument(
         "files", nargs="+",
@@ -87,6 +118,11 @@ def main(argv: list[str] | None = None) -> int:
         effective_tier = pre.declared_tier or args.tier
         statements = list(tokenize(pre.text))
         diags = lint(statements, file=path, tier=effective_tier, rules=rules)
+
+        if args.check_transpile:
+            d = _transpile_check(pre.text, path)
+            if d is not None:
+                diags.append(d)
 
         n_err = sum(1 for d in diags if d.severity == "error")
         n_warn = sum(1 for d in diags if d.severity == "warning")

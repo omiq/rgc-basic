@@ -1,0 +1,485 @@
+"""RGC-BASIC -> C emitter (Tier-1 + Tier-2 + minimal strings/input PoC).
+
+Rides the linter front end: walks the `Statement` stream from
+`tokenizer.tokenize` and emits `game`-shaped C that compiles against
+retro-c's `platform.h` contract.
+
+SCOPE
+  Tier-1: CLS, TEXTAT x,y,s, FOR..TO..[STEP]/NEXT, integer vars.
+  Tier-2: IF <cond> THEN <stmt> (single line), relational + AND/OR/NOT,
+    DIM (1..3D, literal bounds) + array access, RND(n) -> plat_rand()%n.
+  Input/strings (2026-06-16): fixed-length string vars (A$ -> char[N+1]),
+    string assignment (literal / var / CHR$), string equality in IF/WHILE,
+    TEXTAT of a string var, GET A$ -> plat_getkey_nb (non-blocking char),
+    WHILE <cond> / WEND loops.
+
+Still a regex-based walker, NOT the eventual expression AST. The
+condition/expression handling is where this strains — that strain is the
+trigger for option B (a real parser shared with the linter).
+"""
+
+from __future__ import annotations
+
+import re
+from typing import Iterable
+
+from .tokenizer import Statement, tokenize
+from . import expr as _expr
+from .expr import Num, Str, Var, Apply, Unary, Binary
+
+
+class EmitError(Exception):
+    pass
+
+
+# ---- AST -> C (option B: replaces the old regex expr/cond munging) ----------
+
+_REL_NUM = {"=": "==", "<>": "!=", "<": "<", ">": ">", "<=": "<=", ">=": ">="}
+# '\\' = BASIC integer division -> C '/' (operands are ints). '^' (power) has no
+# portable C operator (no float/pow on cc65) -> rejected at emit (parser accepts it
+# so the linter can still see/validate it).
+_ARITH = {"+": "+", "-": "-", "*": "*", "/": "/", "MOD": "%", "\\": "/",
+          "<<": "<<", ">>": ">>"}
+
+
+def to_c(node, ctx) -> tuple[str, str]:
+    """Walk an expr AST -> (C code, type). type is 'num' or 'str'. Type
+    drives '='/'<>' on strings to rgc_seq() instead of ==/!=."""
+    if isinstance(node, Num):
+        return node.value, "num"
+    if isinstance(node, Str):
+        return node.value, "str"
+    if isinstance(node, Var):
+        if node.name.endswith("$"):
+            ctx.add_string(node.name)
+            return _mangle_str(node.name), "str"
+        return node.name, "num"
+    if isinstance(node, Apply):
+        up = node.name.upper()
+        if up in ctx.arrays:
+            subs = "".join(f"[{to_c(a, ctx)[0]}]" for a in node.args)
+            return node.name + subs, "num"
+        if up == "RND":
+            ctx.uses_rnd = True
+            return f"(plat_rand() % ({to_c(node.args[0], ctx)[0]}))", "num"
+        a = [to_c(x, ctx)[0] for x in node.args]
+        if up == "CHR$":
+            ctx.funcs.add("CHR$")
+            return f"rgc_chr({a[0]})", "str"
+        if up == "LEN":
+            ctx.funcs.add("LEN")
+            return f"((int)rgc_slen({a[0]}))", "num"
+        if up in ("UCASE$", "LCASE$"):
+            ctx.funcs.add(up)
+            fn = "rgc_ucase" if up == "UCASE$" else "rgc_lcase"
+            return f"{fn}({a[0]})", "str"
+        if up == "LEFT$":
+            ctx.funcs.add("LEFT$")
+            return f"rgc_left({a[0]}, {a[1]})", "str"
+        if up == "RIGHT$":
+            ctx.funcs.add("RIGHT$")
+            return f"rgc_right({a[0]}, {a[1]})", "str"
+        if up == "MID$":
+            ctx.funcs.add("MID$")
+            n = a[2] if len(a) >= 3 else str(STRMAX)
+            return f"rgc_mid({a[0]}, {a[1]}, {n})", "str"
+        raise EmitError(f"unsupported function/array {node.name!r} in expression")
+    if isinstance(node, Unary):
+        c, _ = to_c(node.operand, ctx)
+        return (f"(-{c})" if node.op == "-" else f"(!({c}))"), "num"
+    if isinstance(node, Binary):
+        lc, lt = to_c(node.left, ctx)
+        rc, rt = to_c(node.right, ctx)
+        op = node.op
+        if op in ("AND", "OR"):
+            return f"({lc} {'&&' if op == 'AND' else '||'} {rc})", "num"
+        if op == "^":
+            raise EmitError("'^' (power) not supported on integer targets "
+                            "(no float/pow); use repeated multiply")
+        if op in _ARITH:
+            return f"({lc} {_ARITH[op]} {rc})", "num"
+        if op in ("=", "<>"):
+            if lt == "str" or rt == "str":
+                ctx.uses_seq = True
+                eq = f"rgc_seq({lc}, {rc})"
+                return (eq if op == "=" else f"(!{eq})"), "num"
+            return f"({lc} {_REL_NUM[op]} {rc})", "num"
+        if op in _REL_NUM:           # < > <= >=
+            if lt == "str" or rt == "str":
+                raise EmitError(f"string operand not valid with {op!r}")
+            return f"({lc} {_REL_NUM[op]} {rc})", "num"
+    raise EmitError(f"cannot emit node {node!r}")
+
+
+def _strip_outer(c: str) -> str:
+    """Drop one redundant fully-enclosing paren pair. to_c parenthesises every
+    binary for precedence safety; at a call site that already groups (if (...),
+    = ...;, [...]) the outermost pair is redundant and trips -Wparentheses."""
+    if not (c.startswith("(") and c.endswith(")")):
+        return c
+    depth = 0
+    for i, ch in enumerate(c):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return c[1:-1] if i == len(c) - 1 else c
+    return c
+
+
+def _xlate(e: str, ctx) -> str:
+    """Parse a BASIC expression/condition string and emit C."""
+    return _strip_outer(to_c(_expr.parse(e), ctx)[0])
+
+
+STRMAX = 40   # fixed string-var capacity (chars); char[STRMAX+1]
+
+_FOR_RE = re.compile(
+    r"^\s*([A-Za-z_]\w*)\s*=\s*(.+?)\s+TO\s+(.+?)(?:\s+STEP\s+(.+?))?\s*$",
+    re.IGNORECASE,
+)
+_RHS_RE = re.compile(r"^\s*=\s*(.+?)\s*$")
+_ARRAY_ASSIGN_RE = re.compile(r"^\s*\(([^)]*)\)\s*=\s*(.+?)\s*$")
+_DIM_RE = re.compile(r"^\s*([A-Za-z_]\w*)\s*\(([^)]*)\)\s*$")
+_IF_RE = re.compile(r"^\s*(.+?)\s+THEN\s+(.+?)\s*$", re.IGNORECASE)
+_STRVAR_RE = re.compile(r"[A-Za-z_]\w*\$")
+_STRLIT_RE = re.compile(r'^"[^"]*"$')
+_CHR_RE = re.compile(r"^\s*CHR\$\s*\((.+)\)\s*$", re.IGNORECASE)
+
+_KEYWORDS = {"CLS", "TEXTAT", "FOR", "NEXT", "IF", "DIM", "REM",
+             "GET", "WHILE", "WEND"}
+
+
+def _split_args(rest: str) -> list[str]:
+    """Top-level comma split, respecting quotes and nested parens."""
+    args, buf, depth, in_str = [], [], 0, False
+    for c in rest:
+        if c == '"':
+            in_str = not in_str
+            buf.append(c)
+        elif in_str:
+            buf.append(c)
+        elif c == "(":
+            depth += 1; buf.append(c)
+        elif c == ")":
+            depth -= 1; buf.append(c)
+        elif c == "," and depth == 0:
+            args.append("".join(buf).strip()); buf = []
+        else:
+            buf.append(c)
+    if buf:
+        args.append("".join(buf).strip())
+    return [a for a in args if a != ""]
+
+
+def _mangle_str(name: str) -> str:
+    """A$ -> A_str (C-safe identifier for a string var)."""
+    return name.rstrip("$") + "_str"
+
+
+def _is_strvar(tok: str) -> bool:
+    return tok.endswith("$") and bool(re.fullmatch(r"[A-Za-z_]\w*\$", tok))
+
+
+class Ctx:
+    def __init__(self) -> None:
+        self.scalars: list[str] = []
+        self.arrays: dict[str, int] = {}
+        self.array_decls: list[str] = []
+        self.strings: list[str] = []           # original names (with $)
+        self.uses_rnd = False
+        self.uses_seq = False                   # string equality (rgc_seq)
+        self.uses_scpy = False                  # string copy (rgc_scpy)
+        self.funcs: set[str] = set()            # string/len builtins used
+
+    def add_scalar(self, n: str) -> None:
+        u = n.upper()
+        if u not in self.arrays and all(s.upper() != u for s in self.scalars):
+            self.scalars.append(n)
+
+    def add_string(self, n: str) -> None:
+        if all(s.upper() != n.upper() for s in self.strings):
+            self.strings.append(n)
+
+
+# Expressions and conditions now go through the AST (expr.parse -> to_c).
+# Both numeric exprs and conditions use the same path; to_c's type inference
+# routes string '='/'<>' to rgc_seq() and numerics to ==/!=.
+def _xlate_expr(e: str, ctx: Ctx) -> str:
+    return _xlate(e, ctx)
+
+
+def _xlate_cond(e: str, ctx: Ctx) -> str:
+    return _xlate(e, ctx)
+
+
+def _str_ref(tok: str) -> str:
+    """A string operand token -> C: literal stays, A$ -> A_str. Used by the
+    statement-level string paths (assignment RHS, TEXTAT text arg)."""
+    tok = tok.strip()
+    if _STRLIT_RE.match(tok):
+        return tok
+    if _is_strvar(tok):
+        return _mangle_str(tok)
+    raise EmitError(f"not a string operand: {tok!r}")
+
+
+def _dim_size(bound: str) -> str:
+    b = bound.strip()
+    if re.fullmatch(r"\d+", b):
+        return str(int(b) + 1)
+    return f"({b})+1"
+
+
+def _collect(statements: list[Statement], ctx: Ctx) -> None:
+    for s in statements:
+        # string vars: any A$ token anywhere — but a `$`-name followed by '('
+        # is a string FUNCTION call (UCASE$, LEFT$, CHR$...), not a variable.
+        text = (s.first_word or "") + " " + (s.rest or "")
+        for m in _STRVAR_RE.finditer(text):
+            if text[m.end():m.end() + 1] == "(":
+                continue
+            ctx.add_string(m.group(0))
+        if s.first_word == "DIM":
+            m = _DIM_RE.match(s.rest)
+            if not m:
+                raise EmitError(f"line {s.line}: malformed DIM: {s.rest!r}")
+            name, dims = m.group(1), _split_args(m.group(2))
+            ctx.arrays[name.upper()] = len(dims)
+            sizes = "".join(f"[{_dim_size(d)}]" for d in dims)
+            ctx.array_decls.append(f"int {name}{sizes};")
+        elif s.first_word == "FOR":
+            m = _FOR_RE.match(s.rest)
+            if m:
+                ctx.add_scalar(m.group(1))
+        elif (s.first_word and s.first_word not in _KEYWORDS
+              and not _is_strvar(s.first_word)
+              and s.first_word.upper() not in ctx.arrays
+              and _RHS_RE.match(s.rest)):
+            ctx.add_scalar(s.first_word)
+
+
+def _emit_get(strvar: str, ctx: Ctx) -> str:
+    """GET A$ -> non-blocking single char (empty string if no key)."""
+    if not _is_strvar(strvar):
+        raise EmitError(f"GET requires a string variable, got {strvar!r}")
+    ctx.add_string(strvar)
+    dst = _mangle_str(strvar)
+    return ("{ unsigned char _k = plat_getkey_nb(); "
+            f"{dst}[0] = (char)_k; {dst}[1] = (char)0; }}")
+
+
+def _emit_str_assign(name: str, rhs: str, ctx: Ctx) -> str:
+    """A$ = <string expr>. The RHS goes through the AST (literal, string var,
+    CHR$/UCASE$/LEFT$/... all return char*) and is copied into the var."""
+    dst = _mangle_str(name)
+    code, typ = to_c(_expr.parse(rhs), ctx)
+    if typ != "str":
+        raise EmitError(f"string variable {name} assigned a numeric value")
+    ctx.uses_scpy = True
+    return f"rgc_scpy({dst}, {code});"
+
+
+def _emit_simple(stmt: Statement, ctx: Ctx) -> str:
+    kw = stmt.first_word
+    rest = stmt.rest
+    if kw == "CLS":
+        return "plat_cls();"
+    if kw == "GET":
+        return _emit_get(rest.strip(), ctx)
+    if kw == "TEXTAT":
+        args = _split_args(rest)
+        if len(args) != 3:
+            raise EmitError(
+                f"line {stmt.line}: TEXTAT needs x, y, text (got {len(args)})")
+        x, y, txt = args
+        if _STRLIT_RE.match(txt) or _is_strvar(txt):
+            text_c = _str_ref(txt)
+        else:
+            raise EmitError(f"line {stmt.line}: TEXTAT text must be a "
+                            f"string literal or string var, got {txt!r}")
+        return (f"plat_puts((unsigned char)({_xlate_expr(x, ctx)}), "
+                f"(unsigned char)({_xlate_expr(y, ctx)}), {text_c}, COL_WHITE);")
+    if _is_strvar(kw):
+        m = _RHS_RE.match(rest)
+        if not m:
+            raise EmitError(f"line {stmt.line}: bad string assignment: {rest!r}")
+        return _emit_str_assign(kw, m.group(1), ctx)
+    if kw and kw.upper() in ctx.arrays:
+        m = _ARRAY_ASSIGN_RE.match(rest)
+        if not m:
+            raise EmitError(f"line {stmt.line}: bad array assignment: {rest!r}")
+        subs = _split_args(m.group(1))
+        lhs = kw + "".join(f"[{_xlate_expr(s, ctx)}]" for s in subs)
+        return f"{lhs} = {_xlate_expr(m.group(2), ctx)};"
+    if kw and kw not in _KEYWORDS:
+        m = _RHS_RE.match(rest)
+        if m:
+            return f"{kw} = {_xlate_expr(m.group(1), ctx)};"
+    raise EmitError(
+        f"line {stmt.line}: unsupported statement {kw!r} in this position")
+
+
+def _emit_helpers(ctx: "Ctx") -> str:
+    """Inline runtime helpers (no libc): string copy/compare + the string
+    functions actually used. String-returning functions write into a small
+    rotating static pool so they compose in expressions (BASIC string-temp
+    idiom). Emitted only when needed; dependency order preserved."""
+    parts: list[str] = []
+    if ctx.uses_scpy:
+        parts.append(
+            "static void rgc_scpy(char *d, const char *s) {\n"
+            "    while ((*d++ = *s++) != 0) {}\n"
+            "}\n")
+    if ctx.uses_seq:
+        parts.append(
+            "static unsigned char rgc_seq(const char *a, const char *b) {\n"
+            "    while (*a && *a == *b) { a++; b++; }\n"
+            "    return (unsigned char)(*a == *b);\n"
+            "}\n")
+    f = ctx.funcs
+    need_left = bool(f & {"LEFT$", "RIGHT$", "MID$"})
+    need_pool = need_left or bool(f & {"UCASE$", "LCASE$", "CHR$"})
+    need_slen = bool(f & {"LEN", "RIGHT$", "MID$"})
+    if need_slen:
+        parts.append(
+            "static unsigned rgc_slen(const char *s) {\n"
+            "    unsigned n = 0; while (*s++) n++; return n;\n"
+            "}\n")
+    if need_pool:
+        parts.append(
+            f"static char rgc_pool[4][{STRMAX + 1}];\n"
+            "static unsigned char rgc_pi = 0;\n")
+    if "CHR$" in f:
+        parts.append(
+            "static char *rgc_chr(int n) {\n"
+            "    char *d = rgc_pool[rgc_pi = (rgc_pi + 1) & 3];\n"
+            "    d[0] = (char)n; d[1] = 0; return d;\n"
+            "}\n")
+    for which in ("UCASE$", "LCASE$"):
+        if which in f:
+            name = "rgc_ucase" if which == "UCASE$" else "rgc_lcase"
+            lo, hi, adj = ("'a'", "'z'", "- 32") if which == "UCASE$" else ("'A'", "'Z'", "+ 32")
+            parts.append(
+                f"static char *{name}(const char *s) {{\n"
+                "    char *d = rgc_pool[rgc_pi = (rgc_pi + 1) & 3], *o = d;\n"
+                f"    unsigned n = 0;\n"
+                f"    while (*s && n < {STRMAX}) {{ char c = *s++;\n"
+                f"        if (c >= {lo} && c <= {hi}) c = (char)(c {adj});\n"
+                "        *o++ = c; n++; }\n"
+                "    *o = 0; return d;\n"
+                "}\n")
+    if need_left:
+        parts.append(
+            "static char *rgc_left(const char *s, int n) {\n"
+            "    char *d = rgc_pool[rgc_pi = (rgc_pi + 1) & 3]; int i = 0;\n"
+            f"    if (n > {STRMAX}) n = {STRMAX};\n"
+            "    while (i < n && s[i]) { d[i] = s[i]; i++; }\n"
+            "    d[i] = 0; return d;\n"
+            "}\n")
+    if "RIGHT$" in f:
+        parts.append(
+            "static char *rgc_right(const char *s, int n) {\n"
+            "    int L = (int)rgc_slen(s);\n"
+            "    if (n > L) n = L; if (n < 0) n = 0;\n"
+            "    return rgc_left(s + L - n, n);\n"
+            "}\n")
+    if "MID$" in f:
+        parts.append(
+            "static char *rgc_mid(const char *s, int p, int n) {\n"
+            "    int L = (int)rgc_slen(s);\n"
+            "    if (p < 1) p = 1;\n"
+            "    if (p > L) return rgc_left(s + L, 0);\n"
+            "    return rgc_left(s + (p - 1), n);\n"
+            "}\n")
+    return ("".join(parts) + "\n") if parts else ""
+
+
+def emit(source: str) -> str:
+    statements = [s for s in tokenize(source) if s.first_word != "REM"]
+    ctx = Ctx()
+    _collect(statements, ctx)
+
+    body: list[str] = []
+    block_stack: list[str] = []   # 'for' / 'while'
+    indent = 1
+
+    def line(txt: str) -> None:
+        body.append("    " * indent + txt)
+
+    for s in statements:
+        kw = s.first_word
+        if kw == "DIM":
+            continue
+        elif kw == "FOR":
+            m = _FOR_RE.match(s.rest)
+            if not m:
+                raise EmitError(f"line {s.line}: malformed FOR: {s.rest!r}")
+            var, start, end, step = m.groups()
+            step_expr = _xlate_expr(step, ctx) if step else "1"
+            line(f"for ({var} = {_xlate_expr(start, ctx)}; "
+                 f"{var} <= {_xlate_expr(end, ctx)}; {var} += {step_expr}) {{")
+            block_stack.append("for"); indent += 1
+        elif kw == "NEXT":
+            if not block_stack or block_stack[-1] != "for":
+                raise EmitError(f"line {s.line}: NEXT without FOR")
+            block_stack.pop(); indent -= 1; line("}")
+        elif kw == "WHILE":
+            line(f"while ({_xlate_cond(s.rest, ctx)}) {{")
+            block_stack.append("while"); indent += 1
+        elif kw == "WEND":
+            if not block_stack or block_stack[-1] != "while":
+                raise EmitError(f"line {s.line}: WEND without WHILE")
+            block_stack.pop(); indent -= 1; line("}")
+        elif kw == "IF":
+            m = _IF_RE.match(s.rest)
+            if not m:
+                raise EmitError(f"line {s.line}: IF needs THEN: {s.rest!r}")
+            cond, then_src = m.groups()
+            then_stmt = next(tokenize(then_src), None)
+            if then_stmt is None:
+                raise EmitError(f"line {s.line}: empty THEN")
+            then_stmt.line = s.line
+            line(f"if ({_xlate_cond(cond, ctx)}) {{ "
+                 f"{_emit_simple(then_stmt, ctx)} }}")
+        else:
+            line(_emit_simple(s, ctx))
+
+    if block_stack:
+        raise EmitError(f"unclosed block(s): {block_stack}")
+
+    decls = ""
+    if ctx.scalars:
+        decls += "    int " + ", ".join(ctx.scalars) + ";\n"
+    for d in ctx.array_decls:
+        decls += "    " + d + "\n"
+    for sv in ctx.strings:
+        decls += f"    char {_mangle_str(sv)}[{STRMAX + 1}];\n"
+
+    seed = ("    plat_seed_rand(1);   /* fixed non-zero seed -> deterministic RND */\n"
+            if ctx.uses_rnd else "")
+
+    # String helpers emitted inline (NOT <string.h>): not every retro
+    # toolchain ships a usable <string.h> (cmoc doesn't), so the transpiler
+    # carries its own. rgc_seq returns 1 when equal.
+    helpers = _emit_helpers(ctx)
+
+    # Faithful BASIC END: draw and return to READY/OS, screen left as-is.
+    return (
+        '#include "platform.h"\n\n'
+        + helpers
+        + "int main(void) {\n"
+        + decls
+        + "    plat_init();\n"
+        + seed
+        + "\n".join(body) + "\n"
+        + "    return 0;\n"
+        "}\n"
+    )
+
+
+if __name__ == "__main__":
+    import sys
+    src = open(sys.argv[1]).read() if len(sys.argv) > 1 else sys.stdin.read()
+    sys.stdout.write(emit(src))

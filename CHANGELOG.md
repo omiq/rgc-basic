@@ -1,5 +1,26 @@
 ## Changelog
 
+### New: RGC-BASIC to C transpiler, text-mode subset (2026-06-16)
+
+First working slice of the BASIC to C transpiler (`tools/rgc_lint/emit_c.py`), emitting
+against retro-c's `platform.h` contract so one `.bas` builds for multiple retro targets.
+Proven on C64 (cc65), CoCo3 (cmoc) and Z80 (sdcc) from the same source.
+
+- Language subset: `CLS`, `TEXTAT x,y,s`, `FOR`/`NEXT`, `WHILE`/`WEND`, `IF ... THEN`
+  (single line), integer vars, `DIM` 1-3D arrays, `RND(n)` (mapped to `plat_rand() % n`),
+  fixed-length string vars, `GET` (non-blocking key input), and the string functions
+  `UCASE$` `LCASE$` `LEFT$` `RIGHT$` `MID$` `CHR$` `LEN`.
+- Shared front end: a real recursive-descent expression parser and AST (`expr.py`) used by
+  both the emitter and the linter. The emitter does type inference (string vs numeric) so
+  `=`/`<>` pick string compare or numeric compare correctly.
+- Linter gains `rgc-lint --check-transpile`: runs the emitter and reports the first
+  construct that cannot transpile to C (`T001`), default off.
+- Emitted C carries its own inline string helpers (no libc dependency, since not every
+  retro toolchain ships a usable `<string.h>`). Examples under `tools/rgc_lint/examples/`.
+
+Companion change in retro-c: new `plat_getkey_nb` contract function on every adapter
+(raw non-blocking key for `GET`), functional on 16 of 18, stubbed on amiga and cpc.
+
 ### Fix: UDF call inside PRINT resumes parse after `)` (2026-06-02)
 
 A user function used in the middle of a `PRINT` list (e.g.
