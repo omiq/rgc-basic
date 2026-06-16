@@ -122,11 +122,22 @@ def to_c(node, ctx) -> tuple[str, str]:
         if up == "SQR":
             ic, it = to_c(node.args[0], ctx)
             return f"rgc_sqrt({_to_real(ic, it, ctx)})", "real"
-        a = [to_c(x, ctx)[0] for x in node.args]
+        av = [to_c(x, ctx) for x in node.args]
+        a = [_strip_outer(c) for c, _ in av]
+
+        def intarg(k):                  # string index/count args floor reals
+            c, t = av[k]
+            return f"RGC_TOINT({_strip_outer(c)})" if t == "real" else _strip_outer(c)
+
         if up == "CHR$":
             ctx.funcs.add("CHR$")
-            return f"rgc_chr({a[0]})", "str"
+            return f"rgc_chr({intarg(0)})", "str"
         if up == "STR$":
+            # STR$ of a real keeps its decimals (interpreter prints "3.75",
+            # not "3") — route reals through the real formatter, not rgc_str.
+            if av[0][1] == "real":
+                ctx.uses_rstr = True
+                return f"rgc_realstr({a[0]})", "str"
             ctx.funcs.add("STR$")
             return f"rgc_str({a[0]})", "str"
         if up == "VAL":
@@ -141,19 +152,28 @@ def to_c(node, ctx) -> tuple[str, str]:
             return f"{fn}({a[0]})", "str"
         if up == "LEFT$":
             ctx.funcs.add("LEFT$")
-            return f"rgc_left({a[0]}, {a[1]})", "str"
+            return f"rgc_left({a[0]}, {intarg(1)})", "str"
         if up == "RIGHT$":
             ctx.funcs.add("RIGHT$")
-            return f"rgc_right({a[0]}, {a[1]})", "str"
+            return f"rgc_right({a[0]}, {intarg(1)})", "str"
         if up == "MID$":
             ctx.funcs.add("MID$")
-            n = a[2] if len(a) >= 3 else str(STRMAX)
-            return f"rgc_mid({a[0]}, {a[1]}, {n})", "str"
+            n = intarg(2) if len(node.args) >= 3 else str(STRMAX)
+            return f"rgc_mid({a[0]}, {intarg(1)}, {n})", "str"
         if up == "ASC":
             return f"((int)(unsigned char)({a[0]})[0])", "int"
         if up == "STRING$":
             ctx.funcs.add("STRING$")
-            return f"rgc_string({a[0]}, {a[1]})", "str"
+            return f"rgc_string({intarg(0)}, {a[1]})", "str"
+        if up == "DICTNEW":
+            ctx.uses_dict = True
+            return "rgc_dictnew()", "int"
+        if up == "DICTHAS":
+            ctx.uses_dict = True
+            return f"rgc_dicthas({a[0]}, {a[1]})", "int"
+        if up == "DICTGETN":
+            ctx.uses_dict = True
+            return f"rgc_dictgetn({a[0]}, {a[1]})", "int"
         if up in ctx.udfs:
             u = ctx.udfs[up]
             t = "str" if u["ret"] == "str" else ("real" if up in ctx.udf_real else "int")
@@ -255,6 +275,9 @@ def _xlate(e: str, ctx) -> str:
 
 
 STRMAX = 255  # fixed string-var capacity (chars); char[STRMAX+1].
+DICT_MAX = 8   # number of concurrent dicts (DICTNEW handles)
+DICT_CAP = 32  # entries per dict
+DICT_KLEN = 16 # max key length incl NUL
               # trek's THIS_QUADRANT$ is a 192-char grid, so 40 is too small.
 
 _FOR_RE = re.compile(
@@ -304,7 +327,16 @@ def _emit_print(rest: str, ctx: "Ctx") -> str:
         items.pop(); suppress = True
     out = []
     for e, sep in items:
-        code, typ = to_c(_expr.parse(e), ctx)
+        if not e.strip():
+            continue                      # empty item between separators (`;;`)
+        ast = _expr.parse(e)
+        # PRINT TAB(n) — cursor move, not a printed value (interpreter FN_TAB).
+        if isinstance(ast, Apply) and ast.name.upper() == "TAB":
+            ctx.uses_ptab = True
+            n = to_c(ast.args[0], ctx)[0]
+            out.append(f"rgc_ptab({_strip_outer(n)});")
+            continue
+        code, typ = to_c(ast, ctx)
         if typ == "str":
             out.append(f"rgc_pstr({code});")
         elif typ == "real":
@@ -409,6 +441,9 @@ class Ctx:
         self.uses_scpy = False                  # string copy (rgc_scpy)
         self.uses_print = False                 # PRINT/LOCATE cursor runtime
         self.uses_tab = False                   # PRINT ',' zone tab
+        self.uses_dict = False                  # string->int dict runtime
+        self.uses_color = False                 # COLOR n -> rgc_colmap + rgc_color
+        self.uses_ptab = False                  # PRINT TAB(n) cursor move
         self.funcs: set[str] = set()            # string/len builtins used
         self.udfs: dict[str, dict] = {}         # UPPER -> {name, ret, params}
         self.cur_ret = "int"                    # return type of fn being emitted
@@ -561,10 +596,8 @@ def _infer_types(program, ctx: Ctx) -> None:
             for s in stmts:
                 # assignment RHS
                 tgt = _assign_target(s)
-                if tgt:
+                if tgt and tgt[0] != "string":
                     kind, name = tgt
-                    if kind == "string":
-                        continue
                     rhs = _RHS_RE.match(s.rest) or _ARRAY_ASSIGN_RE.match(s.rest)
                     rhs_expr = rhs.group(2) if kind == "array" else rhs.group(1)
                     try:
@@ -608,29 +641,51 @@ def _infer_types(program, ctx: Ctx) -> None:
         ctx.cur_fn, ctx.cur_params = "", set()
 
 
-def _calls_in(s: Statement, ctx: Ctx):
-    """Yield (FN_UPPER, [argtype,...]) for UDF calls in a statement's exprs."""
-    text = s.rest or ""
-    if not text:
-        return
-    try:
-        node = _expr.parse(text.lstrip("="))
-    except Exception:
-        return
-    out = []
+_IDENT_CALL_RE = re.compile(r"([A-Za-z_]\w*\$?)\s*\(")
 
-    def walk(n):
-        if isinstance(n, Apply):
-            up = n.name.upper()
-            if up in ctx.udfs:
-                out.append((up, [_expr_type(a, ctx) for a in n.args]))
-            for a in n.args:
-                walk(a)
-        elif isinstance(n, Binary):
-            walk(n.left); walk(n.right)
-        elif isinstance(n, Unary):
-            walk(n.operand)
-    walk(node)
+
+def _calls_in(s: Statement, ctx: Ctx):
+    """Yield (FN_UPPER, [argtype,...]) for every UDF call in a statement.
+
+    Scans the whole statement source (not just `rest`): a bare call used as a
+    statement — `PlaceToken(TOKEN$, X, Y)` — keeps its name in `first_word`, and
+    calls can sit inside an IF condition or THEN clause that won't parse as one
+    clean expression. So we find each `udfname(` by name, slice the balanced
+    argument list, and type each argument independently."""
+    text = s.raw or ((s.first_word or "") + " " + (s.rest or ""))
+    out = []
+    i, n = 0, len(text)
+    while i < n:
+        m = _IDENT_CALL_RE.match(text, i)
+        if not m or m.group(1).upper() not in ctx.udfs:
+            i += 1
+            continue
+        up = m.group(1).upper()
+        # slice the balanced (...) starting at the '('
+        depth, j, in_str = 0, m.end(1), False
+        while j < n and text[j] != "(":
+            j += 1
+        start = j
+        while j < n:
+            c = text[j]
+            if c == '"':
+                in_str = not in_str
+            elif not in_str and c == "(":
+                depth += 1
+            elif not in_str and c == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        args = _split_args(text[start + 1:j]) if j < n else []
+        types = []
+        for a in args:
+            try:
+                types.append(_expr_type(_expr.parse(a), ctx))
+            except Exception:
+                types.append("int")
+        out.append((up, types))
+        i = start + 1                  # re-enter args to catch nested UDF calls
     yield from out
 
 
@@ -793,6 +848,14 @@ def _emit_str_assign(name: str, rhs: str, ctx: Ctx) -> str:
 def _emit_simple(stmt: Statement, ctx: Ctx) -> str:
     kw = stmt.first_word
     rest = stmt.rest
+    if stmt.is_label:
+        # Structured-BASIC label. trek's only label is unreferenced (no GOTO/
+        # GOSUB in the program), so emit a no-op rather than an unused C label.
+        return f"/* label {kw} */"
+    if kw == "IF":
+        # Single-line IF reaching the leaf emitter = nested in another IF's THEN
+        # (`IF a THEN IF b THEN ...`). Block IFs are handled at the tree level.
+        return _emit_if_single(stmt, ctx)
     if kw == "RETURN":
         e = rest.strip()
         if not e:
@@ -806,18 +869,48 @@ def _emit_simple(stmt: Statement, ctx: Ctx) -> str:
         return f"return {code};"
     if kw == "END" and not rest.strip():
         return "return 0;"
+    if kw == "STOP" and not rest.strip():
+        # BASIC STOP halts the whole program. The contract has no exit, so
+        # busy-halt (program is done; fine on a single-task retro machine).
+        return "for (;;) {}"
     if kw in ("CONTINUE", "EXIT"):
         e = _loop_target(ctx, rest.strip().upper(), stmt.line)
         key = "want_cont" if kw == "CONTINUE" else "want_brk"
         e[key] = True
         tag = "_cont" if kw == "CONTINUE" else "_brk"
         return f"goto {tag}{e['id']};"
+    if kw == "DICTSET":
+        args = _split_args(rest)
+        if len(args) != 3:
+            raise EmitError(
+                f"line {stmt.line}: DICTSET needs handle, key$, value "
+                f"(got {len(args)})")
+        h = _xlate_expr(args[0], ctx)
+        kc, ktyp = to_c(_expr.parse(args[1]), ctx)
+        if ktyp != "str":
+            raise EmitError(f"line {stmt.line}: DICTSET key must be a string")
+        vc, vtyp = to_c(_expr.parse(args[2]), ctx)
+        if vtyp == "real":
+            vc = f"RGC_TOINT({vc})"
+        elif vtyp == "str":
+            raise EmitError(f"line {stmt.line}: DICTSET value must be numeric")
+        ctx.uses_dict = True
+        return f"rgc_dictset({h}, {_strip_outer(kc)}, {_strip_outer(vc)});"
     # bare function call as a statement (GOSUB-style, value discarded)
     if kw and kw.upper() in ctx.udfs:
         code, _ = to_c(_expr.parse(stmt.raw), ctx)
         return f"{_strip_outer(code)};"
     if kw == "CLS":
         return "plat_cls();"
+    if kw == "COLOR":
+        ctx.uses_color = True
+        ctx.uses_print = True
+        return f"rgc_color = rgc_colmap({_xlate_expr(rest.strip(), ctx)});"
+    if kw in ("BACKGROUND", "PAPER"):
+        # The portable contract carries only a foreground colour per glyph;
+        # there is no per-cell background. Evaluate nothing, render nothing
+        # (a no-op keeps colour-highlight code portable + readable).
+        return "/* BACKGROUND/PAPER: no portable background attribute */"
     if kw == "PRINT":
         return _emit_print(rest, ctx)
     if kw == "LOCATE":
@@ -878,18 +971,60 @@ def _emit_helpers(ctx: "Ctx") -> str:
         # No scroll: at the bottom row PRINT clamps (plat has no scroll/read).
         parts.append(
             "static unsigned char rgc_cx = 0, rgc_cy = 0;\n"
-            "static void rgc_pstr(const char *s) {\n"
-            "    plat_puts(rgc_cx, rgc_cy, s, COL_WHITE);\n"
-            "    while (*s++) rgc_cx++;\n"
-            "}\n"
+            "static unsigned char rgc_color = COL_WHITE;\n"
             "static void rgc_nl(void) {\n"
             "    rgc_cx = 0;\n"
             "    if (rgc_cy + 1 < plat_screen_h()) rgc_cy++;\n"
+            "}\n"
+            "static void rgc_pstr(const char *s) {\n"
+            "    static char seg[256]; int i;\n"
+            "    while (*s) {\n"
+            "        i = 0;\n"
+            "        while (*s && *s != '\\n' && *s != '\\r' && i < 255) seg[i++] = *s++;\n"
+            "        seg[i] = 0;\n"
+            "        if (i) { plat_puts(rgc_cx, rgc_cy, seg, rgc_color);\n"
+            "                 rgc_cx = (unsigned char)(rgc_cx + i); }\n"
+            "        if (*s == '\\n' || *s == '\\r') { rgc_nl(); s++; }\n"
+            "    }\n"
             "}\n")
     if ctx.uses_tab:
         parts.append(
             "static void rgc_tab(void) {\n"
             "    rgc_cx = (unsigned char)(((rgc_cx / 10) + 1) * 10);\n"
+            "}\n")
+    if ctx.uses_ptab:
+        # PRINT TAB(n): move cursor to column n (mod screen width). Wraps to a
+        # fresh line when the target is left of the cursor (interpreter FN_TAB).
+        parts.append(
+            "static void rgc_ptab(int target) {\n"
+            "    unsigned char w = plat_screen_w(); if (!w) w = 80;\n"
+            "    target %= w; if (target < 0) target += w;\n"
+            "    if ((unsigned char)target < rgc_cx) rgc_nl();\n"
+            "    rgc_cx = (unsigned char)target;\n"
+            "}\n")
+    if ctx.uses_color:
+        # COLOR n uses C64 16-colour indices; the contract has 8 colours in a
+        # different order. Map each C64 index to the nearest contract COL_*.
+        parts.append(
+            "static unsigned char rgc_colmap(int n) {\n"
+            "    switch (n & 0x0F) {\n"
+            "    case 0:  return COL_BLACK;\n"
+            "    case 1:  return COL_WHITE;\n"
+            "    case 2:  return COL_RED;\n"
+            "    case 3:  return COL_CYAN;\n"
+            "    case 4:  return COL_MAGENTA;\n"   # C64 purple
+            "    case 5:  return COL_GREEN;\n"
+            "    case 6:  return COL_BLUE;\n"
+            "    case 7:  return COL_YELLOW;\n"
+            "    case 8:  return COL_RED;\n"       # orange ~ red
+            "    case 9:  return COL_YELLOW;\n"    # brown ~ yellow
+            "    case 10: return COL_RED;\n"       # light red
+            "    case 11: return COL_WHITE;\n"     # dark gray
+            "    case 12: return COL_WHITE;\n"     # medium gray
+            "    case 13: return COL_GREEN;\n"     # light green
+            "    case 14: return COL_BLUE;\n"      # light blue
+            "    default: return COL_WHITE;\n"     # light gray (15)
+            "    }\n"
             "}\n")
     if ctx.uses_scpy:
         parts.append(
@@ -1018,6 +1153,50 @@ def _emit_helpers(ctx: "Ctx") -> str:
             "    if (p < 1) p = 1;\n"
             "    if (p > L) return rgc_left(s + L, 0);\n"
             "    return rgc_left(s + (p - 1), n);\n"
+            "}\n")
+    if ctx.uses_dict:
+        # Flat string->int dict (the DICTNEW/DICTSET/DICTHAS/DICTGETN subset).
+        # Fixed pools — no malloc, cc65-safe. Linear probe; fine for the small
+        # command tables these programs build.
+        parts.append(
+            f"#define RGC_DICT_MAX {DICT_MAX}\n"
+            f"#define RGC_DICT_CAP {DICT_CAP}\n"
+            f"#define RGC_DICT_KLEN {DICT_KLEN}\n"
+            "static char rgc_dkey[RGC_DICT_MAX][RGC_DICT_CAP][RGC_DICT_KLEN];\n"
+            "static int rgc_dval[RGC_DICT_MAX][RGC_DICT_CAP];\n"
+            "static int rgc_dlen[RGC_DICT_MAX];\n"
+            "static int rgc_dnext = 0;\n"
+            "static int rgc_dictnew(void) {\n"
+            "    int h = rgc_dnext;\n"
+            "    if (h >= RGC_DICT_MAX) return -1;\n"
+            "    rgc_dnext++; rgc_dlen[h] = 0; return h;\n"
+            "}\n"
+            "static int rgc_dfind(int h, const char *k) {\n"
+            "    int i; const char *a, *b;\n"
+            "    if (h < 0 || h >= RGC_DICT_MAX) return -1;\n"
+            "    for (i = 0; i < rgc_dlen[h]; i++) {\n"
+            "        a = rgc_dkey[h][i]; b = k;\n"
+            "        while (*a && *a == *b) { a++; b++; }\n"
+            "        if (*a == *b) return i;\n"
+            "    }\n"
+            "    return -1;\n"
+            "}\n"
+            "static void rgc_dictset(int h, const char *k, int v) {\n"
+            "    int i, j;\n"
+            "    if (h < 0 || h >= RGC_DICT_MAX) return;\n"
+            "    i = rgc_dfind(h, k);\n"
+            "    if (i < 0) {\n"
+            "        if (rgc_dlen[h] >= RGC_DICT_CAP) return;\n"
+            "        i = rgc_dlen[h]++; j = 0;\n"
+            "        while (k[j] && j < RGC_DICT_KLEN - 1) { rgc_dkey[h][i][j] = k[j]; j++; }\n"
+            "        rgc_dkey[h][i][j] = 0;\n"
+            "    }\n"
+            "    rgc_dval[h][i] = v;\n"
+            "}\n"
+            "static int rgc_dicthas(int h, const char *k) { return rgc_dfind(h, k) >= 0; }\n"
+            "static int rgc_dictgetn(int h, const char *k) {\n"
+            "    int i = rgc_dfind(h, k);\n"
+            "    return i < 0 ? 0 : rgc_dval[h][i];\n"
             "}\n")
     return ("".join(parts) + "\n") if parts else ""
 
@@ -1164,6 +1343,38 @@ def _emit_nodes(nodes: list, ctx: Ctx, out: list[str], indent: int) -> None:
 _SELECT_HEAD_RE = re.compile(r"(?i)^\s*case\s+(.*)$")
 
 
+_CASE_IS_RE = re.compile(r"(?i)^\s*IS\s*(<=|>=|<>|<|>|=)\s*(.+)$")
+_CASE_REL = {"=": "==", "<>": "!=", "<": "<", ">": ">", "<=": "<=", ">=": ">="}
+
+
+def _case_cond(sel: str, v: str, typ: str, ctx: Ctx) -> str:
+    """One CASE value -> a C boolean against the selector `sel`.
+
+    Forms: `IS <relop> expr`, `lo TO hi` (range), or plain equality. The
+    selector type (`typ`) decides string compare vs numeric / real promotion."""
+    def render(src):
+        vc, vt = to_c(_expr.parse(src), ctx)
+        if typ == "real":
+            return _to_real(_strip_outer(vc), vt, ctx), vt
+        return _strip_outer(vc), vt
+
+    m = _CASE_IS_RE.match(v)
+    if m:                                  # CASE IS <relop> expr
+        rhs, _ = render(m.group(2))
+        return f"{sel} {_CASE_REL[m.group(1)]} {rhs}"
+    parts = re.split(r"(?i)\bTO\b", v, maxsplit=1)
+    if len(parts) == 2 and typ != "str":   # CASE lo TO hi
+        lo, _ = render(parts[0])
+        hi, _ = render(parts[1])
+        return f"({sel} >= {lo} && {sel} <= {hi})"
+    vc, vt = to_c(_expr.parse(v), ctx)     # plain equality
+    if typ == "str" or vt == "str":
+        ctx.uses_seq = True
+        return f"rgc_seq({sel}, {_strip_outer(vc)})"
+    rc = _to_real(_strip_outer(vc), vt, ctx) if typ == "real" else _strip_outer(vc)
+    return f"{sel} == {rc}"
+
+
 def _emit_select(n, ctx: Ctx, out: list[str], indent: int, line) -> None:
     """SELECT CASE expr / CASE v[,v] / CASE ELSE -> an if/else-if chain (not a C
     switch: BASIC case values are arbitrary expressions, e.g. named constants)."""
@@ -1180,15 +1391,8 @@ def _emit_select(n, ctx: Ctx, out: list[str], indent: int, line) -> None:
         if case_stmt is None:                 # CASE ELSE
             line("else {" if not first else "{")
         else:
-            conds = []
-            for v in _split_args(case_stmt.rest):
-                vc, vt = to_c(_expr.parse(v), ctx)
-                if typ == "str" or vt == "str":
-                    ctx.uses_seq = True
-                    conds.append(f"rgc_seq({sel}, {_strip_outer(vc)})")
-                else:
-                    rc = _to_real(_strip_outer(vc), vt, ctx) if typ == "real" else _strip_outer(vc)
-                    conds.append(f"{sel} == {rc}")
+            conds = [_case_cond(sel, v, typ, ctx)
+                     for v in _split_args(case_stmt.rest)]
             kw = "if" if first else "else if"
             line(f"{kw} ({' || '.join(conds)}) {{")
         _emit_nodes(body, ctx, out, indent + 1)
