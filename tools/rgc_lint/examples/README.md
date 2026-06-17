@@ -54,6 +54,14 @@ These build against the retro-c adapters. Run from the **retro-c repo root**
 (`~/github/retro-c`), with the emitted `.c` swapped in for the game sources — same
 flags as `build/Makefile.<target>`, minus `$(GAME_SOURCES)`.
 
+> **Path gotcha (cross-repo build):** `platform.h`, `plat_host.c`, `plat_c64.c`, the
+> `game/` dir etc. all live in **retro-c**, not in rgc-basic. The `-I platform -I game`
+> and `platform/plat_*.c` arguments below are relative to the retro-c repo root, so you
+> must `cd ~/github/retro-c` first. The emitted `.c` itself can live anywhere — pass it by
+> absolute path (e.g. `~/github/rgc-basic/build/.../trek.c`). Building from inside
+> rgc-basic fails with `no such file or directory: 'platform/plat_host.c'` because those
+> adapters aren't in this repo.
+
 ### Native (host) — fastest self-test, no emulator
 
 The quickest way to confirm an emitted program actually *runs*: build against the
