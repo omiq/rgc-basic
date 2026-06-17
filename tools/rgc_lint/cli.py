@@ -45,6 +45,13 @@ def _format_json(file: str, tier: str, diags: list[Diagnostic]) -> str:
     }, indent=2)
 
 
+# Tier-membership diagnostics answer "is this ugBASIC-portable?" — a different
+# axis from "does this transpile to C?". The C transpiler supports the whole
+# `modern` tier (SELECT/CONTINUE/DICT/…), so in --check-transpile mode these
+# are noise that would otherwise masquerade as transpile failures.
+_TIER_CODES = frozenset({"E001", "W001", "W002"})
+
+
 def _transpile_check(text: str, path: str) -> Diagnostic | None:
     """Run the C emitter; turn the first transpile blocker into a diagnostic.
 
@@ -88,8 +95,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument(
         "--check-transpile", action="store_true",
-        help="also run the RGC-BASIC->C emitter and report the first construct "
-             "that cannot be transpiled (uses the shared expr AST + emitter)",
+        help="answer 'does this transpile to C?' by running the RGC-BASIC->C "
+             "emitter. Reports the first blocking construct (or confirms it "
+             "transpiles). Suppresses ugBASIC tier-membership errors — they are "
+             "a separate axis; the C transpiler supports the whole modern tier",
     )
     ap.add_argument(
         "files", nargs="+",
@@ -120,9 +129,14 @@ def main(argv: list[str] | None = None) -> int:
         diags = lint(statements, file=path, tier=effective_tier, rules=rules)
 
         if args.check_transpile:
+            # Transpile axis only: drop ugBASIC tier-membership diagnostics so a
+            # C-transpilable file isn't reported as failing on `modern` keywords.
+            diags = [d for d in diags if d.code not in _TIER_CODES]
             d = _transpile_check(pre.text, path)
             if d is not None:
                 diags.append(d)
+            elif not args.json:
+                print(f"{path}: transpiles to C")
 
         n_err = sum(1 for d in diags if d.severity == "error")
         n_warn = sum(1 for d in diags if d.severity == "warning")

@@ -414,7 +414,7 @@ on-ramp is partly paved.
 | Piece | Role for the emitter |
 |--|--|
 | `tokenizer.py` → `Statement` stream | line/col/`first_word`/`rest`/`is_label`/`line_num`, comments + `:`-split + CBM crunch normalization done. `Statement` already carries transpiler-intent fields (`is_label` "so the transpiler can re-emit the trailing colon", `line_num` "so the transpiler can preserve them"). |
-| `rules.json` + `test_drift.sh` | keyword truth + portability **tier**, kept complete against `basic.c` (`extract_keywords.canonical_set()` from `reserved_words[]`/`eval_factor`/`kconst[]`). **Emitter gets tier-gating free**: refuse `modern`-tier keywords with a clear diagnostic instead of miscompiling — the v1 "reject, don't silently miscompile" goal, already enforced. |
+| `rules.json` + `test_drift.sh` | keyword truth + portability **tier**, kept complete against `basic.c` (`extract_keywords.canonical_set()` from `reserved_words[]`/`eval_factor`/`kconst[]`). The tier is the **ugBASIC-portability** axis only — *not* a gate on the C emitter, which supports the whole `modern` tier (SELECT/CONTINUE/DICT all transpile, see trek milestone). `--check-transpile` answers "does this transpile to C?" by running the emitter and suppresses tier-membership diagnostics (a separate axis); the v1 "reject, don't silently miscompile" guarantee comes from the emitter raising on genuinely unsupported constructs, not from the tier. |
 | `walker.py` statement-walk pattern | the shape the emitter mirrors. |
 | `normalize.py` | CBM keyword-glue normalization (port of `basic.c:normalize_keywords_line`). |
 

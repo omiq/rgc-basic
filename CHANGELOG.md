@@ -1,5 +1,22 @@
 ## Changelog
 
+### Linter: `--check-transpile` now reports the C axis accurately (2026-06-17)
+
+`rgc-lint --check-transpile` answers "does this transpile to C?" by running the
+real emitter, but it was mixing that verdict into the **ugBASIC-portability**
+tier lint. A file using `modern`-tier keywords (SELECT, CONTINUE, DICT…) is not
+ugBASIC-portable but transpiles to C cleanly, so `trek-portable.bas` reported
+**111 errors / exit 1** despite transpiling warning-clean.
+
+The two are orthogonal axes. In `--check-transpile` mode the tool now suppresses
+tier-membership diagnostics (E001/W001/W002), prints an explicit `transpiles to
+C` verdict, and derives its exit code from the emitter result plus genuine
+syntax/semantic errors. Plain `rgc-lint` (no flag) is unchanged: the ugBASIC
+tier axis still flags `modern` keywords as before. New `test_cli.py` guards the
+decoupling. Also corrected the stale "emitter gets tier-gating free / refuse
+`modern`-tier keywords" claim in the transpiler plan — the emitter supports the
+whole modern tier.
+
 ### Transpiler: trek-portable.bas runs on the full 8-bit spread (2026-06-16)
 
 `examples/trek-portable.bas` (a 1530-line structured-BASIC Super Star Trek) now
