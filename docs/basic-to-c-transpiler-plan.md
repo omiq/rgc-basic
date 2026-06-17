@@ -233,6 +233,21 @@ already inlines `game + plat_<target>.c` into one `.c` per IDE preset — the tr
 program slots in where `game/*.c` was. **No new `basrtl.c`**; the "runtime" is
 `platform.h` + the per-target adapter.
 
+#### ZX Spectrum target — VERIFIED 2026-06-17
+
+Emitted C compiles + renders on ZX (z88dk) against `plat_zxspectrum.c`. Build recipe
+(see retro-c notes + `memory/reference_zx_z88dk_c_recipe.md`):
+`zcc +zx -compiler=sdcc --reserve-regs-iy -lndos --math32 -pragma-define:CLIB_OPT_PRINTF=0xffffffff -create-app`
+- `procgen.bas` → emit_c → C → recipe → renders its 16×8 map (verified headless via z88dk-ticks).
+- `move.bas` builds + fits (~11KB); valid on real ZX (getkey-driven).
+- `trek-portable.bas` compiles **clean** but is ~71KB (float + large game) → exceeds the ZX's 64K. It fits cc65/cmoc/sdcc(MSX) which have more headroom or fixed-point `rgc_real`. **ZX is a small-program target; trek-class programs are too big.**
+
+Emitter constraint surfaced: the **SmallerC (x86) backend rejects long expressions**
+("expression too long"). The emitter's parenthesised `&&`/`||` chains top out at ~4
+terms (smlrc-safe); only hand-written code with long flat chains hit it. If a `.bas`
+ever yields a long `AND`/`OR` chain, split it into per-condition statements in the
+emitter — future hardening.
+
 ### Existing contract (retro-c `platform.h`, do not redefine)
 
 ```c
