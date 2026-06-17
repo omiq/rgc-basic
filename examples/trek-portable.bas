@@ -203,10 +203,14 @@ function EnterQuadrant()
         print "ENTERING ";QN$;" QUADRANT..."
       end if
     end if
-    ' Decode G(quad): K3/B3/S3 = klingons / starbases / stars in this quadrant
-    K3=int(G(QUADRANT_X,QUADRANT_Y)*.01)
-    B3=int(G(QUADRANT_X,QUADRANT_Y)*.1)-10*K3
-    S3=G(QUADRANT_X,QUADRANT_Y)-100*K3-10*B3
+    ' Decode G(quad): K3/B3/S3 = klingons / starbases / stars in this quadrant.
+    ' G encodes the 3 digits K*100+B*10+S. Use INTEGER divide/MOD, not float
+    ' tricks (int(G*.01)): on fixed-point targets (cc65) G*.01 loses precision
+    ' and G/100 overflows 16.16, mis-decoding the counts -> FindEmpty overfills
+    ' the quadrant and spins forever. Integer ops are exact and cheap.
+    K3=G(QUADRANT_X,QUADRANT_Y)\100
+    B3=(G(QUADRANT_X,QUADRANT_Y)\10) MOD 10
+    S3=G(QUADRANT_X,QUADRANT_Y) MOD 10
     for I=1 to 3
       K(I,1)=0
       K(I,2)=0
