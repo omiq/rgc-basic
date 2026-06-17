@@ -21,8 +21,23 @@ def _click_run(page) -> None:
     page.evaluate("document.getElementById('run').click()")
 
 
+class _WebHandler(http.server.SimpleHTTPRequestHandler):
+    # Local stand-in for httpbin.org/get so the HTTP$ smoke test doesn't depend
+    # on an external service (httpbin is frequently slow/down → CI timeouts).
+    def do_GET(self) -> None:
+        if self.path.split("?", 1)[0] == "/http_get_test":
+            body = b'{"url": "http://127.0.0.1/http_get_test", "marker": "RGCHTTPOK"}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        super().do_GET()
+
+
 def _serve_web() -> tuple[socketserver.TCPServer, int]:
-    Handler = partial(http.server.SimpleHTTPRequestHandler, directory=str(WEB))
+    Handler = partial(_WebHandler, directory=str(WEB))
     socketserver.TCPServer.allow_reuse_address = True
     httpd = socketserver.TCPServer(("127.0.0.1", 0), Handler)
     port = httpd.server_address[1]
@@ -161,13 +176,13 @@ def main() -> int:
             # HTTP$ / HTTPSTATUS: async fetch (Asyncify + wasm_js_http_fetch_async)
             page.fill(
                 "#program",
-                '10 U$ = "https://httpbin.org/get"\n'
+                '10 U$ = "http://127.0.0.1:%d/http_get_test"\n'
                 "20 R$ = HTTP$(U$)\n"
                 "30 S = HTTPSTATUS()\n"
                 '40 IF S <> 200 THEN PRINT "BADSTATUS"; S : END\n'
-                '50 IF INSTR(R$, "httpbin") < 1 THEN PRINT "NOBODY" : END\n'
+                '50 IF INSTR(R$, "RGCHTTPOK") < 1 THEN PRINT "NOBODY" : END\n'
                 '60 PRINT "HTTP_OK"\n'
-                "70 END\n",
+                "70 END\n" % port,
             )
             _click_run(page)
             page.wait_for_function(
