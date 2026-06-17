@@ -164,7 +164,8 @@ PLAYING" pattern/row/BPM strip in `gfx_music_demo.bas`.
 
 **Status (2026-05-12 audit):** `tools/rgc_lint/` shipped — `cli.py`,
 `walker.py`, `tokenizer.py`, `directives.py`, `rules.json`, `test_lint.sh`.
-Used by `rgc2ugb` portability pipeline. Spec body below kept for context.
+Also reused as the shared front end by the private transpiler backends.
+Spec body below kept for context.
 
 Catch common source-level mistakes before the interpreter runs — right
 now the parser just produces cryptic errors (e.g. "Expected ',' or ')'"

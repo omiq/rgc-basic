@@ -1,5 +1,0 @@
-10 CLS
-20 FOR X = 0 TO 9
-30 TEXTAT X, 0, "#"
-40 NEXT X
-50 TEXTAT 4, 2, "@"

@@ -132,3 +132,6 @@ basic-raylib.wasm
 # Python bytecode cache
 __pycache__/
 *.pyc
+
+# local transpiler scratch (emitted C, see rgc-transpiler)
+/build/

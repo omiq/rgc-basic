@@ -82,8 +82,7 @@ Edge case: if the inner processor expects to run per physical line today, run it
 | Component | Action |
 |-----------|--------|
 | `basic.c` loader | Absorption + errors above |
-| `tools/rgc_lint/tokenizer.py` | Treat `"""` like string context for `:` split; or pre-scan and warn in numbered files |
-| `tools/rgc2ugb/emit.py` | Same string rules if triple appears in numberless transpiled source |
+| `tools/rgc_lint/tokenizer.py` | Treat `"""` like string context for `:` split; or pre-scan and warn in numbered files (shared front end; private transpiler backends inherit the same string rules) |
 | `tests/triple_quote.bas` | Numberless: multiline, embedded `"`, `{token}`, `\n`; negative tests for numbered + bad open |
 | `spec.json` / retrodocs | Note numberless-only when shipped |
 

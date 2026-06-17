@@ -85,8 +85,7 @@ Triple-quote blocks should not use `_` inside the absorbed region (v1: error or 
 | Component | Action |
 |-----------|--------|
 | `basic.c` loader | Pre-join pass + errors above |
-| `tools/rgc_lint/tokenizer.py` | Join continuation lines before `:` split, or warn in numbered files |
-| `tools/rgc2ugb/emit.py` | Same join rules for numberless source |
+| `tools/rgc_lint/tokenizer.py` | Join continuation lines before `:` split, or warn in numbered files (shared front end; private transpiler backends inherit the same join rules) |
 | `tests/line_continuation.bas` | Numberless: chained `_`, string `+` across lines; negative numbered test |
 | `spec.json` / retrodocs | Note numberless-only when shipped |
 

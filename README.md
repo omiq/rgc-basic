@@ -44,8 +44,8 @@ canonical v1 JSON map files (`docs/map-format.md`) into the
 `MAP_*` globals — used in production by `examples/rpg/rpg.bas`
 and the shooter demo, plus a `map_editor` round-tripping via
 `MAPSAVE`. Block-form `ELSE IF` / `ELSEIF` parsing landed alongside
-new `rgc-lint` (portability linter) and `rgc2ugb` (ugBASIC
-transpiler) MVPs.
+the new `rgc-lint` portability linter. (The transpiler backends that
+consume the portable subset now live in a separate private repo.)
 
 **2.1.0** (2026-04-22) — **compositor + text pipeline milestone.**
 `IMAGE DRAW slot` retargets every SCREEN 2 / 4 primitive into an
@@ -611,7 +611,7 @@ The `examples` folder (included in release archives) contains:
 
 This README describes the current feature set of the interpreter as implemented in `basic.c` and is subject to change without notice.
 
-**Future / tooling (not implemented):** a possible **BASIC → C** transpiler for **cc65** / **z88dk** is outlined in [`docs/basic-to-c-transpiler-plan.md`](docs/basic-to-c-transpiler-plan.md), including which language features should be **excluded** from a first version.
+**Tooling:** the **BASIC → C** and **BASIC → ugBASIC** transpiler backends are maintained in a separate private repository. This repo ships the interpreter and the `rgc-lint` portability linter, which validates that source stays inside the portable subset those backends consume.
 
 ---
 

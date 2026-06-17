@@ -1,5 +1,28 @@
 ## Changelog
 
+### Transpiler backends extracted to a private repo (2026-06-17)
+
+The two source-to-source transpiler backends left this repo. The **C** backend
+(`tools/rgc_lint/emit_c.py` + `expr.py` + `runtime/rgc_real.h`) and the
+**ugBASIC** backend (`tools/rgc2ugb/`) now live in a separate **private**
+repository, together with their examples, snapshot fixtures
+(`tests/transpile/*.expected.ugb`), and design docs
+(`basic-to-c-transpiler-plan.md`, `portability-spec.md`). This keeps the
+emitter source out of public view while the distribution model is decided.
+
+What stays public: the interpreter and the `rgc-lint` **portability linter**,
+including the shared parsing front end (`tokenizer`, `blocks`, `directives`,
+`normalize`) that the private backends import from this repo as a sibling
+checkout. The portable corpus (`tests/portable/*.bas`) stays too — it is the
+input contract the backends consume and the linter validates.
+
+Removed from the public CLI: `rgc-lint --check-transpile`. The "does this
+transpile to C?" gate moved to the private repo's CLI (`rgcx check`) because it
+runs the now-private emitter. The `make transpile` target was dropped from the
+default `make check`; `make lint` is unchanged. Earlier entries below that
+reference `emit_c.py`, `rgc2ugb`, or `--check-transpile` describe work done
+while those lived here and are kept as history.
+
 ### Linter: `--check-transpile` now reports the C axis accurately (2026-06-17)
 
 `rgc-lint --check-transpile` answers "does this transpile to C?" by running the
