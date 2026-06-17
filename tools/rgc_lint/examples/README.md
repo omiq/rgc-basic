@@ -14,11 +14,20 @@ Proof programs for the RGC-BASIC -> C transpiler (`../emit_c.py`). All build, fr
 - **`strings.bas`** — string functions: `UCASE$`/`LEFT$`/`MID$`/`LEN`/`CHR$`. Renders
   `HELLO` / `hel` / `ell` / `FIVE` / `A`.
 
+The headline proof is **`../../../examples/trek-portable.bas`** (not in this dir) — a full
+playable Star Trek, modern-tier (`SELECT CASE`, `DICT`, `COLOR`, `PRINT TAB`, scrolling
+console). Transpiles + compiles warning-clean on cc65 (6502) / cmoc (6809) / sdcc (Z80) /
+native, and plays like the interpreter. ~1900 lines of emitted C. Use it as the stress test
+when the small proofs above pass but you want to exercise the whole emitter.
+
 ## Check transpilability
 
-`python3 -m tools.rgc_lint.cli --check-transpile --tier=portable <file>.bas` runs the actual
+`python3 -m tools.rgc_lint.cli --check-transpile --tier=modern <file>.bas` runs the actual
 emitter and reports the first construct that can't transpile to C (`T001`) — the linter and
 transpiler share one parser (`expr.py`) + emitter, so the lint answer matches reality.
+(`--check-transpile` suppresses tier-membership errors — the C emitter supports the whole
+`modern` tier — so `--tier=portable` answers the same yes/no; `modern` just stops the noise
+on modern-tier programs like `trek-portable.bas`.)
 
 Full design: `../../../docs/basic-to-c-transpiler-plan.md` (§ Text-game tier).
 
@@ -44,6 +53,21 @@ The emitted `.c` is `game`-shaped: `#include "platform.h"`, a `main()` that call
 These build against the retro-c adapters. Run from the **retro-c repo root**
 (`~/github/retro-c`), with the emitted `.c` swapped in for the game sources — same
 flags as `build/Makefile.<target>`, minus `$(GAME_SOURCES)`.
+
+### Native (host) — fastest self-test, no emulator
+
+The quickest way to confirm an emitted program actually *runs*: build against the
+ncurses host adapter (`plat_host.c`) and play it in any terminal.
+
+```sh
+cc -std=c89 -I platform -I game \
+  -o /tmp/trek-native /tmp/rgcb/trek-portable.c platform/plat_host.c -lncurses
+/tmp/trek-native   # interactive ncurses — run in a real terminal, not piped
+```
+
+No `-I runtime` needed: `rgc_real.h` is inlined into the emitted `.c`. `plat_host.c`
+links against `-lncurses` (`initscr`/`cbreak`/`getmaxy`…); without it the compile
+succeeds but the link fails with undefined ncurses symbols.
 
 ### C64 (cc65) — verified working in VICE 2026-06-16
 
