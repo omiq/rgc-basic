@@ -10,6 +10,13 @@ ST_GAMEOVER=5 : ST_VICTORY=6 : ST_MISSIONEND=7 : ST_PLAYAGAIN=8
 ' the old THIS_QUADRANT$ and corrupted the grid. Integer codes are exact,
 ' small, and need no string runtime.
 C_EMPTY=0 : C_SHIP=1 : C_GLONKIN=2 : C_BASE=3 : C_PLANET=4
+DIM OBJ_LUT$(10)
+OBJ_LUT$(0) = " "
+OBJ_LUT$(1) = "E"
+OBJ_LUT$(2) = "K"
+OBJ_LUT$(3) = "B"
+OBJ_LUT$(4) = "*"
+
 
 ' ** COMMAND DICTIONARY **
 ' -1: not initialized yet (lazy init in DoCommand)
@@ -869,10 +876,16 @@ function ShortRangeScan()
 
 
   for S_ROW=1 TO 8
-    for S_COL=1 TO 8
-      print QUAD(S_ROW, S_COL); ":";
-    next S_COL
-    print "\n";
+   
+   print OBJ_LUT$(QUAD(S_ROW, 1)); ":";
+   print OBJ_LUT$(QUAD(S_ROW, 2)); ":";
+   print OBJ_LUT$(QUAD(S_ROW, 3)); ":";
+   print OBJ_LUT$(QUAD(S_ROW, 4)); ":";
+   print OBJ_LUT$(QUAD(S_ROW, 5)); ":";
+   print OBJ_LUT$(QUAD(S_ROW, 6)); ":";
+   print OBJ_LUT$(QUAD(S_ROW, 7)); ":";
+   print OBJ_LUT$(QUAD(S_ROW, 8)); "\n";
+   
   next S_ROW
 
 
