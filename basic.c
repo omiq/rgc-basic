@@ -1755,9 +1755,16 @@ static void rgc_temp_ring_drain(void)
     rgc_temp_ring_disabled = 0;
 }
 
+static void rgc_str_check_limit(size_t need);
+
 static size_t rgc_str_roundup_cap(size_t n)
 {
     size_t c = 16;
+    /* Enforce #OPTION maxstr against the LOGICAL length n, before rounding the
+     * allocation up to a power of two. Checking the rounded capacity instead
+     * (as rgc_str_alloc_raw used to) rejected strings well under the cap — e.g.
+     * a 160-char string rounds to 256 and tripped maxstr 200. */
+    rgc_str_check_limit(n);
     while (c < n) {
         if (c > (SIZE_MAX >> 1)) { c = n; break; }
         c <<= 1;
@@ -1779,7 +1786,8 @@ static rgc_str_t *rgc_str_alloc_raw(size_t cap)
     rgc_str_t *s;
     size_t bytes;
     if (cap == 0) cap = 16;
-    rgc_str_check_limit(cap);
+    /* Limit is enforced on logical length in rgc_str_roundup_cap (which every
+     * caller routes through); checking the rounded cap here would over-reject. */
     bytes = sizeof(rgc_str_t) + cap;  /* header has 1-byte stub; +cap covers cap+1 minus stub */
     s = (rgc_str_t *)malloc(bytes);
     if (!s) runtime_error_hint("Out of memory", "String allocation failed.");
