@@ -27,7 +27,7 @@ def FND(D)=sqr((K(I,1)-SECTOR_X)^2+(K(I,2)-SECTOR_Y)^2)
 ' ** RANDOM NUMBER GENERATOR **
 ' Generates a random number between 1 and 8.
 ' R is the random number generator seed.
-def FNR(R)=int(rnd(R)*7.98+1.01)
+def FNR(R)=RNDINT(8)
 
 
 ' ** ===== MAIN STATE LOOP ===== **
@@ -85,19 +85,19 @@ function SetupGame()
     Z2$=""
     ATAKFLAG=0
     SLSFLAG=0
-    N=rnd(-1)
+    N=RNDINT(-1)
 
     ' ** DISPLAY TITLE SCREEN AND WAIT FOR KEY **
     TitleScreen()
     CRSTART=1
 
     ' ** RANDOM SEED GENERATOR **
-    RANDOM_SEED=rnd(-TI)  
+    RANDOM_SEED=RNDINT(-1)  
     print "\n          GENERATING GALAXY";
     SPACE_PAD$="                         "
-    STARDATE_CUR=int(rnd(1)*20+20)*100
+    STARDATE_CUR=(RNDINT(20)+19)*100
     STARDATE_START=STARDATE_CUR
-    MISSION_DAYS=25+int(rnd(1)*10)
+    MISSION_DAYS=24+RNDINT(10)
     D0=0
     SHIP_ENERGY=3000
     ENERGY_MAX=SHIP_ENERGY
@@ -136,19 +136,19 @@ function SetupGame()
       for J=1 to 8
         K3=0
         Z(I,J)=0
-        RAND_ROLL=rnd(1)
+        RAND_ROLL=RNDINT(100)
         select case RAND_ROLL
-        case IS > .98
+        case IS > 98
             K3=3 : KLINGON_COUNT=KLINGON_COUNT+3
-        case IS > .95
+        case IS > 95
             K3=2 : KLINGON_COUNT=KLINGON_COUNT+2
-        case IS > .80
+        case IS > 80
             K3=1 : KLINGON_COUNT=KLINGON_COUNT+1
         case else
             K3=0
         end select
         B3=0
-        if rnd(1)>.96 then B3=1 : STARBASE_COUNT=STARBASE_COUNT+1
+        if RNDINT(100)>96 then B3=1 : STARBASE_COUNT=STARBASE_COUNT+1
         G(I,J)=K3*100+B3*10+FNR(1)
       next J
     next I
@@ -170,7 +170,7 @@ function SetupGame()
     end if
     K7=KLINGON_COUNT
     PrintMissionOrders()
-    I=rnd(1)
+    I=RNDINT(1)
     return ST_NEWQUAD
 end function
 
@@ -230,7 +230,7 @@ function EnterQuadrant()
       for I=1 to K3
         FindEmpty()
         PlaceToken(KLINGON_TOKEN$, TOKEN_X, TOKEN_Y)
-        K(I,1)=TOKEN_X : K(I,2)=TOKEN_Y : K(I,3)=KLINGON_HP_BASE*(0.5+rnd(1))
+        K(I,1)=TOKEN_X : K(I,2)=TOKEN_Y : K(I,3)=KLINGON_HP_BASE\2+RNDINT(KLINGON_HP_BASE)
       next I
     end if
 
@@ -340,20 +340,20 @@ function Nav()
 
     ' GET WARP FACTOR
     X$="8"
-    if DEVICE_DAMAGE(1)<0 then X$="0.2"
+    if DEVICE_DAMAGE(1)<0 then X$="1"
     SRSFLAG=1
     WF$="WARP FACTOR (0-"+X$+") :  "
     NAV_WARP_FACTOR=AskNumber(WF$, 5)
 
     ' CHECK IF WARP FACTOR IS POSSIBLE
-    if DEVICE_DAMAGE(1)<0 and NAV_WARP_FACTOR>.2 then
+    if DEVICE_DAMAGE(1)<0 and NAV_WARP_FACTOR>1 then
       print "\nWARP ENGINES ARE DAMAGED."
-      print "MAXIMUM SPEED = WARP 0.2" : return ST_COMMAND
+      print "MAXIMUM SPEED = WARP 1" : return ST_COMMAND
     end if
 
     ' CHECK IF WARP FACTOR IS ALLOWED
     if NAV_WARP_FACTOR>0 and NAV_WARP_FACTOR<=8 then
-      N=int(NAV_WARP_FACTOR*8+.5)
+      N=NAV_WARP_FACTOR*8
       if SHIP_ENERGY-N<0 then
         print : background 6: color 1:print "ENGINEERING REPORTS INSUFFICIENT ENERGY";
         print "AVAILABLE FOR WARP ";NAV_WARP_FACTOR;"!";: background 0
@@ -395,13 +395,13 @@ function Nav()
     next I
 
     ' CHECK IF DEVICE IS DAMAGED
-    if rnd(1)<=.2 then
+    if RNDINT(100)<=20 then
       J=FNR(1)
-      if rnd(1)<.6 then
-        DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)-(int(rnd(1)*5)+1) : print "\nDAMAGE CONTROL REPORTS:"
+      if RNDINT(100)<60 then
+        DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)-RNDINT(5) : print "\nDAMAGE CONTROL REPORTS:"
         print DEVICE_NAME$(J);" DAMAGED"
       else
-        DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)+int(rnd(1)*3)+1 : print "\nDAMAGE CONTROL REPORTS:"
+        DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)+RNDINT(3) : print "\nDAMAGE CONTROL REPORTS:"
         print DEVICE_NAME$(J);" PARTLY REPAIRED"
       end if
     end if
@@ -557,7 +557,7 @@ function Phasers()
     loop until SHIP_ENERGY-X>=0
 
     SHIP_ENERGY=SHIP_ENERGY-X
-    if DEVICE_DAMAGE(7)<0 then X=X*rnd(1)
+    if DEVICE_DAMAGE(7)<0 then X=X*RNDINT(100)\100
 
     ' CALCULATE HIT POINTS
     H1=int(X/K3)
@@ -565,8 +565,8 @@ function Phasers()
     ' FIRE PHASERS
     for I=1 to 3
       if K(I,3)<=0 then continue for
-      H=int((H1/FND(0))*(rnd(1)+2))
-      if H<=.15*K(I,3) then
+      H=((H1/FND(0))*(200+RNDINT(100)))\100
+      if H*20<=3*K(I,3) then
         print "\n SENSORS SHOW NO DAMAGE TO ENEMY"
         print " AT ";K(I,1);",";K(I,2)
         continue for
@@ -621,7 +621,7 @@ function Torpedo()
       print "\nTORPEDO TRACKING:"
       RetryCourse=0
       do
-        X=X+X1 : Y=Y+X2 : X3=int(X+.5) : Y3=int(Y+.5)
+        X=X+X1 : Y=Y+X2 : X3=int(X) : Y3=int(Y)
         if X3<1 or X3>8 or Y3<1 or Y3>8 then
           print " ** TORPEDO MISSED **"
           if K3<>0 then print : Pause()
@@ -790,7 +790,7 @@ function KlingonsFire()
       if K(I,3)<=0 then continue for
 
       ' CALCULATE HIT POINTS
-      H=int((K(I,3)/FND(1))*(2+rnd(1))) : SHIELD_UNITS=SHIELD_UNITS-H : K(I,3)=K(I,3)/(3+rnd(0))
+      H=((K(I,3)/FND(1))*(200+RNDINT(100)))\100 : SHIELD_UNITS=SHIELD_UNITS-H : K(I,3)=K(I,3)\(2+RNDINT(2))
       print : print H;" UNIT HIT ENTERPRISE FROM ";K(I,1);",";K(I,2)
 
       ' CHECK IF SHIELDS ARE DOWN
@@ -799,10 +799,10 @@ function KlingonsFire()
       if H<20 then continue for
 
       ' CHECK IF HIT IS CRITICAL
-      if rnd(1)>.6 or H/SHIELD_UNITS<=.02 then continue for
+      if RNDINT(100)>60 or H*50<=SHIELD_UNITS then continue for
 
       ' DAMAGE CONTROL REPORT
-      J=FNR(1) : DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)-(int(rnd(1)*3)+1)
+      J=FNR(1) : DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)-RNDINT(3)
       print : background 6: color 1: print "DAMAGE CONTROL REPORTS :  "
       print DEVICE_NAME$(J);" DAMAGED BY THE HIT";:background 0: print
     next I
@@ -887,7 +887,7 @@ function ShortRangeScan()
     ' CHECK IF SHIP IS DOCKED
     for I=SECTOR_X-1 to SECTOR_X+1
       for J=SECTOR_Y-1 to SECTOR_Y+1
-        if int(I+.5)<1 or int(I+.5)>8 or int(J+.5)<1 or int(J+.5)>8 then continue for
+        if I<1 or I>8 or J<1 or J>8 then continue for
         if CheckSector(STARBASE_TOKEN$, I, J)=1 then
           Docked=1
           exit for
@@ -916,7 +916,7 @@ function ShortRangeScan()
       ' COMBAT AREA IS GREEN
       if K3=0 then
         C$="GREEN"
-        if SHIP_ENERGY<ENERGY_MAX*.1 then C$="AMBER"
+        if SHIP_ENERGY<ENERGY_MAX\10 then C$="AMBER"
       end if
     end if
 
@@ -972,12 +972,9 @@ function ShortRangeScan()
 
     ' PRINT MAX WARP
     print "   +-+-+-+-+-+-+-+-+";
-    MW=SHIP_ENERGY/8
-    MW=MW*10
-    MW=int(MW)
-    MW=MW/10
+    MW=SHIP_ENERGY\8
     if MW>8 then MW=8
-    if DEVICE_DAMAGE(1)<0 and MW>0.2 then MW=0.2
+    if DEVICE_DAMAGE(1)<0 then MW=1
     print " MAX WARP  ";MW
     if SLSFLAG=1 then return Lrs()
     return ST_COMMAND
@@ -1085,11 +1082,11 @@ function ComputerGalacticRecord()
 
       if RowIsRegion=1 then
         J=9
-        QN$=QuadrantName$(I, 1, 1) : J0=int(11-.5*len(QN$))
+        QN$=QuadrantName$(I, 1, 1) : J0=11-len(QN$)\2
         print "|";
         print tab(J0);QN$;
         print tab(18);"|";
-        QN$=QuadrantName$(I, 5, 1) : J0=int(27-.5*len(QN$))
+        QN$=QuadrantName$(I, 5, 1) : J0=27-len(QN$)\2
         print tab(J0);QN$; : print tab(34);"|";
       end if
 
@@ -1256,12 +1253,12 @@ function ComputerCalcCompute(FROM_Y, FROM_X, TO_Y, TO_X, DIST_DIV)
         end if
       end if
     end if
-    DIRECTION=DIRECTION*1000 : DIRECTION=DIRECTION+0.5 : DIRECTION=int(DIRECTION) : DIRECTION=DIRECTION/1000
+    ' DIRECTION is an integer 1..9 in integer mode (no sub-point rounding)
     print DIRECTION
     print " DISTANCE  =";
     DIST=sqr(DX^2+DY^2)
     if DIST_DIV>1 then DIST=DIST/DIST_DIV
-    DIST=DIST*1000 : DIST=DIST+0.5 : DIST=int(DIST) : DIST=DIST/1000
+    ' DIST is an integer distance (isqrt) in integer mode
     print DIST
     return ST_COMMAND
 end function
@@ -1281,8 +1278,8 @@ function FindEmpty()
     do
         RANDOM_X=FNR(1) : RANDOM_Y=FNR(1)
     loop until CheckSector(EMPTY_TOKEN$, RANDOM_X, RANDOM_Y)=1
-    TOKEN_X=int(RANDOM_X+.5)
-    TOKEN_Y=int(RANDOM_Y+.5)
+    TOKEN_X=int(RANDOM_X)
+    TOKEN_Y=int(RANDOM_Y)
     return
 end function
 
@@ -1309,8 +1306,8 @@ end function
 
 ' 1-BASED START INDEX IN THIS_QUADRANT$ FOR SECTOR (SX, SY); 3 CHARS PER CELL
 function SectorIndex(SX, SY)
-    TX=int(SX+.5)
-    TY=int(SY+.5)
+    TX=int(SX)
+    TY=int(SY)
     return (TY-1)*3+(TX-1)*24+1
 end function
 
@@ -1443,8 +1440,8 @@ function ShowDirections()
     print " ENTER A NUMBER       4  3  2"
     print " BETWEEN 1 AND 9       . . ."
     print "                        ..."
-    print " DECIMALS MAY BE    5 ---*--- 1"
-    print " USED (EG. 8.57)        ..."
+    print " WHOLE NUMBERS      5 ---*--- 1"
+    print " 1 TO 8                 ..."
     print "                       . . ."
     print "                      6  7  8"
     return
