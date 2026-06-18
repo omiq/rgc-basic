@@ -519,9 +519,9 @@ function Lrs()
         end if
       
         G1$=right$(str$(N(L)+1000),3)
-        CH$=ECOL$+mid$(G1$,1,1) : print CH$;
-        CH$=DCOL$+mid$(G1$,2,1) : print CH$;
-        CH$=HCOL$+mid$(G1$,3,1) : print CH$;FCOL$;
+        print ECOL$;mid$(G1$,1,1);
+        print DCOL$;mid$(G1$,2,1);
+        print HCOL$;mid$(G1$,3,1);FCOL$;
       
       next L
       print " |"; : K1=K1+1
@@ -739,39 +739,36 @@ function Damage()
       print "\nDAMAGE CONTROL DOWN"
       if D0=0 then return ST_COMMAND
     end if
-    do
-      ' CHECK IF DAMAGE CONTROL IS AVAILABLE
-      if DEVICE_DAMAGE(6)<0 and D0<>0 then
-        ' CALCULATE TIME TO REPAIR
-        D3=0 : for I=1 to 8 : if DEVICE_DAMAGE(I)<0 then D3=D3+1
-        next I : if D3=0 then return ST_COMMAND
-        ' PRINT REPAIR REPORT
-        print "\nALERT:"
-        print "ESTIMATED REPAIR ETA: "
-        print D3;" DAYS"
-        A$=Ask$("\nAUTHORISE (Y/N)? ", 1)
-        if A$<>"Y" then return ST_COMMAND
-
-        ' REPAIR DEVICES
-        for I=1 to 8
-          if DEVICE_DAMAGE(I)<0 then DEVICE_DAMAGE(I)=0
-        next I
-        ' UPDATE DATE
-        DATE_CUR=DATE_CUR+D3
-      end if
-
+    ' CHECK IF DAMAGE CONTROL IS AVAILABLE
+    if DEVICE_DAMAGE(6)<0 and D0<>0 then
+      ' CALCULATE TIME TO REPAIR
+      D3=0 : for I=1 to 8 : if DEVICE_DAMAGE(I)<0 then D3=D3+1
+      next I : if D3=0 then return ST_COMMAND
       ' PRINT REPAIR REPORT
-      print "\n SYSTEM              STATE OF REPAIR"
-      print      " ------------------- -----------------"
+      print "\nALERT:"
+      print "ESTIMATED REPAIR ETA: "
+      print D3;" DAYS"
+      A$=Ask$("\nAUTHORISE (Y/N)? ", 1)
+      if A$<>"Y" then return ST_COMMAND
+
+      ' REPAIR DEVICES
       for I=1 to 8
-        print " ";DEVICE_NAME$(I);left$(SPACE_PAD$,20-len(DEVICE_NAME$(I)));
-        D2=DEVICE_DAMAGE(I)
-        if D2<0 then print CCOL$;"DAMAGED     ";D2;FCOL$
-        if D2>0 then print "OPERATIONAL ";D2
-        if D2=0 then print "OPERATIONAL ";D2
+        if DEVICE_DAMAGE(I)<0 then DEVICE_DAMAGE(I)=0
       next I
-      if D0=0 then exit do
-    loop
+      ' UPDATE DATE
+      DATE_CUR=DATE_CUR+D3
+    end if
+
+    ' PRINT REPAIR REPORT
+    print "\n SYSTEM              STATE OF REPAIR"
+    print      " ------------------- -----------------"
+    for I=1 to 8
+      print " ";DEVICE_NAME$(I);left$(SPACE_PAD$,20-len(DEVICE_NAME$(I)));
+      D2=DEVICE_DAMAGE(I)
+      if D2<0 then print CCOL$;"DAMAGED     ";D2;FCOL$
+      if D2>0 then print "OPERATIONAL ";D2
+      if D2=0 then print "OPERATIONAL ";D2
+    next I
     return ST_COMMAND
 end function
 
@@ -1068,9 +1065,9 @@ function ComputerGalacticRecord()
           if not (I=QUADRANT_X and (J=QUADRANT_Y or J-1=QUADRANT_Y)) then print "|";
           if Z(I,J)=0 then print "   "; : continue for
           G1$=right$(str$(Z(I,J)+1000),3)
-          CH$=ECOL$+mid$(G1$,1,1) : print CH$;
-          CH$=DCOL$+mid$(G1$,2,1) : print CH$;
-          CH$=HCOL$+mid$(G1$,3,1) : print CH$;FCOL$;
+          print ECOL$;mid$(G1$,1,1);
+          print DCOL$;mid$(G1$,2,1);
+          print HCOL$;mid$(G1$,3,1);FCOL$;
           if GALFLAG=1 then print "|"; : GALFLAG=0
         next J
       end if
