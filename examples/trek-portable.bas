@@ -262,12 +262,7 @@ function DoCommand()
 
     ' CHECK IF SHIP HAS ENOUGH ENERGY
     if SHIELD_UNITS+SHIP_ENERGY <= 10 or (SHIP_ENERGY<=10 and DEVICE_DAMAGE(7)<>0) then
-      print "\n** FATAL ERROR **"
-      print "YOUVE STRANDED YOUR SHIP IN SPACE."
-      print "YOU HAVE INSUFFICIENT MANOEUVRING"
-      print "ENERGY, & SHIELD CONTROL IS PRESENTLY"
-      print "INCAPABLE OF CROSS-CIRCUITING TO"
-      print "ENGINE ROOM!!"
+      print "\n** STRANDED: OUT OF ENERGY **"
       print : Pause()
       return ST_GAMEOVER
     end if
@@ -441,10 +436,8 @@ function Nav()
 
       ' CHECK IF SHIP HAS CROSSED QUADRANT
       if X5<>0 then
-        print : background 6: color 1: print "LT. UHURA REPORTS MESSAGE FROM STARFLEET";
-        print " COMMAND:PERMISSION TO ATTEMPT CROSSING OF GALACTIC PERIMETER IS HEREBY *DENIED* ";
-        print " - SHUT DOWN YOUR ENGINES.   CHIEF ENGINEER SCOTT REPORTS WARP";
-        print " ENGINES SHUT DOWN AT SECTOR ";SECTOR_X;",";SECTOR_Y;" OF QUADRANT ";QUADRANT_X;",";QUADRANT_Y;".";:
+        print : background 6: color 1: print "PERIMETER CROSSING DENIED."
+        print "ENGINES SHUT DOWN AT ";SECTOR_X;",";SECTOR_Y;" Q ";QUADRANT_X;",";QUADRANT_Y;:
         background 0: print
         SRSFLAG=1
         print : Pause()
@@ -697,15 +690,12 @@ function Torpedo()
 
         ' CHECK IF ALL STARBASES ARE DESTROYED
         if STARBASE_COUNT<=0 and KLINGON_COUNT<=STARDATE_CUR-STARDATE_START-MISSION_DAYS then
-          print : background 6: color 1: print "THAT DOES IT, CAPTAIN!!  YOU ARE HEREBY"
-          print "RELIEVED OF COMMAND AND SENTENCED TO 99"
-          print "STARDATES AT HARD LABOUR ON CYGNUS 12!!";:background 0
+          print : background 6: color 1: print "RELIEVED OF COMMAND. COURT MARTIALLED.";:background 0
           return ST_MISSIONEND
         end if
 
         ' DESTROY STARBASE
-        print "\nSTARFLEET COMMAND REVIEWING YOUR RECORD"
-        print "TO CONSIDER COURT MARTIAL!" : D0=0
+        print "\nSTARBASE LOST. COURT MARTIAL PENDING." : D0=0
         PlaceToken(EMPTY_TOKEN$, X, Y)
 
         ' UPDATE QUADRANT DATA
