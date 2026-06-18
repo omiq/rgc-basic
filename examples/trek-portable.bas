@@ -27,7 +27,7 @@ CMD_DICT=-1
 InitColours()
 
 ' COURSE_VEC(9,2) = nav keypad deltas; DEVICE_DAMAGE(8) / DEVICE_NAME$(8) = ship systems
-dim GALAXY(8,8),COURSE_VEC(9,2),K(3,3),N(3),VISITED_GALAXY(8,8),DEVICE_DAMAGE(8),DEVICE_NAME$(8),QUAD(8,8)
+dim GALAXY(8,8),COURSE_VEC(9,2),K(3,3),VISITED_GALAXY(8,8),DEVICE_DAMAGE(8),DEVICE_NAME$(8),QUAD(8,8)
 InitDeviceNames()
 
 ' ** DISTANCE CALCULATION **
@@ -496,7 +496,7 @@ function ManeuverPOWER()
     return
 end function
 
-function disp_quadrant_cell$(this_row, this_col)
+function disp_quadrant_cell(this_row, this_col)
   if (this_row < 1 or this_row > 8) or (this_col < 1 or this_col > 8) then
     print "=:=:=";
   else
@@ -528,11 +528,11 @@ function Lrs()
 
     ' LONG RANGE SCAN LOOP
     for scan_row = QUADRANT_Y-1 to QUADRANT_Y+1
-        disp_quadrant_cell$(scan_row, QUADRANT_X-1)
+        disp_quadrant_cell(scan_row, QUADRANT_X-1)
         print " | ";
-        disp_quadrant_cell$(scan_row, QUADRANT_X)
+        disp_quadrant_cell(scan_row, QUADRANT_X)
         print " | ";
-        disp_quadrant_cell$(scan_row, QUADRANT_X+1)
+        disp_quadrant_cell(scan_row, QUADRANT_X+1)
         print "\n";
     next scan_row
 
