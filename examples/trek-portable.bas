@@ -25,7 +25,7 @@ InitDeviceNames()
 
 ' ** DISTANCE CALCULATION **
 ' Uses the Pythagorean theorem to calculate the distance between two points.
-def FND(D)=sqr((K(I,1)-SECTOR_X)^2+(K(I,2)-SECTOR_Y)^2)
+def FND(D)=sqr((K(I,1)-SECTOR_Y)^2+(K(I,2)-SECTOR_X)^2)
 
 ' ** RANDOM NUMBER GENERATOR **
 ' Generates a random number between 1 and 8.
@@ -62,7 +62,7 @@ end
 
 ' ** DISPLAY TITLE SCREEN AND WAIT FOR KEY **
 function TitleScreen()
-
+    cls()
     print "-GENERIC SPACE BATTLE COMPUTER GAME-"
     print "(portable version)"
     pause()
@@ -73,6 +73,7 @@ end function
 ' ** PRINT MISSION ORDERS **
 function PrintMissionOrders()
     if SPACESTATION_COUNT<>1 then X$="S" : X0$=" ARE "
+    cls()
     print "MISSION:"
     print "DESTROY THE ";GLONKIN_COUNT;" GLONKIN WARSHIPS"
     print "DATE ";GAME_DATE+MISSION_DAYS;". ";MISSION_DAYS;" DAYS REMAINING."
@@ -111,16 +112,20 @@ function SetupGame()
     X0$=" IS "
     
     ' INITIALIZE STARSHIPS POSITION
-    QUADRANT_X=FNR(1)
     QUADRANT_Y=FNR(1)
-    SECTOR_X=FNR(1)
+    QUADRANT_X=FNR(1)
     SECTOR_Y=FNR(1)
+    SECTOR_X=FNR(1)
 
     ' INITIALIZE COURSE_VEC
     for I=1 to 9
       COURSE_VEC(I,1)=0
       COURSE_VEC(I,2)=0
     next I
+    ' Axis: SECTOR_X = COLUMN (horizontal), SECTOR_Y = ROW (vertical). Arrays are
+    ' row-first: QUAD(SECTOR_Y,SECTOR_X), G/Z(QUADRANT_Y,QUADRANT_X). Move applies
+    ' col1->SECTOR_Y(row), col2->SECTOR_X(col). Up = SECTOR_Y-1, East = SECTOR_X+1.
+    ' Rose: 1=E 2=NE 3=N 4=NW 5=W 6=SW 7=S 8=SE. Canonical SST table, do not transpose.
     COURSE_VEC(3,1)=-1 : COURSE_VEC(2,1)=-1 : COURSE_VEC(4,1)=-1 : COURSE_VEC(4,2)=-1 : COURSE_VEC(5,2)=-1 : COURSE_VEC(6,2)=-1
     COURSE_VEC(1,2)=1 : COURSE_VEC(2,2)=1 : COURSE_VEC(6,1)=1 : COURSE_VEC(7,1)=1 : COURSE_VEC(8,1)=1 : COURSE_VEC(8,2)=1 : COURSE_VEC(9,2)=1
     
@@ -154,19 +159,17 @@ function SetupGame()
     next I
 
     if GLONKIN_COUNT>MISSION_DAYS then MISSION_DAYS=GLONKIN_COUNT+1
-    print
     ShowKey() : ' ** KEY TO SRS ICONS **
     ShowCommands() : ' ** USE THESE COMMANDS LIST **
-    print
-    Pause() : ' ** PAUSE **
+
 
     ' Guarantee at least one SPACESTATION and preserve original balancing tweak.
     if SPACESTATION_COUNT=0 then
-      if G(QUADRANT_X,QUADRANT_Y)<200 then G(QUADRANT_X,QUADRANT_Y)=G(QUADRANT_X,QUADRANT_Y)+120 : GLONKIN_COUNT=GLONKIN_COUNT+1
+      if G(QUADRANT_Y,QUADRANT_X)<200 then G(QUADRANT_Y,QUADRANT_X)=G(QUADRANT_Y,QUADRANT_X)+120 : GLONKIN_COUNT=GLONKIN_COUNT+1
       SPACESTATION_COUNT=1
-      G(QUADRANT_X,QUADRANT_Y)=G(QUADRANT_X,QUADRANT_Y)+10
-      QUADRANT_X=FNR(1)
+      G(QUADRANT_Y,QUADRANT_X)=G(QUADRANT_Y,QUADRANT_X)+10
       QUADRANT_Y=FNR(1)
+      QUADRANT_X=FNR(1)
     end if
     K7=GLONKIN_COUNT
     PrintMissionOrders()
@@ -180,12 +183,12 @@ end function
 ' ** ===== ENTER A QUADRANT: SET IT UP, PLACE OBJECTS, SHORT SCAN ===== **
 function EnterQuadrant()
     K3=0 : B3=0 : S3=0
-    Z(QUADRANT_X,QUADRANT_Y)=G(QUADRANT_X,QUADRANT_Y)
-    if QUADRANT_X >= 1 and QUADRANT_X <=8 and QUADRANT_Y>=1 and QUADRANT_Y<=8 then
+    Z(QUADRANT_Y,QUADRANT_X)=G(QUADRANT_Y,QUADRANT_X)
+    if QUADRANT_Y >= 1 and QUADRANT_Y <=8 and QUADRANT_X>=1 and QUADRANT_X<=8 then
       print
       if GAME_DATE=DATE_CUR then
         print "LOCATION:";
-        QN$=QuadrantName$(QUADRANT_X, QUADRANT_Y, 0)
+        QN$=QuadrantName$(QUADRANT_Y, QUADRANT_X, 0)
         print QN$;
         SRSFLAG=1
         print
@@ -197,19 +200,20 @@ function EnterQuadrant()
           ATAKFLAG=0
           print
         end if
-        QN$=QuadrantName$(QUADRANT_X, QUADRANT_Y, 0)
+        QN$=QuadrantName$(QUADRANT_Y, QUADRANT_X, 0)
         SRSFLAG=1
         print "ENTERING ";QN$;" ..."
       end if
     end if
+
     ' Decode G(quad): K3/B3/S3 = GLONKINs / SPACESTATIONs / PLANETS in this quadrant.
     ' G encodes the 3 digits K*100+B*10+S. Use INTEGER divide/MOD, not float
     ' tricks (int(G*.01)): on fixed-point targets (cc65) G*.01 loses precision
     ' and G/100 overflows 16.16, mis-decoding the counts -> FindEmpty overfills
     ' the quadrant and spins forever. Integer ops are exact and cheap.
-    K3=G(QUADRANT_X,QUADRANT_Y)\100
-    B3=(G(QUADRANT_X,QUADRANT_Y)\10) MOD 10
-    S3=G(QUADRANT_X,QUADRANT_Y) MOD 10
+    K3=G(QUADRANT_Y,QUADRANT_X)\100
+    B3=(G(QUADRANT_Y,QUADRANT_X)\10) MOD 10
+    S3=G(QUADRANT_Y,QUADRANT_X) MOD 10
     for I=1 to 3
       K(I,1)=0
       K(I,2)=0
@@ -223,28 +227,28 @@ function EnterQuadrant()
 
     ' POSITION STARSHIP IN QUADRANT, THEN PLACE "K3" GLONKINS, &
     ' "B3" SPACESTATIONS, & "S3" PLANETS ELSE WHERE.
-    PlaceToken(C_SHIP, SECTOR_X, SECTOR_Y)
+    PlaceToken(C_SHIP, SECTOR_Y, SECTOR_X)
 
     ' PLACE GLONKINS
     if K3 >= 1 then
       for I=1 to K3
         FindEmpty()
-        PlaceToken(C_GLONKIN, TOKEN_X, TOKEN_Y)
-        K(I,1)=TOKEN_X : K(I,2)=TOKEN_Y : K(I,3)=GLONKIN_HP_BASE\2+RNDINT(GLONKIN_HP_BASE)
+        PlaceToken(C_GLONKIN, TOKEN_Y, TOKEN_X)
+        K(I,1)=TOKEN_Y : K(I,2)=TOKEN_X : K(I,3)=GLONKIN_HP_BASE\2+RNDINT(GLONKIN_HP_BASE)
       next I
     end if
 
     ' PLACE SPACESTATIONS
     if B3 >= 1 then
       FindEmpty()
-      B4=TOKEN_X : B5=TOKEN_Y
-      PlaceToken(C_BASE, TOKEN_X, TOKEN_Y)
+      B4=TOKEN_Y : B5=TOKEN_X
+      PlaceToken(C_BASE, TOKEN_Y, TOKEN_X)
     end if
 
     ' PLACE PLANETS
     for I=1 to S3
       FindEmpty()
-      PlaceToken(C_PLANET, TOKEN_X, TOKEN_Y)
+      PlaceToken(C_PLANET, TOKEN_Y, TOKEN_X)
     next I
 
     ' DO SHORT RANGE SCAN
@@ -273,16 +277,20 @@ function DoCommand()
       SRSFLAG=0
       A$=Ask$(" COMMAND:  ", 3)
       Z2$=A$ : ATAKFLAG=0
-      if A$="SLS" then SLSFLAG=1
       if A$="SLS" then 
+        SLSFLAG=1
         print " SHORT & LONG RANGE SCAN... "
         return ShortRangeScan()
       end if
 
-      if A$="KEY" then ShowKey() : ' KEY TO SRS ICONS
-      if A$="KEY" then continue do
+      if A$="KEY" then 
+        ShowKey() : ' KEY TO SRS ICONS
+        continue do
+      end if
+
       COMFLAG=0
       if A$="GAL" and DEVICE_DAMAGE(8)>=0 then A$="COM" : COMFLAG=1
+
       if DEVICE_DAMAGE(8)<0 and A$="GAL" then 
         print "\nSHIPS COMPUTER DISABLED"
         continue do
@@ -373,11 +381,11 @@ function Nav()
     
     end if
 
-    ' GLONKINS MOVE/FIRE ON MOVING PLANETSHIP . . .
+    ' GLONKINS MOVE/FIRE ON MOVING SPACESHIP . . .
     GLONKINsMove: for I=1 to K3
       if K(I,3)=0 then continue for
       PlaceToken(C_EMPTY, K(I,1), K(I,2)) : FindEmpty()
-      K(I,1)=TOKEN_X : K(I,2)=TOKEN_Y : PlaceToken(C_GLONKIN, K(I,1), K(I,2))
+      K(I,1)=TOKEN_Y : K(I,2)=TOKEN_X : PlaceToken(C_GLONKIN, K(I,1), K(I,2))
     next I
     GLONKINsFire()
 
@@ -406,18 +414,18 @@ function Nav()
       end if
     end if
 
-    ' BEGIN MOVING PLANETSHIP
-    PlaceToken(C_EMPTY, int(SECTOR_X), int(SECTOR_Y))
-    X1=COURSE_VEC(C1,1)+(COURSE_VEC(C1+1,1)-COURSE_VEC(C1,1))*(C1-int(C1)) : X=SECTOR_X : Y=SECTOR_Y
-    X2=COURSE_VEC(C1,2)+(COURSE_VEC(C1+1,2)-COURSE_VEC(C1,2))*(C1-int(C1)) : Q4=QUADRANT_X : Q5=QUADRANT_Y
+    ' BEGIN MOVING SPACESHIP
+    PlaceToken(C_EMPTY, int(SECTOR_Y), int(SECTOR_X))
+    X1=COURSE_VEC(C1,1)+(COURSE_VEC(C1+1,1)-COURSE_VEC(C1,1))*(C1-int(C1)) : X=SECTOR_Y : Y=SECTOR_X
+    X2=COURSE_VEC(C1,2)+(COURSE_VEC(C1+1,2)-COURSE_VEC(C1,2))*(C1-int(C1)) : Q4=QUADRANT_Y : Q5=QUADRANT_X
     MoveInterrupted=0 : CrossedQuadrant=0
 
-    ' MOVE PLANETSHIP
-    for I=1 to N : SECTOR_X=SECTOR_X+X1 : SECTOR_Y=SECTOR_Y+X2
-        if SECTOR_X<1 or SECTOR_X>=9 or SECTOR_Y<1 or SECTOR_Y>=9 then CrossedQuadrant=1 : exit for
-        if CheckSector(C_EMPTY, SECTOR_X, SECTOR_Y)=1 then continue for
-        SECTOR_X=int(SECTOR_X-X1) : SECTOR_Y=int(SECTOR_Y-X2) : print "\nFTL SHUTDOWN: ";
-        print "SECTOR ";SECTOR_X;",";SECTOR_Y
+    ' MOVE SPACESHIP
+    for I=1 to N : SECTOR_Y=SECTOR_Y+X1 : SECTOR_X=SECTOR_X+X2
+        if SECTOR_Y<1 or SECTOR_Y>=9 or SECTOR_X<1 or SECTOR_X>=9 then CrossedQuadrant=1 : exit for
+        if CheckSector(C_EMPTY, SECTOR_Y, SECTOR_X)=1 then continue for
+        SECTOR_Y=int(SECTOR_Y-X1) : SECTOR_X=int(SECTOR_X-X2) : print "\nFTL SHUTDOWN: ";
+        print "SECTOR ";SECTOR_Y;",";SECTOR_X
         print "BAD NAVIGATION"
         SRSFLAG=1
         MoveInterrupted=1
@@ -426,18 +434,18 @@ function Nav()
 
     ' CHECK IF SHIP HAS CROSSED QUADRANT
     if CrossedQuadrant=1 then
-      X=8*QUADRANT_X+X+N*X1 : Y=8*QUADRANT_Y+Y+N*X2 : QUADRANT_X=int(X/8) : QUADRANT_Y=int(Y/8) : SECTOR_X=int(X-QUADRANT_X*8)
-      SECTOR_Y=int(Y-QUADRANT_Y*8) : if SECTOR_X=0 then QUADRANT_X=QUADRANT_X-1 : SECTOR_X=8
-      if SECTOR_Y=0 then QUADRANT_Y=QUADRANT_Y-1 : SECTOR_Y=8
-      X5=0 : if QUADRANT_X<1 then X5=1 : QUADRANT_X=1 : SECTOR_X=1
-      if QUADRANT_X>8 then X5=1 : QUADRANT_X=8 : SECTOR_X=8
-      if QUADRANT_Y<1 then X5=1 : QUADRANT_Y=1 : SECTOR_Y=1
+      X=8*QUADRANT_Y+X+N*X1 : Y=8*QUADRANT_X+Y+N*X2 : QUADRANT_Y=int(X/8) : QUADRANT_X=int(Y/8) : SECTOR_Y=int(X-QUADRANT_Y*8)
+      SECTOR_X=int(Y-QUADRANT_X*8) : if SECTOR_Y=0 then QUADRANT_Y=QUADRANT_Y-1 : SECTOR_Y=8
+      if SECTOR_X=0 then QUADRANT_X=QUADRANT_X-1 : SECTOR_X=8
+      X5=0 : if QUADRANT_Y<1 then X5=1 : QUADRANT_Y=1 : SECTOR_Y=1
       if QUADRANT_Y>8 then X5=1 : QUADRANT_Y=8 : SECTOR_Y=8
+      if QUADRANT_X<1 then X5=1 : QUADRANT_X=1 : SECTOR_X=1
+      if QUADRANT_X>8 then X5=1 : QUADRANT_X=8 : SECTOR_X=8
 
       ' CHECK IF SHIP HAS CROSSED QUADRANT
       if X5<>0 then
         print : background 6: color 1: print "NAV ERROR:."
-        print "SHUTDOWN: ";SECTOR_X;",";SECTOR_Y;" Q ";QUADRANT_X;",";QUADRANT_Y;:
+        print "SHUTDOWN: ";SECTOR_Y;",";SECTOR_X;" Q ";QUADRANT_Y;",";QUADRANT_X;:
         background 0: print
         SRSFLAG=1
         print : Pause()
@@ -445,21 +453,21 @@ function Nav()
       end if
 
       ' CHECK IF SHIP HAS RETURNED TO ORIGINAL QUADRANT
-      if 8*QUADRANT_X+QUADRANT_Y=8*Q4+Q5 then
-        PlaceToken(C_SHIP, int(SECTOR_X), int(SECTOR_Y)) : ManeuverPOWER() : T8=1
+      if 8*QUADRANT_Y+QUADRANT_X=8*Q4+Q5 then
+        PlaceToken(C_SHIP, int(SECTOR_Y), int(SECTOR_X)) : ManeuverPOWER() : T8=1
         DATE_CUR=DATE_CUR+T8 : if DATE_CUR>GAME_DATE+MISSION_DAYS then return ST_GAMEOVER
         return ShortRangeScan()
       end if
       DATE_CUR=DATE_CUR+1 : ManeuverPOWER() : return ST_NEWQUAD
     end if
 
-    ' MOVE PLANETSHIP
+    ' MOVE SPACESHIP
     if MoveInterrupted=0 then 
-      SECTOR_X=int(SECTOR_X)
       SECTOR_Y=int(SECTOR_Y)
+      SECTOR_X=int(SECTOR_X)
     end if
 
-    PlaceToken(C_SHIP, int(SECTOR_X), int(SECTOR_Y))
+    PlaceToken(C_SHIP, int(SECTOR_Y), int(SECTOR_X))
     ManeuverPOWER()
     T8=1
     DATE_CUR=DATE_CUR+T8
@@ -481,9 +489,18 @@ function ManeuverPOWER()
     return
 end function
 
+function disp_quadrant_cell$(this_q_col, this_q_row)
+  if (this_q_col < 1 or this_q_col > 8) or (this_q_row < 1 or this_q_row > 8) then 
+    return "=:=:="
+  else
+    cell_code = G(this_q_col, this_q_row)
+    return str$(cell_code\100) + ":" + str$((cell_code\10)mod10) + ":" + str$(cell_code mod10)
+  end if
+end function
 
 ' ** ===== LONG RANGE SCAN ===== **
 function Lrs()
+
     K1=0
     if DEVICE_DAMAGE(3)<0 then 
       print
@@ -492,50 +509,25 @@ function Lrs()
       return ST_COMMAND
     end if
 
+
+  ' - G(8,8) = galactic record (galaxy map) — integer array.
+  ' - Z(8,8) = explored/known galaxy — integer array.
+  ' - QUAD(8,8) = current quadrant cell grid — integer array (old THIS_QUADRANT$ 192-char string)
+
+
     ' PRINT LONG RANGE SCAN FOR QUADRANT
-    print "\n  LONG RANGE SCAN:  ";QUADRANT_X;",";QUADRANT_Y
-    print : O1$=" +-----+-----+-----+" : print O1$;
-    O2$=" +-----+-----+-----+"
-    O3$=" +-----+-----+-----+"
-    print "         ";ECOL$;"#";DCOL$;"#";HCOL$;"#";FCOL$
+    print "\n  LONG RANGE SCAN:  ";QUADRANT_Y;",";QUADRANT_X
+  
 
     ' LONG RANGE SCAN LOOP
-    for I=QUADRANT_X-1 to QUADRANT_X+1
-      N(1)=-1 : N(2)=-2 : N(3)=-3
-
-      for J=QUADRANT_Y-1 to QUADRANT_Y+1
-        if I>0 and I<9 and J>0 and J<9 then N(J-QUADRANT_Y+2)=G(I,J) : Z(I,J)=G(I,J)
-      next J
+    q_col = QUADRANT_Y
+    for q_row = QUADRANT_X-1 to QUADRANT_X+1
       
-      for L=1 to 3
+        print disp_quadrant_cell$(q_col-1, q_row); " | ";
+        print disp_quadrant_cell$(q_col, q_row); " | ";
+        print disp_quadrant_cell$(q_col+1, q_row)
       
-        if K1=2 and L=3 then print "";
-        print " |";
-        print " ";
-      
-        if N(L)<0 then
-          print "▒▒▒";
-          continue for
-        end if
-      
-        G1$=right$(str$(N(L)+1000),3)
-        print ECOL$;mid$(G1$,1,1);
-        print DCOL$;mid$(G1$,2,1);
-        print HCOL$;mid$(G1$,3,1);FCOL$;
-      
-      next L
-      print " |"; : K1=K1+1
-      if K1=1 then print "        . . ."
-      if K1=3 then print "      .   .   ."
-      if K1=5 then print "    .           ."
-      K1=K1+1
-      if K1<6 then print O2$;
-      if K1=6 then print O3$;
-      if K1=2 then print "       .  .  ."
-      if K1=4 then print "     .STATION";
-      if K1=4 then print "  ."
-      if K1=6 then print " GLONKINS      PLANETS "
-    next I
+    next q_row
 
     K1=0 : if SLSFLAG=1 then SLSFLAG=0
     
@@ -583,7 +575,7 @@ function LASERS()
       ' DESTROY GLONKIN
       print " *** GLONKIN DESTROYED ***"
       K3=K3-1 : GLONKIN_COUNT=GLONKIN_COUNT-1 : PlaceToken(C_EMPTY, K(I,1), K(I,2))
-      K(I,3)=0 : G(QUADRANT_X,QUADRANT_Y)=G(QUADRANT_X,QUADRANT_Y)-100 : Z(QUADRANT_X,QUADRANT_Y)=G(QUADRANT_X,QUADRANT_Y)
+      K(I,3)=0 : G(QUADRANT_Y,QUADRANT_X)=G(QUADRANT_Y,QUADRANT_X)-100 : Z(QUADRANT_Y,QUADRANT_X)=G(QUADRANT_Y,QUADRANT_X)
       if GLONKIN_COUNT<=0 then return ST_VICTORY
     next I
 
@@ -617,7 +609,7 @@ function WARHEAD()
 
       ' CALCULATE WARHEAD COURSE
       X1=COURSE_VEC(C1,1)+(COURSE_VEC(C1+1,1)-COURSE_VEC(C1,1))*(C1-int(C1)) : SHIP_POWER=SHIP_POWER-2 : WARHEAD_COUNT=WARHEAD_COUNT-1
-      X2=COURSE_VEC(C1,2)+(COURSE_VEC(C1+1,2)-COURSE_VEC(C1,2))*(C1-int(C1)) : X=SECTOR_X : Y=SECTOR_Y
+      X2=COURSE_VEC(C1,2)+(COURSE_VEC(C1+1,2)-COURSE_VEC(C1,2))*(C1-int(C1)) : X=SECTOR_Y : Y=SECTOR_X
       print "\nWARHEAD TRACKING:"
       RetryCourse=0
       do
@@ -661,7 +653,7 @@ function WARHEAD()
           PlaceToken(C_EMPTY, X, Y)
 
           ' UPDATE QUADRANT DATA
-          G(QUADRANT_X,QUADRANT_Y)=K3*100+B3*10+S3 : Z(QUADRANT_X,QUADRANT_Y)=G(QUADRANT_X,QUADRANT_Y) : GLONKINsFire()
+          G(QUADRANT_Y,QUADRANT_X)=K3*100+B3*10+S3 : Z(QUADRANT_Y,QUADRANT_X)=G(QUADRANT_Y,QUADRANT_X) : GLONKINsFire()
           
           ' CHECK IF SHIP IS DEAD
           if SHIPDEAD then return ST_DEAD
@@ -699,7 +691,7 @@ function WARHEAD()
         PlaceToken(C_EMPTY, X, Y)
 
         ' UPDATE QUADRANT DATA
-        G(QUADRANT_X,QUADRANT_Y)=K3*100+B3*10+S3 : Z(QUADRANT_X,QUADRANT_Y)=G(QUADRANT_X,QUADRANT_Y) : GLONKINsFire()
+        G(QUADRANT_Y,QUADRANT_X)=K3*100+B3*10+S3 : Z(QUADRANT_Y,QUADRANT_X)=G(QUADRANT_Y,QUADRANT_X) : GLONKINsFire()
         if SHIPDEAD then return ST_DEAD
         return ST_COMMAND
       loop
@@ -876,8 +868,8 @@ function ShortRangeScan()
     Docked=0
 
     ' CHECK IF SHIP IS DOCKED
-    for I=SECTOR_X-1 to SECTOR_X+1
-      for J=SECTOR_Y-1 to SECTOR_Y+1
+    for I=SECTOR_Y-1 to SECTOR_Y+1
+      for J=SECTOR_X-1 to SECTOR_X+1
         if I<1 or I>8 or J<1 or J>8 then continue for
         if CheckSector(C_BASE, I, J)=1 then
           Docked=1
@@ -946,9 +938,9 @@ function ShortRangeScan()
       case 2
         print " CONDITION "; : print C$;
       case 3
-        print " QUADRANT  ";QUADRANT_X;",";QUADRANT_Y;
+        print " QUADRANT  ";QUADRANT_Y;",";QUADRANT_X;
       case 4
-        print " SECTOR    ";SECTOR_X;",";SECTOR_Y;
+        print " SECTOR    ";SECTOR_Y;",";SECTOR_X;
       case 5
         print " WARHEADES ";int(WARHEAD_COUNT);
       case 6
@@ -1030,7 +1022,7 @@ function ComputerGalacticRecord()
     if A<>5 then
       print
       print "  COMPUTER LOG "
-      print "QUADRANT ";QUADRANT_X;",";QUADRANT_Y
+      print "QUADRANT ";QUADRANT_Y;",";QUADRANT_X
       print " \n"
       print "   ";
     end if
@@ -1040,8 +1032,8 @@ function ComputerGalacticRecord()
       J$=str$(J)
       J$=right$(J$,1)
       if A1=5 then RomanNumeral() : continue for
-      if J=QUADRANT_Y then print "  ";J$;" ";
-      if J<>QUADRANT_Y then print "  ";J;" ";
+      if J=QUADRANT_X then print "  ";J$;" ";
+      if J<>QUADRANT_X then print "  ";J;" ";
     next J
 
 
@@ -1053,16 +1045,16 @@ function ComputerGalacticRecord()
     for I=1 to 8
       I$=str$(I)
       I$=right$(I$,1)
-      if I=QUADRANT_X then print " ";I$;"";
+      if I=QUADRANT_Y then print " ";I$;"";
 
       RowIsRegion=0
-      if A1=5 and I=QUADRANT_X then RowIsRegion=1
-      if I<>QUADRANT_X then print " ";I$; : if H8=0 then RowIsRegion=1
+      if A1=5 and I=QUADRANT_Y then RowIsRegion=1
+      if I<>QUADRANT_Y then print " ";I$; : if H8=0 then RowIsRegion=1
 
       if RowIsRegion=0 then
         for J=1 to 8
-          if I=QUADRANT_X and J=QUADRANT_Y then print "|"; : GALFLAG=1
-          if not (I=QUADRANT_X and (J=QUADRANT_Y or J-1=QUADRANT_Y)) then print "|";
+          if I=QUADRANT_Y and J=QUADRANT_X then print "|"; : GALFLAG=1
+          if not (I=QUADRANT_Y and (J=QUADRANT_X or J-1=QUADRANT_X)) then print "|";
           if Z(I,J)=0 then print "   "; : continue for
           G1$=right$(str$(Z(I,J)+1000),3)
           print ECOL$;mid$(G1$,1,1);
@@ -1082,8 +1074,8 @@ function ComputerGalacticRecord()
         print tab(J0);QN$; : print tab(34);"|";
       end if
 
-      if A=0 and J=9 and QUADRANT_X=I and QUADRANT_Y=8 then print
-      if not (A=0 and J=9 and QUADRANT_X=I and QUADRANT_Y=8) then if A=0 then print "|"
+      if A=0 and J=9 and QUADRANT_Y=I and QUADRANT_X=8 then print
+      if not (A=0 and J=9 and QUADRANT_Y=I and QUADRANT_X=8) then if A=0 then print "|"
       if A=5 then print
       if I<8 then print O2$
     next I
@@ -1109,10 +1101,10 @@ function ComputerBaseNav()
     H8=0 : A1=3
     if B3<>0 then
       print "\nFROM STARSHIP TO SPACESTATION"
-      return ComputerCalcCompute(SECTOR_Y, SECTOR_X, B4, B5, 10)
+      return ComputerCalcCompute(SECTOR_X, SECTOR_Y, B4, B5, 10)
     end if
     print "\nWARNING:NO"
-    print "SPACESTATIONS IN THIS AREA." : return ST_COMMAND
+    print "SPACESTATIONS NEARBY." : return ST_COMMAND
 end function
 
 
@@ -1130,7 +1122,7 @@ function ComputerStatusReport()
     print "\n GLONKINS LEFT :";GLONKIN_COUNT
     print " POWER        :";int(SHIP_POWER+SHIELD_UNITS)
     print " WARHEADES     :";int(WARHEAD_COUNT)
-    print "\n  MISSION MUST BE COMPLETED IN ";GAME_DATE+MISSION_DAYS-DATE_CUR
+    print "\n  MISSION DEADLINE: ";GAME_DATE+MISSION_DAYS-DATE_CUR
     print " DAYS"
 
     ' MULTIPLE SPACESTATIONS
@@ -1146,8 +1138,8 @@ function ComputerStatusReport()
       print "LEFT!" : return Damage()
     end if
 
-    print "\n  EARTH FLEET IS MAINTAINING ";SPACESTATION_COUNT
-    print " SPACESTATION";X$;" IN THE REGION"; chr$(13)
+    print "\n  EARTH HAS ";SPACESTATION_COUNT
+    print " SPACESTATION";X$;" NEARBY"; chr$(13)
     return Damage()
 end function
 
@@ -1160,10 +1152,10 @@ function ComputerNavCalcGLONKIN()
     else
         X$=""
     end if
-    print "\nFROM STARSHIP TO GLONKIN SHIP";X$
+    print "\nFROM STARSHIP TO ENEMY SHIP";X$
     for I=1 to 3
       if K(I,3)<=0 then continue for
-      ComputerCalcCompute(SECTOR_Y, SECTOR_X, K(I,1), K(I,2), 10)
+      ComputerCalcCompute(SECTOR_X, SECTOR_Y, K(I,1), K(I,2), 10)
     next I
     return ST_COMMAND
 end function
@@ -1172,20 +1164,20 @@ end function
 ' ** ===== COMPUTER CALCULATOR ===== **
 function ComputerCalculator()
 
-    print "\nDIRECTION/DISTANCE CALCULATOR:"
-    print "\nYOU ARE AT QUADRANT ";QUADRANT_X;",";QUADRANT_Y
-    print "             SECTOR ";SECTOR_X;",";SECTOR_Y
+    print "\nCALCULATOR:"
+    print "\nLOCATION: ";QUADRANT_Y;",";QUADRANT_X
+    print "             SECTOR ";SECTOR_Y;",";SECTOR_X
 
-    FROM_Y=AskNumber("\nENTER INITIAL COORDINATES (Y) :  ", 4)
+    FROM_Y=AskNumber("\nFROM (Y) :  ", 4)
     if FROM_Y=0 then print "\nCALCULATION ABORTED!" : return ST_COMMAND
 
-    FROM_X=AskNumber("\nENTER INITIAL COORDINATES (X) :  ", 4)
+    FROM_X=AskNumber("\nFROM (X) :  ", 4)
     if FROM_X=0 then print "\nCALCULATION ABORTED!" : return ST_COMMAND
 
-    TO_Y=AskNumber("\nENTER FINAL COORDINATES   (Y) :  ", 4)
+    TO_Y=AskNumber("\nTO (Y) :  ", 4)
     if TO_Y=0 then print "\nCALCULATION ABORTED!" : return ST_COMMAND
 
-    TO_X=AskNumber("\nENTER FINAL COORDINATES   (X) :  ", 4)
+    TO_X=AskNumber("\nTO (X) :  ", 4)
     if TO_X=0 then print "\nCALCULATION ABORTED!" : return ST_COMMAND
 
     if FROM_Y=TO_Y and FROM_X=TO_X then
@@ -1258,7 +1250,7 @@ end function
 ' ** ===== SHARED MESSAGE: NO ENEMY IN QUADRANT ===== **
 function NoEnemyMsg()
     print : background 6: color 1: print "ALERT:"
-    print "SHOW NO ENEMY SHIPS IN THIS REGION";:background 0: print
+    print " NO ENEMY SHIPS DETECTED";:background 0: print
     return
 end function
 
@@ -1269,22 +1261,22 @@ function FindEmpty()
     do
         RANDOM_X=FNR(1) : RANDOM_Y=FNR(1)
     loop until CheckSector(C_EMPTY, RANDOM_X, RANDOM_Y)=1
-    TOKEN_X=int(RANDOM_X)
-    TOKEN_Y=int(RANDOM_Y)
+    TOKEN_Y=int(RANDOM_X)
+    TOKEN_X=int(RANDOM_Y)
     return
 end function
 
 
-' SET SECTOR (TOKEN_X, TOKEN_Y) TO CELL CODE in the quadrant grid
-function PlaceToken(CELLCODE, TOKEN_X, TOKEN_Y)
-    QX=int(TOKEN_X) : QY=int(TOKEN_Y)
+' SET SECTOR (TOKEN_Y, TOKEN_X) TO CELL CODE in the quadrant grid
+function PlaceToken(CELLCODE, TOKEN_Y, TOKEN_X)
+    QX=int(TOKEN_Y) : QY=int(TOKEN_X)
     QUAD(QX,QY)=CELLCODE
     return
 end function
 
-' RETURN 1 IF SECTOR (TOKEN_X, TOKEN_Y) HOLDS CELL CODE, ELSE 0
-function CheckSector(CELLCODE, TOKEN_X, TOKEN_Y)
-    QX=int(TOKEN_X) : QY=int(TOKEN_Y)
+' RETURN 1 IF SECTOR (TOKEN_Y, TOKEN_X) HOLDS CELL CODE, ELSE 0
+function CheckSector(CELLCODE, TOKEN_Y, TOKEN_X)
+    QX=int(TOKEN_Y) : QY=int(TOKEN_X)
     if QUAD(QX,QY)<>CELLCODE then return 0
     return 1
 end function
@@ -1380,16 +1372,19 @@ end function
 
 ' ** KEY TO SRS ICONS **
 function ShowKey()
+    cls()
     print "\n KEY TO SHORT RANGE SCANNER ICONS:" : print
     print "  E  = EARTH FLEET STARSHIP"
     print "  B  = EARTH SPACESTATION"
     print "  *  = PLANET"
     print "  K  = GLONKIN BATTLE CRUISER"
+    pause()
     return
 end function
 
 ' ** LIST OF COMMANDS **
 function ShowCommands()
+    cls()
     print "\n USE THESE COMMANDS:" : print
     print "  NAV  - TO SET COURSE"
     print "  SRS  - FOR SHORT RANGE SCAN"
@@ -1403,6 +1398,7 @@ function ShowCommands()
     print "  KEY  - DISPLAY KEY TO SRS ICONS"
     print "  HLP  - THIS LIST OF COMMANDS"
     print "  XXX  - TO RESIGN YOUR COMMAND"
+    pause()
     return
 end function
 
