@@ -257,6 +257,7 @@
   "RED":            { "tier": "portable" },
   "RIGHT":          { "tier": "portable" },
   "RND":            { "tier": "portable" },
+  "RNDINT":         { "tier": "portable" },
   "SGN":            { "tier": "portable" },
   "SIN":            { "tier": "portable" },
   "SPC":            { "tier": "portable" },

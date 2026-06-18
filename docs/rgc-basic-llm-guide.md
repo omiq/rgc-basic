@@ -305,7 +305,7 @@ is a built-in. `tier` and `note` come from the portability rules.
 | `WHILE` | portable |  |
 | `XOR` | portable |  |
 
-### Functions (116)
+### Functions (117)
 
 | name | tier | note |
 | --- | --- | --- |
@@ -395,6 +395,7 @@ is a built-in. `tier` and `note` come from the portability rules.
 | `RGCVERSION` | modern |  |
 | `RIGHT` | portable |  |
 | `RND` | portable |  |
+| `RNDINT` | portable |  |
 | `RTRIM` | modern |  |
 | `SCROLLX` | modern |  |
 | `SCROLLY` | modern |  |

@@ -9,14 +9,14 @@
     "portable": "runs on rgc-basic and transpiles to ugBASIC retro targets"
   },
   "counts": {
-    "total": 280,
+    "total": 281,
     "by_kind": {
-      "function": 116,
+      "function": 117,
       "keyword": 142,
       "constant": 22
     },
     "by_tier": {
-      "portable": 120,
+      "portable": 121,
       "modern": 148,
       "conditional": 11,
       "param": 1
@@ -1117,6 +1117,11 @@
     },
     {
       "name": "RND",
+      "kind": "function",
+      "tier": "portable"
+    },
+    {
+      "name": "RNDINT",
       "kind": "function",
       "tier": "portable"
     },

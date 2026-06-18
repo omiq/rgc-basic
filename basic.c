@@ -3914,6 +3914,7 @@ enum func_code {
     /* MUSICORDERS(slot) — order-table length (song length byte at
      * MOD offset 950, 1..128). 0 for non-MOD. */
     FN_MUSICORDERS = 119,
+    FN_RNDINT = 120,
     /* PALETTE(i, chan) — read palette entry `i` (0..15), channel `chan`
      * (0=R, 1=G, 2=B, 3=A). Returns 0 when no gfx backend is active. */
     FN_PALETTE = 82,
@@ -4290,7 +4291,7 @@ static const char *const reserved_words[] = {
     "INKEY", "INPUT", "INSTR", "INT", "INDEXOF", "JSON", "LEFT", "LEN", "LET", "LINE", "LOAD", "LOADSPRITE", "LOCATE", "LOG",
     "LASTERROR", "LASTINDEXOF", "LCASE", "FIELD", "LTRIM", "MEMCPY", "MEMSET", "MID", "MOD", "NEXT", "OFF", "ON", "OPEN", "OR", "PEEK", "POKE", "PLATFORM", "PRESET", "PSET",     "PRINT", "PUTBYTE",
     "XOR",
-    "READ", "RECT", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITEAT", "SPRITECOLLIDE", "SPRITECOPY", "SPRITEFRAME", "SPRITEMODIFY", "SPRITEMODULATE", "SPRITETILES", "SPRITEVISIBLE",
+    "READ", "RECT", "REM", "REPLACE", "RESTORE", "RETURN", "RIGHT", "RND", "RNDINT", "RTRIM", "RVS", "SCROLL", "SCREEN", "SCREENCODES", "SPRITEAT", "SPRITECOLLIDE", "SPRITECOPY", "SPRITEFRAME", "SPRITEMODIFY", "SPRITEMODULATE", "SPRITETILES", "SPRITEVISIBLE",
     "CHDIR", "CWD", "DIR", "JSONLEN", "JSONKEY", "TICKUS", "TICKMS",
     "FOREACH", "IN",
     "LOADSOUND", "UNLOADSOUND", "PLAYSOUND", "STOPSOUND", "SOUNDPLAYING", "LOADSCREEN",
@@ -5342,6 +5343,7 @@ static int function_lookup(const char *name, int len)
         return FN_NONE;
     case 'R':
         if (len == 3 && name[0] == 'R' && name[1] == 'N' && name[2] == 'D') return FN_RND;
+        if (len == 6 && memcmp(name, "RNDINT", 6) == 0) return FN_RNDINT;
         if ((len == 5 && name[0] == 'R' && name[1] == 'I' && name[2] == 'G' && name[3] == 'H' && name[4] == 'T') ||
             (len == 6 && name[0] == 'R' && name[1] == 'I' && name[2] == 'G' && name[3] == 'H' && name[4] == 'T' && name[5] == '$'))
             return FN_RIGHT;
@@ -12713,6 +12715,14 @@ static struct value eval_function(const char *name, char **p)
             srand((unsigned int)time(NULL));
         }
         return make_num((double)rand() / (double)RAND_MAX);
+    case FN_RNDINT:
+        /* Integer random 1..N (no fixed-point). Shares the RND() generator.
+         * RNDINT(negative) reseeds from the clock (like RND(-x)) and returns 0,
+         * so a pure-integer program can seed without pulling in RND. N<1 -> 0. */
+        ensure_num(&arg);
+        if (arg.num < 0) { srand((unsigned int)time(NULL)); return make_num(0); }
+        if (arg.num < 1) return make_num(0);
+        return make_num((double)((rand() % (int)arg.num) + 1));
     case FN_LEN:
         ensure_str(&arg);
         return make_num((double)V_LEN(arg));
@@ -14666,7 +14676,7 @@ static struct value eval_factor(char **p)
     if (starts_with_kw(*p, "SIN") || starts_with_kw(*p, "COS") || starts_with_kw(*p, "TAN") ||
             starts_with_kw(*p, "ABS") || starts_with_kw(*p, "INT") || starts_with_kw(*p, "SQR") ||
             starts_with_kw(*p, "SGN") || starts_with_kw(*p, "EXP") || starts_with_kw(*p, "LOG") ||
-            starts_with_kw(*p, "RND") || starts_with_kw(*p, "LEN") || starts_with_kw(*p, "VAL") ||
+            starts_with_kw(*p, "RNDINT") || starts_with_kw(*p, "RND") || starts_with_kw(*p, "LEN") || starts_with_kw(*p, "VAL") ||
             starts_with_kw(*p, "STR") || starts_with_kw(*p, "CHR") || starts_with_kw(*p, "ASC") ||
             starts_with_kw(*p, "TAB") || starts_with_kw(*p, "SPC") || starts_with_kw(*p, "MID") ||
             starts_with_kw(*p, "LEFT") || starts_with_kw(*p, "RIGHT") || starts_with_kw(*p, "STRING") ||
