@@ -4,9 +4,12 @@
 ST_QUIT=0 : ST_NEWGAME=1 : ST_NEWQUAD=2 : ST_COMMAND=3 : ST_DEAD=4
 ST_GAMEOVER=5 : ST_VICTORY=6 : ST_MISSIONEND=7 : ST_PLAYAGAIN=8
 
-' ** TOKEN STRINGS **
-' Enterprise, Klingon, Starbase, Star, Empty
-ENTERPRISE_TOKEN$="E  " : KLINGON_TOKEN$="K  " : STARBASE_TOKEN$="B  " : STAR_TOKEN$="*  " : EMPTY_TOKEN$="   "
+' ** QUADRANT CELL CODES **
+' The short-range grid is an 8x8 integer array QUAD(), not a 192-char string:
+' on RAM-tight 6502 targets RGC_STR_MAX caps strings at 40, which truncated
+' the old THIS_QUADRANT$ and corrupted the grid. Integer codes are exact,
+' small, and need no string runtime.
+C_EMPTY=0 : C_SHIP=1 : C_KLINGON=2 : C_BASE=3 : C_STAR=4
 
 ' ** COMMAND DICTIONARY **
 ' -1: not initialized yet (lazy init in DoCommand)
@@ -17,7 +20,7 @@ CMD_DICT=-1
 InitColours()
 
 ' COURSE_VEC(9,2) = nav keypad deltas; DEVICE_DAMAGE(8) / DEVICE_NAME$(8) = ship systems
-dim G(8,8),COURSE_VEC(9,2),K(3,3),N(3),Z(8,8),DEVICE_DAMAGE(8),DEVICE_NAME$(8)
+dim G(8,8),COURSE_VEC(9,2),K(3,3),N(3),Z(8,8),DEVICE_DAMAGE(8),DEVICE_NAME$(8),QUAD(8,8)
 InitDeviceNames()
 
 ' ** DISTANCE CALCULATION **
@@ -218,18 +221,18 @@ function EnterQuadrant()
       K(I,3)=0
     next I
 
-    ' INITIALIZE THIS_QUADRANT$ WITH 192 SPACES
-    THIS_QUADRANT$=STRING$(192, " ")
-    
+    ' CLEAR THE QUADRANT CELL GRID
+    for I=1 to 8 : for J=1 to 8 : QUAD(I,J)=C_EMPTY : next J : next I
+
     ' POSITION ENTERPRISE IN QUADRANT, THEN PLACE "K3" KLINGONS, &
     ' "B3" STARBASES, & "S3" STARS ELSE WHERE.
-    PlaceToken(ENTERPRISE_TOKEN$, SECTOR_X, SECTOR_Y)
+    PlaceToken(C_SHIP, SECTOR_X, SECTOR_Y)
 
     ' PLACE KLINGONS
     if K3 >= 1 then
       for I=1 to K3
         FindEmpty()
-        PlaceToken(KLINGON_TOKEN$, TOKEN_X, TOKEN_Y)
+        PlaceToken(C_KLINGON, TOKEN_X, TOKEN_Y)
         K(I,1)=TOKEN_X : K(I,2)=TOKEN_Y : K(I,3)=KLINGON_HP_BASE\2+RNDINT(KLINGON_HP_BASE)
       next I
     end if
@@ -238,13 +241,13 @@ function EnterQuadrant()
     if B3 >= 1 then
       FindEmpty()
       B4=TOKEN_X : B5=TOKEN_Y
-      PlaceToken(STARBASE_TOKEN$, TOKEN_X, TOKEN_Y)
+      PlaceToken(C_BASE, TOKEN_X, TOKEN_Y)
     end if
 
     ' PLACE STARS
     for I=1 to S3
       FindEmpty()
-      PlaceToken(STAR_TOKEN$, TOKEN_X, TOKEN_Y)
+      PlaceToken(C_STAR, TOKEN_X, TOKEN_Y)
     next I
 
     ' DO SHORT RANGE SCAN
@@ -376,8 +379,8 @@ function Nav()
     ' KLINGONS MOVE/FIRE ON MOVING STARSHIP . . .
     KlingonsMove: for I=1 to K3
       if K(I,3)=0 then continue for
-      PlaceToken(EMPTY_TOKEN$, K(I,1), K(I,2)) : FindEmpty()
-      K(I,1)=TOKEN_X : K(I,2)=TOKEN_Y : PlaceToken(KLINGON_TOKEN$, K(I,1), K(I,2))
+      PlaceToken(C_EMPTY, K(I,1), K(I,2)) : FindEmpty()
+      K(I,1)=TOKEN_X : K(I,2)=TOKEN_Y : PlaceToken(C_KLINGON, K(I,1), K(I,2))
     next I
     KlingonsFire()
 
@@ -407,7 +410,7 @@ function Nav()
     end if
 
     ' BEGIN MOVING STARSHIP
-    PlaceToken(EMPTY_TOKEN$, int(SECTOR_X), int(SECTOR_Y))
+    PlaceToken(C_EMPTY, int(SECTOR_X), int(SECTOR_Y))
     X1=COURSE_VEC(C1,1)+(COURSE_VEC(C1+1,1)-COURSE_VEC(C1,1))*(C1-int(C1)) : X=SECTOR_X : Y=SECTOR_Y
     X2=COURSE_VEC(C1,2)+(COURSE_VEC(C1+1,2)-COURSE_VEC(C1,2))*(C1-int(C1)) : Q4=QUADRANT_X : Q5=QUADRANT_Y
     MoveInterrupted=0 : CrossedQuadrant=0
@@ -415,7 +418,7 @@ function Nav()
     ' MOVE STARSHIP
     for I=1 to N : SECTOR_X=SECTOR_X+X1 : SECTOR_Y=SECTOR_Y+X2
         if SECTOR_X<1 or SECTOR_X>=9 or SECTOR_Y<1 or SECTOR_Y>=9 then CrossedQuadrant=1 : exit for
-        if CheckSector(EMPTY_TOKEN$, SECTOR_X, SECTOR_Y)=1 then continue for
+        if CheckSector(C_EMPTY, SECTOR_X, SECTOR_Y)=1 then continue for
         SECTOR_X=int(SECTOR_X-X1) : SECTOR_Y=int(SECTOR_Y-X2) : print "\nWARP ENGINES SHUT DOWN AT ";
         print "SECTOR ";SECTOR_X;",";SECTOR_Y
         print "DUE TO BAD NAVIGATION"
@@ -446,7 +449,7 @@ function Nav()
 
       ' CHECK IF SHIP HAS RETURNED TO ORIGINAL QUADRANT
       if 8*QUADRANT_X+QUADRANT_Y=8*Q4+Q5 then
-        PlaceToken(ENTERPRISE_TOKEN$, int(SECTOR_X), int(SECTOR_Y)) : ManeuverEnergy() : T8=1
+        PlaceToken(C_SHIP, int(SECTOR_X), int(SECTOR_Y)) : ManeuverEnergy() : T8=1
         STARDATE_CUR=STARDATE_CUR+T8 : if STARDATE_CUR>STARDATE_START+MISSION_DAYS then return ST_GAMEOVER
         return ShortRangeScan()
       end if
@@ -459,7 +462,7 @@ function Nav()
       SECTOR_Y=int(SECTOR_Y)
     end if
 
-    PlaceToken(ENTERPRISE_TOKEN$, int(SECTOR_X), int(SECTOR_Y))
+    PlaceToken(C_SHIP, int(SECTOR_X), int(SECTOR_Y))
     ManeuverEnergy()
     T8=1
     STARDATE_CUR=STARDATE_CUR+T8
@@ -582,7 +585,7 @@ function Phasers()
 
       ' DESTROY KLINGON
       print " *** KLINGON DESTROYED ***"
-      K3=K3-1 : KLINGON_COUNT=KLINGON_COUNT-1 : PlaceToken(EMPTY_TOKEN$, K(I,1), K(I,2))
+      K3=K3-1 : KLINGON_COUNT=KLINGON_COUNT-1 : PlaceToken(C_EMPTY, K(I,1), K(I,2))
       K(I,3)=0 : G(QUADRANT_X,QUADRANT_Y)=G(QUADRANT_X,QUADRANT_Y)-100 : Z(QUADRANT_X,QUADRANT_Y)=G(QUADRANT_X,QUADRANT_Y)
       if KLINGON_COUNT<=0 then return ST_VICTORY
     next I
@@ -634,10 +637,10 @@ function Torpedo()
         print " ";X3;",";Y3
 
         ' CHECK IF SECTOR IS EMPTY
-        if CheckSector(EMPTY_TOKEN$, X, Y)=1 then continue do
+        if CheckSector(C_EMPTY, X, Y)=1 then continue do
 
         ' CHECK IF SECTOR IS KLINGON
-        if CheckSector(KLINGON_TOKEN$, X, Y)=1 then
+        if CheckSector(C_KLINGON, X, Y)=1 then
 
           ' KLINGON KILLED
           print " *** KLINGON DESTROYED ***"
@@ -658,7 +661,7 @@ function Torpedo()
 
           ' DESTROY KLINGON
           K(HitIdx,3)=0
-          PlaceToken(EMPTY_TOKEN$, X, Y)
+          PlaceToken(C_EMPTY, X, Y)
 
           ' UPDATE QUADRANT DATA
           G(QUADRANT_X,QUADRANT_Y)=K3*100+B3*10+S3 : Z(QUADRANT_X,QUADRANT_Y)=G(QUADRANT_X,QUADRANT_Y) : KlingonsFire()
@@ -671,7 +674,7 @@ function Torpedo()
         end if
 
         ' CHECK IF SECTOR IS STAR
-        if CheckSector(STAR_TOKEN$, X, Y)=1 then
+        if CheckSector(C_STAR, X, Y)=1 then
           print " ** STAR AT";X3;",";Y3;"ABSORBED TORPEDO **"
           if K3<>0 then print : Pause()
           KlingonsFire()
@@ -680,7 +683,7 @@ function Torpedo()
         end if
 
         ' CHECK IF SECTOR IS STARBASE
-        if CheckSector(STARBASE_TOKEN$, X, Y)=0 then
+        if CheckSector(C_BASE, X, Y)=0 then
           RetryCourse=1
           exit do
         end if
@@ -696,7 +699,7 @@ function Torpedo()
 
         ' DESTROY STARBASE
         print "\nSTARBASE LOST. COURT MARTIAL PENDING." : D0=0
-        PlaceToken(EMPTY_TOKEN$, X, Y)
+        PlaceToken(C_EMPTY, X, Y)
 
         ' UPDATE QUADRANT DATA
         G(QUADRANT_X,QUADRANT_Y)=K3*100+B3*10+S3 : Z(QUADRANT_X,QUADRANT_Y)=G(QUADRANT_X,QUADRANT_Y) : KlingonsFire()
@@ -888,7 +891,7 @@ function ShortRangeScan()
     for I=SECTOR_X-1 to SECTOR_X+1
       for J=SECTOR_Y-1 to SECTOR_Y+1
         if I<1 or I>8 or J<1 or J>8 then continue for
-        if CheckSector(STARBASE_TOKEN$, I, J)=1 then
+        if CheckSector(C_BASE, I, J)=1 then
           Docked=1
           exit for
         end if
@@ -937,13 +940,14 @@ function ShortRangeScan()
       I$=right$(str$(I),1)
       print " ";I$;" |"; : ' BORDER
 
-      ' PRINT QUADRANT CELLS
-      J1=(I-1)*24+1
-      J2=(I-1)*24+22
-      for J = J1 to J2 step 3
-        CELL$=mid$(THIS_QUADRANT$,J,3)
-        if CELL$="   " then print " ";
-        if CELL$<>"   " then print left$(CELL$,1);
+      ' PRINT QUADRANT CELLS (integer cell code -> glyph)
+      for J = 1 to 8
+        CELLCODE=QUAD(I,J)
+        if CELLCODE=C_EMPTY then print " ";
+        if CELLCODE=C_SHIP then print "E";
+        if CELLCODE=C_KLINGON then print "K";
+        if CELLCODE=C_BASE then print "B";
+        if CELLCODE=C_STAR then print "*";
         print "|";
       next J
 
@@ -1277,43 +1281,24 @@ function FindEmpty()
     ' ** RETRY UNTIL SQUARE IS EMPTY (THREE SPACES) **
     do
         RANDOM_X=FNR(1) : RANDOM_Y=FNR(1)
-    loop until CheckSector(EMPTY_TOKEN$, RANDOM_X, RANDOM_Y)=1
+    loop until CheckSector(C_EMPTY, RANDOM_X, RANDOM_Y)=1
     TOKEN_X=int(RANDOM_X)
     TOKEN_Y=int(RANDOM_Y)
     return
 end function
 
 
-' INSERT TOKEN$ AT SECTOR (TOKEN_X, TOKEN_Y) IN THIS_QUADRANT$
-function PlaceToken(TOKEN$, TOKEN_X, TOKEN_Y)
-    SECTOR_POS=SectorIndex(TOKEN_X, TOKEN_Y)
-
-    if len(TOKEN$)<>3 then
-      print "TOKEN LENGTH ERROR: ";TOKEN$;" LEN=";len(TOKEN$)
-      stop
-    end if
-
-    if SECTOR_POS=1 then
-        THIS_QUADRANT$=TOKEN$+right$(THIS_QUADRANT$,189)
-    else if SECTOR_POS=190 then
-        THIS_QUADRANT$=left$(THIS_QUADRANT$,189)+TOKEN$
-    else
-        THIS_QUADRANT$=left$(THIS_QUADRANT$,SECTOR_POS-1)+TOKEN$+right$(THIS_QUADRANT$,190-SECTOR_POS)
-    end if
+' SET SECTOR (TOKEN_X, TOKEN_Y) TO CELL CODE in the quadrant grid
+function PlaceToken(CELLCODE, TOKEN_X, TOKEN_Y)
+    QX=int(TOKEN_X) : QY=int(TOKEN_Y)
+    QUAD(QX,QY)=CELLCODE
     return
 end function
 
-
-' 1-BASED START INDEX IN THIS_QUADRANT$ FOR SECTOR (SX, SY); 3 CHARS PER CELL
-function SectorIndex(SX, SY)
-    TX=int(SX)
-    TY=int(SY)
-    return (TY-1)*3+(TX-1)*24+1
-end function
-
-' RETURN 1 IF TOKEN$ OCCUPIES SECTOR (TOKEN_X, TOKEN_Y), ELSE 0
-function CheckSector(TOKEN$, TOKEN_X, TOKEN_Y)
-    if mid$(THIS_QUADRANT$, SectorIndex(TOKEN_X, TOKEN_Y), 3)<>TOKEN$ then return 0
+' RETURN 1 IF SECTOR (TOKEN_X, TOKEN_Y) HOLDS CELL CODE, ELSE 0
+function CheckSector(CELLCODE, TOKEN_X, TOKEN_Y)
+    QX=int(TOKEN_X) : QY=int(TOKEN_Y)
+    if QUAD(QX,QY)<>CELLCODE then return 0
     return 1
 end function
 
