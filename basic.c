@@ -874,6 +874,7 @@ static unsigned wasm_str_concat_budget;
 #if defined(__unix__) || defined(__APPLE__) || defined(__MACH__)
 #include <unistd.h>
 #include <termios.h>
+#include <signal.h>
 #endif
 #ifndef HAVE_USLEEP
 #include <sys/types.h>
@@ -3995,6 +3996,43 @@ enum func_code {
  * Pulls line context from `program_lines[current_line]` and the global
  * `statement_pos` — same heuristics as the original runtime_error_hint.
  */
+/* -trace: post-mortem debugging aid. On a halting runtime error or a Ctrl-C
+ * interrupt, dump where execution was (line + enclosing function) and the UDF
+ * call stack. Helps when code is syntactically fine but logically wrong. */
+static int trace_enabled = 0;
+static volatile int g_interrupted = 0;
+
+static void print_trace_backtrace(FILE *out)
+{
+    int ln = 0;
+    const char *txt = NULL;
+    int d;
+    const char *fn = "(main)";
+    if (current_line >= 0 && current_line < line_count &&
+        program_lines[current_line] != NULL) {
+        ln = program_lines[current_line]->number;
+        txt = program_lines[current_line]->text;
+    }
+    if (udf_call_depth > 0) {
+        int fi = udf_call_stack[udf_call_depth - 1].func_index;
+        if (fi >= 0 && fi < udf_func_count) fn = udf_funcs[fi].name;
+    }
+    fprintf(out, "*** TRACE: at line %d in %s\n", ln, fn);
+    if (txt && *txt) fprintf(out, "    %d  %s\n", ln, txt);
+    if (udf_call_depth > 0) {
+        fprintf(out, "*** call stack (innermost first):\n");
+        for (d = udf_call_depth - 1; d >= 0; d--) {
+            int fi = udf_call_stack[d].func_index;
+            int sl = udf_call_stack[d].saved_line;
+            int cl = (sl >= 0 && sl < line_count && program_lines[sl]) ?
+                     program_lines[sl]->number : 0;
+            fprintf(out, "    %s  (called from line %d)\n",
+                    (fi >= 0 && fi < udf_func_count) ? udf_funcs[fi].name : "?", cl);
+        }
+        fprintf(out, "    (main)\n");
+    }
+}
+
 /* Record the program's structured exit state. First writer wins so the
  * earliest (root-cause) failure is what --json-status / basic_get_exitcode
  * report. Captures the current BASIC line as the exit line. */
@@ -4164,6 +4202,7 @@ static void runtime_diagnostic(const char *severity, const char *msg, const char
         /* Generic runtime error → exit code 1 (first-wins; ASSERT sets 2
          * before calling us, so its code survives). */
         set_exit_status(1, msg);
+        if (trace_enabled) print_trace_backtrace(stderr);
         halted = 1;
     }
 }
@@ -10058,6 +10097,34 @@ static void statement_spritecopy(char **p)
 #if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
 static struct termios get_saved_termios;
 static int get_raw_mode_active = 0;
+
+/* Restore the terminal on exit / Ctrl-C: cooked input mode + a visible cursor.
+ * Without this a program that hid the cursor (CURSOR OFF / PETSCII screens) or
+ * quit mid-GET leaves the shell in raw mode with no cursor. Registered via
+ * atexit and also run before a clean interrupt exit. Idempotent. */
+static void term_cleanup(void)
+{
+    if (get_raw_mode_active) {
+        tcsetattr(STDIN_FILENO, TCSANOW, &get_saved_termios);
+        get_raw_mode_active = 0;
+    }
+    if (isatty(STDOUT_FILENO)) {
+        fputs("\033[?25h", stdout);   /* DECTCEM: show cursor */
+        fflush(stdout);
+    }
+    cursor_hidden = 0;
+}
+
+/* Cooperative Ctrl-C: first press asks the run loop to halt (so term_cleanup
+ * runs via atexit and any -trace post-mortem prints); restore SIG_DFL so a
+ * second press can always force-kill a loop that never checks `halted`. */
+static void on_sigint(int sig)
+{
+    (void)sig;
+    g_interrupted = 1;
+    halted = 1;
+    signal(SIGINT, SIG_DFL);
+}
 
 /* Set raw mode before we wait for input. Called at start of GET so
  * interactive TTY is in raw mode before user types; otherwise stdin
@@ -21674,6 +21741,20 @@ int main(int argc, char **argv)
     /* Initialize console so ANSI colors/control codes behave consistently. */
     init_console_ansi();
 
+#if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
+    /* Always restore the terminal (cursor + cooked mode) on exit, and catch
+     * Ctrl-C cooperatively so that cleanup (and any -trace post-mortem) runs. */
+    atexit(term_cleanup);
+    {
+        struct sigaction sa;
+        memset(&sa, 0, sizeof(sa));
+        sa.sa_handler = on_sigint;
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = 0;   /* no SA_RESTART: a blocked GET returns on Ctrl-C */
+        sigaction(SIGINT, &sa, NULL);
+    }
+#endif
+
     if (basic_has_version_flag(argc, argv)) {
         basic_print_version(stdout);
         return 0;
@@ -21787,9 +21868,11 @@ int main(int argc, char **argv)
             diagnostics_mode = 1;
         } else if (strcmp(argv[i], "-json-status") == 0 || strcmp(argv[i], "--json-status") == 0) {
             json_status_mode = 1;
+        } else if (strcmp(argv[i], "-trace") == 0 || strcmp(argv[i], "--trace") == 0) {
+            trace_enabled = 1;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] [-wrap] [-diagnostics] [-json-status] <program.bas>\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] [-wrap] [-trace] [-diagnostics] [-json-status] <program.bas>\n", argv[0]);
             return 1;
         } else {
             prog_path = argv[i];
@@ -21804,6 +21887,10 @@ int main(int argc, char **argv)
 
     load_program(prog_path);
     run_program(prog_path, argc - (i + 1), (argc > (i + 1)) ? (argv + (i + 1)) : NULL);
+    if (g_interrupted && trace_enabled) {
+        fprintf(stderr, "\n*** interrupted (Ctrl-C)\n");
+        print_trace_backtrace(stderr);
+    }
     if (json_status_mode) {
         char esc[256];
         json_escape_into(esc, sizeof(esc), g_exit_reason);
