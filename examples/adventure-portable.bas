@@ -78,12 +78,9 @@ print ""
 print "          {LIGHTBLUE}RETROGAMECODERS.COM{WHITE}"
 print ""
 print " {LIGHTGREEN}PRESS H FOR HELP OR OTHER KEY TO START{WHITE}"
-do
-  get I$
-  I$ = UCASE$(I$)
+
+  I$ = WaitKey()
   if I$ = "H" then Help()
-loop while I$ = ""
-I$ = ""
 
 ' ===== MAIN LOOP (was DISPLAYROOM / GETCOMMAND) =====
 do
@@ -177,10 +174,12 @@ end function
 
 function WaitKey()
   print CY$ + RV$ + "        PRESS A KEY TO CONTINUE         " + RO$
-  do
+  I$=""
+  while I$ = ""
     get I$
-  loop while I$ = ""
-  return
+  wend
+  I$ = UCASE$(I$)
+  return I$
 end function
 
 
@@ -386,6 +385,7 @@ function GetLine()
   I$ = ""
   do
     get Y$
+    Y$ = UCASE$(Y$)
     if Y$ <> "" then
       if ASC(Y$) = 13 then
         print ""
