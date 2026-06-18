@@ -180,7 +180,6 @@ end function
 ' ** ===== ENTER A QUADRANT: SET IT UP, PLACE OBJECTS, SHORT SCAN ===== **
 function EnterQuadrant()
     K3=0 : B3=0 : S3=0
-    D4=.5*rnd(1)
     Z(QUADRANT_X,QUADRANT_Y)=G(QUADRANT_X,QUADRANT_Y)
     if QUADRANT_X >= 1 and QUADRANT_X <=8 and QUADRANT_Y>=1 and QUADRANT_Y<=8 then
       print
@@ -391,11 +390,10 @@ function Nav()
     if SHIPDEAD then return ST_DEAD
 
     ' REPAIRS
-    D1=0 : D6=NAV_WARP_FACTOR : if NAV_WARP_FACTOR>=1 then D6=1
+    D1=0 : D6=0 : if NAV_WARP_FACTOR>=1 then D6=1
     for I=1 to 8
       if DEVICE_DAMAGE(I)>=0 then continue for
       DEVICE_DAMAGE(I)=DEVICE_DAMAGE(I)+D6
-      if DEVICE_DAMAGE(I)>-.1and DEVICE_DAMAGE(I)<0then DEVICE_DAMAGE(I)=-.1 : continue for
       if DEVICE_DAMAGE(I)<0 then continue for
       if D1<>1 then D1=1 : print "\nDAMAGE CONTROL REPORT :   "
       print DEVICE_NAME$(I);" REPAIR COMPLETED"
@@ -405,10 +403,10 @@ function Nav()
     if rnd(1)<=.2 then
       J=FNR(1)
       if rnd(1)<.6 then
-        DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)-(rnd(1)*5+1) : print "\nDAMAGE CONTROL REPORTS:"
+        DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)-(int(rnd(1)*5)+1) : print "\nDAMAGE CONTROL REPORTS:"
         print DEVICE_NAME$(J);" DAMAGED"
       else
-        DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)+rnd(1)*3+1 : print "\nDAMAGE CONTROL REPORTS:"
+        DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)+int(rnd(1)*3)+1 : print "\nDAMAGE CONTROL REPORTS:"
         print DEVICE_NAME$(J);" PARTLY REPAIRED"
       end if
     end if
@@ -456,7 +454,6 @@ function Nav()
       ' CHECK IF SHIP HAS RETURNED TO ORIGINAL QUADRANT
       if 8*QUADRANT_X+QUADRANT_Y=8*Q4+Q5 then
         PlaceToken(ENTERPRISE_TOKEN$, int(SECTOR_X), int(SECTOR_Y)) : ManeuverEnergy() : T8=1
-        if NAV_WARP_FACTOR<1 then T8=.1*int(10*NAV_WARP_FACTOR)
         STARDATE_CUR=STARDATE_CUR+T8 : if STARDATE_CUR>STARDATE_START+MISSION_DAYS then return ST_GAMEOVER
         return ShortRangeScan()
       end if
@@ -472,7 +469,6 @@ function Nav()
     PlaceToken(ENTERPRISE_TOKEN$, int(SECTOR_X), int(SECTOR_Y))
     ManeuverEnergy()
     T8=1
-    if NAV_WARP_FACTOR<1 then T8=.1*int(10*NAV_WARP_FACTOR)
     STARDATE_CUR=STARDATE_CUR+T8
     if STARDATE_CUR>STARDATE_START+MISSION_DAYS then return ST_GAMEOVER
 
@@ -758,16 +754,13 @@ function Damage()
       ' CHECK IF DAMAGE CONTROL IS AVAILABLE
       if DEVICE_DAMAGE(6)<0 and D0<>0 then
         ' CALCULATE TIME TO REPAIR
-        D3=0 : for I=1 to 8 : if DEVICE_DAMAGE(I)<0 then D3=D3+.1
+        D3=0 : for I=1 to 8 : if DEVICE_DAMAGE(I)<0 then D3=D3+1
         next I : if D3=0 then return ST_COMMAND
-        D3=D3+D4
-        ' CHECK IF TIME TO REPAIR IS MAXIMUM
-        if D3>=1 then D3=.9
         ' PRINT REPAIR REPORT
         print "\nTECHNICIANS STANDING BY TO EFFECT"
         print "REPAIRS TO YOUR SHIP;"
         print "ESTIMATED TIME TO REPAIR: "
-        print .01*int(100*D3);" STARDATES"
+        print D3;" STARDATES"
         A$=Ask$("\nAUTHORISE THE REPAIR ORDER (Y/N)? ", 1)
         if A$<>"Y" then return ST_COMMAND
 
@@ -776,7 +769,7 @@ function Damage()
           if DEVICE_DAMAGE(I)<0 then DEVICE_DAMAGE(I)=0
         next I
         ' UPDATE STARDATE
-        STARDATE_CUR=STARDATE_CUR+D3+.1
+        STARDATE_CUR=STARDATE_CUR+D3
       end if
 
       ' PRINT REPAIR REPORT
@@ -784,7 +777,7 @@ function Damage()
       print      " ------------------- -----------------"
       for I=1 to 8
         print " ";DEVICE_NAME$(I);left$(SPACE_PAD$,20-len(DEVICE_NAME$(I)));
-        D2=int(DEVICE_DAMAGE(I)*100)*.01
+        D2=DEVICE_DAMAGE(I)
         if D2<0 then print CCOL$;"DAMAGED     ";D2;FCOL$
         if D2>0 then print "OPERATIONAL ";D2
         if D2=0 then print "OPERATIONAL ";D2
@@ -819,7 +812,7 @@ function KlingonsFire()
       if rnd(1)>.6 or H/SHIELD_UNITS<=.02 then continue for
 
       ' DAMAGE CONTROL REPORT
-      J=FNR(1) : DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)-H/SHIELD_UNITS-.5*rnd(1)
+      J=FNR(1) : DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)-(int(rnd(1)*3)+1)
       print : background 6: color 1: print "DAMAGE CONTROL REPORTS :  "
       print DEVICE_NAME$(J);" DAMAGED BY THE HIT";:background 0: print
     next I
@@ -871,7 +864,8 @@ function ShowVictory()
     print "KLINGON BATTLE CRUISER MENACING THE"
     print "FEDERATION HAS BEEN DESTROYED."
     print "\nYOUR EFFICIENCY RATING IS";
-    print int(1000*(K7/(STARDATE_CUR-STARDATE_START))^2)
+    EL=STARDATE_CUR-STARDATE_START : if EL<1 then EL=1
+    print int(1000*(K7/EL)^2)
     return ST_PLAYAGAIN
 end function
 
@@ -946,7 +940,7 @@ function ShortRangeScan()
     LOW$=" LOW!"
     print
     print "    1 2 3 4 5 6 7 8"
-    print "   +-+-+-+-+-+-+-+-- STARDATE  ";int(STARDATE_CUR*10)*.1
+    print "   +-+-+-+-+-+-+-+-- STARDATE  ";STARDATE_CUR
     
     ' PRINT QUADRANT
     for I=1 to 8
@@ -966,7 +960,7 @@ function ShortRangeScan()
       ' PRINT SUMMARY DATA
       select case I
       case 1
-        print " DAYS LEFT ";.1*int((STARDATE_START+MISSION_DAYS-STARDATE_CUR)*10);
+        print " DAYS LEFT ";STARDATE_START+MISSION_DAYS-STARDATE_CUR;
       case 2
         print " CONDITION "; : print C$;
       case 3
@@ -1157,7 +1151,7 @@ function ComputerStatusReport()
     print "\n KLINGONS LEFT :";KLINGON_COUNT
     print " ENERGY        :";int(SHIP_ENERGY+SHIELD_UNITS)
     print " TORPEDOES     :";int(TORPEDO_COUNT)
-    print "\n  MISSION MUST BE COMPLETED IN ";.1*int((STARDATE_START+MISSION_DAYS-STARDATE_CUR)*10)
+    print "\n  MISSION MUST BE COMPLETED IN ";STARDATE_START+MISSION_DAYS-STARDATE_CUR
     print " STARDATES"
 
     ' MULTIPLE STARBASES
