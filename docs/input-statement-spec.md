@@ -47,8 +47,10 @@ a headless regression harness so input behaviour doesn't rot as it grows.
           words-vs-letters parsing the GET loop had).
 - [x] T9  Regression: input harness pass, bigstring pass, emit-c failures
           118→115 (3 INPUT examples newly transpile, zero new breaks).
-- [ ] T10 Docs: note INPUT transpiler support (rgc-transpiler README).
-- [ ] T11 Commit + push: rgc-transpiler (emit_c), rgc-basic (adventure + tests + spec).
+- [x] T10 Docs: INPUT note added to rgc-transpiler README.
+- [x] T11 Commit + push: rgc-transpiler 9fb7906, rgc-basic 9b2f94a.
+
+## DONE 2026-06-18 — all tasks complete.
 
 ## Test commands (reference)
 
