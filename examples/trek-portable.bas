@@ -71,7 +71,7 @@ end
 function TitleScreen()
     cls()
     print "-GENERIC SPACE BATTLE COMPUTER GAME-"
-    print "(portable version)"
+    print "(PORTABLE VERSION)"
     pause()
     return
 
@@ -496,12 +496,12 @@ function ManeuverPOWER()
     return
 end function
 
-function disp_quadrant_cell$(this_q_col, this_q_row)
-  if (this_q_col < 1 or this_q_col > 8) or (this_q_row < 1 or this_q_row > 8) then 
-    return "=:=:="
+function disp_quadrant_cell$(this_row, this_col)
+  if (this_row < 1 or this_row > 8) or (this_col < 1 or this_col > 8) then
+    print "=:=:=";
   else
-    cell_code = GALAXY(this_q_col, this_q_row)
-    return str$(cell_code\100) + ":" + str$((cell_code\10)mod10) + ":" + str$(cell_code mod10)
+    cell_code = GALAXY(this_row, this_col)
+    print str$(cell_code\100) + ":" + str$((cell_code\10)mod10) + ":" + str$(cell_code mod10);
   end if
 end function
 
@@ -527,14 +527,14 @@ function Lrs()
   
 
     ' LONG RANGE SCAN LOOP
-    q_col = QUADRANT_Y
-    for q_row = QUADRANT_X-1 to QUADRANT_X+1
-      
-        print disp_quadrant_cell$(q_col-1, q_row); " | ";
-        print disp_quadrant_cell$(q_col, q_row); " | ";
-        print disp_quadrant_cell$(q_col+1, q_row)
-      
-    next q_row
+    for scan_row = QUADRANT_Y-1 to QUADRANT_Y+1
+        disp_quadrant_cell$(scan_row, QUADRANT_X-1)
+        print " | ";
+        disp_quadrant_cell$(scan_row, QUADRANT_X)
+        print " | ";
+        disp_quadrant_cell$(scan_row, QUADRANT_X+1)
+        print "\n";
+    next scan_row
 
     K1=0 : if SLSFLAG=1 then SLSFLAG=0
     
@@ -1050,8 +1050,7 @@ function ComputerGalacticRecord()
 
 
     for J=1 to 8
-      J$=str$(J)
-      J$=right$(J$,1)
+      J$=chr$(48+J)
       if A1=5 then RomanNumeral() : continue for
       if J=QUADRANT_X then print "  ";J$;" ";
       if J<>QUADRANT_X then print "  ";J;" ";
@@ -1064,8 +1063,7 @@ function ComputerGalacticRecord()
     print O1$
 
     for I=1 to 8
-      I$=str$(I)
-      I$=right$(I$,1)
+      I$=chr$(48+I)
       if I=QUADRANT_Y then print " ";I$;"";
 
       RowIsRegion=0
@@ -1077,10 +1075,10 @@ function ComputerGalacticRecord()
           if I=QUADRANT_Y and J=QUADRANT_X then print "|"; : GALFLAG=1
           if not (I=QUADRANT_Y and (J=QUADRANT_X or J-1=QUADRANT_X)) then print "|";
           if VISITED_GALAXY(I,J)=0 then print "   "; : continue for
-          G1$=right$(str$(VISITED_GALAXY(I,J)+1000),3)
-          print ECOL$;mid$(G1$,1,1);
-          print DCOL$;mid$(G1$,2,1);
-          print HCOL$;mid$(G1$,3,1);FCOL$;
+          GV=VISITED_GALAXY(I,J)
+          print ECOL$;chr$(48+GV\100);
+          print DCOL$;chr$(48+(GV\10)mod10);
+          print HCOL$;chr$(48+GV mod10);FCOL$;
           if GALFLAG=1 then print "|"; : GALFLAG=0
         next J
       end if
