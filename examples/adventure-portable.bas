@@ -6,6 +6,12 @@
 ' key-waits became DO/LOOP, and each GOSUB target became a function. One latent
 ' typo fixed: original printed OBJ$(F-1) (undefined) where OB$(F-1) was meant.
 '
+' The screens use PETSCII control codes (CHR$ 147 clear, 18/146 reverse, colour
+' codes), so the interpreter needs PET charset mode or those bytes corrupt a
+' plain terminal (and wedge GET input). Leading # so the C transpiler strips it
+' as a directive; the original bare `OPTION CHARSET` parsed as a statement and
+' would not transpile.
+#OPTION CHARSET pet-lower
 ' Room descriptions run ~170 chars, so pin the string cap above the 6502
 ' default (40) or the C target truncates them. Pinned for all targets.
 #OPTION maxstr 200
