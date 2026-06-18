@@ -79,7 +79,7 @@ print "          {LIGHTBLUE}RETROGAMECODERS.COM{WHITE}"
 print ""
 print " {LIGHTGREEN}PRESS H FOR HELP OR OTHER KEY TO START{WHITE}"
 
-  I$ = WaitKey()
+  I$ = waitkey$()
   if I$ = "H" then Help()
 
 ' ===== MAIN LOOP (was DISPLAYROOM / GETCOMMAND) =====
@@ -108,7 +108,7 @@ do
   I$ = ""
   print ""
   print YL$ + "WHAT NOW?" + LB$
-  GetLine()
+  input I$
   I$ = UCASE$(I$)
   if LEFT$(I$, 3) = "GO " then FullMove()
   if I$ = "N" then AbrMove()
@@ -126,7 +126,7 @@ do
   if LEFT$(I$, 5) = "DROP " then DropObject()
   if LEFT$(I$, 8) = "EXAMINE " then ExamineObject()
   if LEFT$(I$, 4) = "LOOK" or LEFT$(I$, 1) = "L" then
-    print "" : print RD$(PL) : print "" : WaitKey()
+    print "" : print RD$(PL) : print "" : waitkey$()
   end if
   if LEFT$(I$, 1) = "Q" then GameOver()
   if LEFT$(I$, 4) = "USE " then UseObject()
@@ -168,11 +168,11 @@ function Inventory()
     if OL(I) = 0 then print ". "; OB$(I)
   next I
   print ""
-  WaitKey()
+  waitkey$()
   return
 end function
 
-function WaitKey()
+function WaitKey$()
   print CY$ + RV$ + "        PRESS A KEY TO CONTINUE         " + RO$
   I$=""
   while I$ = ""
@@ -219,7 +219,7 @@ function GetObjId()
     end if
   end if
   print ""
-  WaitKey()
+  waitkey$()
   return
 end function
 
@@ -241,7 +241,7 @@ function DropObject()
       print "NO CAN DO, ARE YOU SURE YOU HAVE THAT?"
     end if
   end if
-  WaitKey()
+  waitkey$()
   return
 end function
 
@@ -261,7 +261,7 @@ function ExamineObject()
       print "NO CAN DO, ARE YOU SURE YOU HAVE THAT?"
     end if
   end if
-  WaitKey()
+  waitkey$()
   return
 end function
 
@@ -281,7 +281,7 @@ function UseObject()
       print "NO CAN DO, ARE YOU SURE YOU HAVE THAT?"
     end if
   end if
-  WaitKey()
+  waitkey$()
   return
 end function
 
@@ -289,7 +289,7 @@ function ObjectActions()
   ' MATCHES (F=1) IN THE SERVICE HATCH (PL=3) = BOOM
   if F = 1 and PL = 3 then
     print "BOOM! THE FURNACE EXPLODES, FILLING THE ROOM WITH FIRE AND SMOKE!"
-    WaitKey()
+    waitkey$()
     GameOver()
   end if
   ' MATCHES IN THE FURNACE ROOM (PL=2) = LIGHT IT, OPENS A NEW EXIT
@@ -343,7 +343,7 @@ function Help()
   print "  Q, QUIT, EXIT"
   print ""
   print ""
-  WaitKey()
+  waitkey$()
   return
 end function
 
@@ -356,7 +356,7 @@ function YouWin()
   print "FREE TO GO BACK IN AND EXPLORE, JUST"
   print "DO NOT HANG AROUND TOO LONG!"
   print ""
-  WaitKey()
+  waitkey$()
   ClrScr()
   return
 end function
@@ -376,32 +376,6 @@ function ClrScr()
   ' WHITE, CLEAR SCREEN, CURSOR HOME (trailing ; suppresses the newline)
   print WT$ : print CHR$(147) : print CHR$(19);
   return
-end function
-
-' Line reader into the global I$ (the transpiler has no INPUT statement, and a
-' GET-based reader is portable to the C target). Enter ends; CHR$(20)/CHR$(8)
-' backspace; other chars echo.
-function GetLine()
-  I$ = ""
-  do
-    get Y$
-    Y$ = UCASE$(Y$)
-    if Y$ <> "" then
-      if ASC(Y$) = 13 then
-        print ""
-        return
-      end if
-      if ASC(Y$) = 20 or ASC(Y$) = 8 then
-        if len(I$) > 0 then
-          I$ = LEFT$(I$, len(I$) - 1)
-          print Y$;
-        end if
-      else
-        I$ = I$ + Y$
-        print Y$;
-      end if
-    end if
-  loop
 end function
 
 function GameOver()

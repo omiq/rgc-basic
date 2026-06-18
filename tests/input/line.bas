@@ -1,0 +1,2 @@
+input A$
+print "<";A$;">"
