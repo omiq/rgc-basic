@@ -336,149 +336,98 @@ function DoCommand()
 end function
 
 
-REM Replace duplicate code that just warns about something.
-function NavWarning(this_warning$)
-  
-  
-  print : background 6: color 1:print "WARNING:"
-  print this_warning$;: background 0  
-  return 
-
-
-
+function NavWarning(MSG$)
+  print "WARNING:"+MSG$+"\n" : return
 end function
 
 
 ' ** ===== COURSE CONTROL (NAV) ===== **
 function Nav()
-    ShowDirections() : ' ** DIRECTION HELPER **
+    ShowDirections()
     print
     C1=AskNumber("COURSE (1-9) :  ", 5)
     if C1=9 then C1=1
+    if C1<1 or C1>8 then NavWarning("INCORRECT COURSE") : return ST_COMMAND
 
-    ' CHECK IF COURSE IS VALID
-    if C1<1 or C1>=9 then
-      
-      NavWarning("INCORRECT COURSE")
+    X$="8" : if DEVICE_DAMAGE(1)<0 then X$="1"
+    SRSFLAG=1
+    NAV_FTL_SPEED=AskNumber("FTL SPEED (0-"+X$+") :  ", 5)
+    if NAV_FTL_SPEED=0 then return ST_COMMAND
+    if NAV_FTL_SPEED<1 or NAV_FTL_SPEED>8 then NavWarning("ENGINES WONT TAKE FTL "+NAV_FTL_SPEED+"!") : return ST_COMMAND
+    if DEVICE_DAMAGE(1)<0 and NAV_FTL_SPEED>1 then NavWarning("FTL DAMAGED: MAX SPEED = 1") : return ST_COMMAND
+    N=NAV_FTL_SPEED*8
+    if SHIP_POWER-N<0 then
+      NavWarning("INSUFFICIENT POWER FOR FTL "+NAV_FTL_SPEED+"!")
+      if SHIELD_UNITS<N-SHIP_POWER or DEVICE_DAMAGE(7)<0 then return ST_COMMAND
+      NavWarning("SHIELD POWER DEPLOYED IS "+str$(SHIELD_UNITS)+" UNITS.")
       return ST_COMMAND
     end if
 
-    ' GET FTL SPEED
-    X$="8"
-    if DEVICE_DAMAGE(1)<0 then X$="1"
-    SRSFLAG=1
-    NAV_FTL_SPEED=AskNumber("FTL SPEED (0-"+X$+") :  ", 5)
-
-    ' CHECK IF FTL SPEED IS POSSIBLE
-    if DEVICE_DAMAGE(1)<0 and NAV_FTL_SPEED>1 then NavWarning("\nFTL DAMAGED: MAX SPEED = 1"): return ST_COMMAND
-  
-
-    ' CHECK IF FTL SPEED IS ALLOWED
-    if NAV_FTL_SPEED>0 and NAV_FTL_SPEED<=8 then
-      N=NAV_FTL_SPEED*8
-      if SHIP_POWER-N<0 then
-        NavWarning("WARNING: INSUFFICIENT POWER AVAILABLE FOR FTL "+NAV_FTL_SPEED+"!")
-        if SHIELD_UNITS < N-SHIP_POWER or DEVICE_DAMAGE(7) < 0 then return ST_COMMAND
-        S1$=str$(SHIELD_UNITS): NavWarning("SHIELD POWER DEPLOYED IS "+S1$+" UNITS."):return ST_COMMAND
-      end if
-
-    else
-
-      if NAV_FTL_SPEED=0 then return ST_COMMAND
-      NavWarning("ENGINES WONT TAKE FTL "+NAV_FTL_SPEED+"!"): return ST_COMMAND
-    
-    end if
-
-    ' GLONKINS MOVE/FIRE ON MOVING SPACESHIP . . .
     for I=1 to SECTOR_ENEMIES
       if K(I,3)=0 then continue for
       PlaceToken(C_EMPTY, K(I,1), K(I,2)) : FindEmpty()
       K(I,1)=TOKEN_Y : K(I,2)=TOKEN_X : PlaceToken(C_GLONKIN, K(I,1), K(I,2))
     next I
     GLONKINsFire()
-
-    ' CHECK IF SHIP IS DEAD
     if SHIPDEAD then return ST_DEAD
 
-    ' REPAIRS
     D1=0 : D6=0 : if NAV_FTL_SPEED>=1 then D6=1
     for I=1 to 8
       if DEVICE_DAMAGE(I)>=0 then continue for
       DEVICE_DAMAGE(I)=DEVICE_DAMAGE(I)+D6
       if DEVICE_DAMAGE(I)<0 then continue for
-      if D1<>1 then D1=1 : print "\nDAMAGE CONTROL REPORT :   "
+      if D1=0 then D1=1 : print "\nDAMAGE CONTROL REPORT :   "
       print DEVICE_NAME$(I);" REPAIR COMPLETED"
     next I
 
-    ' CHECK IF DEVICE IS DAMAGED
     if RNDINT(100)<=20 then
       J=FNR(1)
       if RNDINT(100)<60 then
-        DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)-RNDINT(5) 
-        NavWarning("\nUPDATE::"+DEVICE_NAME$(J)+" DAMAGED")
+        DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)-RNDINT(5) : W$=" DAMAGED"
       else
-        DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)+RNDINT(3) 
-        NavWarning("\nUPDATE::"+DEVICE_NAME$(J)+" PARTLY REPAIRED")
+        DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)+RNDINT(3) : W$=" PARTLY REPAIRED"
       end if
+      NavWarning("UPDATE::"+DEVICE_NAME$(J)+W$)
     end if
 
-    ' BEGIN MOVING SPACESHIP
-    PlaceToken(C_EMPTY, int(SECTOR_Y), int(SECTOR_X))
-    X1=COURSE_VEC(C1,1)+(COURSE_VEC(C1+1,1)-COURSE_VEC(C1,1))*(C1-int(C1)) : X=SECTOR_Y : Y=SECTOR_X
-    X2=COURSE_VEC(C1,2)+(COURSE_VEC(C1+1,2)-COURSE_VEC(C1,2))*(C1-int(C1)) : Q4=QUADRANT_Y : Q5=QUADRANT_X
-    MoveInterrupted=0 : CrossedQuadrant=0
+    PlaceToken(C_EMPTY, SECTOR_Y, SECTOR_X)
+    X1=COURSE_VEC(C1,1)+(COURSE_VEC(C1+1,1)-COURSE_VEC(C1,1))*(C1-int(C1))
+    X2=COURSE_VEC(C1,2)+(COURSE_VEC(C1+1,2)-COURSE_VEC(C1,2))*(C1-int(C1))
+    X=SECTOR_Y : Y=SECTOR_X : Q4=QUADRANT_Y : Q5=QUADRANT_X : CrossedQuadrant=0
 
-    ' MOVE SPACESHIP
-    for I=1 to N : SECTOR_Y=SECTOR_Y+X1 : SECTOR_X=SECTOR_X+X2
-        if SECTOR_Y<1 or SECTOR_Y>=9 or SECTOR_X<1 or SECTOR_X>=9 then CrossedQuadrant=1 : exit for
-        if CheckSector(C_EMPTY, SECTOR_Y, SECTOR_X)=1 then continue for
-        SECTOR_Y=int(SECTOR_Y-X1) : SECTOR_X=int(SECTOR_X-X2) 
-        NavWarning("\nFTL SHUTDOWN: SECTOR "+SECTOR_X+","+SECTOR_Y+" BAD NAVIGATION")
-        SRSFLAG=1
-        MoveInterrupted=1
-        exit for
+    for I=1 to N
+      SECTOR_Y=SECTOR_Y+X1 : SECTOR_X=SECTOR_X+X2
+      if SECTOR_Y<1 or SECTOR_Y>=9 or SECTOR_X<1 or SECTOR_X>=9 then CrossedQuadrant=1 : exit for
+      if CheckSector(C_EMPTY, SECTOR_Y, SECTOR_X)=1 then continue for
+      SECTOR_Y=int(SECTOR_Y-X1) : SECTOR_X=int(SECTOR_X-X2)
+      NavWarning("FTL SHUTDOWN: SECTOR "+SECTOR_X+","+SECTOR_Y+" BAD NAVIGATION")
+      SRSFLAG=1 : exit for
     next I
 
-    ' CHECK IF SHIP HAS CROSSED QUADRANT
     if CrossedQuadrant=1 then
-      X=8*QUADRANT_Y+X+N*X1 : Y=8*QUADRANT_X+Y+N*X2 : QUADRANT_Y=int(X/8) : QUADRANT_X=int(Y/8) : SECTOR_Y=int(X-QUADRANT_Y*8)
-      SECTOR_X=int(Y-QUADRANT_X*8) : if SECTOR_Y=0 then QUADRANT_Y=QUADRANT_Y-1 : SECTOR_Y=8
+      X=8*QUADRANT_Y+X+N*X1 : Y=8*QUADRANT_X+Y+N*X2
+      QUADRANT_Y=int(X/8) : QUADRANT_X=int(Y/8)
+      SECTOR_Y=int(X-QUADRANT_Y*8) : SECTOR_X=int(Y-QUADRANT_X*8)
+      if SECTOR_Y=0 then QUADRANT_Y=QUADRANT_Y-1 : SECTOR_Y=8
       if SECTOR_X=0 then QUADRANT_X=QUADRANT_X-1 : SECTOR_X=8
-      X5=0 : if QUADRANT_Y<1 then X5=1 : QUADRANT_Y=1 : SECTOR_Y=1
+      X5=0
+      if QUADRANT_Y<1 then X5=1 : QUADRANT_Y=1 : SECTOR_Y=1
       if QUADRANT_Y>8 then X5=1 : QUADRANT_Y=8 : SECTOR_Y=8
       if QUADRANT_X<1 then X5=1 : QUADRANT_X=1 : SECTOR_X=1
       if QUADRANT_X>8 then X5=1 : QUADRANT_X=8 : SECTOR_X=8
-
-      ' CHECK IF SHIP HAS CROSSED QUADRANT
       if X5<>0 then
         NavWarning("NAV ERROR: SHUTDOWN: "+SECTOR_Y+","+SECTOR_X+" Q "+QUADRANT_Y+","+QUADRANT_X)
-        SRSFLAG=1
-        Pause()
+        SRSFLAG=1 : Pause()
         if DATE_CUR>GAME_DATE+MISSION_DAYS then return ST_GAMEOVER
       end if
-
-      ' CHECK IF SHIP HAS RETURNED TO ORIGINAL QUADRANT
-      if 8*QUADRANT_Y+QUADRANT_X=8*Q4+Q5 then
-        PlaceToken(C_SHIP, int(SECTOR_Y), int(SECTOR_X)) : ManeuverPOWER() : T8=1
-        DATE_CUR=DATE_CUR+T8 : if DATE_CUR>GAME_DATE+MISSION_DAYS then return ST_GAMEOVER
-        return ShortRangeScan()
-      end if
-      DATE_CUR=DATE_CUR+1 : ManeuverPOWER() : return ST_NEWQUAD
+      if 8*QUADRANT_Y+QUADRANT_X<>8*Q4+Q5 then DATE_CUR=DATE_CUR+1 : ManeuverPOWER() : return ST_NEWQUAD
     end if
 
-    ' MOVE SPACESHIP
-    if MoveInterrupted=0 then 
-      SECTOR_Y=int(SECTOR_Y)
-      SECTOR_X=int(SECTOR_X)
-    end if
-
-    PlaceToken(C_SHIP, int(SECTOR_Y), int(SECTOR_X))
+    SECTOR_Y=int(SECTOR_Y) : SECTOR_X=int(SECTOR_X)
+    PlaceToken(C_SHIP, SECTOR_Y, SECTOR_X)
     ManeuverPOWER()
-    T8=1
-    DATE_CUR=DATE_CUR+T8
+    DATE_CUR=DATE_CUR+1
     if DATE_CUR>GAME_DATE+MISSION_DAYS then return ST_GAMEOVER
-
-    ' SEE IF DOCKED, THEN GET COMMAND
     return ShortRangeScan()
 end function
 
