@@ -502,7 +502,7 @@ function LASERS()
       end if
 
       ' HIT GLONKIN
-      K(I,3)=K(I,3)-H : print
+      K(I,3)=K(I,3)-H 
       print H;" HIT! ";K(I,1);",";K(I,2)
       if K(I,3)>0 then
         print " (SCAN SHOWS ";int(K(I,3));" UNITS REMAINING)"
@@ -889,7 +889,7 @@ function Computer()
     end if
 
     ' PRINT FUNCTIONS AVAILABLE FROM COMPUTER
-    print "\nCOMMANDS AVAILABLE:" : print
+    print "\nCOMMANDS AVAILABLE:" 
     print " 0 - CUMULATIVE LOG"
     print " 1 - STATUS & DAMAGE REPORT"
     print " 2 - WARHEAD TARGETING DATA"
@@ -1174,17 +1174,7 @@ function QuadrantName$(QX, QY, REGION_ONLY)
     case 8
         NAME$="POLLUX" : if QY>4 then NAME$="SPICA"
     end select
-    if REGION_ONLY then return NAME$
-    select case QY
-    case 1, 5
-        return NAME$+" I"
-    case 2, 6
-        return NAME$+" II"
-    case 3, 7
-        return NAME$+" III"
-    case 4, 8
-        return NAME$+" IV"
-    end select
+   
     return NAME$
 end function
 
@@ -1197,7 +1187,7 @@ function Ask$(CAPTION$, MAX_LEN)
 end function
 
 function AskNumber(CAPTION$, MAX_LEN)
-    Ask$(CAPTION$, MAX_LEN)
+    LII$=Ask$(CAPTION$, MAX_LEN)
     return val(LII$)
 end function
 
@@ -1217,7 +1207,7 @@ end function
 ' ** KEY TO SRS ICONS **
 function ShowKey()
     cls()
-    print "\n KEY TO SHORT RANGE SCANNER ICONS:" : print
+    print "\n KEY TO SHORT RANGE SCANNER ICONS:" 
     print "  E  = EARTH FLEET STARSHIP"
     print "  B  = EARTH SPACESTATION"
     print "  *  = PLANET"
@@ -1229,7 +1219,7 @@ end function
 ' ** LIST OF COMMANDS **
 function ShowCommands()
     cls()
-    print "\n USE THESE COMMANDS:" : print
+    print "\n USE THESE COMMANDS:" 
     print "  NAV  - TO SET COURSE"
     print "  SRS  - FOR SHORT RANGE SCAN"
     print "  LRS  - FOR LONG RANGE SCAN"
