@@ -1,4 +1,4 @@
-' ** SUPER PLANET TREK PORTABLE VERSION **
+' ** SPACE BATTLE COMPUTER GAME PORTABLE VERSION **
 
 ' ** STATE MACHINE STATES **
 ST_QUIT=0 : ST_NEWGAME=1 : ST_NEWQUAD=2 : ST_COMMAND=3 : ST_DEAD=4
@@ -22,9 +22,6 @@ OBJ_LUT$(4) = "*"
 ' -1: not initialized yet (lazy init in DoCommand)
 ' 0..63: initialized dict slot (allocated by dictnew)
 CMD_DICT=-1
-
-' ** INITIALIZE COLOURS USED IN STRING PRINTS **
-InitColours()
 
 ' COURSE_VEC(9,2) = nav keypad deltas; DEVICE_DAMAGE(8) / DEVICE_NAME$(8) = ship systems
 dim GALAXY(8,8),COURSE_VEC(9,2),K(3,3),VISITED_GALAXY(8,8),DEVICE_DAMAGE(8),DEVICE_NAME$(8),QUAD(8,8)
@@ -79,12 +76,9 @@ end function
 
 ' ** PRINT MISSION ORDERS **
 function PrintMissionOrders()
-    if SPACESTATION_COUNT<>1 then X$="S" : X0$=" ARE "
+    
     cls()
-    print "MISSION:"
-    print "DESTROY THE ";GLONKIN_COUNT;" GLONKIN WARSHIPS"
-    print "DATE ";GAME_DATE+MISSION_DAYS;". ";MISSION_DAYS;" DAYS REMAINING."
-    print "THERE";X0$;SPACESTATION_COUNT;" SPACESTATION";X$;" AVAILABLE FOR RESUPPLY & REPAIRS"
+    print "MISSION:\nENEMY SHIPS: "; GLONKIN_COUNT ;"\nDAYS REMAINING: "; MISSION_DAYS;"\nSPACESTATIONS: "; SPACESTATION_COUNT    
     return
 end function
 
@@ -166,8 +160,8 @@ function SetupGame()
     next I
 
     if GLONKIN_COUNT>MISSION_DAYS then MISSION_DAYS=GLONKIN_COUNT+1
-    ShowKey() : ' ** KEY TO SRS ICONS **
-    ShowCommands() : ' ** USE THESE COMMANDS LIST **
+    'ShowKey() : ' ** KEY TO SRS ICONS **
+    'ShowCommands() : ' ** USE THESE COMMANDS LIST **
 
 
     ' Guarantee at least one SPACESTATION and preserve original balancing tweak.
@@ -1342,14 +1336,8 @@ end function
 
 ' ** DIRECTION HELPER **
 function ShowDirections()
-    print ""
-    print " ENTER A NUMBER       4  3  2"
-    print " BETWEEN 1 AND 9       . . ."
-    print "                        ..."
-    print "                    5 ---*--- 1"
-    print "                        ..."
-    print "                       . . ."
-    print "                      6  7  8"
+    print "\nENTER A NUMBER\nBETWEEN 1 AND 9"
+    print "  4  3  2\n   . . .\n    ...\n5 ---*--- 1\n    ...\n   . . .\n  6  7  8"
     return
 end function
 
@@ -1388,18 +1376,5 @@ function InitDeviceNames()
 end function
 
 
-' ** COLOURS FOR IN-GAME **
-function InitColours()
-    ACOL$="" 
-    BCOL$="" 
-    CCOL$="" 
-    DCOL$="" 
-    ECOL$="" 
-    FCOL$="" 
-    GCOL$="" 
-    HCOL$="" 
-    ICOL$=""
-    return
-end function
 
 
