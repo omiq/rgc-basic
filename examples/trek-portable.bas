@@ -274,7 +274,7 @@ function DoCommand()
     ' CHECK IF SHIP HAS ENOUGH POWER
     if SHIELD_UNITS+SHIP_POWER <= 10 or (SHIP_POWER<=10 and DEVICE_DAMAGE(7)<>0) then
       print "\n** OUT OF POWER **"
-      print : Pause()
+      Pause()
       return ST_GAMEOVER
     end if
 
@@ -344,7 +344,6 @@ end function
 ' ** ===== COURSE CONTROL (NAV) ===== **
 function Nav()
     ShowDirections()
-    print
     C1=AskNumber("COURSE (1-9) :  ", 5)
     if C1=9 then C1=1
     if C1<1 or C1>8 then NavWarning("INCORRECT COURSE") : return ST_COMMAND
@@ -383,11 +382,11 @@ function Nav()
     if RNDINT(100)<=20 then
       J=FNR(1)
       if RNDINT(100)<60 then
-        DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)-RNDINT(5) : W$=" DAMAGED"
+        DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)-RNDINT(5) : NavWarning("DAMAGED "+DEVICE_NAME$(J))
       else
-        DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)+RNDINT(3) : W$=" PARTLY REPAIRED"
+        DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)+RNDINT(3) : NavWarning("PARTLY REPAIRED "+DEVICE_NAME$(J))
       end if
-      NavWarning("UPDATE::"+DEVICE_NAME$(J)+W$)
+
     end if
 
     PlaceToken(C_EMPTY, SECTOR_Y, SECTOR_X)
@@ -534,7 +533,7 @@ function LASERS()
     next I
 
     ' CHECK IF GLONKINS ARE LEFT
-    if SECTOR_ENEMIES>0 then print : Pause()
+    if SECTOR_ENEMIES>0 then Pause()
 
     ' FIRE BACK AT STARSHIP
     GLONKINsFire()
@@ -544,6 +543,15 @@ function LASERS()
 
     ' RETURN SUCCESS
     return ST_COMMAND
+end function
+
+
+function TorpedoEndTurn(MSG$)
+  if MSG$<>"" then print MSG$
+  if SECTOR_ENEMIES<>0 then Pause()
+  GLONKINsFire()
+  if SHIPDEAD then return ST_DEAD
+  return ST_COMMAND
 end function
 
 
@@ -567,14 +575,8 @@ function WARHEAD()
       print "\nWARHEAD TRACKING:"
       RetryCourse=0
       do
-        X=X+X1 : Y=Y+X2 : X3=int(X) : Y3=int(Y)
-        if X3<1 or X3>8 or Y3<1 or Y3>8 then
-          print " ** WARHEAD MISSED **"
-          if SECTOR_ENEMIES<>0 then print : Pause()
-          GLONKINsFire()
-          if SHIPDEAD then return ST_DEAD
-          return ST_COMMAND
-        end if
+        X=X+X1 : Y=Y+X2 : X3=X : Y3=Y
+        if X3<1 or X3>8 or Y3<1 or Y3>8 then return TorpedoEndTurn(" ** WARHEAD MISSED **")
 
         ' PRINT WARHEAD TRACKING
         print " ";X3;",";Y3
@@ -587,7 +589,7 @@ function WARHEAD()
 
           ' GLONKIN KILLED
           print " *** GLONKIN DESTROYED ***"
-          SECTOR_ENEMIES=SECTOR_ENEMIES-1 : if SECTOR_ENEMIES>0 then print : Pause()
+          SECTOR_ENEMIES=SECTOR_ENEMIES-1 : if SECTOR_ENEMIES>0 then Pause()
           GLONKIN_COUNT=GLONKIN_COUNT-1
 
           ' CHECK IF ALL GLONKINS ARE DESTROYED
@@ -616,14 +618,7 @@ function WARHEAD()
           return ST_COMMAND
         end if
 
-        ' CHECK IF SECTOR IS PLANET
-        if CheckSector(C_PLANET, X, Y)=1 then
-          print " ** PLANET AT";X3;",";Y3;"ABSORBED WARHEAD **"
-          if SECTOR_ENEMIES<>0 then print : Pause()
-          GLONKINsFire()
-          if SHIPDEAD then return ST_DEAD
-          return ST_COMMAND
-        end if
+        if CheckSector(C_PLANET, X, Y)=1 then return TorpedoEndTurn(" ** PLANET AT "+str$(X3)+","+str$(Y3)+" ABSORBED WARHEAD **")
 
         ' CHECK IF SECTOR IS SPACESTATION
         if CheckSector(C_BASE, X, Y)=0 then
@@ -631,12 +626,12 @@ function WARHEAD()
           exit do
         end if
         print " *** SPACESTATION DESTROYED ***"
-        print : Pause()
+        Pause()
         SECTOR_BASES=SECTOR_BASES-1 : SPACESTATION_COUNT=SPACESTATION_COUNT-1
 
         ' CHECK IF ALL SPACESTATIONS ARE DESTROYED
         if SPACESTATION_COUNT<=0 and GLONKIN_COUNT<=DATE_CUR-GAME_DATE-MISSION_DAYS then
-          print : background 6: color 1: print "FAILURE.";:background 0
+          NavWarning("FAILURE - SPACESTATIONS DESTROYED")
           return ST_MISSIONEND
         end if
 
@@ -664,18 +659,14 @@ function Shields()
     if DEVICE_DAMAGE(7)<0 then print "\nSHIELD CONTROL DOWN" : return ST_COMMAND
     print "\nPOWER AVAILABLE = ";SHIP_POWER+SHIELD_UNITS
     X=AskNumber("\nNUMBER OF UNITS TO SHIELDS :  ", 5)
-    if X<0 or SHIELD_UNITS=X then print "<SHIELDS UNCHANGED>" : return ST_COMMAND
-
-    ' CHECK IF SHIELD POWER IS AVAILABLE
-    if X>SHIP_POWER+SHIELD_UNITS then
-      print :  background 6: color 1: print "SHIELD CONTROL ERROR"
-      print "<SHIELDS UNCHANGED>";:background 0: print : return ST_COMMAND
+    
+    if X<0 or SHIELD_UNITS=X or X>SHIP_POWER+SHIELD_UNITS then
+      if X>SHIP_POWER+SHIELD_UNITS then print "\nSHIELD CONTROL ERROR"
+      print "<SHIELDS UNCHANGED>" : return ST_COMMAND
     end if
 
-    ' UPDATE SHIELD POWER
-    SHIP_POWER=SHIP_POWER+SHIELD_UNITS-X : SHIELD_UNITS=X : print :background 6: color 1: print "ALERT:"
-    print "SHIELDS NOW AT ";int(SHIELD_UNITS);" UNITS PER"
-    print "YOUR COMMAND.";:background 0: print : return ST_COMMAND
+    SHIP_POWER=SHIP_POWER+SHIELD_UNITS-X : SHIELD_UNITS=X
+    print "\nSHIELDS NOW AT ";int(SHIELD_UNITS) : return ST_COMMAND
 end function
 
 
@@ -691,10 +682,8 @@ function Damage()
       D3=0 : for I=1 to 8 : if DEVICE_DAMAGE(I)<0 then D3=D3+1
       next I : if D3=0 then return ST_COMMAND
       ' PRINT REPAIR REPORT
-      print "\nALERT:"
-      print "ESTIMATED REPAIR ETA: "
-      print D3;" DAYS"
-      A$=Ask$("\nAUTHORISE (Y/N)? ", 1)
+
+      A$=Ask$("\nALERT: ESTIMATED REPAIR ETA: "+D3+" DAYS\nAUTHORISE (Y/N)? ", 1)
       if A$<>"Y" then return ST_COMMAND
 
       ' REPAIR DEVICES
@@ -710,10 +699,9 @@ function Damage()
     print      " ------------------- -----------------"
     for I=1 to 8
       print " ";DEVICE_NAME$(I);left$(SPACE_PAD$,20-len(DEVICE_NAME$(I)));
-      D2=DEVICE_DAMAGE(I)
-      if D2<0 then print CCOL$;"DAMAGED     ";D2;FCOL$
-      if D2>0 then print "OPERATIONAL ";D2
-      if D2=0 then print "OPERATIONAL ";D2
+      
+      if DEVICE_DAMAGE(I)<0 then print CCOL$;"DAMAGED     ";DEVICE_DAMAGE(I);
+      if DEVICE_DAMAGE(I)>=0 then print "OPERATIONAL ";DEVICE_DAMAGE(I);
     next I
     return ST_COMMAND
 end function
@@ -744,8 +732,7 @@ function GLONKINsFire()
 
       ' DAMAGE CONTROL REPORT
       J=FNR(1) : DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)-RNDINT(3)
-      print : background 6: color 1: print "UPDATE: :  "
-      print DEVICE_NAME$(J);" DAMAGED BY THE HIT";:background 0: print
+      print "UPDATE: "+DEVICE_NAME$(J)+" DAMAGED BY THE HIT"
     next I
     ATAKFLAG=1
     return
@@ -761,9 +748,8 @@ end function
 
 ' ** ===== SHIP DESTROYED ===== **
 function ShipDestroyed()
-    print : Pause()
-    print "\n THE STARSHIP HAS BEEN DESTROYED. "
-    print chr$(13);"THE EARTH WILL BE CONQUERED"
+    Pause()
+    print "\n THE STARSHIP HAS BEEN DESTROYED.\nTHE EARTH WILL BE CONQUERED"
     return ST_GAMEOVER
 end function
 
@@ -788,9 +774,8 @@ end function
 
 ' ** ===== SHOW VICTORY ===== **
 function ShowVictory()
-    print : Pause()
-    print "\nCONGRATULATIONS, YOU SAVED THE EARTH!"
-    print "\nSCORE:";
+    Pause()
+    print "\nCONGRATULATIONS, YOU SAVED THE EARTH!\nSCORE:";
     EL=DATE_CUR-GAME_DATE : if EL<1 then EL=1
     print int(1000*(K7/EL)^2)
     return ST_PLAYAGAIN
@@ -800,22 +785,22 @@ end function
 ' ** ===== SHORT RANGE SCAN & SUMMARY (SLS CHAINS INTO LRS) ===== **
 function ShortRangeScan()
     if ATAKFLAG=1 then
-      print
+      
       Pause()
     end if
 
     ' CHECK IF SHORT RANGE SENSORS ARE OUT
     if DEVICE_DAMAGE(2)<0 then
-      print
-      print "*** SHORT RANGE SENSORS DAMAGED ***"
+      
+      print "\n*** SHORT RANGE SENSORS DAMAGED ***"
       if SLSFLAG=1 then return Lrs()
       return ST_COMMAND
     end if
 
     ' PRINT SHORT RANGE SCAN + SUMMARY DATA
     if SRSFLAG=0 then
-      print
-      print " SHORT RANGE SCAN + SUMMARY "
+      
+      print "\n SHORT RANGE SCAN + SUMMARY "
     end if
     SRSFLAG=0
     ATAKFLAG=0
@@ -951,21 +936,18 @@ function Computer()
     print " 4 - DIRECTION/DISTANCE CALCULATOR"
     print " 5 - SYSTEM REGION MAP"
     ' CHECK IF COMPUTER IS ACTIVE
+    COM_CMD=0
     if COMFLAG=1 then
       print "0"
-      A=0
-      A1=A
     else
-      A=AskNumber(chr$(13)+"ENTER COMMAND :  ", 1)
-      A1=A : if A<0 or A>5 then return ST_COMMAND
+      COM_CMD=AskNumber("\nENTER COMMAND :  ", 1)
+      if COM_CMD<0 or COM_CMD>5 then return ST_COMMAND
       if LII$="" then return ST_COMMAND
     end if
 
-    ' EXECUTE COMMAND
-    select case A
+    select case COM_CMD
     case 0
-      H8=1 : A=0 : A1=0
-      return ComputerGalacticRecord()
+      return ComputerGalacticLog()
     case 1
       return ComputerStatusReport()
     case 2
@@ -975,96 +957,86 @@ function Computer()
     case 4
       return ComputerCalculator()
     case 5
-      return ComputerGalaxyMap()
+      return ComputerGalaxyRegionMap()
     end select
     return ST_COMMAND
 end function
 
 
-' ** ===== COMPUTER GALACTIC RECORD ===== **
-function ComputerGalacticRecord()
-    ' GALFLAG marks the highlighted current quadrant separator slot.
-    GALFLAG=0
+function PrintGalaxyCell(GV)
+  print (GV\100);((GV\10)mod10);(GV mod10);
+  return
+end function
 
 
-    if A<>5 then
+function PrintGalaxyDataRow(MAP_ROW)
+  GALFLAG=0
+  for J=1 to 8
+    if MAP_ROW=QUADRANT_Y and J=QUADRANT_X then print "|"; : GALFLAG=1
+    if not (MAP_ROW=QUADRANT_Y and (J=QUADRANT_X or J-1=QUADRANT_X)) then print "|";
+    if VISITED_GALAXY(MAP_ROW,J)=0 then print "   "; : continue for
+    PrintGalaxyCell(VISITED_GALAXY(MAP_ROW,J))
+    if GALFLAG=1 then print "|"; : GALFLAG=0
+  next J
+  return
+end function
+
+
+function PrintRegionRow(MAP_ROW)
+  QN$=QuadrantName$(MAP_ROW, 1, 1) : J0=11-len(QN$)\2
+  print "|";
+  print tab(J0);QN$;
+  print tab(18);"|";
+  QN$=QuadrantName$(MAP_ROW, 5, 1) : J0=27-len(QN$)\2
+  print tab(J0);QN$; : print tab(34);"|";
+  return
+end function
+
+
+' ** ===== COMPUTER CUMULATIVE GALACTIC LOG (CMD 0) ===== **
+function ComputerGalacticLog()
+  print "  COMPUTER LOG FOR QUADRANT ";QUADRANT_Y;",";QUADRANT_X;"\n"
+  for J=1 to 8
+    print "  ";J;" ";
+  next J
+  print "\n  +---+---+---+---+---+---+---+----"
+  for I=1 to 8
+    print " ";I;
+    if I=QUADRANT_Y then print "";
+    PrintGalaxyDataRow(I)
+    if I=QUADRANT_Y and QUADRANT_X=8 then
       print
-      print "  COMPUTER LOG "
-      print "QUADRANT ";QUADRANT_Y;",";QUADRANT_X
-      print " \n"
-      print "   ";
+    else
+      print "|"
     end if
+    if I<8 then print "  +---+---+---+---+---+---+---+----"
+  next I
+  print "  +---+---+---+---+---+---+---+---+"
+  return ST_COMMAND
+end function
 
 
-    for J=1 to 8
-      J$=chr$(48+J)
-      if A1=5 then RomanNumeral() : continue for
-      if J=QUADRANT_X then print "  ";J$;" ";
-      if J<>QUADRANT_X then print "  ";J;" ";
-    next J
-
-
+' ** ===== COMPUTER REGION MAP (CMD 5) ===== **
+function ComputerGalaxyRegionMap()
+  print "  THE KNOWN REGION: \n\n   ";
+  for J=1 to 8
+    print "  ";J;" ";
+  next J
+  print "\n  +---+---+---+---+---+---+---+----"
+  for I=1 to 8
+    print " ";I;
+    if I=QUADRANT_Y then print "";
+    PrintRegionRow(I)
     print
-    O1$="  +---+---+---+---+---+---+---+----"
-    O2$="  +---+---+---+---+---+---+---+---+"
-    print O1$
-
-    for I=1 to 8
-      I$=chr$(48+I)
-      if I=QUADRANT_Y then print " ";I$;"";
-
-      RowIsRegion=0
-      if A1=5 and I=QUADRANT_Y then RowIsRegion=1
-      if I<>QUADRANT_Y then print " ";I$; : if H8=0 then RowIsRegion=1
-
-      if RowIsRegion=0 then
-        for J=1 to 8
-          if I=QUADRANT_Y and J=QUADRANT_X then print "|"; : GALFLAG=1
-          if not (I=QUADRANT_Y and (J=QUADRANT_X or J-1=QUADRANT_X)) then print "|";
-          if VISITED_GALAXY(I,J)=0 then print "   "; : continue for
-          GV=VISITED_GALAXY(I,J)
-          print ECOL$;chr$(48+GV\100);
-          print DCOL$;chr$(48+(GV\10)mod10);
-          print HCOL$;chr$(48+GV mod10);FCOL$;
-          if GALFLAG=1 then print "|"; : GALFLAG=0
-        next J
-      end if
-
-      if RowIsRegion=1 then
-        J=9
-        QN$=QuadrantName$(I, 1, 1) : J0=11-len(QN$)\2
-        print "|";
-        print tab(J0);QN$;
-        print tab(18);"|";
-        QN$=QuadrantName$(I, 5, 1) : J0=27-len(QN$)\2
-        print tab(J0);QN$; : print tab(34);"|";
-      end if
-
-      if A=0 and J=9 and QUADRANT_Y=I and QUADRANT_X=8 then print
-      if not (A=0 and J=9 and QUADRANT_Y=I and QUADRANT_X=8) then if A=0 then print "|"
-      if A=5 then print
-      if I<8 then print O2$
-    next I
-
-    ' PRINT GALACTIC RECORD FOOTER
-    print "  +---+---+---+---+---+---+---+---+"
-    A1=0
-    return ST_COMMAND
+    if I<8 then print "  +---+---+---+---+---+---+---+----"
+  next I
+  print "  +---+---+---+---+---+---+---+---+"
+  return ST_COMMAND
 end function
 
-
-' ** ===== COMPUTER GALAXY MAP ===== **
-function ComputerGalaxyMap()
-    H8=0
-    A=5
-    A1=5
-    print "  THE KNOWN REGION: \n\n   ";
-    return ComputerGalacticRecord()
-end function
 
 ' ** ===== COMPUTER BASE NAV ===== **
 function ComputerBaseNav()
-    H8=0 : A1=3
     if SECTOR_BASES<>0 then
       print "\nFROM STARSHIP TO SPACESTATION"
       return ComputerCalcCompute(SECTOR_X, SECTOR_Y, B4, B5, 10)
@@ -1379,22 +1351,6 @@ function ShowDirections()
     print "                       . . ."
     print "                      6  7  8"
     return
-end function
-
-' ** GALAXY MAP ROMAN NUMERALS **
-function RomanNumeral()
-    print "";
-    select case J
-    case 1, 5
-        print " I ";;
-    case 2, 6
-        print "II ";
-    case 3, 7
-        print "III";
-    case 4, 8
-        print "IV ";
-    end select
-    print " "; : return
 end function
 
 ' ** THREE-LETTER COMMAND CODES -> CMD (1..10) FOR DoCommand SELECT CASE **
