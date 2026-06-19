@@ -336,6 +336,17 @@ function DoCommand()
 end function
 
 
+REM Replace duplicate code that just warns about something.
+function NavWarning(this_warning$)
+  
+  
+  print : background 6: color 1:print "WARNING:"
+  print this_warning$;: background 0  
+  return 
+
+
+
+end function
 
 
 ' ** ===== COURSE CONTROL (NAV) ===== **
@@ -347,9 +358,8 @@ function Nav()
 
     ' CHECK IF COURSE IS VALID
     if C1<1 or C1>=9 then
-      background 6: color 1
-      print "\nINCORRECT COURSE"
-      print "DATA";: background 0: print
+      
+      NavWarning("INCORRECT COURSE")
       return ST_COMMAND
     end if
 
@@ -357,39 +367,30 @@ function Nav()
     X$="8"
     if DEVICE_DAMAGE(1)<0 then X$="1"
     SRSFLAG=1
-    WF$="FTL SPEED (0-"+X$+") :  "
-    NAV_FTL_SPEED=AskNumber(WF$, 5)
+    NAV_FTL_SPEED=AskNumber("FTL SPEED (0-"+X$+") :  ", 5)
 
     ' CHECK IF FTL SPEED IS POSSIBLE
-    if DEVICE_DAMAGE(1)<0 and NAV_FTL_SPEED>1 then
-      print "\nFTL ENGINES ARE DAMAGED."
-      print "MAXIMUM SPEED = FTL 1" : return ST_COMMAND
-    end if
+    if DEVICE_DAMAGE(1)<0 and NAV_FTL_SPEED>1 then NavWarning("\nFTL DAMAGED: MAX SPEED = 1"): return ST_COMMAND
+  
 
     ' CHECK IF FTL SPEED IS ALLOWED
     if NAV_FTL_SPEED>0 and NAV_FTL_SPEED<=8 then
       N=NAV_FTL_SPEED*8
       if SHIP_POWER-N<0 then
-        print : background 6: color 1:print "WARNING: INSUFFICIENT POWER";
-        print "AVAILABLE FOR FTL ";NAV_FTL_SPEED;"!";: background 0
+        NavWarning("WARNING: INSUFFICIENT POWER AVAILABLE FOR FTL "+NAV_FTL_SPEED+"!")
         if SHIELD_UNITS < N-SHIP_POWER or DEVICE_DAMAGE(7) < 0 then return ST_COMMAND
-        print :background 6: color 1: print "SHIELDS CONTROL ROOM ACKNOWLEDGES"
-        S1$=str$(SHIELD_UNITS)
-        print "SHIELD POWER DEPLOYED IS ";S1$;" UNITS.";: background 0
-        return ST_COMMAND
+        S1$=str$(SHIELD_UNITS): NavWarning("SHIELD POWER DEPLOYED IS "+S1$+" UNITS."):return ST_COMMAND
       end if
 
     else
 
       if NAV_FTL_SPEED=0 then return ST_COMMAND
-      print : background 6: color 1:print "WARNING:"
-      print "ENGINES WONT TAKE FTL ";NAV_FTL_SPEED;"!";: background 0  
-      return ST_COMMAND
+      NavWarning("ENGINES WONT TAKE FTL "+NAV_FTL_SPEED+"!"): return ST_COMMAND
     
     end if
 
     ' GLONKINS MOVE/FIRE ON MOVING SPACESHIP . . .
-    GLONKINsMove: for I=1 to SECTOR_ENEMIES
+    for I=1 to SECTOR_ENEMIES
       if K(I,3)=0 then continue for
       PlaceToken(C_EMPTY, K(I,1), K(I,2)) : FindEmpty()
       K(I,1)=TOKEN_Y : K(I,2)=TOKEN_X : PlaceToken(C_GLONKIN, K(I,1), K(I,2))
@@ -413,11 +414,11 @@ function Nav()
     if RNDINT(100)<=20 then
       J=FNR(1)
       if RNDINT(100)<60 then
-        DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)-RNDINT(5) : print "\nUPDATE::"
-        print DEVICE_NAME$(J);" DAMAGED"
+        DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)-RNDINT(5) 
+        NavWarning("\nUPDATE::"+DEVICE_NAME$(J)+" DAMAGED")
       else
-        DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)+RNDINT(3) : print "\nUPDATE::"
-        print DEVICE_NAME$(J);" PARTLY REPAIRED"
+        DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)+RNDINT(3) 
+        NavWarning("\nUPDATE::"+DEVICE_NAME$(J)+" PARTLY REPAIRED")
       end if
     end if
 
@@ -431,9 +432,8 @@ function Nav()
     for I=1 to N : SECTOR_Y=SECTOR_Y+X1 : SECTOR_X=SECTOR_X+X2
         if SECTOR_Y<1 or SECTOR_Y>=9 or SECTOR_X<1 or SECTOR_X>=9 then CrossedQuadrant=1 : exit for
         if CheckSector(C_EMPTY, SECTOR_Y, SECTOR_X)=1 then continue for
-        SECTOR_Y=int(SECTOR_Y-X1) : SECTOR_X=int(SECTOR_X-X2) : print "\nFTL SHUTDOWN: ";
-        print "SECTOR ";SECTOR_X;",";SECTOR_Y
-        print "BAD NAVIGATION"
+        SECTOR_Y=int(SECTOR_Y-X1) : SECTOR_X=int(SECTOR_X-X2) 
+        NavWarning("\nFTL SHUTDOWN: SECTOR "+SECTOR_X+","+SECTOR_Y+" BAD NAVIGATION")
         SRSFLAG=1
         MoveInterrupted=1
         exit for
@@ -451,11 +451,9 @@ function Nav()
 
       ' CHECK IF SHIP HAS CROSSED QUADRANT
       if X5<>0 then
-        print : background 6: color 1: print "NAV ERROR:."
-        print "SHUTDOWN: ";SECTOR_Y;",";SECTOR_X;" Q ";QUADRANT_Y;",";QUADRANT_X;:
-        background 0: print
+        NavWarning("NAV ERROR: SHUTDOWN: "+SECTOR_Y+","+SECTOR_X+" Q "+QUADRANT_Y+","+QUADRANT_X)
         SRSFLAG=1
-        print : Pause()
+        Pause()
         if DATE_CUR>GAME_DATE+MISSION_DAYS then return ST_GAMEOVER
       end if
 
