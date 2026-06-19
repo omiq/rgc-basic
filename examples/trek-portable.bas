@@ -10,7 +10,7 @@ END_DEAD=1 : END_DATE=2 : END_NOPOWER=3 : END_FAIL=4 : END_WIN=5
 ' the old THIS_QUADRANT$ and corrupted the grid. Integer codes are exact,
 ' small, and need no string runtime.
 C_EMPTY=0 : C_SHIP=1 : C_GLONKIN=2 : C_BASE=3 : C_PLANET=4
-DIM OBJ_LUT$(10)
+DIM OBJ_LUT$(5)
 OBJ_LUT$(0) = " "
 OBJ_LUT$(1) = "E"
 OBJ_LUT$(2) = "K"
@@ -23,9 +23,8 @@ OBJ_LUT$(4) = "*"
 ' 0..63: initialized dict slot (allocated by dictnew)
 CMD_DICT=-1
 
-' COURSE_VEC(9,2) = nav keypad deltas; DEVICE_DAMAGE(8) / DEVICE_NAME$(8) = ship systems
-dim GALAXY(8,8),COURSE_VEC(9,2),K(3,3),VISITED_GALAXY(8,8),DEVICE_DAMAGE(8),DEVICE_NAME$(8),QUAD(8,8)
-InitDeviceNames()
+' COURSE_VEC(9,2) = nav keypad deltas; DEVICE_DAMAGE(8) = ship systems (labels via DeviceName$)
+dim GALAXY(8,8),COURSE_VEC(9,2),K(3,3),VISITED_GALAXY(8,8),DEVICE_DAMAGE(8),QUAD(8,8)
 
 ' ** DISTANCE CALCULATION **
 ' Uses the Pythagorean theorem to calculate the distance between two points.
@@ -360,15 +359,15 @@ function Nav()
       DEVICE_DAMAGE(I)=DEVICE_DAMAGE(I)+D6
       if DEVICE_DAMAGE(I)<0 then continue for
       if D1=0 then D1=1 : print "\nDAMAGE CONTROL REPORT :   "
-      print DEVICE_NAME$(I);" REPAIR COMPLETED"
+      print DeviceName$(I);" REPAIR COMPLETED"
     next I
 
     if RNDINT(100)<=20 then
       J=FNR(1)
       if RNDINT(100)<60 then
-        DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)-RNDINT(5) : NavWarning("DAMAGED "+DEVICE_NAME$(J))
+        DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)-RNDINT(5) : NavWarning("DAMAGED "+DeviceName$(J))
       else
-        DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)+RNDINT(3) : NavWarning("PARTLY REPAIRED "+DEVICE_NAME$(J))
+        DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)+RNDINT(3) : NavWarning("PARTLY REPAIRED "+DeviceName$(J))
       end if
 
     end if
@@ -681,7 +680,7 @@ function Damage()
     print "\n SYSTEM              STATE OF REPAIR"
     print      " ------------------- -----------------"
     for I=1 to 8
-      print " ";DEVICE_NAME$(I);left$(SPACE_PAD$,20-len(DEVICE_NAME$(I)));
+      print " ";DeviceName$(I);left$(SPACE_PAD$,20-len(DeviceName$(I)));
       
       if DEVICE_DAMAGE(I)<0 then print "DAMAGED     ";DEVICE_DAMAGE(I);
       if DEVICE_DAMAGE(I)>=0 then print "OPERATIONAL ";DEVICE_DAMAGE(I);
@@ -715,7 +714,7 @@ function GLONKINsFire()
 
       ' DAMAGE CONTROL REPORT
       J=FNR(1) : DEVICE_DAMAGE(J)=DEVICE_DAMAGE(J)-RNDINT(3)
-      print "UPDATE: "+DEVICE_NAME$(J)+" DAMAGED BY THE HIT"
+      print "UPDATE: "+DeviceName$(J)+" DAMAGED BY THE HIT"
     next I
     ATAKFLAG=1
     return
@@ -1220,18 +1219,18 @@ end function
 function ShowCommands()
     cls()
     print "\n USE THESE COMMANDS:" 
-    print "  NAV  - TO SET COURSE"
-    print "  SRS  - FOR SHORT RANGE SCAN"
-    print "  LRS  - FOR LONG RANGE SCAN"
-    print "  SLS  - FOR SHORT & LONG RANGE SCAN"
-    print "  PHA  - TO FIRE LASERS"
-    print "  TOR  - TO FIRE WARHEADS"
-    print "  SHE  - TO RAISE OR LOWER SHIELDS"
+    print "  NAV  - SET COURSE"
+    print "  SRS  - SHORT RANGE SCAN"
+    print "  LRS  - LONG RANGE SCAN"
+    print "  SLS  - SHORT+LONG SCAN"
+    print "  PHA  - FIRE LASERS"
+    print "  TOR  - FIRE WARHEADS"
+    print "  SHE  - SHIELDS"
     print "  DAM  - DAMAGE REPORT"
-    print "  COM  - QUERY COMPUTER"
-    print "  KEY  - DISPLAY KEY TO SRS ICONS"
-    print "  HLP  - THIS LIST OF COMMANDS"
-    print "  XXX  - TO RESIGN YOUR COMMAND"
+    print "  COM  - COMPUTER"
+    print "  KEY  - SRS ICONS"
+    print "  HLP  - HELP"
+    print "  XXX  - QUIT"
     pause()
     return
 end function
@@ -1265,18 +1264,19 @@ function InitCommandDict()
 end function
 
 
-function InitDeviceNames()
-    DEVICE_NAME$(1)="FTL DRIVE"
-    DEVICE_NAME$(2)="SHORT RANGE SENSORS"
-    DEVICE_NAME$(3)="LONG RANGE SENSORS"
-    DEVICE_NAME$(4)="LASER TARGETING"
-    DEVICE_NAME$(5)="WARHEADS"
-    DEVICE_NAME$(6)="DAMAGE CONTROL"
-    DEVICE_NAME$(7)="SHIELDS"
-    DEVICE_NAME$(8)="SHIP COMPUTER"
-    return
+function DeviceName$(I)
+  select case I
+  case 1: return "FTL"
+  case 2: return "SRS"
+  case 3: return "LRS"
+  case 4: return "LASERS"
+  case 5: return "WARHEADS"
+  case 6: return "DAMAGE"
+  case 7: return "SHIELDS"
+  case 8: return "COMPUTER"
+  end select
+  return "?"
 end function
-
 
 
 
