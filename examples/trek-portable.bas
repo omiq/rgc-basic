@@ -1,8 +1,8 @@
 ' ** SPACE BATTLE COMPUTER GAME PORTABLE VERSION **
 
 ' ** STATE MACHINE STATES **
-ST_QUIT=0 : ST_NEWGAME=1 : ST_NEWQUAD=2 : ST_COMMAND=3 : ST_DEAD=4
-ST_GAMEOVER=5 : ST_VICTORY=6 : ST_MISSIONEND=7 : ST_PLAYAGAIN=8
+ST_QUIT=0 : ST_NEWGAME=1 : ST_NEWQUAD=2 : ST_COMMAND=3 : ST_END=4
+END_DEAD=1 : END_DATE=2 : END_NOPOWER=3 : END_FAIL=4 : END_WIN=5
 
 ' ** QUADRANT CELL CODES **
 ' The short-range grid is an 8x8 integer array QUAD(), not a 192-char string:
@@ -50,16 +50,8 @@ do
       GameState = EnterQuadrant()
     case ST_COMMAND
       GameState = DoCommand()
-    case ST_DEAD
-      GameState = ShipDestroyed()
-    case ST_GAMEOVER
-      GameState = ShowGameOver()
-    case ST_VICTORY
-      GameState = ShowVictory()
-    case ST_MISSIONEND
-      GameState = ShowMissionEnd()
-    case ST_PLAYAGAIN
-      GameState = AskPlayAgain()
+    case ST_END
+      GameState = ShowGameEnd()
   end select
 loop until GameState = ST_QUIT
 end
@@ -91,7 +83,7 @@ function SetupGame()
 
     ' ** DISPLAY TITLE SCREEN AND WAIT FOR KEY **
     TitleScreen()
-    CRPLANETT=1
+   
 
     ' ** RANDOM SEED GENERATOR **
     RANDOM_SEED=RNDINT(-1)  
@@ -160,9 +152,6 @@ function SetupGame()
     next I
 
     if GLONKIN_COUNT>MISSION_DAYS then MISSION_DAYS=GLONKIN_COUNT+1
-    'ShowKey() : ' ** KEY TO SRS ICONS **
-    'ShowCommands() : ' ** USE THESE COMMANDS LIST **
-
 
     ' Guarantee at least one SPACESTATION and preserve original balancing tweak.
     if SPACESTATION_COUNT=0 then
@@ -187,6 +176,7 @@ function EnterQuadrant()
     VISITED_GALAXY(QUADRANT_Y,QUADRANT_X)=GALAXY(QUADRANT_Y,QUADRANT_X)
     if QUADRANT_Y >= 1 and QUADRANT_Y <=8 and QUADRANT_X>=1 and QUADRANT_X<=8 then
       print
+
       if GAME_DATE=DATE_CUR then
         print "LOCATION:";
         QN$=QuadrantName$(QUADRANT_Y, QUADRANT_X, 0)
@@ -269,7 +259,7 @@ function DoCommand()
     if SHIELD_UNITS+SHIP_POWER <= 10 or (SHIP_POWER<=10 and DEVICE_DAMAGE(7)<>0) then
       print "\n** OUT OF POWER **"
       Pause()
-      return ST_GAMEOVER
+      END_REASON=END_NOPOWER : return ST_END
     end if
 
     ' COMMAND LOOP
@@ -323,7 +313,7 @@ function DoCommand()
       case 8
           return Computer()
       case 9
-          return ST_MISSIONEND
+          END_REASON=END_FAIL : return ST_END
       end select
       ShowCommands()
     loop
@@ -362,7 +352,7 @@ function Nav()
       K(I,1)=TOKEN_Y : K(I,2)=TOKEN_X : PlaceToken(C_GLONKIN, K(I,1), K(I,2))
     next I
     GLONKINsFire()
-    if SHIPDEAD then return ST_DEAD
+    if SHIPDEAD then END_REASON=END_DEAD : return ST_END
 
     D1=0 : D6=0 : if NAV_FTL_SPEED>=1 then D6=1
     for I=1 to 8
@@ -411,7 +401,7 @@ function Nav()
       if X5<>0 then
         NavWarning("NAV ERROR: SHUTDOWN: "+SECTOR_Y+","+SECTOR_X+" Q "+QUADRANT_Y+","+QUADRANT_X)
         SRSFLAG=1 : Pause()
-        if DATE_CUR>GAME_DATE+MISSION_DAYS then return ST_GAMEOVER
+        if DATE_CUR>GAME_DATE+MISSION_DAYS then END_REASON=END_DATE : return ST_END
       end if
       if 8*QUADRANT_Y+QUADRANT_X<>8*Q4+Q5 then DATE_CUR=DATE_CUR+1 : ManeuverPOWER() : return ST_NEWQUAD
     end if
@@ -420,7 +410,7 @@ function Nav()
     PlaceToken(C_SHIP, SECTOR_Y, SECTOR_X)
     ManeuverPOWER()
     DATE_CUR=DATE_CUR+1
-    if DATE_CUR>GAME_DATE+MISSION_DAYS then return ST_GAMEOVER
+    if DATE_CUR>GAME_DATE+MISSION_DAYS then END_REASON=END_DATE : return ST_END
     return ShortRangeScan()
 end function
 
@@ -523,7 +513,7 @@ function LASERS()
       print " *** GLONKIN DESTROYED ***"
       SECTOR_ENEMIES=SECTOR_ENEMIES-1 : GLONKIN_COUNT=GLONKIN_COUNT-1 : PlaceToken(C_EMPTY, K(I,1), K(I,2))
       K(I,3)=0 : GALAXY(QUADRANT_Y,QUADRANT_X)=GALAXY(QUADRANT_Y,QUADRANT_X)-100 : VISITED_GALAXY(QUADRANT_Y,QUADRANT_X)=GALAXY(QUADRANT_Y,QUADRANT_X)
-      if GLONKIN_COUNT<=0 then return ST_VICTORY
+      if GLONKIN_COUNT<=0 then END_REASON=END_WIN : return ST_END
     next I
 
     ' CHECK IF GLONKINS ARE LEFT
@@ -533,7 +523,7 @@ function LASERS()
     GLONKINsFire()
 
     ' CHECK IF SHIP IS DEAD
-    if SHIPDEAD then return ST_DEAD
+    if SHIPDEAD then END_REASON=END_DEAD : return ST_END
 
     ' RETURN SUCCESS
     return ST_COMMAND
@@ -544,7 +534,7 @@ function TorpedoEndTurn(MSG$)
   if MSG$<>"" then print MSG$
   if SECTOR_ENEMIES<>0 then Pause()
   GLONKINsFire()
-  if SHIPDEAD then return ST_DEAD
+  if SHIPDEAD then END_REASON=END_DEAD : return ST_END
   return ST_COMMAND
 end function
 
@@ -559,8 +549,7 @@ function WARHEAD()
       C1=AskNumber("WARHEAD COURSE (1-9) :  ", 5)
       if C1=9 then C1=1
       if C1<1 or C1>=9 then
-        print : background 6: color 1: print "ALERT:, INCORRECT"
-        print "COURSE DATA";:background 0: print : return ST_COMMAND
+          print "ALERT:, INCORRECT COURSE DATA";:  return ST_COMMAND
       end if
 
       ' CALCULATE WARHEAD COURSE
@@ -587,7 +576,7 @@ function WARHEAD()
           GLONKIN_COUNT=GLONKIN_COUNT-1
 
           ' CHECK IF ALL GLONKINS ARE DESTROYED
-          if GLONKIN_COUNT<=0 then return ST_VICTORY
+          if GLONKIN_COUNT<=0 then END_REASON=END_WIN : return ST_END
           
           ' FIND GLONKIN INDEX
           HitIdx=3
@@ -606,7 +595,7 @@ function WARHEAD()
           GALAXY(QUADRANT_Y,QUADRANT_X)=SECTOR_ENEMIES*100+SECTOR_BASES*10+SECTOR_PLANETS : VISITED_GALAXY(QUADRANT_Y,QUADRANT_X)=GALAXY(QUADRANT_Y,QUADRANT_X) : GLONKINsFire()
           
           ' CHECK IF SHIP IS DEAD
-          if SHIPDEAD then return ST_DEAD
+          if SHIPDEAD then END_REASON=END_DEAD : return ST_END
 
           ' RETURN SUCCESS
           return ST_COMMAND
@@ -626,7 +615,7 @@ function WARHEAD()
         ' CHECK IF ALL SPACESTATIONS ARE DESTROYED
         if SPACESTATION_COUNT<=0 and GLONKIN_COUNT<=DATE_CUR-GAME_DATE-MISSION_DAYS then
           NavWarning("FAILURE - SPACESTATIONS DESTROYED")
-          return ST_MISSIONEND
+          END_REASON=END_FAIL : return ST_END
         end if
 
         ' DESTROY SPACESTATION
@@ -635,7 +624,7 @@ function WARHEAD()
 
         ' UPDATE QUADRANT DATA
         GALAXY(QUADRANT_Y,QUADRANT_X)=SECTOR_ENEMIES*100+SECTOR_BASES*10+SECTOR_PLANETS : VISITED_GALAXY(QUADRANT_Y,QUADRANT_X)=GALAXY(QUADRANT_Y,QUADRANT_X) : GLONKINsFire()
-        if SHIPDEAD then return ST_DEAD
+        if SHIPDEAD then END_REASON=END_DEAD : return ST_END
         return ST_COMMAND
       loop
 
@@ -694,7 +683,7 @@ function Damage()
     for I=1 to 8
       print " ";DEVICE_NAME$(I);left$(SPACE_PAD$,20-len(DEVICE_NAME$(I)));
       
-      if DEVICE_DAMAGE(I)<0 then print CCOL$;"DAMAGED     ";DEVICE_DAMAGE(I);
+      if DEVICE_DAMAGE(I)<0 then print "DAMAGED     ";DEVICE_DAMAGE(I);
       if DEVICE_DAMAGE(I)>=0 then print "OPERATIONAL ";DEVICE_DAMAGE(I);
     next I
     return ST_COMMAND
@@ -714,7 +703,7 @@ function GLONKINsFire()
 
       ' CALCULATE HIT POINTS
       H=((K(I,3)/FND(1))*(200+RNDINT(100)))\100 : SHIELD_UNITS=SHIELD_UNITS-H : K(I,3)=K(I,3)\(2+RNDINT(2))
-      print : print H;" UNIT HIT STARSHIP FROM ";K(I,1);",";K(I,2)
+       print H;" UNIT HIT STARSHIP FROM ";K(I,1);",";K(I,2)
 
       ' CHECK IF SHIELDS ARE DOWN
       if SHIELD_UNITS<=0 then SHIPDEAD=1 : return
@@ -733,46 +722,24 @@ function GLONKINsFire()
 end function
 
 
-' ** ===== END-OF-GAME STATES ===== **
-function ShowGameOver()
-    print "\nIT IS DATE ";DATE_CUR
-    return ST_MISSIONEND
-end function
-
-
-' ** ===== SHIP DESTROYED ===== **
-function ShipDestroyed()
-    Pause()
-    print "\n THE STARSHIP HAS BEEN DESTROYED.\nTHE EARTH WILL BE CONQUERED"
-    return ST_GAMEOVER
-end function
-
-
-' ** ===== SHOW MISSION END ===== **
-function ShowMissionEnd()
-    print "\nTHERE WERE ";GLONKIN_COUNT;" GLONKIN BATTLE CRUISERS"
-    print "LEFT AT THE END OF YOUR MISSION."
-    return ST_PLAYAGAIN
-end function
-
-
-' ** ===== ASK PLAY AGAIN ===== **
-function AskPlayAgain()
+' ** ===== END-OF-GAME ===== **
+function ShowGameEnd()
+    if END_REASON=END_DEAD or END_REASON=END_WIN then Pause()
+    if END_REASON=END_DEAD then print "\nTHE STARSHIP HAS BEEN DESTROYED.\nTHE EARTH WILL BE CONQUERED"
+    if END_REASON=END_DATE then print "\nMISSION TIME EXPIRED. DATE ";DATE_CUR
+    if END_REASON=END_WIN then print "\nCONGRATULATIONS, YOU SAVED THE EARTH!"
+    if END_REASON=END_FAIL then print "\nMISSION FAILED."
+    print "\nGLONKINS LEFT: ";GLONKIN_COUNT
+    print "DATE: ";DATE_CUR
+    if END_REASON=END_WIN then
+      EL=DATE_CUR-GAME_DATE : if EL<1 then EL=1
+      print "SCORE: ";int(1000*(K7/EL)^2)
+    end if
     if SPACESTATION_COUNT=0 then return ST_QUIT
     print "\nGAME OVER"
     A$=Ask$("\nPLAY AGAIN (YES/NO) :  ", 3)
     if A$="YES" then return ST_NEWGAME
     return ST_QUIT
-end function
-
-
-' ** ===== SHOW VICTORY ===== **
-function ShowVictory()
-    Pause()
-    print "\nCONGRATULATIONS, YOU SAVED THE EARTH!\nSCORE:";
-    EL=DATE_CUR-GAME_DATE : if EL<1 then EL=1
-    print int(1000*(K7/EL)^2)
-    return ST_PLAYAGAIN
 end function
 
 
@@ -1043,35 +1010,13 @@ end function
 ' ** ===== COMPUTER STATUS REPORT ===== **
 function ComputerStatusReport()
 
-    print "  STATUS REPORT: \n"
-    
-    if GLONKIN_COUNT>1 then 
-        X$="S"
-    else
-        X$=""
-    end if
+    print " STATUS REPORT: \n"
+    print " ENEMIES LEFT : ";GLONKIN_COUNT
+    print " POWER        : ";SHIP_POWER+SHIELD_UNITS
+    print " WARHEADS     : ";WARHEAD_COUNT
+    print " DAYS LEFT    : ";GAME_DATE+MISSION_DAYS-DATE_CUR   
+    print " SPACESTATIONS: ";SPACESTATION_COUNT
 
-    print "\n GLONKINS LEFT :";GLONKIN_COUNT
-    print " POWER        :";int(SHIP_POWER+SHIELD_UNITS)
-    print " WARHEADES     :";int(WARHEAD_COUNT)
-    print "\n  MISSION DEADLINE: ";GAME_DATE+MISSION_DAYS-DATE_CUR
-    print " DAYS"
-
-    ' MULTIPLE SPACESTATIONS
-    if SPACESTATION_COUNT<2 then 
-        X$=""
-    else
-        X$="S"
-    end if
-
-    ' CHECK IF ANY SPACESTATIONS ARE LEFT
-    if SPACESTATION_COUNT<1 then
-      print "\n NO SPACESTATIONS"
-      print "LEFT!" : return Damage()
-    end if
-
-    print "\n  EARTH HAS ";SPACESTATION_COUNT
-    print " SPACESTATION";X$;" NEARBY"; chr$(13)
     return Damage()
 end function
 
@@ -1079,12 +1024,8 @@ end function
 ' ** ===== COMPUTER NAV CALC GLONKIN ===== **
 function ComputerNavCalcGLONKIN()
     if SECTOR_ENEMIES<=0 then NoEnemyMsGALAXY() : return ST_COMMAND
-    if SECTOR_ENEMIES>1 then 
-        X$="S"
-    else
-        X$=""
-    end if
-    print "\nFROM STARSHIP TO ENEMY SHIP";X$
+    
+    print "\nFROM STARSHIP TO ENEMY "
     for I=1 to 3
       if K(I,3)<=0 then continue for
       ComputerCalcCompute(SECTOR_X, SECTOR_Y, K(I,1), K(I,2), 10)
@@ -1181,8 +1122,7 @@ end function
 
 ' ** ===== SHARED MESSAGE: NO ENEMY IN QUADRANT ===== **
 function NoEnemyMsGALAXY()
-    print : background 6: color 1: print "ALERT:"
-    print " NO ENEMY SHIPS DETECTED";:background 0: print
+    print "ALERT: NO ENEMY SHIPS DETECTED"
     return
 end function
 
@@ -1251,10 +1191,9 @@ end function
 
 ' PRINT CAPTION$, READ UP TO MAX_LEN CHARS; RETURN TYPED LINE (LII$ ALSO SET)
 function Ask$(CAPTION$, MAX_LEN)
-    LX=MAX_LEN
     print CAPTION$;
-    GetInput()
-    return LII$
+    input LII$
+    return UCASE$(left$(LII$, MAX_LEN))
 end function
 
 function AskNumber(CAPTION$, MAX_LEN)
@@ -1263,43 +1202,16 @@ function AskNumber(CAPTION$, MAX_LEN)
 end function
 
 
-' ** GET INPUT **
-' GET CHARACTERS UNTIL RETURN IS PRESSED
-function GetInput()
-    ' ** LX = MAX INPUT  LII$ = OUTPUT STRING **
-    ' ** ACCEPTS A-Z/0-9/PUNCT + SPACE, CHR$(20)=BACKSPACE, ENTER ENDS **
-    LII$=""
-    do 
-        get Y$
-        Y$=ucase$(Y$)
-        if Y$="" then continue do
-        if asc(Y$)=0 then Y$=chr$(13)
-
-        if asc(Y$)=13 and LX=0 then
-          print " "
-          print FCOL$
-          return
-        end if
-        if asc(Y$)=13 then print : print FCOL$ : return
-
-        if asc(Y$)=20 and len(LII$)<1 then continue do
-        if Y$=chr$(20) then Y$="" : LII$=left$(LII$,(len(LII$)-1))
-
-        if asc(Y$)<>32 and (asc(Y$)<46 or asc(Y$)>90) then continue do
-
-        if len(LII$)<LX then print Y$;
-        if len(LII$)<LX then LII$=LII$+Y$
-    loop
-end function
-
 ' ** PAUSE WITHOUT CR**
 function Pause()
-    if CRPLANETT=1 then CR$="PRESS RETURN TO BEGIN"
-    if CRPLANETT=0 then CR$="PRESS RETURN TO CONTINUE"
-    LX=0 : print "  ":print CR$:print "  "
-    GetInput()
-    CRPLANETT=0
-    return
+
+  PRINT "\nPRESS A KEY TO CONTINUE"
+  Y$=""
+  while Y$=""
+    get Y$
+  wend
+
+  return
 end function
 
 ' ** KEY TO SRS ICONS **
