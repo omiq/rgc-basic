@@ -333,7 +333,18 @@ function Nav()
 
     X$="8" : if DEVICE_DAMAGE(1)<0 then X$="1"
     SRSFLAG=1
-    NAV_FTL_SPEED=AskNumber("FTL SPEED (0-"+X$+") :  ", 5)
+    
+    ask_temp$=Ask$("FTL SPEED (0-"+X$+") :  ", 5)
+    if ask_temp$="0" then NavWarning("ENGINES DISABLED"): return ST_COMMAND
+    if INSTR(ask_temp$, ".")>0 then 
+      NAV_FTL_SPEED=VAL(left$(ask_temp$, INSTR(ask_temp$, ".")-1))
+      NAV_SUBLIGHT_SPEED=VAL(right$(ask_temp$, LEN(ask_temp$)-INSTR(ask_temp$, ".")))
+      PRINT "NAV_FTL_SPEED: ";(NAV_FTL_SPEED);" NAV_SUBLIGHT_SPEED: ";(NAV_SUBLIGHT_SPEED);
+    else
+      NAV_FTL_SPEED=VAL(ask_temp$)
+    end if
+
+
     if NAV_FTL_SPEED=0 then return ST_COMMAND
     if NAV_FTL_SPEED<1 or NAV_FTL_SPEED>8 then NavWarning("ENGINES WONT TAKE FTL "+NAV_FTL_SPEED+"!") : return ST_COMMAND
     if DEVICE_DAMAGE(1)<0 and NAV_FTL_SPEED>1 then NavWarning("FTL DAMAGED: MAX SPEED = 1") : return ST_COMMAND
