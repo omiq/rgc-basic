@@ -326,6 +326,11 @@ end function
 
 ' ** ===== COURSE CONTROL (NAV) ===== **
 function Nav()
+
+REM SPLIT FTL AND SUBLIGHT, IE. SECTOR vs SUB-SECTOR MOVEMENT 
+NAV_SUBLIGHT_SPEED=0
+NAV_FTL_SPEED=0
+
     ShowDirections()
     C1=AskNumber("COURSE (1-9) :  ", 5)
     if C1=9 then C1=1
@@ -345,12 +350,13 @@ function Nav()
     end if
 
 
-    if NAV_FTL_SPEED=0 then return ST_COMMAND
-    if NAV_FTL_SPEED<1 or NAV_FTL_SPEED>8 then NavWarning("ENGINES WONT TAKE FTL "+NAV_FTL_SPEED+"!") : return ST_COMMAND
-    if DEVICE_DAMAGE(1)<0 and NAV_FTL_SPEED>1 then NavWarning("FTL DAMAGED: MAX SPEED = 1") : return ST_COMMAND
-    N=NAV_FTL_SPEED*8
+    NAV_WARP_UNITS=NAV_FTL_SPEED*10+NAV_SUBLIGHT_SPEED
+    if NAV_WARP_UNITS=0 then return ST_COMMAND
+    if NAV_FTL_SPEED>8 or NAV_SUBLIGHT_SPEED>9 or NAV_WARP_UNITS>80 then NavWarning("ENGINES WONT TAKE FTL "+ask_temp$+"!") : return ST_COMMAND
+    if DEVICE_DAMAGE(1)<0 and NAV_WARP_UNITS>10 then NavWarning("FTL DAMAGED: MAX SPEED = 1") : return ST_COMMAND
+    N=NAV_FTL_SPEED*8+(NAV_SUBLIGHT_SPEED*8+5)\10
     if SHIP_POWER-N<0 then
-      NavWarning("INSUFFICIENT POWER FOR FTL "+NAV_FTL_SPEED+"!")
+      NavWarning("INSUFFICIENT POWER FOR FTL "+ask_temp$+"!")
       if SHIELD_UNITS<N-SHIP_POWER or DEVICE_DAMAGE(7)<0 then return ST_COMMAND
       NavWarning("SHIELD POWER DEPLOYED IS "+str$(SHIELD_UNITS)+" UNITS.")
       return ST_COMMAND
