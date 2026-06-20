@@ -340,6 +340,7 @@ NAV_FTL_SPEED=0
     SRSFLAG=1
     
     ask_temp$=Ask$("FTL SPEED (0-"+X$+") :  ", 5)
+    cls()
     if ask_temp$="0" then NavWarning("ENGINES DISABLED"): return ST_COMMAND
     if INSTR(ask_temp$, ".")>0 then 
       NAV_FTL_SPEED=VAL(left$(ask_temp$, INSTR(ask_temp$, ".")-1))
@@ -399,7 +400,7 @@ NAV_FTL_SPEED=0
       if SECTOR_Y<1 or SECTOR_Y>=9 or SECTOR_X<1 or SECTOR_X>=9 then CrossedQuadrant=1 : exit for
       if CheckSector(C_EMPTY, SECTOR_Y, SECTOR_X)=1 then continue for
       SECTOR_Y=int(SECTOR_Y-X1) : SECTOR_X=int(SECTOR_X-X2)
-      NavWarning("FTL SHUTDOWN: SECTOR "+SECTOR_X+","+SECTOR_Y+" BAD NAVIGATION")
+      NavWarning("FTL SHUTDOWN: SECTOR "+str$(SECTOR_X)+","+str$(SECTOR_Y)+" BAD NAVIGATION")
       SRSFLAG=1 : exit for
     next I
 
@@ -415,7 +416,7 @@ NAV_FTL_SPEED=0
       if QUADRANT_X<1 then X5=1 : QUADRANT_X=1 : SECTOR_X=1
       if QUADRANT_X>8 then X5=1 : QUADRANT_X=8 : SECTOR_X=8
       if X5<>0 then
-        NavWarning("NAV ERROR: SHUTDOWN: "+SECTOR_Y+","+SECTOR_X+" Q "+QUADRANT_Y+","+QUADRANT_X)
+        NavWarning("NAV ERROR: SHUTDOWN: "+str$(SECTOR_Y)+","+str$(SECTOR_X)+" Q "+str$(QUADRANT_Y)+","+str$(QUADRANT_X))
         SRSFLAG=1 : Pause()
         if DATE_CUR>GAME_DATE+MISSION_DAYS then END_REASON=END_DATE : return ST_END
       end if
@@ -682,7 +683,7 @@ function Damage()
       next I : if D3=0 then return ST_COMMAND
       ' PRINT REPAIR REPORT
 
-      A$=Ask$("\nALERT: ESTIMATED REPAIR ETA: "+D3+" DAYS\nAUTHORISE (Y/N)? ", 1)
+      A$=Ask$("\nALERT: ESTIMATED REPAIR ETA: "+str$(D3)+" DAYS\nAUTHORISE (Y/N)? ", 1)
       if A$<>"Y" then return ST_COMMAND
 
       ' REPAIR DEVICES
@@ -1254,6 +1255,7 @@ end function
 
 ' ** DIRECTION HELPER **
 function ShowDirections()
+    cls()
     print "\nENTER A NUMBER\nBETWEEN 1 AND 9"
     print "  4  3  2\n   . . .\n    ...\n5 ---*--- 1\n    ...\n   . . .\n  6  7  8"
     return
