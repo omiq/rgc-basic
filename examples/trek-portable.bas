@@ -344,7 +344,7 @@ NAV_FTL_SPEED=0
     if INSTR(ask_temp$, ".")>0 then 
       NAV_FTL_SPEED=VAL(left$(ask_temp$, INSTR(ask_temp$, ".")-1))
       NAV_SUBLIGHT_SPEED=VAL(right$(ask_temp$, LEN(ask_temp$)-INSTR(ask_temp$, ".")))
-      PRINT "NAV_FTL_SPEED: ";(NAV_FTL_SPEED);" NAV_SUBLIGHT_SPEED: ";(NAV_SUBLIGHT_SPEED);
+      PRINT "FTL SPEED: ";(NAV_FTL_SPEED);" SUBLIGHT SPEED: ";(NAV_SUBLIGHT_SPEED);"\n\n"
     else
       NAV_FTL_SPEED=VAL(ask_temp$)
     end if
