@@ -2772,6 +2772,12 @@ static inline int gfx_cols(void) {
 }
 static int gfx_x = 0;
 static int gfx_y = 0;
+/* Set only when an eager auto-wrap (a glyph filling the last column) left the
+ * cursor at col 0 with no glyph placed since. Lets a CR/LF that immediately
+ * follows a full line absorb into the wrap instead of double-spacing, while a
+ * \n/\r arriving at col 0 by any other means (leading \n, \n\n, a prior
+ * explicit newline) still advances — matching terminal + transpiler runtimes. */
+static int gfx_just_wrapped = 0;
 static uint8_t gfx_fg = 14;      /* default light blue */
 static uint8_t gfx_bg = 6;       /* default blue background */
 static int gfx_reverse = 0;
@@ -2851,6 +2857,7 @@ static void gfx_scroll_up(void)
 
 static void gfx_newline(void)
 {
+    gfx_just_wrapped = 0;
     gfx_x = 0;
     gfx_y++;
     if (gfx_y >= GFX_ROWS) {
@@ -2905,6 +2912,7 @@ static void gfx_clear_screen(void)
     gfx_x = 0;
     gfx_y = 0;
     print_col = 0;
+    gfx_just_wrapped = 0;
 }
 
 static int gfx_apply_control_code(unsigned char code)
@@ -2928,14 +2936,18 @@ static int gfx_apply_control_code(unsigned char code)
         return 1;
     case 13: /* CR */
     case 10: /* LF */
-        /* Avoid double newline: gfx_put_byte already wraps at col 40, so when
-         * the viewer sends CR after wrapping, we're already at col 0. */
-        if (gfx_x != 0) gfx_newline();
+        /* Absorb a CR/LF that lands right after an eager wrap of a full line
+         * (gfx_put_byte already advanced past col 40) so it doesn't double-
+         * space. A \n/\r reaching col 0 any other way still advances, matching
+         * the terminal and transpiler-C runtimes (leading \n, \n\n, etc.). */
+        if (gfx_x != 0 || !gfx_just_wrapped) gfx_newline();
+        gfx_just_wrapped = 0;
         return 1;
     case 19: /* HOME */
         gfx_x = 0;
         gfx_y = 0;
         print_col = 0;
+        gfx_just_wrapped = 0;
         return 1;
     case 147: /* CLR */
         gfx_clear_screen();
@@ -3183,9 +3195,11 @@ static void gfx_put_byte(unsigned char b)
 
     gfx_x++;
     if (gfx_x >= gfx_cols()) {
-        gfx_newline();
+        gfx_newline();         /* clears gfx_just_wrapped */
+        gfx_just_wrapped = 1;  /* this newline came from a full line */
     } else {
         print_col = gfx_x;
+        gfx_just_wrapped = 0;
     }
 }
 

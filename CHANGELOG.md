@@ -1,5 +1,31 @@
 ## Changelog
 
+### gfx PRINT: stop swallowing newlines that land at column 0 (2026-06-22)
+
+`basic-gfx` (and the raylib/canvas WASM builds, which share
+`gfx_apply_control_code`) treated a `CR`/`LF` reaching column 0 as a no-op. The
+guard was `if (gfx_x != 0) gfx_newline();`, meant to absorb the duplicate
+newline a full 40-column line produces (the eager wrap already moved the cursor
+down, so a trailing `\n` would double-space). But `gfx_x == 0` can't tell that
+wrap case from a `\n` that legitimately starts a blank line — a leading `\n` in
+a literal, an embedded `\n\n`, or a `\n` right after a prior explicit newline.
+All of those were eaten, so `print "A\n\nB"` rendered `A` / `B` with no gap.
+
+The terminal interpreter (`OUTC('\n')`) and the transpiler C runtime
+(`rgc_pstr` → unconditional `rgc_nl`) both honour every `\n`, so the same source
+gained blank lines on PET / native-C / terminal targets but lost them under
+gfx — e.g. Space Battles' short+long range scan packed tight in `basic-gfx`
+while the compiled builds spaced it out.
+
+Fix: a `gfx_just_wrapped` flag, set only when an eager auto-wrap left the cursor
+at column 0 with no glyph placed since, cleared by any glyph, explicit newline,
+HOME, or CLS. The CR/LF handler now advances unless that flag is set, so a
+full-line wrap still absorbs its trailing newline while every other column-0
+`\n`/`\r` advances — matching the terminal and transpiler runtimes. gfx output
+now lines up with PET / native-C for the same `.bas`. The 40-column eager-wrap
+behaviour (vs terminal's 80 / `-nowrap`) is unchanged; keep portable PRINT lines
+≤ 40 chars.
+
 ### Transpiler backends extracted to a private repo (2026-06-17)
 
 The two source-to-source transpiler backends left this repo. The **C** backend
