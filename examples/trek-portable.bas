@@ -16,7 +16,7 @@ OBJ_LUT$(0) = " "
 OBJ_LUT$(1) = ">"
 OBJ_LUT$(2) = "X"
 OBJ_LUT$(3) = "B"
-OBJ_LUT$(4) = "o"
+OBJ_LUT$(4) = "O"
 
 
 ' ** COMMAND DICTIONARY **
@@ -146,28 +146,28 @@ function SetupGame()
     ' PRINT MISSION ORDERS 
         ' ** DISPLAY TITLE SCREEN AND WAIT FOR KEY **
     cls()
-    
-    print "     _______  _____  _______ _______ _______"           
-    print " ___ |______ |_____] |_____| |       |______ ___"       
-    print "     ______| |       |     | |_____  |______"                                                                   
-    print " ______  _______ _______ _______        _______ _______"
-    print " |_____] |_____|    |       |    |      |______ |______"
-    print " |_____] |     |    |       |    |_____ |______ ______|"
-
-    print "\n A SCI-FI WAR GAME BASED ON THE CLASSIC 1970S 'TREK'"
-    print " - DESTROY ALL THE ENEMY SHIPS BEFORE THEY INVADE THE EARTH!"
-    print " - DOCK AT SPACE STATIONS TO REPAIR YOUR SHIP AND RESTOCK."
-    print "\n YOUR MISSION";
+    print "       ** ***  *   *** **** "
+    print "      *   * * * * *    *    "
+    print "       *  **  *** *    ***  "
+    print "        * *   * * *    *    "
+    print "      *** *   * *  *** ****\n"
+    print "          B A T T L E S"
+    print                                                                                          
+    print " - DESTROY ALL THE ENEMY SHIPS"
+    print " - DOCK AT BASES FOR REPAIRS"
+    print 
+    print " YOUR MISSION";
     ComputerStatusReport(0)
 
-    textat 24,13, "  KEY TO SCANNER ICONS:" 
-    textat 24,14, "  >  = EARTH FLEET STARSHIP"
-    textat 24,15, "  B  = EARTH SPACE STATION"
-    textat 24,16, "  o  = PLANETOID"
-    textat 24,17, "  X  = GLONKIN EMPIRE HUNTER"
+    textat 24,13, "KEY TO ICONS:" 
+    textat 24,14, "> YOUR SHIP"
+    textat 24,15, "B BASE"
+    textat 24,16, "O PLANET"
+    textat 24,17, "X ENEMY"
 
     I=RNDINT(1)
-    print
+    print: print
+    SLSFLAG=1
     return ST_NEWQUAD
 end function
 
@@ -469,25 +469,27 @@ function LongRangeScan()
 
 
     ' PRINT LONG RANGE SCAN FOR QUADRANT
-    print "\n\n  LONG RANGE SCAN FOR QUADRANT: [";QUADRANT_Y;",";QUADRANT_X;"]"
+    print:print
+    print "LONG RANGE SCAN FOR QUADRANT: [";QUADRANT_Y;",";QUADRANT_X;"]"
   
 
     ' LONG RANGE SCAN LOOP
-    print "  +-------+-------+-------+"
+    print "+-----+-----+-----+"
     for scan_row = QUADRANT_Y-1 to QUADRANT_Y+1
-        print "  | ";
+        print "|";
         disp_quadrant_cell(scan_row, QUADRANT_X-1)
-        print " | ";
+        print "|";
         disp_quadrant_cell(scan_row, QUADRANT_X)
-        print " | ";
+        print "|";
         disp_quadrant_cell(scan_row, QUADRANT_X+1)
-        print " |";
+        print "|";
         if scan_row = QUADRANT_Y-1 then 
-          print "    ENEMIES : STATIONS : PLANETOIDS\n";
+          print " ENEMY:BASES:PLANETS\n";
         else
           print "\n";
         end if
-        print "  +-------+-------+-------+"
+
+        print "+-----+-----+-----+"
     next scan_row
     
     K1=0 : if SLSFLAG=1 then SLSFLAG=0
@@ -756,7 +758,7 @@ function ShowGameEnd()
     if END_REASON=END_DATE then print "\n MISSION TIME EXPIRED. DATE ";DATE_CUR
     if END_REASON=END_WIN then print "\n CONGRATULATIONS, YOU SAVED THE EARTH!"
     if END_REASON=END_FAIL then print "\n MISSION FAILED."
-    print "\n WITH ";GLONKIN_COUNT;" ENEMIES LEFT AND ";STR$((GAME_DATE+MISSION_DAYS)-DATE_CUR);" DAYS REMAINING"
+    print "\n WITH ";GLONKIN_COUNT;" ENEMIES AND ";STR$((GAME_DATE+MISSION_DAYS)-DATE_CUR);" DAYS REMAINING"
     if END_REASON=END_WIN then
       EL=DATE_CUR-GAME_DATE : if EL<1 then EL=1
       print " SCORE: ";int(1000*(K7/EL)^2)
@@ -857,14 +859,14 @@ function ShortRangeScan()
 
     ' SUMMARY DATA
 
-      textat 22,3, " DAYS LEFT: "+STR$((GAME_DATE+MISSION_DAYS)-DATE_CUR)
-      textat 22,4, " CONDITION: "+C$
-      textat 22,5, " QUADRANT:  "+str$(QUADRANT_Y)+","+str$(QUADRANT_X)  
-      textat 22,6, " SECTOR:    "+str$(SECTOR_Y)+","+str$(SECTOR_X)
-      textat 22,7, " WARHEADS:  "+str$(WARHEAD_COUNT)
-      textat 22,8, " POWER:     "+str$(SHIP_POWER+SHIELD_UNITS)
-      textat 22,9, " SHIELDS:   "+str$(SHIELD_UNITS)  
-      textat 22,10," ENEMIES:   "+str$(GLONKIN_COUNT)
+      textat 22,3, "DAYS LEFT: "+STR$((GAME_DATE+MISSION_DAYS)-DATE_CUR)
+      textat 22,4, "CONDITION: "+C$
+      textat 22,5, "QUADRANT:  "+str$(QUADRANT_Y)+","+str$(QUADRANT_X)  
+      textat 22,6, "SECTOR:    "+str$(SECTOR_Y)+","+str$(SECTOR_X)
+      textat 22,7, "WARHEADS:  "+str$(WARHEAD_COUNT)
+      textat 22,8, "POWER:     "+str$(SHIP_POWER+SHIELD_UNITS)
+      textat 22,9, "SHIELDS:   "+str$(SHIELD_UNITS)  
+      textat 22,10,"ENEMIES:   "+str$(GLONKIN_COUNT)
 
     print "\n\n\n"
     if SLSFLAG=1 then 
