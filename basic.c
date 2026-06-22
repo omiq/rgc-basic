@@ -7608,6 +7608,20 @@ static void statement_cls(char **p)
         char *save;
         skip_spaces(p);
         save = *p;
+        /* Accept the no-arg call form `CLS()` (terminal + transpiler tolerate
+         * it; the rect-coords branch below would otherwise read `(` as the
+         * start of `CLS x,y TO ...` and fail with a spurious "Missing ','"). */
+        if (**p == '(') {
+            char *q = *p + 1;
+            while (*q == ' ' || *q == '\t') q++;
+            if (*q == ')') {
+                q++;
+                while (*q == ' ' || *q == '\t') q++;
+                if (*q == '\0' || *q == ':') {
+                    *p = q;
+                }
+            }
+        }
         if (**p && **p != ':') {
             int x0, y0, x1, y1, y;
             if (parse_rect_coords(p, &x0, &y0, &x1, &y1, "CLS") != 0) return;
