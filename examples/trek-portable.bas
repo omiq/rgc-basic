@@ -1,3 +1,4 @@
+#OPTION compress-text
 ' ** SPACE BATTLE COMPUTER GAME PORTABLE VERSION **
 
 ' ** STATE MACHINE STATES **
@@ -55,38 +56,18 @@ do
 loop until GameState = ST_QUIT
 end
 
-' ** DISPLAY TITLE SCREEN AND WAIT FOR KEY **
-function TitleScreen()
-    cls()
-    print "-GENERIC SPACE BATTLE COMPUTER GAME-"
-    print "(PORTABLE VERSION)"
-    pause()
-    return
 
-end function
-
-' ** PRINT MISSION ORDERS **
-function PrintMissionOrders()
-    
-    cls()
-    print "MISSION:\nENEMY SHIPS: "; GLONKIN_COUNT ;"\nDAYS REMAINING: "; MISSION_DAYS;"\nSPACESTATIONS: "; SPACESTATION_COUNT    
-    return
-end function
 
 ' ** ===== ONE-TIME GAME SETUP (NEW GAME / REPLANETT) ===== **
 function SetupGame()
     Z2$=""
     ATAKFLAG=0
     SLSFLAG=0
-    N=RNDINT(-1)
-
-    ' ** DISPLAY TITLE SCREEN AND WAIT FOR KEY **
-    TitleScreen()
-   
+    N=RNDINT(-1)  
 
     ' ** RANDOM SEED GENERATOR **
     RANDOM_SEED=RNDINT(-1)  
-    print "\n          GENERATING MAP";
+    print "\n[GENERATING MAP] ";
     SPACE_PAD$="                         "
     DATE_CUR=(RNDINT(20)+19)*100
     GAME_DATE=DATE_CUR
@@ -101,7 +82,7 @@ function SetupGame()
     SPACESTATION_COUNT=2
     GLONKIN_COUNT=0
     X$=""
-    X0$=" IS "
+
     
     ' INITIALIZE STARSHIPS POSITION
     QUADRANT_Y=FNR(1)
@@ -127,7 +108,7 @@ function SetupGame()
     next I
     
     ' SETUP WHAT EXISTS IN GALAXY . . .
-    ' SECTOR_ENEMIES= # GLONKINS  SECTOR_BASES= # SPACESTATIONS  SECTOR_PLANETS = # PLANETS
+    ' SECTOR_ENEMIES= # GLONKINS  SECTOR_BASES= # SPACE STATIONS  SECTOR_PLANETS = # PLANETS
     for I=1 to 8
       print ".";
       for J=1 to 8
@@ -161,7 +142,15 @@ function SetupGame()
       QUADRANT_X=FNR(1)
     end if
     K7=GLONKIN_COUNT
-    PrintMissionOrders()
+    
+    ' PRINT MISSION ORDERS 
+        ' ** DISPLAY TITLE SCREEN AND WAIT FOR KEY **
+    cls()
+    print "-[ SPACE BATTLES ]-\n\nA RETRO-STYLE SPACE BATTLE COMPUTER GAME BASED ON THE CLASSIC 'SUPER STAR TREK'.\n"
+    print "- DESTROY ALL THE ENEMY SHIPS BEFORE THEY INVADE THE EARTH!\n"
+    print "- DOCK AT SPACE STATIONS TO REPAIR YOUR SHIP AND RESTORE WARHEADS.\n"
+    print "MISSION";
+    ComputerStatusReport(0)   
     I=RNDINT(1)
     return ST_NEWQUAD
 end function
@@ -177,13 +166,11 @@ function EnterQuadrant()
       print
 
       if GAME_DATE=DATE_CUR then
-        print "LOCATION:";
         QN$=QuadrantName$(QUADRANT_Y, QUADRANT_X, 0)
-        print QN$;
+        print "LOCATION: ";QN$;"\n"
         SRSFLAG=1
-        print
         Pause() : ' ** PAUSE **
-        print
+        cls()
       else
         if ATAKFLAG=1 then
           Pause()
@@ -192,11 +179,11 @@ function EnterQuadrant()
         end if
         QN$=QuadrantName$(QUADRANT_Y, QUADRANT_X, 0)
         SRSFLAG=1
-        print "ENTERING ";QN$;" ..."
+        print "ENTERING ";QN$;" ...\n"
       end if
     end if
 
-    ' Decode GALAXY(quad): SECTOR_ENEMIES/SECTOR_BASES/SECTOR_PLANETS = GLONKINs / SPACESTATIONs / PLANETS in this quadrant.
+    ' Decode GALAXY(quad): SECTOR_ENEMIES/SECTOR_BASES/SECTOR_PLANETS = GLONKINs / SPACE STATIONS / PLANETS in this quadrant.
     ' G encodes the 3 digits K*100+B*10+S. Use INTEGER divide/MOD, not float
     ' tricks (int(G*.01)): on fixed-point targets (cc65) G*.01 loses precision
     ' and G/100 overflows 16.16, mis-decoding the counts -> FindEmpty overfills
@@ -216,7 +203,7 @@ function EnterQuadrant()
     for I=1 to 8 : for J=1 to 8 : QUAD(I,J)=C_EMPTY : next J : next I
 
     ' POSITION STARSHIP IN QUADRANT, THEN PLACE "SECTOR_ENEMIES" GLONKINS, &
-    ' "SECTOR_BASES" SPACESTATIONS, & "SECTOR_PLANETS" PLANETS ELSE WHERE.
+    ' "SECTOR_BASES" SPACE STATIONS, & "SECTOR_PLANETS" PLANETS ELSE WHERE.
     PlaceToken(C_SHIP, SECTOR_Y, SECTOR_X)
 
     ' PLACE GLONKINS
@@ -228,7 +215,7 @@ function EnterQuadrant()
       next I
     end if
 
-    ' PLACE SPACESTATIONS
+    ' PLACE SPACE STATIONS
     if SECTOR_BASES >= 1 then
       FindEmpty()
       B4=TOKEN_Y : B5=TOKEN_X
@@ -242,6 +229,7 @@ function EnterQuadrant()
     next I
 
     ' DO SHORT RANGE SCAN
+    SRSFLAG=0 
     return ShortRangeScan()
 end function
 
@@ -268,6 +256,7 @@ function DoCommand()
       A$=Ask$(" COMMAND:  ", 3)
       Z2$=A$ : ATAKFLAG=0
       if A$="SLS" then 
+        cls()
         SLSFLAG=1
         print " SHORT & LONG RANGE SCAN... "
         return ShortRangeScan()
@@ -448,7 +437,7 @@ function disp_quadrant_cell(this_row, this_col)
     print "=:=:=";
   else
     cell_code = GALAXY(this_row, this_col)
-    print str$(cell_code\100) + ":" + str$((cell_code\10)mod10) + ":" + str$(cell_code mod10);
+    print str$(cell_code\100) + ":" + str$((cell_code\10)MOD 10) + ":" + str$(cell_code MOD 10);
   end if
 end function
 
@@ -491,7 +480,8 @@ end function
 
 ' ** ===== PHASER CONTROL ===== **
 function LASERS()
-    if DEVICE_DAMAGE(4)<0 then print "\nLASERS DOWN" : return ST_COMMAND
+cls()
+    if DEVICE_DAMAGE(4)<0 then print "\nLASERS DOWN\n" : return ST_COMMAND
     if SECTOR_ENEMIES<=0 then NoEnemyMsGALAXY() : return ST_COMMAND
     if DEVICE_DAMAGE(8)<0 then print "\nCOMPUTER FAILURE"
     print "\nLASERS LOCKED ON TARGET!  "
@@ -520,14 +510,14 @@ function LASERS()
 
       ' HIT GLONKIN
       K(I,3)=K(I,3)-H 
-      print H;" HIT! ";K(I,1);",";K(I,2)
+      print " ** HIT ENEMY SHIP AT ";K(I,1);",";K(I,2); " WITH ";H;" UNITS OF DAMAGE **"
       if K(I,3)>0 then
-        print " (SCAN SHOWS ";int(K(I,3));" UNITS REMAINING)"
+        print " ENEMY SHIP HAS ";int(K(I,3));" SHIELDS REMAINING"
         continue for
       end if
 
       ' DESTROY GLONKIN
-      print " *** GLONKIN DESTROYED ***"
+      print " *** ENEMY SHIP DESTROYED ***"
       SECTOR_ENEMIES=SECTOR_ENEMIES-1 : GLONKIN_COUNT=GLONKIN_COUNT-1 : PlaceToken(C_EMPTY, K(I,1), K(I,2))
       K(I,3)=0 : GALAXY(QUADRANT_Y,QUADRANT_X)=GALAXY(QUADRANT_Y,QUADRANT_X)-100 : VISITED_GALAXY(QUADRANT_Y,QUADRANT_X)=GALAXY(QUADRANT_Y,QUADRANT_X)
       if GLONKIN_COUNT<=0 then END_REASON=END_WIN : return ST_END
@@ -629,9 +619,9 @@ function WARHEAD()
         Pause()
         SECTOR_BASES=SECTOR_BASES-1 : SPACESTATION_COUNT=SPACESTATION_COUNT-1
 
-        ' CHECK IF ALL SPACESTATIONS ARE DESTROYED
+        ' CHECK IF ALL SPACE STATIONS ARE DESTROYED
         if SPACESTATION_COUNT<=0 and GLONKIN_COUNT<=DATE_CUR-GAME_DATE-MISSION_DAYS then
-          NavWarning("FAILURE - SPACESTATIONS DESTROYED")
+          NavWarning("FAILURE - SPACE STATIONS DESTROYED")
           END_REASON=END_FAIL : return ST_END
         end if
 
@@ -695,14 +685,14 @@ function Damage()
     end if
 
     ' PRINT REPAIR REPORT
-    print "\n SYSTEM              STATE OF REPAIR"
-    print      " ------------------- -----------------"
+    print "\n SYSTEM              STATE OF REPAIR\n ------------------- -----------------"
     for I=1 to 8
-      print " ";DeviceName$(I);left$(SPACE_PAD$,20-len(DeviceName$(I)));
+      print "\n ";DeviceName$(I);left$(SPACE_PAD$,20-len(DeviceName$(I)));
       
       if DEVICE_DAMAGE(I)<0 then print "DAMAGED     ";DEVICE_DAMAGE(I);
       if DEVICE_DAMAGE(I)>=0 then print "OPERATIONAL ";DEVICE_DAMAGE(I);
     next I
+    print "\n\n"
     return ST_COMMAND
 end function
 
@@ -762,10 +752,7 @@ end function
 
 ' ** ===== SHORT RANGE SCAN & SUMMARY (SLS CHAINS INTO LRS) ===== **
 function ShortRangeScan()
-    if ATAKFLAG=1 then
-      
-      Pause()
-    end if
+
 
     ' CHECK IF SHORT RANGE SENSORS ARE OUT
     if DEVICE_DAMAGE(2)<0 then
@@ -778,7 +765,7 @@ function ShortRangeScan()
     ' PRINT SHORT RANGE SCAN + SUMMARY DATA
     if SRSFLAG=0 then
       
-      print "\n SHORT RANGE SCAN + SUMMARY "
+      print "\n SHORT RANGE SCAN + SUMMARY\n\n "
     end if
     SRSFLAG=0
     ATAKFLAG=0
@@ -799,47 +786,49 @@ function ShortRangeScan()
   next S_ROW
 
 
-    ' ' CHECK IF SHIP IS DOCKED
-    ' for S_ROW=SECTOR_Y-1 to SECTOR_Y+1
-    '   for S_COL=SECTOR_X-1 to SECTOR_X+1
-    '     if S_ROW<1 or S_ROW>8 or S_COL<1 or S_COL>8 then continue for
-    '     if CheckSector(C_BASE, S_ROW, S_COL)=1 then
-    '       Docked=1
-    '       exit for
-    '     end if
-    '   next S_COL
-    '   if Docked=1 then
-    '     exit for
-    '   end if
-    ' next S_ROW
+    ' CHECK IF SHIP IS DOCKED
+     for S_ROW=SECTOR_Y-1 to SECTOR_Y+1
+       for S_COL=SECTOR_X-1 to SECTOR_X+1
+         if S_ROW<1 or S_ROW>8 or S_COL<1 or S_COL>8 then continue for
 
-    ' if Docked=1 then
-    '   D0=1
-    '   C$="DOCKED"
-    '   SHIP_POWER=POWER_MAX
-    '   WARHEAD_COUNT=WARHEAD_MAX
-    '   print
-    '   print "SHIELDS DROPPED FOR DOCKING "
-    '   SHIELD_UNITS=0
-    ' else
+         ' Check if adjacent sector is a base (C_BASE)
+         if CheckSector(C_BASE, S_ROW, S_COL)=1 then
+           Docked=1
+           exit for
+         end if
+       next S_COL
+       if Docked=1 then
+         exit for
+       end if
+     next S_ROW
 
-    '   ' OTHERWISE ...
-    '   D0=0
+    if Docked=1 then
+      D0=1
+      C$="DOCKED"
+      SHIP_POWER=POWER_MAX
+      WARHEAD_COUNT=WARHEAD_MAX
+      print
+      print "SHIELDS DROPPED FOR DOCKING "
+      SHIELD_UNITS=0
+    else
 
-    '   ' CHECK IF COMBAT AREA IS RED
-    '   if SECTOR_ENEMIES>0 then C$="RED"
+      ' OTHERWISE ...
+      D0=0
 
-    '   ' COMBAT AREA IS GREEN
-    '   if SECTOR_ENEMIES=0 then
-    '     C$="GREEN"
-    '     if SHIP_POWER<POWER_MAX\10 then C$="AMBER"
-    '   end if
-    ' end if
+      ' CHECK IF COMBAT AREA IS RED
+      if SECTOR_ENEMIES>0 then C$="RED"
 
-    ' ' COMBAT!
-    ' if SECTOR_ENEMIES>0 then
-    '   print "[[ BATTLE STATIONS ]]";FCOL$
-    ' end if
+      ' COMBAT AREA IS GREEN
+      if SECTOR_ENEMIES=0 then
+        C$="GREEN"
+        if SHIP_POWER<POWER_MAX\10 then C$="AMBER"
+      end if
+    end if
+
+    ' COMBAT!
+    if SECTOR_ENEMIES>0 then
+      print "[[ BATTLE STATIONS ]]";FCOL$
+    end if
 
     ' LOW$=" LOW!"
     ' print
@@ -927,7 +916,7 @@ function Computer()
     case 0
       return ComputerGalacticLog()
     case 1
-      return ComputerStatusReport()
+      return ComputerStatusReport(1)
     case 2
       return ComputerNavCalcGLONKIN()
     case 3
@@ -942,7 +931,7 @@ end function
 
 
 function PrintGalaxyCell(GV)
-  print (GV\100);((GV\10)mod10);(GV mod10);
+  print (GV\100);((GV\10)MOD 10);(GV MOD 10);
   return
 end function
 
@@ -1020,21 +1009,22 @@ function ComputerBaseNav()
       return ComputerCalcCompute(SECTOR_X, SECTOR_Y, B4, B5, 10)
     end if
     print "\nWARNING:NO"
-    print "SPACESTATIONS NEARBY." : return ST_COMMAND
+    print "SPACE STATIONS NEARBY." : return ST_COMMAND
 end function
 
 
 ' ** ===== COMPUTER STATUS REPORT ===== **
-function ComputerStatusReport()
-
+function ComputerStatusReport(with_damage=0)
+    if with_damage=1 then cls()
     print " STATUS REPORT: \n"
-    print " ENEMIES LEFT : ";GLONKIN_COUNT
-    print " POWER        : ";SHIP_POWER+SHIELD_UNITS
-    print " WARHEADS     : ";WARHEAD_COUNT
-    print " DAYS LEFT    : ";GAME_DATE+MISSION_DAYS-DATE_CUR   
-    print " SPACESTATIONS: ";SPACESTATION_COUNT
+    print " ENEMIES LEFT   : ";GLONKIN_COUNT
+    print " POWER          : ";SHIP_POWER+SHIELD_UNITS
+    print " WARHEADS       : ";WARHEAD_COUNT
+    print " DAYS LEFT      : ";GAME_DATE+MISSION_DAYS-DATE_CUR   
+    print " SPACE STATIONS : ";SPACESTATION_COUNT
 
-    return Damage()
+    if with_damage=1 then return Damage()
+    return
 end function
 
 
@@ -1250,6 +1240,7 @@ function ShowCommands()
     print "  HLP  - HELP"
     print "  XXX  - QUIT"
     pause()
+    cls()
     return
 end function
 

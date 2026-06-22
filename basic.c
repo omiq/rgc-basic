@@ -3538,6 +3538,12 @@ static int apply_option_directive(const char *name, const char *value)
         if (str_eq_ci(value, "loose") || str_eq_ci(value, "off")) { http_strict_mode = 0; return 0; }
         return -1;
     }
+    /* Transpiler-only directives: meaningless to the interpreter but valid in
+     * source the C/ugBASIC backends consume. Accept and ignore so a portable
+     * .bas still runs here unchanged. */
+    if (str_eq_ci(name, "compress-text") || str_eq_ci(name, "compress_text")) {
+        return 0;
+    }
     return -1;
 }
 
