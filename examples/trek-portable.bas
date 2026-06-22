@@ -984,7 +984,7 @@ end function
 
 
 ' ** ===== COMPUTER STATUS REPORT ===== **
-function ComputerStatusReport()
+function ComputerStatusReport(with_damage)
     if with_damage=1 then cls()
     print " STATUS REPORT: \n"
     print " ENEMIES LEFT   : ";GLONKIN_COUNT
