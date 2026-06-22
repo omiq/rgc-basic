@@ -13,10 +13,10 @@ END_DEAD=1 : END_DATE=2 : END_NOPOWER=3 : END_FAIL=4 : END_WIN=5
 C_EMPTY=0 : C_SHIP=1 : C_GLONKIN=2 : C_BASE=3 : C_PLANET=4
 DIM OBJ_LUT$(5)
 OBJ_LUT$(0) = " "
-OBJ_LUT$(1) = "E"
-OBJ_LUT$(2) = "K"
+OBJ_LUT$(1) = ">"
+OBJ_LUT$(2) = "X"
 OBJ_LUT$(3) = "B"
-OBJ_LUT$(4) = "*"
+OBJ_LUT$(4) = "o"
 
 
 ' ** COMMAND DICTIONARY **
@@ -146,11 +146,18 @@ function SetupGame()
     ' PRINT MISSION ORDERS 
         ' ** DISPLAY TITLE SCREEN AND WAIT FOR KEY **
     cls()
-    print "-[ SPACE BATTLES ]-\n\nA RETRO-STYLE SPACE BATTLE COMPUTER GAME BASED ON THE CLASSIC 'SUPER STAR TREK'.\n"
-    print "- DESTROY ALL THE ENEMY SHIPS BEFORE THEY INVADE THE EARTH!\n"
-    print "- DOCK AT SPACE STATIONS TO REPAIR YOUR SHIP AND RESTORE WARHEADS.\n"
-    print "MISSION";
-    ComputerStatusReport(0)   
+    print "-[ SPACE BATTLES ]-\n\nA RETRO-STYLE SPACE BATTLE COMPUTER GAME BASED ON THE CLASSIC 'SUPER STAR TREK'"
+    print "- DESTROY ALL THE ENEMY SHIPS BEFORE THEY INVADE THE EARTH!"
+    print "- DOCK AT SPACE STATIONS TO REPAIR YOUR SHIP AND RESTORE WARHEADS."
+    print "\nYOUR MISSION";
+    ComputerStatusReport(0)
+
+    textat 24,8, "  KEY TO SCANNER ICONS:" 
+    textat 24,9, "  >  = EARTH FLEET STARSHIP"
+    textat 24,10, "  B  = EARTH SPACE STATION"
+    textat 24,11, "  o  = PLANETOID"
+    textat 24,12, "  X  = GLONKIN EMPIRE HUNTER\n\n"
+
     I=RNDINT(1)
     return ST_NEWQUAD
 end function
@@ -166,8 +173,8 @@ function EnterQuadrant()
       print
 
       if GAME_DATE=DATE_CUR then
-        QN$=QuadrantName$(QUADRANT_Y, QUADRANT_X, 0)
-        print "LOCATION: ";QN$;"\n"
+   
+        
         SRSFLAG=1
         Pause() : ' ** PAUSE **
         cls()
@@ -177,9 +184,9 @@ function EnterQuadrant()
           ATAKFLAG=0
           print
         end if
-        QN$=QuadrantName$(QUADRANT_Y, QUADRANT_X, 0)
+        
         SRSFLAG=1
-        print "ENTERING ";QN$;" ...\n"
+        
       end if
     end if
 
@@ -256,9 +263,7 @@ function DoCommand()
       A$=Ask$(" COMMAND:  ", 3)
       Z2$=A$ : ATAKFLAG=0
       if A$="SLS" then 
-        cls()
         SLSFLAG=1
-        print " SHORT & LONG RANGE SCAN... "
         return ShortRangeScan()
       end if
 
@@ -289,7 +294,7 @@ function DoCommand()
       case 2
           return ShortRangeScan()
       case 3
-          return Lrs()
+          return LongRangeScan()
       case 4
           return LASERS()
       case 5
@@ -424,8 +429,7 @@ end function
 function ManeuverPOWER()
     SHIP_POWER=SHIP_POWER-N-10
     if SHIP_POWER>=0 then return
-    print "\nDIVERTED POWER TO"
-    print "COMPLETE THE MANOEUVRE."
+    print "\nDIVERTED POWER TO COMPLETE THE MANOEUVRE."
     SHIELD_UNITS=SHIELD_UNITS+SHIP_POWER
     SHIP_POWER=0
     if SHIELD_UNITS<=0 then SHIELD_UNITS=0
@@ -442,7 +446,10 @@ function disp_quadrant_cell(this_row, this_col)
 end function
 
 ' ** ===== LONG RANGE SCAN ===== **
-function Lrs()
+function LongRangeScan()
+
+    ' Clear the screen if it's not already cleared
+    if SLSFLAG=0 then cls()
 
     K1=0
     if DEVICE_DAMAGE(3)<0 then 
@@ -459,17 +466,18 @@ function Lrs()
 
 
     ' PRINT LONG RANGE SCAN FOR QUADRANT
-    print "\n  LONG RANGE SCAN:  ";QUADRANT_Y;",";QUADRANT_X
+    print "\n  LONG RANGE SCAN FOR QUADRANT: [";QUADRANT_Y;",";QUADRANT_X;"]"
   
 
     ' LONG RANGE SCAN LOOP
     for scan_row = QUADRANT_Y-1 to QUADRANT_Y+1
+        print "  | ";
         disp_quadrant_cell(scan_row, QUADRANT_X-1)
         print " | ";
         disp_quadrant_cell(scan_row, QUADRANT_X)
         print " | ";
         disp_quadrant_cell(scan_row, QUADRANT_X+1)
-        print "\n";
+        print " |\n";
     next scan_row
 
     K1=0 : if SLSFLAG=1 then SLSFLAG=0
@@ -736,7 +744,7 @@ function ShowGameEnd()
     if END_REASON=END_DATE then print "\nMISSION TIME EXPIRED. DATE ";DATE_CUR
     if END_REASON=END_WIN then print "\nCONGRATULATIONS, YOU SAVED THE EARTH!"
     if END_REASON=END_FAIL then print "\nMISSION FAILED."
-    print "\nGLONKINS LEFT: ";GLONKIN_COUNT
+    print "\nENEMIES LEFT: ";GLONKIN_COUNT
     print "DATE: ";DATE_CUR
     if END_REASON=END_WIN then
       EL=DATE_CUR-GAME_DATE : if EL<1 then EL=1
@@ -752,38 +760,26 @@ end function
 
 ' ** ===== SHORT RANGE SCAN & SUMMARY (SLS CHAINS INTO LRS) ===== **
 function ShortRangeScan()
-
+    cls()
 
     ' CHECK IF SHORT RANGE SENSORS ARE OUT
     if DEVICE_DAMAGE(2)<0 then
       
       print "\n*** SHORT RANGE SENSORS DAMAGED ***"
-      if SLSFLAG=1 then return Lrs()
+      if SLSFLAG=1 then return LongRangeScan()
       return ST_COMMAND
     end if
 
     ' PRINT SHORT RANGE SCAN + SUMMARY DATA
-    if SRSFLAG=0 then
-      
-      print "\n SHORT RANGE SCAN + SUMMARY\n\n "
+    if SRSFLAG=0 AND SLSFLAG=0 then
+      print "\n SHORT RANGE SCAN + SUMMARY\n "
+    else
+      if SLSFLAG=1 then print "\n SHORT & LONG RANGE SCAN... \n"
     end if
+
     SRSFLAG=0
     ATAKFLAG=0
     Docked=0
-
-
-  for S_ROW=1 TO 8
-   
-   print OBJ_LUT$(QUAD(S_ROW, 1)); ":";
-   print OBJ_LUT$(QUAD(S_ROW, 2)); ":";
-   print OBJ_LUT$(QUAD(S_ROW, 3)); ":";
-   print OBJ_LUT$(QUAD(S_ROW, 4)); ":";
-   print OBJ_LUT$(QUAD(S_ROW, 5)); ":";
-   print OBJ_LUT$(QUAD(S_ROW, 6)); ":";
-   print OBJ_LUT$(QUAD(S_ROW, 7)); ":";
-   print OBJ_LUT$(QUAD(S_ROW, 8)); "\n";
-   
-  next S_ROW
 
 
     ' CHECK IF SHIP IS DOCKED
@@ -808,7 +804,7 @@ function ShortRangeScan()
       SHIP_POWER=POWER_MAX
       WARHEAD_COUNT=WARHEAD_MAX
       print
-      print "SHIELDS DROPPED FOR DOCKING "
+      print "[[DOCKING]] "
       SHIELD_UNITS=0
     else
 
@@ -827,81 +823,68 @@ function ShortRangeScan()
 
     ' COMBAT!
     if SECTOR_ENEMIES>0 then
-      print "[[ BATTLE STATIONS ]]";FCOL$
+      print "[[ BATTLE STATIONS ]]"
     end if
 
-    ' LOW$=" LOW!"
-    ' print
-    ' print "    1 2 3 4 5 6 7 8"
-    ' print "   +-+-+-+-+-+-+-+-- DATE  ";DATE_CUR
     
-    ' ' PRINT QUADRANT
-    ' for I=1 to 8
-    '   I$=right$(str$(I),1)
-    '   print " ";I$;" |"; : ' BORDER
+    '===== SCAN GRID ===== 
+    print "   1 2 3 4 5 6 7 8"
+    print "  +---------------+"
+    for S_ROW=1 TO 8
+      print "  |";
+      print OBJ_LUT$(QUAD(S_ROW, 1)); "|";
+      print OBJ_LUT$(QUAD(S_ROW, 2)); "|";
+      print OBJ_LUT$(QUAD(S_ROW, 3)); "|";
+      print OBJ_LUT$(QUAD(S_ROW, 4)); "|";
+      print OBJ_LUT$(QUAD(S_ROW, 5)); "|";
+      print OBJ_LUT$(QUAD(S_ROW, 6)); "|";
+      print OBJ_LUT$(QUAD(S_ROW, 7)); "|";
+      print OBJ_LUT$(QUAD(S_ROW, 8)); "|\n";
+    
+    next S_ROW
+     print "  +---------------+\n"
 
-    '   ' PRINT QUADRANT CELLS (integer cell code -> glyph)
-    '   for J = 1 to 8
-    '     CELLCODE=QUAD(I,J)
-    '     if CELLCODE=C_EMPTY then print " ";
-    '     if CELLCODE=C_SHIP then print "E";
-    '     if CELLCODE=C_GLONKIN then print "K";
-    '     if CELLCODE=C_BASE then print "B";
-    '     if CELLCODE=C_PLANET then print "*";
-    '     print "|";
-    '   next J
+    ' SUMMARY DATA
 
-    '   ' PRINT SUMMARY DATA
-    '   select case I
-    '   case 1
-    '     print " DAYS LEFT ";GAME_DATE+MISSION_DAYS-DATE_CUR;
-    '   case 2
-    '     print " CONDITION "; : print C$;
-    '   case 3
-    '     print " QUADRANT  ";QUADRANT_Y;",";QUADRANT_X;
-    '   case 4
-    '     print " SECTOR    ";SECTOR_Y;",";SECTOR_X;
-    '   case 5
-    '     print " WARHEADES ";int(WARHEAD_COUNT);
-    '   case 6
-    '     print " POWER    ";int(SHIP_POWER+SHIELD_UNITS);
-    '   case 7
-    '     print " SHIELDS   ";int(SHIELD_UNITS);
-    '     if SHIELD_UNITS<201 and SECTOR_ENEMIES>0 then print LOW$;
-    '   case 8
-    '     print " ENEMIES  ";int(GLONKIN_COUNT);
-    '   end select
-    '   print
-    ' next I
+      textat 22,3, " DAYS LEFT: "+STR$((GAME_DATE+MISSION_DAYS)-DATE_CUR)
+      textat 22,4, " CONDITION: "+C$
+      textat 22,5, " QUADRANT:  "+str$(QUADRANT_Y)+","+str$(QUADRANT_X)  
+      textat 22,6, " SECTOR:    "+str$(SECTOR_Y)+","+str$(SECTOR_X)
+      textat 22,7, " WARHEADS:  "+str$(WARHEAD_COUNT)
+      textat 22,8, " POWER:     "+str$(SHIP_POWER+SHIELD_UNITS)
+      textat 22,9, " SHIELDS:   "+str$(SHIELD_UNITS)  
+      textat 22,10," ENEMIES:   "+str$(GLONKIN_COUNT)
 
-    ' ' PRINT MAX FTL
-    ' print "   +-+-+-+-+-+-+-+-+";
-    ' MW=SHIP_POWER\8
-    ' if MW>8 then MW=8
-    ' if DEVICE_DAMAGE(1)<0 then MW=1
-    ' print " MAX FTL  ";MW
-    if SLSFLAG=1 then return Lrs()
+    print "\n\n\n"
+    if SLSFLAG=1 then 
+      return LongRangeScan()
+      SLSFLAG=0
+      SRSFLAG=0
+    end if
+    print "\n"
     return ST_COMMAND
 end function
 
 
 ' ** ===== LIBRARY COMPUTER ===== **
 function Computer()
-
+  cls()
+  print "\n:: EARTH DEFENSE FLEET COMPUTER SYSTEM ::\n\n"
     ' CHECK COMPUTER IS AVAILABLE
     if DEVICE_DAMAGE(8)<0 then 
-        print "\nCOMPUTER DISABLED"
+        print "\n[[COMPUTER OFFLINE!]]"
         return ST_COMMAND
     end if
 
     ' PRINT FUNCTIONS AVAILABLE FROM COMPUTER
-    print "\nCOMMANDS AVAILABLE:" 
+    print " COMMANDS AVAILABLE:"
+    print " ................................." 
     print " 0 - CUMULATIVE LOG"
     print " 1 - STATUS & DAMAGE REPORT"
     print " 2 - WARHEAD TARGETING DATA"
     print " 3 - SPACESTATION NAV DATA"
     print " 4 - DIRECTION/DISTANCE CALCULATOR"
-    print " 5 - SYSTEM REGION MAP"
+
     ' CHECK IF COMPUTER IS ACTIVE
     COM_CMD=0
     if COMFLAG=1 then
@@ -923,8 +906,6 @@ function Computer()
       return ComputerBaseNav()
     case 4
       return ComputerCalculator()
-    case 5
-      return ComputerGalaxyRegionMap()
     end select
     return ST_COMMAND
 end function
@@ -949,20 +930,14 @@ function PrintGalaxyDataRow(MAP_ROW)
 end function
 
 
-function PrintRegionRow(MAP_ROW)
-  QN$=QuadrantName$(MAP_ROW, 1, 1) : J0=11-len(QN$)\2
-  print "|";
-  print tab(J0);QN$;
-  print tab(18);"|";
-  QN$=QuadrantName$(MAP_ROW, 5, 1) : J0=27-len(QN$)\2
-  print tab(J0);QN$; : print tab(34);"|";
-  return
-end function
+
 
 
 ' ** ===== COMPUTER CUMULATIVE GALACTIC LOG (CMD 0) ===== **
 function ComputerGalacticLog()
+  cls()
   print "  COMPUTER LOG FOR QUADRANT ";QUADRANT_Y;",";QUADRANT_X;"\n"
+  print "   ";
   for J=1 to 8
     print "  ";J;" ";
   next J
@@ -983,23 +958,7 @@ function ComputerGalacticLog()
 end function
 
 
-' ** ===== COMPUTER REGION MAP (CMD 5) ===== **
-function ComputerGalaxyRegionMap()
-  print "  THE KNOWN REGION: \n\n   ";
-  for J=1 to 8
-    print "  ";J;" ";
-  next J
-  print "\n  +---+---+---+---+---+---+---+----"
-  for I=1 to 8
-    print " ";I;
-    if I=QUADRANT_Y then print "";
-    PrintRegionRow(I)
-    print
-    if I<8 then print "  +---+---+---+---+---+---+---+----"
-  next I
-  print "  +---+---+---+---+---+---+---+---+"
-  return ST_COMMAND
-end function
+
 
 
 ' ** ===== COMPUTER BASE NAV ===== **
@@ -1161,31 +1120,6 @@ function CheckSector(CELLCODE, TOKEN_Y, TOKEN_X)
 end function
 
 
-' REGION_ONLY=1: constellation name only (galaxy map row); 0: add quadrant I..IV
-function QuadrantName$(QX, QY, REGION_ONLY)
-    select case QX
-    case 1
-        NAME$="ANTARES" : if QY>4 then NAME$="SIRIUS"
-    case 2
-        NAME$="RIGEL" : if QY>4 then NAME$="DENEB"
-    case 3
-        NAME$="PROCYON" : if QY>4 then NAME$="CAPELLA"
-    case 4
-        NAME$="VEGA" : if QY>4 then NAME$="BETELGEUSE"
-    case 5
-        NAME$="CANOPUS" : if QY>4 then NAME$="ALDEBARAN"
-    case 6
-        NAME$="ALTAIR" : if QY>4 then NAME$="REGULUS"
-    case 7
-        NAME$="SAGITTARIUS" : if QY>4 then NAME$="ARCTURUS"
-    case 8
-        NAME$="POLLUX" : if QY>4 then NAME$="SPICA"
-    end select
-   
-    return NAME$
-end function
-
-
 ' PRINT CAPTION$, READ UP TO MAX_LEN CHARS; RETURN TYPED LINE (LII$ ALSO SET)
 function Ask$(CAPTION$, MAX_LEN)
     print CAPTION$;
@@ -1211,17 +1145,6 @@ function Pause()
   return
 end function
 
-' ** KEY TO SRS ICONS **
-function ShowKey()
-    cls()
-    print "\n KEY TO SHORT RANGE SCANNER ICONS:" 
-    print "  E  = EARTH FLEET STARSHIP"
-    print "  B  = EARTH SPACESTATION"
-    print "  *  = PLANET"
-    print "  K  = GLONKIN BATTLE CRUISER"
-    pause()
-    return
-end function
 
 ' ** LIST OF COMMANDS **
 function ShowCommands()
@@ -1236,7 +1159,6 @@ function ShowCommands()
     print "  SHE  - SHIELDS"
     print "  DAM  - DAMAGE REPORT"
     print "  COM  - COMPUTER"
-    print "  KEY  - SRS ICONS"
     print "  HLP  - HELP"
     print "  XXX  - QUIT"
     pause()
