@@ -178,7 +178,7 @@ function SetupGame()
 
     if KLINGON_COUNT>MISSION_DAYS then MISSION_DAYS=KLINGON_COUNT+1
     print
-    ShowKey() : ' ** KEY TO SRS ICONS **
+    ShowIconKey() : ' ** KEY TO SRS ICONS **
     ShowCommands() : ' ** USE THESE COMMANDS LIST **
     print
     Pause() : ' ** PAUSE **
@@ -304,7 +304,7 @@ function DoCommand()
         return ShortRangeScan()
       end if
 
-      if A$="KEY" then ShowKey() : ' KEY TO SRS ICONS
+      if A$="KEY" then ShowIconKey() : ' KEY TO SRS ICONS
       if A$="KEY" then continue do
       COMFLAG=0
       if A$="GAL" and DEVICE_DAMAGE(8)>=0 then A$="COM" : COMFLAG=1
@@ -1445,7 +1445,7 @@ function Pause()
 end function
 
 ' ** KEY TO SRS ICONS **
-function ShowKey()
+function ShowIconKey()
     print "\n{13}KEY TO SHORT RANGE SCANNER ICONS:" : print
     print " {CYAN}E{WHITE} = THE USS ENTERPRISE"
     print " {CYAN}B{WHITE} = FEDERATION STARBASE"

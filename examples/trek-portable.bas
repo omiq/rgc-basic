@@ -273,10 +273,7 @@ function DoCommand()
         return ShortRangeScan()
       end if
 
-      if A$="KEY" then 
-        ShowKey() : ' KEY TO SRS ICONS
-        continue do
-      end if
+
 
       COMFLAG=0
       if A$="GAL" and DEVICE_DAMAGE(8)>=0 then A$="COM" : COMFLAG=1
@@ -987,7 +984,7 @@ end function
 
 
 ' ** ===== COMPUTER STATUS REPORT ===== **
-function ComputerStatusReport(with_damage=0)
+function ComputerStatusReport()
     if with_damage=1 then cls()
     print " STATUS REPORT: \n"
     print " ENEMIES LEFT   : ";GLONKIN_COUNT
@@ -1186,6 +1183,8 @@ function ShowDirections()
     print "  4  3  2\n   . . .\n    ...\n5 ---*--- 1\n    ...\n   . . .\n  6  7  8\n"
     return
 end function
+
+
 
 ' ** THREE-LETTER COMMAND CODES -> CMD (1..10) FOR DoCommand SELECT CASE **
 function InitCommandDict()
