@@ -14781,6 +14781,26 @@ static struct value eval_factor(char **p)
             }
         }
     }
+    /* Live screen geometry (runtime, no parens): SCREEN_COLS = text columns,
+     * SCREEN_ROWS = hardware rows before a newline scrolls. Mirrors the
+     * transpiler's rgc_screen_w()/rgc_screen_h() (c64 = 40x25) so the same .bas
+     * behaves the same interpreted and emitted. */
+    if (starts_with_kw(*p, "SCREEN_COLS")) {
+        *p += strlen("SCREEN_COLS");
+#ifdef GFX_VIDEO
+        return make_num((double)(gfx_vs ? gfx_cols() : print_width));
+#else
+        return make_num((double)print_width);
+#endif
+    }
+    if (starts_with_kw(*p, "SCREEN_ROWS")) {
+        *p += strlen("SCREEN_ROWS");
+#ifdef GFX_VIDEO
+        return make_num((double)GFX_ROWS);
+#else
+        return make_num(25.0);
+#endif
+    }
     /* Function call? */
     if (starts_with_kw(*p, "SIN") || starts_with_kw(*p, "COS") || starts_with_kw(*p, "TAN") ||
             starts_with_kw(*p, "ABS") || starts_with_kw(*p, "INT") || starts_with_kw(*p, "SQR") ||

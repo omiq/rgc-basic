@@ -148,6 +148,9 @@ IF KEYDOWN(KEY_Q) THEN END
   `UCASE$`. Numeric functions do not.
 - **Named colour constants exist** (`WHITE`, `RED`, `CYAN`, ... 0-15) plus
   `TRUE`, `FALSE`, `PI`.
+- **`SCREEN_COLS` / `SCREEN_ROWS`** are runtime constants (no parens) for the
+  current machine/mode: columns, and rows before a newline scrolls (c64 =
+  40 x 25). Use them instead of hard-coding widths so layout adapts per target.
 - **`#OPTION` directives** (with the hash) configure a program, e.g.
   `#OPTION PETSCII`. Per-script intent; see `language.md`.
 

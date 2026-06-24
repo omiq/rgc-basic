@@ -98,6 +98,8 @@
 
   "TI":             { "tier": "portable" },
   "ST":             { "tier": "portable" },
+  "SCREEN_COLS":    { "tier": "portable", "note": "runtime text columns of the current machine/mode" },
+  "SCREEN_ROWS":    { "tier": "portable", "note": "runtime text rows before a newline scrolls" },
 
   "SCREEN_2":       { "_alias_for": "SCREEN with arg 2" },
 
