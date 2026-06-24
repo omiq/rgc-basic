@@ -62,7 +62,6 @@ end
 function SetupGame()
     Z2$=""
     ATAKFLAG=0
-    SLSFLAG=0
     N=RNDINT(-1)  
 
     ' ** RANDOM SEED GENERATOR **
@@ -146,7 +145,7 @@ function SetupGame()
     ' PRINT MISSION ORDERS 
         ' ** DISPLAY TITLE SCREEN AND WAIT FOR KEY **
     cls()
-    print "       ** ***  *   *** **** "
+    print "\n       ** ***  *   *** **** "
     print "      *   * * * * *    *    "
     print "       *  **  *** *    ***  "
     print "        * *   * * *    *    "
@@ -159,15 +158,14 @@ function SetupGame()
     print " YOUR MISSION";
     ComputerStatusReport(0)
 
-    textat 24,13, "KEY TO ICONS:" 
-    textat 24,14, "> YOUR SHIP"
-    textat 24,15, "B BASE"
-    textat 24,16, "O PLANET"
-    textat 24,17, "X ENEMY"
+    textat 20,14, "ICONS:" 
+    textat 20,15, "> YOUR SHIP"
+    textat 20,16, "B BASE"
+    textat 20,17, "O PLANET"
+    textat 20,18, "X ENEMY"
 
     I=RNDINT(1)
-    print: print
-    SLSFLAG=1
+    print ""
     return ST_NEWQUAD
 end function
 
@@ -268,10 +266,7 @@ function DoCommand()
       SRSFLAG=0
       A$=Ask$(" COMMAND:  ", 3)
       Z2$=A$ : ATAKFLAG=0
-      if A$="SLS" then 
-        SLSFLAG=1
-        return ShortRangeScan()
-      end if
+
 
 
 
@@ -452,13 +447,12 @@ end function
 function LongRangeScan()
 
     ' Clear the screen if it's not already cleared
-    if SLSFLAG=0 then cls()
+    cls()
 
     K1=0
     if DEVICE_DAMAGE(3)<0 then 
       print
       print "LONG RANGE SENSORS DOWN"
-      SLSFLAG=0
       return ST_COMMAND
     end if
 
@@ -466,33 +460,29 @@ function LongRangeScan()
   ' - GALAXY(8,8) = galactic record (galaxy map) — integer array.
   ' - VISITED_GALAXY(8,8) = explored/known galaxy — integer array.
   ' - QUAD(8,8) = current quadrant cell grid — integer array (old THIS_QUADRANT$ 192-char string)
-
-
-    ' PRINT LONG RANGE SCAN FOR QUADRANT
-    print:print
-    print "LONG RANGE SCAN FOR QUADRANT: [";QUADRANT_Y;",";QUADRANT_X;"]"
+  ' PRINT LONG RANGE SCAN FOR QUADRANT  
+    print "\nLONG RANGE SCAN: [";QUADRANT_Y;",";QUADRANT_X;"]"
   
 
     ' LONG RANGE SCAN LOOP
-    print "+-----+-----+-----+"
+    print "\n +-----+-----+-----+"
     for scan_row = QUADRANT_Y-1 to QUADRANT_Y+1
-        print "|";
+        print " |";
         disp_quadrant_cell(scan_row, QUADRANT_X-1)
         print "|";
         disp_quadrant_cell(scan_row, QUADRANT_X)
         print "|";
         disp_quadrant_cell(scan_row, QUADRANT_X+1)
         print "|";
-        if scan_row = QUADRANT_Y-1 then 
-          print " ENEMY:BASES:PLANETS\n";
-        else
-          print "\n";
-        end if
-
-        print "+-----+-----+-----+"
+        if scan_row = QUADRANT_Y-1 AND SCREEN_COLS > 32 then print "       1:2:3";
+        if scan_row = QUADRANT_Y AND SCREEN_COLS > 32 then print   "    /    |    \\";
+        if scan_row = QUADRANT_Y+1 AND SCREEN_COLS > 32 then print " ENEMY:BASES:PLANETS";
+        
+        print "\n";        
+        print " +-----+-----+-----+"
     next scan_row
     
-    K1=0 : if SLSFLAG=1 then SLSFLAG=0
+    K1=0 
     
     return ST_COMMAND
 end function
@@ -779,21 +769,20 @@ function ShortRangeScan()
     if DEVICE_DAMAGE(2)<0 then
       
       print "\n*** SHORT RANGE SENSORS DAMAGED ***"
-      if SLSFLAG=1 then return LongRangeScan()
       return ST_COMMAND
     end if
 
-    ' PRINT SHORT RANGE SCAN + SUMMARY DATA
-    if SRSFLAG=0 AND SLSFLAG=0 then
-      print "\n SHORT RANGE SCAN + SUMMARY\n "
-    else
-      if SLSFLAG=1 then print "\n SHORT & LONG RANGE SCAN... \n"
-    end if
+    print "\n SHORT RANGE SCAN + SUMMARY\n "
+
 
     SRSFLAG=0
     ATAKFLAG=0
     Docked=0
-
+    
+  ' COMBAT!
+    if SECTOR_ENEMIES>0 then
+      textat 1,2, "[[ BATTLE STATIONS ]]"
+    end if
 
     ' CHECK IF SHIP IS DOCKED
      for S_ROW=SECTOR_Y-1 to SECTOR_Y+1
@@ -816,8 +805,7 @@ function ShortRangeScan()
       C$="DOCKED"
       SHIP_POWER=POWER_MAX
       WARHEAD_COUNT=WARHEAD_MAX
-      print
-      print "[[DOCKING]] "
+      textat 22,12, "[[DOCKING]] "
       SHIELD_UNITS=0
     else
 
@@ -834,13 +822,11 @@ function ShortRangeScan()
       end if
     end if
 
-    ' COMBAT!
-    if SECTOR_ENEMIES>0 then
-      print "[[ BATTLE STATIONS ]]"
-    end if
+  
 
     
     '===== SCAN GRID ===== 
+    locate 0,3
     print "   1 2 3 4 5 6 7 8"
     print "  +---------------+"
     for S_ROW=1 TO 8
@@ -867,14 +853,8 @@ function ShortRangeScan()
       textat 22,8, "POWER:     "+str$(SHIP_POWER+SHIELD_UNITS)
       textat 22,9, "SHIELDS:   "+str$(SHIELD_UNITS)  
       textat 22,10,"ENEMIES:   "+str$(GLONKIN_COUNT)
+      locate 0,14
 
-    print "\n\n\n"
-    if SLSFLAG=1 then 
-      return LongRangeScan()
-      SLSFLAG=0
-      SRSFLAG=0
-    end if
-    print "\n"
     return ST_COMMAND
 end function
 
@@ -989,11 +969,11 @@ end function
 function ComputerStatusReport(with_damage)
     if with_damage=1 then cls()
     print " STATUS REPORT: \n"
-    print " ENEMIES LEFT   : ";GLONKIN_COUNT
-    print " POWER          : ";SHIP_POWER+SHIELD_UNITS
-    print " WARHEADS       : ";WARHEAD_COUNT
-    print " DAYS LEFT      : ";GAME_DATE+MISSION_DAYS-DATE_CUR   
-    print " SPACE STATIONS : ";SPACESTATION_COUNT
+    print " ENEMIES   : ";GLONKIN_COUNT
+    print " POWER     : ";SHIP_POWER+SHIELD_UNITS
+    print " WARHEADS  : ";WARHEAD_COUNT
+    print " DAYS LEFT : ";GAME_DATE+MISSION_DAYS-DATE_CUR   
+    print " BASES     : ";SPACESTATION_COUNT
 
     if with_damage=1 then return Damage()
     return
@@ -1166,7 +1146,6 @@ function ShowCommands()
     print "  NAV  - SET COURSE"
     print "  SRS  - SHORT RANGE SCAN"
     print "  LRS  - LONG RANGE SCAN"
-    print "  SLS  - SHORT+LONG SCAN"
     print "  PHA  - FIRE LASERS"
     print "  TOR  - FIRE WARHEADS"
     print "  SHE  - SHIELDS"
