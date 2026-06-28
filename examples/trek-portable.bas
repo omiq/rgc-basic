@@ -827,10 +827,10 @@ function ShortRangeScan()
     
     '===== SCAN GRID ===== 
     locate 0,3
-    print "   1 2 3 4 5 6 7 8"
-    print "  +---------------+"
+    print "  1 2 3 4 5 6 7 8"
+    print " +---------------+"
     for S_ROW=1 TO 8
-      print "  |";
+      print " |";
       print OBJ_LUT$(QUAD(S_ROW, 1)); "|";
       print OBJ_LUT$(QUAD(S_ROW, 2)); "|";
       print OBJ_LUT$(QUAD(S_ROW, 3)); "|";
@@ -841,18 +841,18 @@ function ShortRangeScan()
       print OBJ_LUT$(QUAD(S_ROW, 8)); "|\n";
     
     next S_ROW
-     print "  +---------------+\n"
+     print " +---------------+\n"
 
     ' SUMMARY DATA
 
-      textat 22,3, "DAYS LEFT: "+STR$((GAME_DATE+MISSION_DAYS)-DATE_CUR)
-      textat 22,4, "CONDITION: "+C$
-      textat 22,5, "QUADRANT:  "+str$(QUADRANT_Y)+","+str$(QUADRANT_X)  
-      textat 22,6, "SECTOR:    "+str$(SECTOR_Y)+","+str$(SECTOR_X)
-      textat 22,7, "WARHEADS:  "+str$(WARHEAD_COUNT)
-      textat 22,8, "POWER:     "+str$(SHIP_POWER+SHIELD_UNITS)
-      textat 22,9, "SHIELDS:   "+str$(SHIELD_UNITS)  
-      textat 22,10,"ENEMIES:   "+str$(GLONKIN_COUNT)
+      textat 19,5, "DAYS: "+STR$((GAME_DATE+MISSION_DAYS)-DATE_CUR)
+      textat 19,6, "COND: "+C$
+      textat 19,7, "QUAD: "+str$(QUADRANT_Y)+","+str$(QUADRANT_X)  
+      textat 19,8, "SECT: "+str$(SECTOR_Y)+","+str$(SECTOR_X)
+      textat 19,9, "WARH: "+str$(WARHEAD_COUNT)
+      textat 19,10,"POWR: "+str$(SHIP_POWER+SHIELD_UNITS)
+      textat 19,11,"SHLD: "+str$(SHIELD_UNITS)  
+      textat 19,12,"ENEM: "+str$(GLONKIN_COUNT)
       locate 0,14
 
     return ST_COMMAND
@@ -862,7 +862,7 @@ end function
 ' ** ===== LIBRARY COMPUTER ===== **
 function Computer()
   cls()
-  print "\n:: EARTH DEFENSE FLEET COMPUTER SYSTEM ::\n\n"
+  print "\n:: EARTH DEFENSE FLEET ::\n :: COMPUTER SYSTEM ::\n\n"
     ' CHECK COMPUTER IS AVAILABLE
     if DEVICE_DAMAGE(8)<0 then 
         print "\n[[COMPUTER OFFLINE!]]"
@@ -871,12 +871,12 @@ function Computer()
 
     ' PRINT FUNCTIONS AVAILABLE FROM COMPUTER
     print " COMMANDS AVAILABLE:"
-    print " ................................." 
+    print " .............................." 
     print " 0 - CUMULATIVE LOG"
     print " 1 - STATUS & DAMAGE REPORT"
     print " 2 - WARHEAD TARGETING DATA"
     print " 3 - SPACESTATION NAV DATA"
-    print " 4 - DIRECTION/DISTANCE CALCULATOR"
+    print " 4 - DIR/DISTANCE CALCULATOR"
 
     ' CHECK IF COMPUTER IS ACTIVE
     COM_CMD=0
@@ -913,11 +913,11 @@ end function
 function PrintGalaxyDataRow(MAP_ROW)
   GALFLAG=0
   for J=1 to 8
-    if MAP_ROW=QUADRANT_Y and J=QUADRANT_X then print "|"; : GALFLAG=1
-    if not (MAP_ROW=QUADRANT_Y and (J=QUADRANT_X or J-1=QUADRANT_X)) then print "|";
-    if VISITED_GALAXY(MAP_ROW,J)=0 then print "   "; : continue for
-    PrintGalaxyCell(VISITED_GALAXY(MAP_ROW,J))
-    if GALFLAG=1 then print "|"; : GALFLAG=0
+    if MAP_ROW=QUADRANT_Y and J=QUADRANT_X then GALFLAG=1
+    if VISITED_GALAXY(MAP_ROW,J)=0 then print "..."; 
+    if VISITED_GALAXY(MAP_ROW,J)=1 then PrintGalaxyCell(VISITED_GALAXY(MAP_ROW,J))
+    if J<>8 then print " ";
+    if GALFLAG=1 then GALFLAG=0
   next J
   return
 end function
@@ -930,23 +930,23 @@ end function
 function ComputerGalacticLog()
   cls()
   print "  COMPUTER LOG FOR QUADRANT ";QUADRANT_Y;",";QUADRANT_X;"\n"
-  print "   ";
+  'print "\n";
   for J=1 to 8
-    print "  ";J;" ";
+    print "   ";J;
   next J
-  print "\n  +---+---+---+---+---+---+---+----"
+  'print "\n+---+---+---+---+---+---+---+---"
   for I=1 to 8
-    print " ";I;
+    print "\n";I;" ";
     if I=QUADRANT_Y then print "";
     PrintGalaxyDataRow(I)
     if I=QUADRANT_Y and QUADRANT_X=8 then
       print
     else
-      print "|"
+      'print "|"
     end if
-    if I<8 then print "  +---+---+---+---+---+---+---+----"
+    'if I<8 then print "+---+---+---+---+---+---+---+---"
   next I
-  print "  +---+---+---+---+---+---+---+---+"
+  'print "+---+---+---+---+---+---+---+---"
   return ST_COMMAND
 end function
 
