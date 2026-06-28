@@ -520,9 +520,9 @@ cls()
 
       ' HIT GLONKIN
       K(I,3)=K(I,3)-H 
-      print " ** HIT ENEMY SHIP AT ";K(I,1);",";K(I,2); " WITH ";H;" UNITS OF DAMAGE **"
+      print " ** HIT ENEMY SHIP AT ";K(I,1);",";K(I,2); "\n WITH ";H;" UNITS OF DAMAGE **"
       if K(I,3)>0 then
-        print " ENEMY SHIP HAS ";int(K(I,3));" SHIELDS REMAINING"
+        print "\n ENEMY SHIP HAS ";int(K(I,3));" SHIELDS REMAINING"
         continue for
       end if
 
@@ -744,11 +744,11 @@ end function
 function ShowGameEnd()
     cls()
     print "\n ==== GAME OVER ===="
-    if END_REASON=END_DEAD then print "\n THE STARSHIP HAS BEEN DESTROYED.\nTHE EARTH WILL BE CONQUERED"
+    if END_REASON=END_DEAD then print "\n YOUR SHIP HAS BEEN DESTROYED.\nTHE EARTH WILL BE CONQUERED"
     if END_REASON=END_DATE then print "\n MISSION TIME EXPIRED. DATE ";DATE_CUR
     if END_REASON=END_WIN then print "\n CONGRATULATIONS, YOU SAVED THE EARTH!"
     if END_REASON=END_FAIL then print "\n MISSION FAILED."
-    print "\n WITH ";GLONKIN_COUNT;" ENEMIES AND ";STR$((GAME_DATE+MISSION_DAYS)-DATE_CUR);" DAYS REMAINING"
+    print "\n WITH ";GLONKIN_COUNT;" ENEMIES AND\n ";STR$((GAME_DATE+MISSION_DAYS)-DATE_CUR);" DAYS REMAINING"
     if END_REASON=END_WIN then
       EL=DATE_CUR-GAME_DATE : if EL<1 then EL=1
       print " SCORE: ";int(1000*(K7/EL)^2)
@@ -805,7 +805,7 @@ function ShortRangeScan()
       C$="DOCKED"
       SHIP_POWER=POWER_MAX
       WARHEAD_COUNT=WARHEAD_MAX
-      textat 22,12, "[[DOCKING]] "
+      textat 22,13, "[[DOCKING]] "
       SHIELD_UNITS=0
     else
 
@@ -936,7 +936,7 @@ function ComputerGalacticLog()
   next J
   'print "\n+---+---+---+---+---+---+---+---"
   for I=1 to 8
-    print "\n";I;" ";
+    print "\n";I;"";
     if I=QUADRANT_Y then print "";
     PrintGalaxyDataRow(I)
     if I=QUADRANT_Y and QUADRANT_X=8 then
@@ -947,6 +947,7 @@ function ComputerGalacticLog()
     'if I<8 then print "+---+---+---+---+---+---+---+---"
   next I
   'print "+---+---+---+---+---+---+---+---"
+  print "\n\n"
   return ST_COMMAND
 end function
 
