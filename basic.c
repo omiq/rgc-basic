@@ -3280,6 +3280,87 @@ static int str_eq_ci(const char *a, const char *b)
     return (*a == *b);
 }
 
+/* Active build identity for compile-time #IF blocks during load.
+ * The interpreter is a modern/native host, so it keeps MODERN + PORTABLE
+ * (tier) blocks by default and only keeps a `#IF TARGET <id>` block when
+ * --target names that id. This mirrors the transpiler's per-target strip,
+ * so a .bas with per-platform branches runs here the way it would compile
+ * for the chosen machine. Kept in sync with tools/rgc_lint/directives.py. */
+static char active_target[32] = "native";
+static char active_tier[16] = "modern";
+
+/* Compare one comma-separated id list entry (case-insensitive). Returns 1
+ * if `active_target` equals a token in [ids .. end-of-string). */
+static int target_in_list(const char *ids)
+{
+    size_t tlen = strlen(active_target);
+    while (*ids) {
+        const char *start;
+        size_t n;
+        while (*ids == ' ' || *ids == '\t' || *ids == ',') ids++;
+        start = ids;
+        while (*ids && *ids != ',' && *ids != ' ' && *ids != '\t') ids++;
+        n = (size_t)(ids - start);
+        if (n == tlen) {
+            size_t k;
+            for (k = 0; k < n; k++) {
+                if (toupper((unsigned char)start[k]) !=
+                    toupper((unsigned char)active_target[k])) break;
+            }
+            if (k == n) return 1;
+        }
+    }
+    return 0;
+}
+
+/* If `s` starts with keyword `kw` (case-insensitive) followed by end-of-
+ * string or whitespace, return a pointer to the first non-space char after
+ * `kw`; otherwise NULL. Used to parse #IF/#ELSEIF/#ELSE/#END IF. */
+static const char *dir_after_kw(const char *s, const char *kw)
+{
+    size_t i = 0;
+    while (kw[i]) {
+        if (toupper((unsigned char)s[i]) != toupper((unsigned char)kw[i])) return NULL;
+        i++;
+    }
+    if (s[i] != '\0' && s[i] != ' ' && s[i] != '\t') return NULL;
+    while (s[i] == ' ' || s[i] == '\t') i++;
+    return s + i;
+}
+
+/* Evaluate an #IF / #ELSEIF condition. `cond` points at the condition text
+ * (leading whitespace already skipped, no trailing keyword). */
+static int directive_cond_matches(const char *cond)
+{
+    while (*cond == ' ' || *cond == '\t') cond++;
+    if (toupper((unsigned char)cond[0]) == 'T' &&
+        toupper((unsigned char)cond[1]) == 'A' &&
+        toupper((unsigned char)cond[2]) == 'R' &&
+        toupper((unsigned char)cond[3]) == 'G' &&
+        toupper((unsigned char)cond[4]) == 'E' &&
+        toupper((unsigned char)cond[5]) == 'T' &&
+        (cond[6] == ' ' || cond[6] == '\t')) {
+        return target_in_list(cond + 6);
+    }
+    if (str_eq_ci(cond, "PORTABLE")) return 1;
+    if (str_eq_ci(cond, "MODERN")) return str_eq_ci(active_tier, "modern");
+    if (str_eq_ci(cond, "RETRO")) return str_eq_ci(active_tier, "portable");
+    /* Unknown condition: keep (matches the Python preprocessor default). */
+    return 1;
+}
+
+static void set_active_target(const char *v)
+{
+    strncpy(active_target, v, sizeof(active_target) - 1);
+    active_target[sizeof(active_target) - 1] = '\0';
+}
+
+static void set_active_tier(const char *v)
+{
+    strncpy(active_tier, v, sizeof(active_tier) - 1);
+    active_tier[sizeof(active_tier) - 1] = '\0';
+}
+
 /* Apply option from #OPTION directive (file overrides CLI). Returns 0 on success, -1 on error. */
 static int apply_option_directive(const char *name, const char *value)
 {
@@ -20630,6 +20711,12 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
     int number;
     const char *resolved;
     int i;
+    /* Compile-time #IF/#ELSEIF/#ELSE/#END IF state for THIS file. Fresh per
+     * invocation, so an #INCLUDEd file gets its own chain (same as the Python
+     * preprocessor, which recurses per file). */
+    int if_in_block = 0;      /* inside an #IF ... #END IF chain */
+    int if_branch_taken = 0;  /* some branch in this chain already matched */
+    int if_keep = 1;          /* keep lines in the current branch */
     /* Snapshot base_dir into a stack-local buffer. The caller's `base_dir`
      * may alias get_base_dir's static buffer, which our recursive
      * #INCLUDE call would overwrite — corrupting the parent's view of
@@ -20740,6 +20827,78 @@ static void load_file_into_program(const char *path, const char *base_dir, int i
         /* Shebang: first line of first file only */
         if (!*first_line_seen && p[0] == '#' && p[1] == '!') {
             *first_line_seen = 1;
+            free(linebuf);
+            continue;
+        }
+
+        /* Compile-time conditionals: #IF / #ELSEIF / #ELSE / #END IF.
+         * Only the '#'-prefixed spelling is a directive; a bare IF/ELSE is a
+         * BASIC statement. Chain-control lines are processed even inside a
+         * dropped branch so the state machine stays correct; the interpreter
+         * keeps the matching branch and drops the rest (see
+         * directive_cond_matches / active_target). Mirrors the Python
+         * preprocessor in tools/rgc_lint/directives.py. */
+        if (p[0] == '#') {
+            const char *d = p + 1;
+            const char *rest;
+            while (*d == ' ' || *d == '\t') d++;
+            /* #ELSEIF / #ELSE IF <cond> — before #ELSE and #IF. */
+            if ((rest = dir_after_kw(d, "ELSEIF")) != NULL ||
+                ((rest = dir_after_kw(d, "ELSE")) != NULL &&
+                 (rest = dir_after_kw(rest, "IF")) != NULL)) {
+                *first_line_seen = 1;
+                if (!if_in_block) {
+                    fprintf(stderr, "#ELSEIF without #IF\n");
+                } else if (if_branch_taken) {
+                    if_keep = 0;
+                } else {
+                    if_keep = directive_cond_matches(rest);
+                    if (if_keep) if_branch_taken = 1;
+                }
+                free(linebuf);
+                continue;
+            }
+            /* #ELSE (exact). */
+            if ((rest = dir_after_kw(d, "ELSE")) != NULL && *rest == '\0') {
+                *first_line_seen = 1;
+                if (!if_in_block) {
+                    fprintf(stderr, "#ELSE without #IF\n");
+                } else {
+                    if_keep = !if_branch_taken;
+                    if_branch_taken = 1;
+                }
+                free(linebuf);
+                continue;
+            }
+            /* #END IF / #ENDIF. */
+            if (((rest = dir_after_kw(d, "END")) != NULL &&
+                 (rest = dir_after_kw(rest, "IF")) != NULL) ||
+                ((rest = dir_after_kw(d, "ENDIF")) != NULL)) {
+                *first_line_seen = 1;
+                if_in_block = 0;
+                if_branch_taken = 0;
+                if_keep = 1;
+                free(linebuf);
+                continue;
+            }
+            /* #IF <cond>. */
+            if ((rest = dir_after_kw(d, "IF")) != NULL) {
+                *first_line_seen = 1;
+                if (if_in_block) {
+                    fprintf(stderr, "nested #IF not supported\n");
+                } else {
+                    if_in_block = 1;
+                    if_keep = directive_cond_matches(rest);
+                    if_branch_taken = if_keep;
+                }
+                free(linebuf);
+                continue;
+            }
+        }
+
+        /* Dropped branch: suppress every other line (blank, code, #OPTION,
+         * #INCLUDE) until the next chain-control directive. */
+        if (if_in_block && !if_keep) {
             free(linebuf);
             continue;
         }
@@ -21342,6 +21501,18 @@ int basic_parse_arg_flags(int argc, char **argv, int start, int expect_program_p
                 return -1;
             }
 #endif
+        } else if (strcmp(argv[i], "-target") == 0 || strcmp(argv[i], "--target") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Missing value for --target\n");
+                return -1;
+            }
+            set_active_target(argv[++i]);
+        } else if (strcmp(argv[i], "-tier") == 0 || strcmp(argv[i], "--tier") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Missing value for --tier\n");
+                return -1;
+            }
+            set_active_tier(argv[++i]);
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             return -1;
@@ -21815,7 +21986,7 @@ int main(int argc, char **argv)
     }
 
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s [-v|--version] [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] [-wrap] [-diagnostics] [-json-status] <program.bas>\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-v|--version] [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-target ID] [-tier modern|portable] [-nowrap] [-wrap] [-diagnostics] [-json-status] <program.bas>\n", argv[0]);
         return 1;
     }
 
@@ -21924,9 +22095,21 @@ int main(int argc, char **argv)
             json_status_mode = 1;
         } else if (strcmp(argv[i], "-trace") == 0 || strcmp(argv[i], "--trace") == 0) {
             trace_enabled = 1;
+        } else if (strcmp(argv[i], "-target") == 0 || strcmp(argv[i], "--target") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Missing value for --target\n");
+                return 1;
+            }
+            set_active_target(argv[++i]);
+        } else if (strcmp(argv[i], "-tier") == 0 || strcmp(argv[i], "--tier") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Missing value for --tier\n");
+                return 1;
+            }
+            set_active_tier(argv[++i]);
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-nowrap] [-wrap] [-trace] [-diagnostics] [-json-status] <program.bas>\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-petscii] [-petscii-plain] [-charset upper|lower|c64-*|pet-*] [-palette ansi|c64] [-maxstr N] [-columns N] [-target ID] [-tier modern|portable] [-nowrap] [-wrap] [-trace] [-diagnostics] [-json-status] <program.bas>\n", argv[0]);
             return 1;
         } else {
             prog_path = argv[i];
