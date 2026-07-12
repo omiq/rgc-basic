@@ -805,7 +805,7 @@ function ShortRangeScan()
       C$="DOCKED"
       SHIP_POWER=POWER_MAX
       WARHEAD_COUNT=WARHEAD_MAX
-      textat 22,13, "[[DOCKING]] "
+      textat 19,13, "[[DOCKING]] "
       SHIELD_UNITS=0
     else
 
