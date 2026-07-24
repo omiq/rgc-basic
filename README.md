@@ -722,3 +722,13 @@ In a MinGW‑w64 shell:
 The original idea was based on a DEC PDP BASIC project by David Plummer. His video is worth watching:
 
 [https://www.youtube.com/watch?v=PyUuLYJLhUA](https://www.youtube.com/watch?v=PyUuLYJLhUA)
+
+## Licence
+
+RGC-BASIC is released under the GNU General Public License v3. See the LICENSE file for the full text.
+
+The programs you write with RGC-BASIC are entirely yours. The GPL covers the interpreter itself, not your BASIC code or anything you run with it. You can publish your games on itch.io or your own site, sell them if you like, and bundle the interpreter alongside them. No permission needed, no strings attached.
+
+## A note on AI tools
+
+This is not vibe code. The language design, the architecture, and every feature decision in RGC-BASIC are mine, and I review everything that ships. Like most working developers now, I do use LLM tools as part of the day job: debugging sessions, test scaffolding, build and CI scripts, git housekeeping, and thinking out loud about tricky problems. I would rather be upfront about the toolbox than have anyone wonder. If you find a bug, it is my fault, not the robot's.
