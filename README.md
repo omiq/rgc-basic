@@ -727,8 +727,10 @@ The original idea was based on a DEC PDP BASIC project by David Plummer. His vid
 
 RGC-BASIC is released under the GNU General Public License v3. See the LICENSE file for the full text.
 
-The programs you write with RGC-BASIC are entirely yours. The GPL covers the interpreter itself, not your BASIC code or anything you run with it. You can publish your games on itch.io or your own site, sell them if you like, and bundle the interpreter alongside them. No permission needed, no strings attached.
+The programs you write with RGC-BASIC are *entirely yours* to share and distribute with no attribution or fees. The GPL covers the interpreter code, not your BASIC code or anything you run with it. You can publish your games on itch.io or your own site, sell them if you like, and bundle the interpreter alongside them. No permission needed, and no strings attached.
 
-## A note on AI tools
+## Human made, robot assisted
 
-This is not vibe code. The language design, the architecture, and every feature decision in RGC-BASIC are mine, and I review everything that ships. Like most working developers now, I do use LLM tools as part of the day job: debugging sessions, test scaffolding, build and CI scripts, git housekeeping, and thinking out loud about tricky problems. I would rather be upfront about the toolbox than have anyone wonder. If you find a bug, it is my fault, not the robot's.
+This is not a vibe-coded project. The language, design, architecture, features, and line of code in RGC-BASIC have been passed through my fingers and grey cells, and I review and agonise over everything that my friendly robot army helps me ship. Like most working developers now, I do use LLM tools as part of the programmer's day job, debugging sessions, test scaffolding, build and CI scripts, git housekeeping, documentation aggregating, and thinking out loud about tricky problems. 
+
+I realise this might be not what you want to hear, but I'd rather be upfront about the tools than have anyone wonder. If you do find a bug, it is my fault, not the robot's.
