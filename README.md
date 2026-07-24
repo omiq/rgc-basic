@@ -731,6 +731,6 @@ The programs you write with RGC-BASIC are *entirely yours* to share and distribu
 
 ## Human made, robot assisted
 
-This is not a vibe-coded project. The language, design, architecture, features, and line of code in RGC-BASIC have been passed through my fingers and grey cells, and I review and agonise over everything that my friendly robot army helps me ship. Like most working developers now, I do use LLM tools as part of the programmer's day job, debugging sessions, test scaffolding, build and CI scripts, git housekeeping, documentation aggregating, and thinking out loud about tricky problems. 
+This is not a vibe-coded project. The language, design, architecture, features, and every line of code in RGC-BASIC have been passed through my fingers and grey cells, and I review and agonise over everything that my friendly robot army helps me ship. Like most working developers now, I do use LLM tools as part of the programmer's day job: debugging sessions, test scaffolding, build and CI scripts, git housekeeping, documentation aggregating, and thinking out loud about tricky problems.
 
-I realise this might be not what you want to hear, but I'd rather be upfront about the tools than have anyone wonder. If you do find a bug, it is my fault, not the robot's.
+I realise this might not be what you want to hear, but I'd rather be upfront about the tools than have anyone wonder. If you do find a bug, it is my fault, not the robot's.
